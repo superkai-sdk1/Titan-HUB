@@ -65,7 +65,11 @@ bot.callbackQuery('shift_status', async (ctx) => {
   if (!(await isAllowed(tgId))) return
 
   const [shift] = await db
-    .select({ shift: shifts, openedByNick: profiles.nickname })
+    .select({
+      openedAt: shifts.openedAt,
+      cashStart: shifts.cashStart,
+      openedByNick: profiles.nickname,
+    })
     .from(shifts)
     .leftJoin(profiles, eq(profiles.id, shifts.openedBy))
     .where(eq(shifts.status, 'open'))
@@ -76,7 +80,7 @@ bot.callbackQuery('shift_status', async (ctx) => {
     return
   }
 
-  const openedAt = new Date(shift.shift.openedAt)
+  const openedAt = new Date(shift.openedAt)
   const elapsed = Math.floor((Date.now() - openedAt.getTime()) / 60000)
   const hours = Math.floor(elapsed / 60)
   const minutes = elapsed % 60
@@ -85,7 +89,7 @@ bot.callbackQuery('shift_status', async (ctx) => {
     `🕐 *Смена открыта*\n\n` +
     `👤 Открыл: ${shift.openedByNick}\n` +
     `⏱ Длительность: ${hours}ч ${minutes}м\n` +
-    `💵 Касса: ${parseFloat(shift.shift.cashStart).toLocaleString('ru')} ₽`,
+    `💵 Касса: ${parseFloat(String(shift.cashStart)).toLocaleString('ru')} ₽`,
     { parse_mode: 'Markdown' }
   )
 })
