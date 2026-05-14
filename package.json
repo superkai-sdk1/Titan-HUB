@@ -1,0 +1,29 @@
+{
+  "name": "titan-hub",
+  "private": true,
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "build:wallet": "turbo run build --filter=@titan/wallet",
+    "lint": "turbo run lint",
+    "type-check": "turbo run type-check",
+    "clean": "turbo run clean && rm -rf node_modules",
+    "db:generate": "turbo run db:generate --filter=@titan/database",
+    "db:migrate": "turbo run db:migrate --filter=@titan/database",
+    "db:push": "turbo run db:push --filter=@titan/database",
+    "db:studio": "turbo run db:studio --filter=@titan/database",
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md,css}\""
+  },
+  "devDependencies": {
+    "turbo": "latest",
+    "typescript": "^5.8.3",
+    "@types/node": "^22.15.17",
+    "prettier": "^3.5.3",
+    "prettier-plugin-tailwindcss": "^0.6.12"
+  },
+  "packageManager": "pnpm@11.1.2",
+  "engines": {
+    "node": ">=22",
+    "pnpm": ">=11"
+  }
+}

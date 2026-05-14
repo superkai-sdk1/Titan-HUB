@@ -1,0 +1,32 @@
+{
+  "name": "@titan/api",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "type-check": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.52.0",
+    "@hono/node-server": "^1.14.2",
+    "@titan/auth": "workspace:*",
+    "@titan/database": "workspace:*",
+    "@titan/types": "workspace:*",
+    "bullmq": "^5.45.3",
+    "hono": "^4.7.7",
+    "ioredis": "^5.6.1",
+    "minio": "^8.0.5",
+    "zod": "^3.24.3"
+  },
+  "devDependencies": {
+    "@titan/config": "workspace:*",
+    "@types/node": "^22.15.17",
+    "tsx": "^4.19.4",
+    "typescript": "^5.8.3"
+  }
+}

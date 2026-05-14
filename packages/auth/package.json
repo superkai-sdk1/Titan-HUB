@@ -1,0 +1,29 @@
+{
+  "name": "@titan/auth",
+  "version": "0.0.1",
+  "private": true,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "type-check": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.2",
+    "jose": "^5.10.0",
+    "@titan/types": "workspace:*"
+  },
+  "devDependencies": {
+    "@titan/config": "workspace:*",
+    "@types/bcryptjs": "^2.4.6",
+    "typescript": "^5.8.3"
+  }
+}

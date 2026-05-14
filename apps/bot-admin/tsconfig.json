@@ -1,0 +1,3 @@
+{
+  "extends": "@titan/config/tsconfig/node.json"
+}
