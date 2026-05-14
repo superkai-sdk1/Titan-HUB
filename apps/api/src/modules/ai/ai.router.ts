@@ -2,12 +2,33 @@ import type { AppEnv } from '../../types.js'
 import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
-import Anthropic from '@anthropic-ai/sdk'
 import { Redis } from 'ioredis'
 import { db, checks, checkItems, inventory, profiles, expenses, shifts, sum, count, desc, eq, gte, and, sql } from '@titan/database'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
 
-const client = new Anthropic()
+const POLZA_BASE = process.env['POLZA_BASE_URL'] ?? 'https://polza.ai/api/v1'
+const POLZA_KEY = process.env['POLZA_API_KEY'] ?? ''
+
+async function callAI(systemPrompt: string, userMessage: string): Promise<string> {
+  const res = await fetch(`${POLZA_BASE}/chat/completions`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${POLZA_KEY}`,
+    },
+    body: JSON.stringify({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 1024,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userMessage },
+      ],
+    }),
+  })
+  if (!res.ok) throw new Error(`Polza AI error: ${res.status}`)
+  const data = await res.json() as { choices: { message: { content: string } }[] }
+  return data.choices?.[0]?.message?.content ?? ''
+}
 
 function getRedis() {
   return new Redis(process.env['REDIS_URL'] ?? 'redis://redis:6379')
@@ -80,14 +101,10 @@ aiRouter.post('/action', zValidator('json', ActionSchema), async (c) => {
     ? `${context}\n\nВопрос: ${question}`
     : context
 
-  const response = await client.messages.create({
-    model: 'claude-sonnet-4-6',
-    max_tokens: 1024,
-    system: 'Ты помощник менеджера игрового клуба Titan. Отвечай кратко и по делу на русском языке.',
-    messages: [{ role: 'user', content: userMessage }],
-  })
-
-  const result = response.content[0].type === 'text' ? response.content[0].text : ''
+  const result = await callAI(
+    'Ты помощник менеджера игрового клуба Titan. Отвечай кратко и по делу на русском языке.',
+    userMessage,
+  )
 
   try {
     await redis.set(cacheKey, result, 'EX', 60)
