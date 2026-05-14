@@ -38,6 +38,7 @@ app.use('*', prettyJSON())
 app.use('/api/*', bodyLimit({ maxSize: 1 * 1024 * 1024 }))
 
 app.get('/health', (c) => c.json({ ok: true, ts: Date.now() }))
+app.get('/api/health', (c) => c.json({ ok: true, ts: Date.now() }))
 
 app.route('/api/auth', authRouter)
 app.route('/api/pos', posRouter)
