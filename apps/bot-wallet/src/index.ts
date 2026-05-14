@@ -1,6 +1,5 @@
 import { Bot } from 'grammy'
-import { db, profiles, tgLinkRequests } from '@titan/database'
-import { eq } from 'drizzle-orm'
+import { db, profiles, tgLinkRequests, eq } from '@titan/database'
 
 const token = process.env['WALLET_BOT_TOKEN']
 if (!token) throw new Error('WALLET_BOT_TOKEN is not set')
