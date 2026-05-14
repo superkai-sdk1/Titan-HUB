@@ -36,10 +36,10 @@ export default function LoginPage() {
   }
 
   function appendPin(digit: string) {
-    if (pin.length >= 6) return
+    if (pin.length >= 4) return
     const next = pin + digit
     setPin(next)
-    if (next.length === 6) handlePinLogin(next)
+    if (next.length === 4) handlePinLogin(next)
   }
 
   function deletePin() {
@@ -67,7 +67,7 @@ export default function LoginPage() {
   }
 
   async function handleSetPin() {
-    if (newPin.length !== 6 || !pendingAuth) return
+    if (newPin.length !== 4 || !pendingAuth) return
     setLoading(true)
     try {
       // Temporarily set token to make the request
@@ -84,16 +84,16 @@ export default function LoginPage() {
 
   if (needsPinSetup) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-background px-6">
+      <div className="min-h-screen flex flex-col items-center justify-center bg-background px-4">
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="w-full max-w-sm">
           <h2 className="text-2xl font-bold text-center mb-2">Установите PIN</h2>
-          <p className="text-muted text-center mb-8 text-sm">Придумайте 6-значный PIN для быстрого входа</p>
+          <p className="text-muted text-center mb-8 text-sm">Придумайте 4-значный PIN-код для быстрого входа</p>
           <PinDots value={newPin} />
           <PinPad onPress={d => {
-            if (newPin.length < 6) {
+            if (newPin.length < 4) {
               const next = newPin + d
               setNewPin(next)
-              if (next.length === 6) setTimeout(() => handleSetPin(), 200)
+              if (next.length === 4) setTimeout(() => handleSetPin(), 200)
             }
           }} onDelete={() => setNewPin(p => p.slice(0, -1))} />
           {error && <p className="text-red-500 text-center mt-4 text-sm">{error}</p>}
@@ -103,7 +103,7 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-background px-6">
+    <div className="min-h-screen flex flex-col items-center justify-center bg-background px-4">
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="w-full max-w-sm">
         <h1 className="text-3xl font-bold text-center mb-1">Titan HUB</h1>
         <p className="text-muted text-center mb-8 text-sm">Войдите в систему</p>
@@ -170,7 +170,7 @@ export default function LoginPage() {
 function PinDots({ value }: { value: string }) {
   return (
     <div className="flex justify-center gap-3 mb-8">
-      {Array.from({ length: 6 }).map((_, i) => (
+      {Array.from({ length: 4 }).map((_, i) => (
         <motion.div
           key={i}
           animate={{ scale: value.length > i ? [1, 1.3, 1] : 1 }}
@@ -183,7 +183,7 @@ function PinDots({ value }: { value: string }) {
 }
 
 function PinPad({ onPress, onDelete, disabled }: { onPress: (d: string) => void; onDelete: () => void; disabled?: boolean }) {
-  const keys = ['1','2','3','4','5','6','7','8','9','','0','⌫']
+  const keys = ['1','2','3','4','5','4','7','8','9','','0','⌫']
   return (
     <div className="grid grid-cols-3 gap-3">
       {keys.map((k, i) => k === '' ? <div key={i} /> : (
@@ -191,7 +191,7 @@ function PinPad({ onPress, onDelete, disabled }: { onPress: (d: string) => void;
           key={i}
           disabled={disabled}
           onClick={() => k === '⌫' ? onDelete() : onPress(k)}
-          className="h-16 rounded-2xl bg-surface text-white text-2xl font-medium active:bg-primary/30 transition-colors disabled:opacity-50"
+          className="h-14 rounded-2xl bg-surface text-white text-2xl font-medium active:bg-primary/30 transition-colors disabled:opacity-50"
         >
           {k}
         </button>
