@@ -32,6 +32,9 @@ importers:
       '@hono/node-server':
         specifier: ^1.14.2
         version: 1.19.14(hono@4.12.18)
+      '@hono/zod-validator':
+        specifier: ^0.4.3
+        version: 0.4.3(hono@4.12.18)(zod@3.25.76)
       '@titan/auth':
         specifier: workspace:*
         version: link:../../packages/auth
@@ -44,6 +47,9 @@ importers:
       bullmq:
         specifier: ^5.45.3
         version: 5.76.8
+      drizzle-orm:
+        specifier: ^0.43.1
+        version: 0.43.1(postgres@3.4.9)
       hono:
         specifier: ^4.7.7
         version: 4.12.18
@@ -1414,6 +1420,12 @@ packages:
     engines: {node: '>=18.14.1'}
     peerDependencies:
       hono: ^4
+
+  '@hono/zod-validator@0.4.3':
+    resolution: {integrity: sha512-xIgMYXDyJ4Hj6ekm9T9Y27s080Nl9NXHcJkOvkXPhubOLj8hZkOL8pDnnXfvCf5xEE8Q4oMFenQUZZREUY2gqQ==}
+    peerDependencies:
+      hono: '>=3.9.0'
+      zod: ^3.19.1
 
   '@humanfs/core@0.19.2':
     resolution: {integrity: sha512-UhXNm+CFMWcbChXywFwkmhqjs3PRCmcSa/hfBgLIb7oQ5HNb1wS0icWsGtSAUNgefHeI+eBrA8I1fxmbHsGdvA==}
@@ -5590,6 +5602,11 @@ snapshots:
   '@hono/node-server@1.19.14(hono@4.12.18)':
     dependencies:
       hono: 4.12.18
+
+  '@hono/zod-validator@0.4.3(hono@4.12.18)(zod@3.25.76)':
+    dependencies:
+      hono: 4.12.18
+      zod: 3.25.76
 
   '@humanfs/core@0.19.2':
     dependencies:

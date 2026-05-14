@@ -1,10 +1,8 @@
 import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
-import { db } from '@titan/database'
-import { profiles } from '@titan/database'
+import { db, profiles, eq, isNull } from '@titan/database'
 import { signToken, verifyPin, verifyPassword, hashPassword, hashPin, isPlaintext, verifyTelegramInitData } from '@titan/auth'
 import { LoginPinSchema, LoginPasswordSchema, LoginTelegramSchema, SetPinSchema } from '@titan/types'
-import { eq, isNull } from 'drizzle-orm'
 import { requireAuth } from '../../middleware/auth.js'
 
 export const authRouter = new Hono()
