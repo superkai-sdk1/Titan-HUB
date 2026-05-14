@@ -24,7 +24,7 @@ COPY apps/bot-wallet/ ./apps/bot-wallet/
 RUN pnpm --filter @titan/types build
 RUN pnpm --filter @titan/database build
 RUN pnpm --filter @titan/bot-wallet build
-RUN pnpm --filter @titan/bot-wallet deploy --prod /deploy/bot-wallet
+RUN pnpm --filter @titan/bot-wallet deploy --legacy --prod /deploy/bot-wallet
 
 FROM base AS runner
 WORKDIR /app

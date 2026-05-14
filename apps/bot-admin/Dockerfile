@@ -24,7 +24,7 @@ COPY apps/bot-admin/ ./apps/bot-admin/
 RUN pnpm --filter @titan/types build
 RUN pnpm --filter @titan/database build
 RUN pnpm --filter @titan/bot-admin build
-RUN pnpm --filter @titan/bot-admin deploy --prod /deploy/bot-admin
+RUN pnpm --filter @titan/bot-admin deploy --legacy --prod /deploy/bot-admin
 
 FROM base AS runner
 WORKDIR /app
