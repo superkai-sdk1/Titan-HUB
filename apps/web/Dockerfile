@@ -5,11 +5,18 @@ RUN corepack enable
 
 FROM base AS builder
 WORKDIR /app
-COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* ./
-COPY packages/config/ ./packages/config/
+
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
+COPY packages/config/package.json ./packages/config/
 COPY packages/types/package.json ./packages/types/
+COPY packages/database/package.json ./packages/database/
+COPY packages/auth/package.json ./packages/auth/
 COPY packages/ui/package.json ./packages/ui/
+COPY apps/api/package.json ./apps/api/
 COPY apps/web/package.json ./apps/web/
+COPY apps/wallet/package.json ./apps/wallet/
+COPY apps/bot-admin/package.json ./apps/bot-admin/
+COPY apps/bot-wallet/package.json ./apps/bot-wallet/
 RUN pnpm install --frozen-lockfile
 
 COPY packages/ ./packages/
@@ -23,8 +30,7 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 
-RUN addgroup --system --gid 1001 nodejs
-RUN adduser --system --uid 1001 nextjs
+RUN addgroup --system --gid 1001 nodejs && adduser --system --uid 1001 nextjs
 
 COPY --from=builder /app/apps/web/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/apps/web/.next/standalone ./
