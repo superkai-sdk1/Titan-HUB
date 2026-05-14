@@ -1,12 +1,55 @@
+import type { AppEnv } from '../../types.js'
 import { Hono } from 'hono'
-import { requireAuth } from '../../middleware/auth.js'
+import { zValidator } from '@hono/zod-validator'
+import { z } from 'zod'
+import { db, certificates, eq, desc } from '@titan/database'
+import { requireAuth, requireRole } from '../../middleware/auth.js'
 
-export const certificatesRouter = new Hono()
+function generateCode(): string {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+  return Array.from({ length: 10 }, () => chars[Math.floor(Math.random() * chars.length)]).join('')
+}
+
+const CertSchema = z.object({
+  nominal: z.number().positive(),
+})
+
+export const certificatesRouter = new Hono<AppEnv>()
 certificatesRouter.use('*', requireAuth)
 
-// TODO: CRUD for certificates
-certificatesRouter.get('/', async (c) => c.json({ certificates: [] }))
-certificatesRouter.post('/', async (c) => c.json({ ok: true }))
-certificatesRouter.get('/:id', async (c) => c.json({ certificate: null }))
-certificatesRouter.patch('/:id', async (c) => c.json({ ok: true }))
-certificatesRouter.delete('/:id', async (c) => c.json({ ok: true }))
+certificatesRouter.get('/', requireRole('owner', 'staff'), async (c) => {
+  const rows = await db.select().from(certificates).orderBy(desc(certificates.createdAt))
+  return c.json({ certificates: rows })
+})
+
+certificatesRouter.post('/', requireRole('owner', 'staff'), zValidator('json', CertSchema), async (c) => {
+  const user = c.get('user')
+  const { nominal } = c.req.valid('json')
+  const code = generateCode()
+  const [cert] = await db.insert(certificates).values({
+    code,
+    nominal: String(nominal),
+    balance: String(nominal),
+    createdBy: user.sub,
+  }).returning()
+  return c.json({ certificate: cert }, 201)
+})
+
+certificatesRouter.get('/validate/:code', async (c) => {
+  const [cert] = await db.select().from(certificates).where(eq(certificates.code, c.req.param('code')))
+  if (!cert) return c.json({ error: 'Not found' }, 404)
+  if (cert.isUsed) return c.json({ error: 'Already used' }, 400)
+  return c.json({ certificate: cert })
+})
+
+certificatesRouter.get('/:id', async (c) => {
+  const [cert] = await db.select().from(certificates).where(eq(certificates.id, c.req.param('id')))
+  if (!cert) return c.json({ error: 'Not found' }, 404)
+  return c.json({ certificate: cert })
+})
+
+certificatesRouter.put('/:id/deactivate', requireRole('owner'), async (c) => {
+  const [cert] = await db.update(certificates).set({ isUsed: true }).where(eq(certificates.id, c.req.param('id'))).returning()
+  if (!cert) return c.json({ error: 'Not found' }, 404)
+  return c.json({ certificate: cert })
+})

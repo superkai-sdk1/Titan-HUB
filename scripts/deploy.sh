@@ -25,11 +25,16 @@ fi
 echo "🏗️  Сборка образов..."
 docker compose build --no-cache
 
-echo "🗄️  Применение миграций БД..."
-docker compose run --rm api node -e "
-const { exec } = require('child_process');
-exec('node dist/migrate.js', (err, stdout) => { console.log(stdout); if(err) process.exit(1); });
-" 2>/dev/null || echo "⚠️  Миграции запустятся при старте"
+echo "🏗️  Запуск базы данных..."
+docker compose up -d postgres
+sleep 5
+
+echo "🗄️  Применение схемы БД..."
+docker compose run --rm \
+  -e DATABASE_URL="postgresql://titan:${POSTGRES_PASSWORD:-changeme}@postgres:5432/titan_hub" \
+  api sh -c "cd /app && node -e \"require('./dist/migrate.js')\"" 2>/dev/null \
+  || (cd /opt/titan-hub && DATABASE_URL="postgresql://titan:${POSTGRES_PASSWORD:-changeme}@localhost:5432/titan_hub" pnpm --filter @titan/database db:push --accept-data-loss) \
+  || echo "⚠️  Примените миграции вручную: pnpm --filter @titan/database db:push"
 
 echo "🚀 Перезапуск сервисов..."
 docker compose down --remove-orphans

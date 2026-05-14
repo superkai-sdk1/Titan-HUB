@@ -1,6 +1,8 @@
 import type { Metadata, Viewport } from 'next'
 import './globals.css'
 import { Providers } from './providers'
+import { AuthGuard } from '@/components/AuthGuard'
+import { BottomNav } from '@/components/BottomNav'
 
 export const metadata: Metadata = {
   title: 'Titan HUB',
@@ -26,7 +28,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="ru" className="dark">
       <body>
-        <Providers>{children}</Providers>
+        <Providers>
+          <AuthGuard>
+            <main className="pb-20">{children}</main>
+            <BottomNav />
+          </AuthGuard>
+        </Providers>
       </body>
     </html>
   )
