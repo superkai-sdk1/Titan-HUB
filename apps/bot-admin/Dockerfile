@@ -24,16 +24,13 @@ COPY apps/bot-admin/ ./apps/bot-admin/
 RUN pnpm --filter @titan/types build
 RUN pnpm --filter @titan/database build
 RUN pnpm --filter @titan/bot-admin build
+RUN pnpm --filter @titan/bot-admin deploy --prod /deploy/bot-admin
 
 FROM base AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/packages/types/dist ./packages/types/dist
-COPY --from=builder /app/packages/types/package.json ./packages/types/package.json
-COPY --from=builder /app/packages/database/dist ./packages/database/dist
-COPY --from=builder /app/packages/database/package.json ./packages/database/package.json
+COPY --from=builder /deploy/bot-admin ./
 COPY --from=builder /app/apps/bot-admin/dist ./dist
 
 CMD ["node", "dist/index.js"]

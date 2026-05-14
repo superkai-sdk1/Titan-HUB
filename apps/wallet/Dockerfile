@@ -31,10 +31,12 @@ ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 
 RUN addgroup --system --gid 1001 nodejs && adduser --system --uid 1001 nextjs
+
 COPY --from=builder --chown=nextjs:nodejs /app/apps/wallet/.next/standalone ./
-COPY --from=builder --chown=nextjs:nodejs /app/apps/wallet/.next/static ./.next/static
+COPY --from=builder --chown=nextjs:nodejs /app/apps/wallet/.next/static ./apps/wallet/.next/static
 
 USER nextjs
 EXPOSE 3002
 ENV PORT=3002
-CMD ["node", "server.js"]
+ENV HOSTNAME=0.0.0.0
+CMD ["node", "apps/wallet/server.js"]
