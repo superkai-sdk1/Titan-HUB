@@ -6,7 +6,7 @@ RUN corepack enable
 FROM base AS builder
 WORKDIR /app
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* ./
-COPY packages/config/package.json ./packages/config/
+COPY packages/config/ ./packages/config/
 COPY packages/types/package.json ./packages/types/
 COPY packages/database/package.json ./packages/database/
 COPY packages/auth/package.json ./packages/auth/
@@ -15,7 +15,6 @@ RUN pnpm install --frozen-lockfile
 
 COPY packages/ ./packages/
 COPY apps/api/ ./apps/api/
-RUN pnpm --filter @titan/config build || true
 RUN pnpm --filter @titan/types build
 RUN pnpm --filter @titan/database build
 RUN pnpm --filter @titan/auth build
