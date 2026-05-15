@@ -2,7 +2,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
-import { useAuthStore } from '@/store/auth'
+import { useAuthStore } from '@/store/auth.store'
 
 const LBL: React.CSSProperties = {
   fontFamily: "'JetBrains Mono',monospace",
