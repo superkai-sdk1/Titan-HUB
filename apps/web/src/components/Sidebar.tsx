@@ -155,7 +155,7 @@ export function Sidebar() {
           })}
 
           <button
-            onClick={() => closeShift.mutate()}
+            onClick={() => closeShift.mutate({ cashEnd: 0 })}
             disabled={closeShift.isPending || !shift}
             style={{
               width: '100%',
