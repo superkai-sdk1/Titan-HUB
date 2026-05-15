@@ -1,8 +1,8 @@
 'use client'
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import { useState } from 'react'
-import { useCurrentShift, useCloseShift } from '@/hooks/useShift'
+import { useCurrentShift } from '@/hooks/useShift'
 
 interface NavItem {
   href: string
@@ -28,9 +28,13 @@ function getInitialCollapsed(): boolean {
 
 export function Sidebar() {
   const pathname = usePathname()
+  const router = useRouter()
   const { data: shift } = useCurrentShift()
-  const closeShift = useCloseShift()
   const [collapsed, setCollapsed] = useState(getInitialCollapsed)
+
+  function handleCloseShift() {
+    router.push('/pos?close=1')
+  }
 
   if (pathname === '/login') return null
   if (pathname.startsWith('/tablet')) return null
@@ -200,8 +204,8 @@ export function Sidebar() {
 
           {collapsed ? (
             <button
-              onClick={() => closeShift.mutate({ cashEnd: 0 })}
-              disabled={closeShift.isPending || !shift}
+              onClick={handleCloseShift}
+              disabled={!shift}
               title="Завершить смену"
               style={{
                 width: '100%', padding: '10px 0', borderRadius: 14, border: 'none',
@@ -218,8 +222,8 @@ export function Sidebar() {
             </button>
           ) : (
             <button
-              onClick={() => closeShift.mutate({ cashEnd: 0 })}
-              disabled={closeShift.isPending || !shift}
+              onClick={handleCloseShift}
+              disabled={!shift}
               style={{
                 width: '100%',
                 padding: '12px 0',

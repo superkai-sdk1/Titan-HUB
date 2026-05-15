@@ -1,6 +1,6 @@
 'use client'
-import { useState, useEffect, useRef, useCallback } from 'react'
-import { useRouter } from 'next/navigation'
+import { useState, useEffect, useRef, useCallback, Suspense } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { useCurrentShift, useOpenShift, useCloseShift } from '@/hooks/useShift'
@@ -127,8 +127,9 @@ const SPACE_TYPE_LABELS: Record<string, string> = {
   hall: 'Зал',
 }
 
-export default function PosPage() {
+function PosPageInner() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const qc = useQueryClient()
 
   const { data: shift, isLoading: shiftLoading } = useCurrentShift()
@@ -206,6 +207,16 @@ export default function PosPage() {
   // Close shift modal state
   const [showCloseShift, setShowCloseShift] = useState(false)
   const [cashEnd, setCashEnd] = useState('')
+
+  // Открыть модал закрытия смены если URL содержит ?close=1 (из Sidebar)
+  useEffect(() => {
+    if (searchParams.get('close') === '1') {
+      setCashEnd('')
+      setShowCloseShift(true)
+      // Убираем параметр из URL без перехода
+      router.replace('/pos')
+    }
+  }, [searchParams, router])
   const [closeNote, setCloseNote] = useState('')
 
   // Cash balance for close shift
@@ -615,26 +626,26 @@ export default function PosPage() {
             ОТЧЁТ СМЕНЫ
           </button>
           <button
-            onClick={() => { setCashEnd(''); setShowCloseShift(true) }}
+            onClick={() => router.push('/manage/refunds')}
             className="glass-l2"
             style={{
               marginLeft: 'auto',
               padding: '12px 20px',
               borderRadius: 14,
-              border: '1px solid rgba(251,113,133,0.3)',
+              border: '1px solid rgba(255,255,255,0.1)',
               cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
               gap: 8,
-              color: 'var(--danger)',
+              color: 'var(--on-surface-variant)',
               fontSize: 12,
               fontWeight: 700,
               textTransform: 'uppercase',
               letterSpacing: '0.06em',
             }}
           >
-            <span className="material-symbols-outlined" style={{ fontSize: 18 }}>lock</span>
-            ЗАКРЫТЬ СМЕНУ
+            <span className="material-symbols-outlined" style={{ fontSize: 18 }}>undo</span>
+            ВОЗВРАТ
           </button>
         </div>
       )}
@@ -1377,5 +1388,13 @@ export default function PosPage() {
         }
       `}</style>
     </div>
+  )
+}
+
+export default function PosPage() {
+  return (
+    <Suspense fallback={null}>
+      <PosPageInner />
+    </Suspense>
   )
 }
