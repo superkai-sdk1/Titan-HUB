@@ -2,46 +2,73 @@ import type { AppEnv } from '../../types.js'
 import { Hono } from 'hono'
 import {
   db, checks, checkItems, checkPayments, inventory, profiles, shifts, expenses,
-  eq, and, gte, lte, desc, asc, sql, sum, count, avg,
+  supplies, supplyItems,
+  eq, and, gte, lte, desc, asc, sql, sum, count, avg, isNull,
 } from '@titan/database'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
 
 export const analyticsRouter = new Hono<AppEnv>()
 analyticsRouter.use('*', requireAuth, requireRole('owner', 'staff'))
 
+// ─── Helper ──────────────────────────────────────────────────────────────────
+function parseNum(v: unknown) {
+  return parseFloat(String(v ?? 0)) || 0
+}
+
+// ─── Dashboard ───────────────────────────────────────────────────────────────
 analyticsRouter.get('/dashboard', async (c) => {
   const now = new Date()
   const today = now.toISOString().split('T')[0]
-  const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
+  const yesterday = new Date(now.getTime() - 86400000).toISOString().split('T')[0]
+  const thirtyDaysAgo = new Date(now.getTime() - 30 * 86400000)
+  const sixtyDaysAgo = new Date(now.getTime() - 60 * 86400000)
 
+  // Today revenue
   const [todayStats] = await db
-    .select({
-      revenue: sum(checks.totalAmount),
-      count: count(),
-    })
+    .select({ revenue: sum(checks.totalAmount), count: count() })
     .from(checks)
     .where(and(eq(checks.status, 'closed'), gte(checks.createdAt, new Date(today))))
 
+  // Yesterday revenue for delta
+  const [yesterdayStats] = await db
+    .select({ revenue: sum(checks.totalAmount), count: count() })
+    .from(checks)
+    .where(and(
+      eq(checks.status, 'closed'),
+      gte(checks.createdAt, new Date(yesterday)),
+      lte(checks.createdAt, new Date(today)),
+    ))
+
+  // Month revenue
   const [monthStats] = await db
     .select({ revenue: sum(checks.totalAmount), count: count() })
     .from(checks)
     .where(and(eq(checks.status, 'closed'), gte(checks.createdAt, thirtyDaysAgo)))
 
-  const topItems = await db
-    .select({
-      itemId: checkItems.itemId,
-      name: inventory.name,
-      totalQty: sum(checkItems.quantity),
-      totalRev: sql<number>`sum(${checkItems.quantity} * ${checkItems.priceAtTime})`,
-    })
-    .from(checkItems)
-    .leftJoin(inventory, eq(inventory.id, checkItems.itemId))
-    .leftJoin(checks, eq(checks.id, checkItems.checkId))
-    .where(and(eq(checks.status, 'closed'), gte(checks.createdAt, thirtyDaysAgo)))
-    .groupBy(checkItems.itemId, inventory.name)
-    .orderBy(desc(sql`sum(${checkItems.quantity} * ${checkItems.priceAtTime})`))
-    .limit(10)
+  // Previous month for delta
+  const [prevMonthStats] = await db
+    .select({ revenue: sum(checks.totalAmount), count: count() })
+    .from(checks)
+    .where(and(
+      eq(checks.status, 'closed'),
+      gte(checks.createdAt, sixtyDaysAgo),
+      lte(checks.createdAt, thirtyDaysAgo),
+    ))
 
+  // COGS this month (supply costs)
+  const [cogsRow] = await db
+    .select({ total: sql<number>`sum(${supplyItems.quantity}::numeric * ${supplyItems.costPerUnit}::numeric)` })
+    .from(supplyItems)
+    .leftJoin(supplies, eq(supplies.id, supplyItems.supplyId))
+    .where(gte(supplies.createdAt, thirtyDaysAgo))
+
+  // Expenses this month
+  const [expensesRow] = await db
+    .select({ total: sum(expenses.amount) })
+    .from(expenses)
+    .where(gte(expenses.createdAt, thirtyDaysAgo))
+
+  // Payment breakdown (30d)
   const paymentBreakdown = await db
     .select({ method: checkPayments.method, total: sum(checkPayments.amount) })
     .from(checkPayments)
@@ -49,20 +76,62 @@ analyticsRouter.get('/dashboard', async (c) => {
     .where(and(eq(checks.status, 'closed'), gte(checks.createdAt, thirtyDaysAgo)))
     .groupBy(checkPayments.method)
 
+  // Top items (30d)
+  const topItems = await db
+    .select({
+      itemId: checkItems.itemId,
+      name: inventory.name,
+      category: inventory.category,
+      totalQty: sum(checkItems.quantity),
+      totalRev: sql<number>`sum(${checkItems.quantity}::numeric * ${checkItems.priceAtTime})`,
+    })
+    .from(checkItems)
+    .leftJoin(inventory, eq(inventory.id, checkItems.itemId))
+    .leftJoin(checks, eq(checks.id, checkItems.checkId))
+    .where(and(eq(checks.status, 'closed'), gte(checks.createdAt, thirtyDaysAgo)))
+    .groupBy(checkItems.itemId, inventory.name, inventory.category)
+    .orderBy(desc(sql`sum(${checkItems.quantity}::numeric * ${checkItems.priceAtTime})`))
+    .limit(20)
+
+  // New clients (30d)
+  const [newClients] = await db
+    .select({ count: count() })
+    .from(profiles)
+    .where(and(eq(profiles.role, 'client'), isNull(profiles.deletedAt), gte(profiles.createdAt, thirtyDaysAgo)))
+
+  const monthRev = parseNum(monthStats?.revenue)
+  const prevMonthRev = parseNum(prevMonthStats?.revenue)
+  const cogs = parseNum(cogsRow?.total)
+  const totalExpenses = parseNum(expensesRow?.total)
+  const profit = monthRev - cogs - totalExpenses
+  const monthRevDelta = prevMonthRev > 0 ? Math.round(((monthRev - prevMonthRev) / prevMonthRev) * 100) : 0
+
   return c.json({
     today: {
-      revenue: parseFloat(String(todayStats?.revenue ?? 0)) || 0,
+      revenue: parseNum(todayStats?.revenue),
       checks: todayStats?.count ?? 0,
+      avgCheck: (todayStats?.count ?? 0) > 0 ? parseNum(todayStats?.revenue) / (todayStats?.count ?? 1) : 0,
+    },
+    yesterday: {
+      revenue: parseNum(yesterdayStats?.revenue),
+      checks: yesterdayStats?.count ?? 0,
     },
     month: {
-      revenue: parseFloat(String(monthStats?.revenue ?? 0)) || 0,
+      revenue: monthRev,
       checks: monthStats?.count ?? 0,
+      avgCheck: (monthStats?.count ?? 0) > 0 ? monthRev / (monthStats?.count ?? 1) : 0,
+      cogs,
+      expenses: totalExpenses,
+      profit,
+      delta: monthRevDelta,
     },
+    newClients: newClients.count,
     topItems,
     paymentBreakdown,
   })
 })
 
+// ─── Revenue by day ───────────────────────────────────────────────────────────
 analyticsRouter.get('/revenue', async (c) => {
   const from = c.req.query('from') ?? new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0]
   const to = c.req.query('to') ?? new Date().toISOString().split('T')[0]
@@ -82,9 +151,37 @@ analyticsRouter.get('/revenue', async (c) => {
     .groupBy(sql`date_trunc('day', ${checks.createdAt})::date`)
     .orderBy(asc(sql`date_trunc('day', ${checks.createdAt})::date`))
 
-  return c.json({ revenue: rows })
+  // Expenses by day
+  const expRows = await db
+    .select({
+      date: sql<string>`${expenses.expenseDate}::text`,
+      total: sum(expenses.amount),
+    })
+    .from(expenses)
+    .where(and(
+      gte(sql`${expenses.expenseDate}::date`, new Date(from)),
+      lte(sql`${expenses.expenseDate}::date`, new Date(to)),
+    ))
+    .groupBy(expenses.expenseDate)
+
+  // COGS by day (supply costs)
+  const cogsRows = await db
+    .select({
+      date: sql<string>`date_trunc('day', ${supplies.createdAt})::date::text`,
+      total: sql<number>`sum(${supplyItems.quantity}::numeric * ${supplyItems.costPerUnit}::numeric)`,
+    })
+    .from(supplyItems)
+    .leftJoin(supplies, eq(supplies.id, supplyItems.supplyId))
+    .where(and(
+      gte(supplies.createdAt, new Date(from)),
+      lte(supplies.createdAt, new Date(to + 'T23:59:59')),
+    ))
+    .groupBy(sql`date_trunc('day', ${supplies.createdAt})::date`)
+
+  return c.json({ revenue: rows, expenses: expRows, cogs: cogsRows })
 })
 
+// ─── Products ABC ─────────────────────────────────────────────────────────────
 analyticsRouter.get('/products', async (c) => {
   const from = c.req.query('from') ?? new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0]
   const to = c.req.query('to') ?? new Date().toISOString().split('T')[0]
@@ -109,45 +206,232 @@ analyticsRouter.get('/products', async (c) => {
     .orderBy(desc(sql`sum(${checkItems.quantity}::numeric * ${checkItems.priceAtTime})`))
     .limit(50)
 
-  return c.json({ products: rows })
+  // Calculate cumulative % for proper ABC classification
+  const totalRev = rows.reduce((s: number, r: any) => s + parseNum(r.totalRev), 0)
+  let cumulative = 0
+  const withAbc = rows.map((r: any) => {
+    const rev = parseNum(r.totalRev)
+    const share = totalRev > 0 ? (rev / totalRev) * 100 : 0
+    cumulative += share
+    const abc = cumulative <= 80 ? 'A' : cumulative <= 95 ? 'B' : 'C'
+    return { ...r, share: Math.round(share * 10) / 10, cumulative: Math.round(cumulative * 10) / 10, abc }
+  })
+
+  return c.json({ products: withAbc, totalRev })
 })
 
+// ─── Clients / Players ────────────────────────────────────────────────────────
 analyticsRouter.get('/clients', async (c) => {
-  const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000)
+  const now = new Date()
+  const thirtyDaysAgo = new Date(now.getTime() - 30 * 86400000)
+  const fourteenDaysAgo = new Date(now.getTime() - 14 * 86400000)
+  const prevFourteenStart = new Date(now.getTime() - 28 * 86400000)
 
-  const [total] = await db.select({ count: count() }).from(profiles).where(eq(profiles.role, 'client'))
-  const [newThisMonth] = await db
-    .select({ count: count() })
-    .from(profiles)
-    .where(and(eq(profiles.role, 'client'), gte(profiles.createdAt, thirtyDaysAgo)))
+  // Total clients
+  const [total] = await db.select({ count: count() }).from(profiles)
+    .where(and(eq(profiles.role, 'client'), isNull(profiles.deletedAt)))
 
-  const tierDist = await db
-    .select({ tier: profiles.clientTier, count: count() })
+  // New this month
+  const [newThisMonth] = await db.select({ count: count() }).from(profiles)
+    .where(and(eq(profiles.role, 'client'), isNull(profiles.deletedAt), gte(profiles.createdAt, thirtyDaysAgo)))
+
+  // Tier distribution
+  const tierDist = await db.select({ tier: profiles.clientTier, count: count() })
     .from(profiles)
-    .where(eq(profiles.role, 'client'))
+    .where(and(eq(profiles.role, 'client'), isNull(profiles.deletedAt)))
     .groupBy(profiles.clientTier)
 
-  return c.json({ total: total.count, newThisMonth: newThisMonth.count, tierDist })
+  // Clients who visited in current 14d window (visited = have a check)
+  const currentActiveIds = await db
+    .selectDistinct({ playerId: checks.playerId })
+    .from(checks)
+    .where(and(
+      eq(checks.status, 'closed'),
+      gte(checks.createdAt, fourteenDaysAgo),
+    ))
+
+  // Clients who visited in previous 14d window
+  const prevActiveIds = await db
+    .selectDistinct({ playerId: checks.playerId })
+    .from(checks)
+    .where(and(
+      eq(checks.status, 'closed'),
+      gte(checks.createdAt, prevFourteenStart),
+      lte(checks.createdAt, fourteenDaysAgo),
+    ))
+
+  const currentSet = new Set(currentActiveIds.map((r: any) => r.playerId).filter(Boolean))
+  const prevSet = new Set(prevActiveIds.map((r: any) => r.playerId).filter(Boolean))
+  const retainedCount = [...prevSet].filter(id => id && currentSet.has(id)).length
+  const retentionRate = prevSet.size > 0 ? Math.round((retainedCount / prevSet.size) * 100) : 0
+
+  // Player segments: new / active / sleeping
+  // New = registered < 30d ago AND has < 3 checks
+  // Active = has check in last 14d
+  // Sleeping = has checks but last check > 14d ago
+
+  const visitCounts = await db
+    .select({
+      playerId: checks.playerId,
+      total: count(),
+      lastVisit: sql<string>`max(${checks.createdAt})::text`,
+    })
+    .from(checks)
+    .where(eq(checks.status, 'closed'))
+    .groupBy(checks.playerId)
+
+  const segments = { new: 0, active: 0, sleeping: 0 }
+  const cutoffMs = fourteenDaysAgo.getTime()
+
+  for (const row of visitCounts) {
+    const lastMs = row.lastVisit ? new Date(row.lastVisit).getTime() : 0
+    if (lastMs > cutoffMs) {
+      segments.active++
+    } else {
+      segments.sleeping++
+    }
+  }
+  // New clients with no visits yet
+  const [noVisit] = await db
+    .select({ count: count() })
+    .from(profiles)
+    .where(and(
+      eq(profiles.role, 'client'),
+      isNull(profiles.deletedAt),
+      gte(profiles.createdAt, thirtyDaysAgo),
+    ))
+  segments.new = noVisit.count
+
+  // Top spenders (30d)
+  const topSpenders = await db
+    .select({
+      playerId: checks.playerId,
+      nickname: profiles.nickname,
+      clientTier: profiles.clientTier,
+      total: sum(checks.totalAmount),
+      visits: count(),
+    })
+    .from(checks)
+    .leftJoin(profiles, eq(profiles.id, checks.playerId))
+    .where(and(eq(checks.status, 'closed'), gte(checks.createdAt, thirtyDaysAgo)))
+    .groupBy(checks.playerId, profiles.nickname, profiles.clientTier)
+    .orderBy(desc(sum(checks.totalAmount)))
+    .limit(10)
+
+  return c.json({
+    total: total.count,
+    newThisMonth: newThisMonth.count,
+    tierDist,
+    retentionRate,
+    segments,
+    topSpenders,
+  })
 })
 
+// ─── Shifts analytics ─────────────────────────────────────────────────────────
 analyticsRouter.get('/shifts', async (c) => {
   const rows = await db
-    .select({
-      shift: shifts,
-      staffNickname: profiles.nickname,
-    })
+    .select({ shift: shifts, staffNickname: profiles.nickname })
     .from(shifts)
     .leftJoin(profiles, eq(profiles.id, shifts.openedBy))
     .orderBy(desc(shifts.openedAt))
     .limit(30)
 
-  const enriched = await Promise.all(rows.map(async (r) => {
+  const enriched = await Promise.all(rows.map(async (r: any) => {
     const [stats] = await db
-      .select({ revenue: sum(checks.totalAmount), count: count() })
+      .select({ revenue: sum(checks.totalAmount), cnt: count() })
       .from(checks)
       .where(and(eq(checks.shiftId, r.shift.id), eq(checks.status, 'closed')))
-    return { ...r, revenue: parseFloat(String(stats?.revenue ?? 0)) || 0, checksCount: stats?.count ?? 0 }
+
+    const payments = await db
+      .select({ method: checkPayments.method, total: sum(checkPayments.amount) })
+      .from(checkPayments)
+      .leftJoin(checks, eq(checks.id, checkPayments.checkId))
+      .where(eq(checks.shiftId, r.shift.id))
+      .groupBy(checkPayments.method)
+
+    return {
+      ...r,
+      revenue: parseNum(stats?.revenue),
+      checksCount: stats?.cnt ?? 0,
+      payments,
+    }
   }))
 
   return c.json({ shifts: enriched })
+})
+
+// ─── Single shift detail ──────────────────────────────────────────────────────
+analyticsRouter.get('/shifts/:id', async (c) => {
+  const shiftId = c.req.param('id')
+
+  const shiftChecks = await db
+    .select()
+    .from(checks)
+    .where(and(eq(checks.shiftId, shiftId), eq(checks.status, 'closed')))
+
+  const payments = await db
+    .select({ method: checkPayments.method, total: sum(checkPayments.amount) })
+    .from(checkPayments)
+    .leftJoin(checks, eq(checks.id, checkPayments.checkId))
+    .where(eq(checks.shiftId, shiftId))
+    .groupBy(checkPayments.method)
+
+  const topItems = await db
+    .select({
+      itemId: checkItems.itemId,
+      name: inventory.name,
+      category: inventory.category,
+      totalQty: sum(checkItems.quantity),
+      totalRev: sql<number>`sum(${checkItems.quantity}::numeric * ${checkItems.priceAtTime})`,
+    })
+    .from(checkItems)
+    .leftJoin(inventory, eq(inventory.id, checkItems.itemId))
+    .leftJoin(checks, eq(checks.id, checkItems.checkId))
+    .where(eq(checks.shiftId, shiftId))
+    .groupBy(checkItems.itemId, inventory.name, inventory.category)
+    .orderBy(desc(sql`sum(${checkItems.quantity}::numeric * ${checkItems.priceAtTime})`))
+    .limit(15)
+
+  const totalRev = topItems.reduce((s: number, r: any) => s + parseNum(r.totalRev), 0)
+  let cumulative = 0
+  const topItemsWithAbc = topItems.map((r: any) => {
+    const rev = parseNum(r.totalRev)
+    const share = totalRev > 0 ? (rev / totalRev) * 100 : 0
+    cumulative += share
+    return { ...r, share: Math.round(share * 10) / 10, abc: cumulative <= 80 ? 'A' : cumulative <= 95 ? 'B' : 'C' }
+  })
+
+  const uniquePlayers = new Set(shiftChecks.map((ch: any) => ch.playerId).filter(Boolean)).size
+  const totalRevenue = shiftChecks.reduce((s: number, ch: any) => s + parseNum(ch.totalAmount), 0)
+  const avgCheck = shiftChecks.length > 0 ? totalRevenue / shiftChecks.length : 0
+
+  // Players data for this shift
+  const playerStats = await db
+    .select({
+      playerId: checks.playerId,
+      nickname: profiles.nickname,
+      clientTier: profiles.clientTier,
+      total: sum(checks.totalAmount),
+      cnt: count(),
+    })
+    .from(checks)
+    .leftJoin(profiles, eq(profiles.id, checks.playerId))
+    .where(and(eq(checks.shiftId, shiftId), eq(checks.status, 'closed')))
+    .groupBy(checks.playerId, profiles.nickname, profiles.clientTier)
+    .orderBy(desc(sum(checks.totalAmount)))
+    .limit(20)
+
+  return c.json({
+    overview: {
+      totalRevenue,
+      checksCount: shiftChecks.length,
+      avgCheck,
+      uniquePlayers,
+    },
+    checks: shiftChecks,
+    payments,
+    topItems: topItemsWithAbc,
+    playerStats,
+  })
 })
