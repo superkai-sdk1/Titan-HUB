@@ -18,7 +18,7 @@ cashopsRouter.get('/', async (c) => {
     amount: cashOperations.amount,
     description: cashOperations.description,
     createdAt: cashOperations.createdAt,
-    createdByNick: profiles.nickname,
+    createdBy: profiles.nickname,
   })
     .from(cashOperations)
     .leftJoin(profiles, eq(profiles.id, cashOperations.createdBy))
