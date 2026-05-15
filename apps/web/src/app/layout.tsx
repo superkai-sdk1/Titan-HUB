@@ -3,6 +3,7 @@ import './globals.css'
 import { Providers } from './providers'
 import { AuthGuard } from '@/components/AuthGuard'
 import { BottomNav } from '@/components/BottomNav'
+import { Sidebar } from '@/components/Sidebar'
 
 export const metadata: Metadata = {
   title: 'Titan HUB',
@@ -16,7 +17,7 @@ export const metadata: Metadata = {
 }
 
 export const viewport: Viewport = {
-  themeColor: '#0a0e1a',
+  themeColor: '#15121b',
   width: 'device-width',
   initialScale: 1,
   maximumScale: 1,
@@ -27,13 +28,62 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="ru" className="dark">
-      <body>
+      <head>
+        <link
+          rel="stylesheet"
+          href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap"
+        />
+      </head>
+      <body className="bg-mesh" style={{ color: 'var(--on-surface)', overflow: 'hidden' }}>
         <Providers>
           <AuthGuard>
-            <main className="pb-20">{children}</main>
+            {/* Desktop sidebar (hidden on mobile via CSS) */}
+            <Sidebar />
+
+            {/* Main content area shifted right on desktop */}
+            <div
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                height: '100dvh',
+                overflow: 'hidden',
+                // On desktop: leave 260px for sidebar
+              }}
+              className="layout-main"
+            >
+              <main
+                style={{
+                  flex: 1,
+                  overflow: 'hidden',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  // Mobile: bottom nav space
+                  paddingBottom: 0,
+                }}
+                className="layout-content"
+              >
+                {children}
+              </main>
+            </div>
+
+            {/* Mobile bottom nav (hidden on desktop via CSS) */}
             <BottomNav />
           </AuthGuard>
         </Providers>
+
+        {/* Layout responsive shifts */}
+        <style>{`
+          @media (min-width: 1024px) {
+            .layout-main {
+              margin-left: 260px;
+            }
+          }
+          @media (max-width: 1023px) {
+            .layout-content {
+              padding-bottom: 80px;
+            }
+          }
+        `}</style>
       </body>
     </html>
   )
