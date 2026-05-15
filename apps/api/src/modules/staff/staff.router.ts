@@ -19,6 +19,7 @@ const UpdateStaffSchema = z.object({
   phone: z.string().optional(),
   role: z.enum(['owner', 'staff']).optional(),
   password: z.string().min(4).optional(),
+  permissions: z.record(z.boolean()).optional(),
 })
 
 export const staffRouter = new Hono<AppEnv>()
@@ -31,6 +32,7 @@ staffRouter.get('/', async (c) => {
       nickname: profiles.nickname,
       phone: profiles.phone,
       role: profiles.role,
+      permissions: profiles.permissions,
       createdAt: profiles.createdAt,
     })
     .from(profiles)
@@ -50,6 +52,7 @@ staffRouter.get('/:id', async (c) => {
       nickname: profiles.nickname,
       phone: profiles.phone,
       role: profiles.role,
+      permissions: profiles.permissions,
       createdAt: profiles.createdAt,
     })
     .from(profiles)
@@ -98,6 +101,7 @@ staffRouter.patch('/:id', zValidator('json', UpdateStaffSchema), async (c) => {
       nickname: profiles.nickname,
       phone: profiles.phone,
       role: profiles.role,
+      permissions: profiles.permissions,
       createdAt: profiles.createdAt,
     })
 

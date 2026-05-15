@@ -2,7 +2,7 @@ import type { AppEnv } from '../../types.js'
 import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
-import { db, supplies, supplyItems, inventory, eq, desc } from '@titan/database'
+import { db, supplies, supplyItems, inventory, eq, desc, and } from '@titan/database'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
 
 const SupplySchema = z.object({
@@ -54,6 +54,19 @@ suppliesRouter.post('/', requireRole('owner', 'staff'), zValidator('json', Suppl
   }
 
   return c.json({ supply }, 201)
+})
+
+// GET /supplies/items/:itemId/last-price — last known cost per unit for an item
+// Must be BEFORE /:id to avoid route conflict
+suppliesRouter.get('/items/:itemId/last-price', requireRole('owner', 'staff'), async (c) => {
+  const [row] = await db
+    .select({ costPerUnit: supplyItems.costPerUnit })
+    .from(supplyItems)
+    .innerJoin(supplies, eq(supplies.id, supplyItems.supplyId))
+    .where(eq(supplyItems.itemId, c.req.param('itemId')))
+    .orderBy(desc(supplies.createdAt))
+    .limit(1)
+  return c.json({ lastPrice: row ? parseFloat(String(row.costPerUnit)) : null })
 })
 
 suppliesRouter.get('/:id', async (c) => {

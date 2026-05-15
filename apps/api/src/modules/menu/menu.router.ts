@@ -50,6 +50,17 @@ menuRouter.post('/categories', requireAuth, requireRole('owner', 'staff'), zVali
   return c.json({ category: cat }, 201)
 })
 
+// Reorder categories — must be BEFORE /categories/:id
+menuRouter.patch('/categories/reorder', requireAuth, requireRole('owner', 'staff'), zValidator('json', z.object({
+  items: z.array(z.object({ id: z.string().uuid(), sortOrder: z.number().int() }))
+})), async (c) => {
+  const { items } = c.req.valid('json')
+  await Promise.all(items.map(({ id, sortOrder }) =>
+    db.update(menuCategories).set({ sortOrder }).where(eq(menuCategories.id, id))
+  ))
+  return c.json({ ok: true })
+})
+
 menuRouter.patch('/categories/:id', requireAuth, requireRole('owner', 'staff'), zValidator('json', CategorySchema.partial()), async (c) => {
   const body = c.req.valid('json')
   const [cat] = await db.update(menuCategories).set(body).where(eq(menuCategories.id, c.req.param('id'))).returning()
@@ -99,6 +110,17 @@ menuRouter.post('/items', requireAuth, requireRole('owner', 'staff'), zValidator
   return c.json({ item }, 201)
 })
 
+// Reorder items — must be BEFORE /:id routes to avoid being captured as id="reorder"
+menuRouter.patch('/items/reorder', requireAuth, requireRole('owner', 'staff'), zValidator('json', z.object({
+  items: z.array(z.object({ id: z.string().uuid(), sortOrder: z.number().int() }))
+})), async (c) => {
+  const { items } = c.req.valid('json')
+  await Promise.all(items.map(({ id, sortOrder }) =>
+    db.update(inventory).set({ sortOrder, updatedAt: new Date() }).where(eq(inventory.id, id))
+  ))
+  return c.json({ ok: true })
+})
+
 menuRouter.patch('/items/:id', requireAuth, requireRole('owner', 'staff'), zValidator('json', ItemSchema.partial()), async (c) => {
   const body = c.req.valid('json')
   const updateData: Record<string, any> = { ...body, updatedAt: new Date() }
@@ -111,28 +133,6 @@ menuRouter.patch('/items/:id', requireAuth, requireRole('owner', 'staff'), zVali
 
 menuRouter.delete('/items/:id', requireAuth, requireRole('owner'), async (c) => {
   await db.update(inventory).set({ isActive: false }).where(eq(inventory.id, c.req.param('id')))
-  return c.json({ ok: true })
-})
-
-// Reorder items
-menuRouter.patch('/items/reorder', requireAuth, requireRole('owner', 'staff'), zValidator('json', z.object({
-  items: z.array(z.object({ id: z.string().uuid(), sortOrder: z.number().int() }))
-})), async (c) => {
-  const { items } = c.req.valid('json')
-  await Promise.all(items.map(({ id, sortOrder }) =>
-    db.update(inventory).set({ sortOrder, updatedAt: new Date() }).where(eq(inventory.id, id))
-  ))
-  return c.json({ ok: true })
-})
-
-// Reorder categories
-menuRouter.patch('/categories/reorder', requireAuth, requireRole('owner', 'staff'), zValidator('json', z.object({
-  items: z.array(z.object({ id: z.string().uuid(), sortOrder: z.number().int() }))
-})), async (c) => {
-  const { items } = c.req.valid('json')
-  await Promise.all(items.map(({ id, sortOrder }) =>
-    db.update(menuCategories).set({ sortOrder }).where(eq(menuCategories.id, id))
-  ))
   return c.json({ ok: true })
 })
 

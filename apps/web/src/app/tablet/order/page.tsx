@@ -82,7 +82,11 @@ export default function TabletOrderPage() {
   })
 
   const categories = categoriesData?.categories ?? []
-  const allItems = (itemsData?.items ?? []).filter(i => i.isActive && i.isTabletVisible)
+  const allItems = (itemsData?.items ?? []).filter(i => {
+    if (!i.isActive || !i.isTabletVisible) return false
+    if (i.trackStock && i.stockQuantity <= 0) return false
+    return true
+  })
 
   const filteredItems = allItems.filter(item => {
     const matchCat = !activeCat || item.category === activeCat

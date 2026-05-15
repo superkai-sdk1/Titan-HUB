@@ -5,6 +5,7 @@ import { api } from '@/lib/api'
 import { format, formatDistanceToNow } from 'date-fns'
 import { ru } from 'date-fns/locale'
 import { PageHeader, Sheet, INP, SEL, LBL } from '@/components/manage/DesignSystem'
+import { PullToRefreshContainer } from '@/components/PullToRefreshContainer'
 
 const TIER_COLORS: Record<string, string> = {
   guest: 'rgba(204,195,216,0.6)', resident: '#8B5CF6', student: '#3B82F6',
@@ -81,6 +82,7 @@ export default function ClientsPage() {
         </div>
       </div>
 
+      <PullToRefreshContainer onRefresh={async () => { qc.invalidateQueries({ queryKey: ['clients'] }) }}>
       <div style={{ padding: '16px 16px 100px', flex: 1, maxWidth: 680, margin: '0 auto', width: '100%' }}>
         {clients.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '60px 0' }}>
@@ -119,6 +121,7 @@ export default function ClientsPage() {
           </div>
         )}
       </div>
+      </PullToRefreshContainer>
 
       {/* Create sheet */}
       <Sheet open={showCreate} onClose={() => setShowCreate(false)} title="Новый клиент">

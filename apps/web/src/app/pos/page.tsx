@@ -6,6 +6,7 @@ import { api } from '@/lib/api'
 import { useCurrentShift, useOpenShift, useCloseShift } from '@/hooks/useShift'
 import { differenceInMinutes } from 'date-fns'
 import { CheckDetailView } from '@/components/CheckDetailView'
+import { PullToRefreshContainer } from '@/components/PullToRefreshContainer'
 
 interface CheckCard {
   id: string
@@ -143,7 +144,7 @@ function PosPageInner() {
     return () => clearInterval(t)
   }, [])
 
-  const { data: checksData, isLoading } = useQuery({
+  const { data: checksData, isLoading, refetch: refetchChecks } = useQuery({
     queryKey: ['checks', 'active'],
     queryFn: () => api.get<{ checks: CheckCard[] }>('/pos/checks'),
     refetchInterval: 5000,
@@ -384,7 +385,8 @@ function PosPageInner() {
       </div>
 
       {/* Cards grid — scrollable */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: '0 32px 16px' }}>
+      <PullToRefreshContainer onRefresh={async () => { await refetchChecks() }} disabled={!shift}>
+      <div style={{ flex: 1, padding: '0 32px 16px' }}>
         <div style={{
           display: 'grid',
           gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))',
@@ -570,6 +572,7 @@ function PosPageInner() {
           )}
         </div>
       </div>
+      </PullToRefreshContainer>
 
       {/* Bottom action bar */}
       {shift && (

@@ -1,5 +1,5 @@
 'use client'
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { format } from 'date-fns'
@@ -27,10 +27,28 @@ interface Supply {
 
 interface DraftItem extends SupplyItem {
   _key: number
+  itemId?: string      // привязка к inventory item для индикатора цены
+  lastPrice?: number   // последняя цена из базы
 }
 
 function emptyItem(): DraftItem {
   return { _key: Date.now() + Math.random(), name: '', quantity: 1, unit: 'шт', costPerUnit: 0 }
+}
+
+function PriceDiff({ current, last }: { current: number; last: number | undefined }) {
+  if (!last || !current || last === current) return null
+  const diff = current - last
+  const isUp = diff > 0
+  return (
+    <span style={{
+      fontSize: 10, fontWeight: 700, fontFamily: "'JetBrains Mono',monospace",
+      padding: '2px 6px', borderRadius: 6, letterSpacing: '0.04em', marginLeft: 4,
+      background: isUp ? 'rgba(244,63,94,0.15)' : 'rgba(16,185,129,0.15)',
+      color: isUp ? '#F43F5E' : '#10B981',
+    }}>
+      {isUp ? '↑' : '↓'} {Math.abs(diff).toLocaleString('ru')} ₽
+    </span>
+  )
 }
 
 export default function SuppliesPage() {
@@ -45,6 +63,32 @@ export default function SuppliesPage() {
     queryKey: ['supplies'],
     queryFn: () => api.get<{ supplies: Supply[] }>('/supplies'),
   })
+
+  // Inventory items for the optional item picker
+  const { data: inventoryData } = useQuery({
+    queryKey: ['menu', 'items', 'all'],
+    queryFn: () => api.get<{ items: { id: string; name: string; stockQuantity: number }[] }>('/menu/items/all'),
+    enabled: showModal,
+  })
+  const inventoryItems = inventoryData?.items ?? []
+
+  // Fetch last prices for items linked to inventory
+  async function fetchLastPrice(itemId: string): Promise<number | null> {
+    try {
+      const res = await api.get<{ lastPrice: number | null }>(`/supplies/items/${itemId}/last-price`)
+      return res.lastPrice
+    } catch { return null }
+  }
+
+  async function handleInventorySelect(key: number, itemId: string) {
+    const invItem = inventoryItems.find(i => i.id === itemId)
+    if (!invItem) return
+    const lastPrice = itemId ? await fetchLastPrice(itemId) : undefined
+    setItems(prev => prev.map(i => i._key === key
+      ? { ...i, itemId, name: invItem.name, lastPrice: lastPrice ?? undefined }
+      : i
+    ))
+  }
 
   const create = useMutation({
     mutationFn: (body: { date: string; supplier: string; items: SupplyItem[] }) =>
@@ -239,6 +283,22 @@ export default function SuppliesPage() {
                         )}
                       </div>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        {/* Optional: link to inventory item for price history */}
+                        {inventoryItems.length > 0 && (
+                          <div>
+                            <label style={LBL}>Из инвентаря (опционально)</label>
+                            <select
+                              value={item.itemId ?? ''}
+                              onChange={e => handleInventorySelect(item._key, e.target.value)}
+                              style={SEL}
+                            >
+                              <option value="">— ввести вручную —</option>
+                              {inventoryItems.map(inv => (
+                                <option key={inv.id} value={inv.id}>{inv.name}</option>
+                              ))}
+                            </select>
+                          </div>
+                        )}
                         <input
                           placeholder="Название *"
                           value={item.name}
@@ -267,7 +327,10 @@ export default function SuppliesPage() {
                             </select>
                           </div>
                           <div>
-                            <label style={LBL}>Цена/ед.</label>
+                            <label style={{ ...LBL, display: 'flex', alignItems: 'center' }}>
+                              Цена/ед.
+                              <PriceDiff current={item.costPerUnit} last={item.lastPrice} />
+                            </label>
                             <input
                               type="number"
                               min={0}
