@@ -18,6 +18,7 @@ const UpdateStaffSchema = z.object({
   nickname: z.string().min(2).optional(),
   phone: z.string().optional(),
   role: z.enum(['owner', 'staff']).optional(),
+  password: z.string().min(4).optional(),
 })
 
 export const staffRouter = new Hono<AppEnv>()
@@ -66,7 +67,7 @@ staffRouter.post('/', zValidator('json', CreateStaffSchema), async (c) => {
     .insert(profiles)
     .values({
       nickname: data.nickname,
-      password: hashedPassword,
+      passwordHash: hashedPassword,
       pin: data.pin,
       phone: data.phone,
       role: data.role,
@@ -83,10 +84,14 @@ staffRouter.post('/', zValidator('json', CreateStaffSchema), async (c) => {
 })
 
 staffRouter.patch('/:id', zValidator('json', UpdateStaffSchema), async (c) => {
-  const data = c.req.valid('json')
+  const { password, ...rest } = c.req.valid('json')
+  const setData: Record<string, unknown> = { ...rest }
+  if (password) {
+    setData.passwordHash = await hashPassword(password)
+  }
   const [updated] = await db
     .update(profiles)
-    .set(data)
+    .set(setData)
     .where(eq(profiles.id, c.req.param('id')))
     .returning({
       id: profiles.id,
