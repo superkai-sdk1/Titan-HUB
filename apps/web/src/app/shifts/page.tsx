@@ -1,5 +1,5 @@
 'use client'
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { useCurrentShift, useOpenShift, useCloseShift } from '@/hooks/useShift'
@@ -47,6 +47,7 @@ const EVENING_LABELS: Record<string, string> = {
 // ─── ShiftAnalytics component ─────────────────────────────────────────────────
 function ShiftAnalytics({ shiftId, onClose }: { shiftId: string; onClose: () => void }) {
   const [tab, setTab] = useState<AnalyticsTab>('overview')
+  const touchStartX = useRef<number | null>(null)
 
   const { data, isLoading } = useQuery({
     queryKey: ['analytics', 'shift', shiftId],
@@ -59,6 +60,23 @@ function ShiftAnalytics({ shiftId, onClose }: { shiftId: string; onClose: () => 
     { key: 'products', label: 'Товары', icon: 'inventory_2' },
     { key: 'players', label: 'Игроки', icon: 'group' },
   ]
+
+  const TAB_KEYS: AnalyticsTab[] = ['overview', 'checks', 'products', 'players']
+
+  function onTouchStart(e: React.TouchEvent) {
+    touchStartX.current = e.touches[0].clientX
+  }
+
+  function onTouchEnd(e: React.TouchEvent) {
+    if (touchStartX.current === null) return
+    const dx = touchStartX.current - e.changedTouches[0].clientX
+    if (Math.abs(dx) > 50) {
+      const idx = TAB_KEYS.indexOf(tab)
+      if (dx > 0 && idx < TAB_KEYS.length - 1) setTab(TAB_KEYS[idx + 1])
+      if (dx < 0 && idx > 0) setTab(TAB_KEYS[idx - 1])
+    }
+    touchStartX.current = null
+  }
 
   return (
     <div style={{
@@ -125,8 +143,12 @@ function ShiftAnalytics({ shiftId, onClose }: { shiftId: string; onClose: () => 
           ))}
         </div>
 
-        {/* Content */}
-        <div style={{ flex: 1, overflowY: 'auto', padding: 24 }}>
+        {/* Content — свайп меняет вкладку */}
+        <div
+          style={{ flex: 1, overflowY: 'auto', padding: 24 }}
+          onTouchStart={onTouchStart}
+          onTouchEnd={onTouchEnd}
+        >
           {isLoading ? (
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 200 }}>
               <span className="material-symbols-outlined" style={{ fontSize: 32, color: 'rgba(204,195,216,0.3)', animation: 'spin 1s linear infinite' }}>refresh</span>

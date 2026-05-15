@@ -1,4 +1,4 @@
-import { db, shifts, checks, checkPayments, cashOperations, profiles, eq, and, isNull, sql, desc, sum } from '@titan/database'
+import { db, shifts, checks, checkPayments, cashOperations, refunds, profiles, eq, and, isNull, sql, desc, sum } from '@titan/database'
 
 export async function getCurrentShift() {
   const [shift] = await db
@@ -91,9 +91,43 @@ export async function getShiftCashBalance(shiftId: string) {
 
   const deposits = parseFloat(String(opsSum?.deposits ?? 0)) || 0
   const withdrawals = parseFloat(String(opsSum?.withdrawals ?? 0)) || 0
-  const expected = cashStart + cashPayments + deposits - withdrawals
 
-  return { expected, cashStart, cashPayments, deposits, withdrawals }
+  // Возвраты наличными: для каждого возврата считаем долю наличных
+  // (сумма возврата × доля наличных в оригинальном чеке)
+  const refundRows = await db
+    .select({
+      refundTotal: refunds.totalAmount,
+      checkId: refunds.checkId,
+    })
+    .from(refunds)
+    .innerJoin(checks, eq(checks.id, refunds.checkId))
+    .where(eq(checks.shiftId, shiftId))
+
+  let cashRefundTotal = 0
+  if (refundRows.length > 0) {
+    for (const r of refundRows) {
+      const checkId = r.checkId
+      const refundAmt = parseFloat(String(r.refundTotal)) || 0
+
+      // Суммы платежей по методам в этом чеке
+      const payments = await db
+        .select({ method: checkPayments.method, total: sum(checkPayments.amount) })
+        .from(checkPayments)
+        .where(eq(checkPayments.checkId, checkId))
+        .groupBy(checkPayments.method)
+
+      const totalPaid = payments.reduce((s, p) => s + (parseFloat(String(p.total)) || 0), 0)
+      const cashPaid = parseFloat(String(payments.find(p => p.method === 'cash')?.total ?? 0)) || 0
+
+      // Доля наличных: пропорционально покрываем возврат
+      const cashShare = totalPaid > 0 ? cashPaid / totalPaid : 0
+      cashRefundTotal += refundAmt * cashShare
+    }
+  }
+
+  const expected = cashStart + cashPayments + deposits - withdrawals - cashRefundTotal
+
+  return { expected, cashStart, cashPayments, deposits, withdrawals, cashRefundTotal }
 }
 
 export async function getShiftAnalytics(shiftId: string) {
@@ -113,6 +147,17 @@ export async function getShiftAnalytics(shiftId: string) {
     .groupBy(checkPayments.method)
 
   return { totalRevenue, checksCount, avgCheck: checksCount ? totalRevenue / checksCount : 0, payments }
+}
+
+export async function getLastShiftCashEnd(): Promise<number | null> {
+  const [row] = await db
+    .select({ cashEnd: shifts.cashEnd })
+    .from(shifts)
+    .where(eq(shifts.status, 'closed'))
+    .orderBy(desc(shifts.closedAt))
+    .limit(1)
+  if (!row || row.cashEnd === null) return null
+  return parseFloat(String(row.cashEnd)) || null
 }
 
 export async function getShiftHistory(page = 1, limit = 20) {

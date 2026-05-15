@@ -4,7 +4,7 @@ import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import { db, profiles, eq, and, isNull, desc } from '@titan/database'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
-import { hashPassword } from '@titan/auth'
+import { hashPassword, hashPin } from '@titan/auth'
 
 const CreateStaffSchema = z.object({
   nickname: z.string().min(2),
@@ -68,7 +68,7 @@ staffRouter.post('/', zValidator('json', CreateStaffSchema), async (c) => {
     .values({
       nickname: data.nickname,
       passwordHash: hashedPassword,
-      pin: data.pin,
+      pin: data.pin ? await hashPin(data.pin) : undefined,
       phone: data.phone,
       role: data.role,
     })
@@ -121,9 +121,10 @@ staffRouter.delete('/:id', async (c) => {
 
 staffRouter.post('/:id/reset-pin', zValidator('json', z.object({ pin: z.string().length(6) })), async (c) => {
   const { pin } = c.req.valid('json')
+  const hashedPin = await hashPin(pin)
   await db
     .update(profiles)
-    .set({ pin })
+    .set({ pin: hashedPin })
     .where(eq(profiles.id, c.req.param('id')))
 
   return c.json({ ok: true })

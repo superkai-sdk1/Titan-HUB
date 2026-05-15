@@ -5,6 +5,7 @@ import { z } from 'zod'
 import {
   db, checks, checkItems, checkItemModifiers, checkPayments, checkDiscounts,
   inventory, profiles, spaces, certificates, bonusHistory, transactions, modifiers as modifiersTable,
+  appSettings,
   eq, and, inArray, desc, sql, isNull,
 } from '@titan/database'
 import { requireAuth } from '../../middleware/auth.js'
@@ -54,8 +55,16 @@ async function getCheckWithItems(checkId: string) {
     .leftJoin(inventory, eq(inventory.id, checkItems.itemId))
     .where(eq(checkItems.checkId, checkId))
   const payments = await db.select().from(checkPayments).where(eq(checkPayments.checkId, checkId))
-  const discounts = await db.select().from(checkDiscounts).where(eq(checkDiscounts.checkId, checkId))
-  return { ...check, items, payments, discounts }
+  const discountRows = await db.select().from(checkDiscounts).where(eq(checkDiscounts.checkId, checkId))
+
+  // Получаем hourlyRate пространства для live-расчёта аренды на фронте
+  let spaceHourlyRate: string | null = null
+  if (check.spaceId) {
+    const [space] = await db.select({ hourlyRate: spaces.hourlyRate }).from(spaces).where(eq(spaces.id, check.spaceId))
+    spaceHourlyRate = space?.hourlyRate ?? null
+  }
+
+  return { ...check, items, payments, discounts: discountRows, spaceHourlyRate }
 }
 
 async function recalcCheckTotal(checkId: string) {
@@ -76,22 +85,37 @@ posRouter.get('/players/search', async (c) => {
   if (!q.trim()) return c.json({ players: [] })
   const term = `%${q.toLowerCase()}%`
 
-  const byNick = await db.select({
+  const playerFields = {
     id: profiles.id,
     nickname: profiles.nickname,
     clientTier: profiles.clientTier,
     balance: profiles.balance,
     bonusPoints: profiles.bonusPoints,
     photoUrl: profiles.photoUrl,
-  }).from(profiles)
-    .where(and(
-      eq(profiles.role, 'client'),
-      isNull(profiles.deletedAt),
-      sql`lower(${profiles.nickname}) like ${term}`,
-    ))
-    .limit(20)
+  }
+  const baseWhere = and(eq(profiles.role, 'client'), isNull(profiles.deletedAt))
 
-  return c.json({ players: byNick })
+  const [byNick, byTags] = await Promise.all([
+    db.select(playerFields).from(profiles)
+      .where(and(baseWhere, sql`lower(${profiles.nickname}) like ${term}`))
+      .limit(20),
+    db.select(playerFields).from(profiles)
+      .where(and(baseWhere, sql`exists (
+        select 1 from unnest(${profiles.searchTags}) as tag
+        where lower(tag) like ${term}
+      )`))
+      .limit(20),
+  ])
+
+  // Дедупликация: byNick приоритетнее, потом byTags без дублей
+  const seen = new Set<string>()
+  const players = [...byNick, ...byTags].filter(p => {
+    if (seen.has(p.id)) return false
+    seen.add(p.id)
+    return true
+  }).slice(0, 20)
+
+  return c.json({ players })
 })
 
 posRouter.get('/spaces', async (c) => {
@@ -107,6 +131,7 @@ posRouter.get('/players/:id', async (c) => {
     balance: profiles.balance,
     bonusPoints: profiles.bonusPoints,
     photoUrl: profiles.photoUrl,
+    linkedSpaceId: profiles.linkedSpaceId,
   }).from(profiles).where(eq(profiles.id, c.req.param('id')))
   if (!player) return c.json({ error: 'Not found' }, 404)
   return c.json({ player })
@@ -115,10 +140,14 @@ posRouter.get('/players/:id', async (c) => {
 posRouter.get('/checks', async (c) => {
   const shift = await getCurrentShift()
   if (!shift) return c.json({ checks: [] })
+  const spaceId = c.req.query('spaceId')
+  const whereClause = spaceId
+    ? and(eq(checks.shiftId, shift.id), inArray(checks.status, ['open']), eq(checks.spaceId, spaceId))
+    : and(eq(checks.shiftId, shift.id), inArray(checks.status, ['open']))
   const rows = await db
     .select()
     .from(checks)
-    .where(and(eq(checks.shiftId, shift.id), inArray(checks.status, ['open'])))
+    .where(whereClause)
     .orderBy(desc(checks.createdAt))
   // attach item count
   const enriched = await Promise.all(rows.map(async (ch) => {
@@ -142,6 +171,8 @@ posRouter.post('/checks', zValidator('json', OpenCheckSchema), async (c) => {
     shiftId: shift.id,
     status: 'open',
     ...body,
+    // Устанавливаем время начала аренды если передан spaceId
+    spaceStartAt: body.spaceId ? new Date() : undefined,
   }).returning()
   publishEvent('check:created', { checkId: check.id, shiftId: shift.id })
   return c.json({ check }, 201)
@@ -371,19 +402,35 @@ posRouter.post('/checks/:id/pay', zValidator('json', PaySchema), async (c) => {
 
   publishEvent('check:closed', { checkId })
 
-  // Award 5% bonus to player
+  // Начисление бонусов с учётом настроек app_settings
   if (body.playerId) {
-    const bonusEarned = total * 0.05
-    const [player] = await db.select().from(profiles).where(eq(profiles.id, body.playerId))
-    if (player) {
-      const newBonus = parseFloat(player.bonusPoints) + bonusEarned
-      await db.update(profiles).set({ bonusPoints: String(newBonus) }).where(eq(profiles.id, body.playerId))
-      await db.insert(bonusHistory).values({
-        profileId: body.playerId,
-        amount: String(bonusEarned),
-        balanceAfter: String(newBonus),
-        reason: `5% accrual from check`,
-      })
+    const settingsRows = await db
+      .select()
+      .from(appSettings)
+      .where(inArray(appSettings.key, ['bonus_enabled', 'bonus_accrual_rate', 'bonus_min_purchase', 'bonus_accrual_on_debt']))
+    const settings = Object.fromEntries(settingsRows.map(r => [r.key, r.value]))
+
+    const bonusEnabled = settings['bonus_enabled'] !== 'false'
+    const accrualRate = parseFloat(settings['bonus_accrual_rate'] ?? '5') / 100
+    const minPurchase = parseFloat(settings['bonus_min_purchase'] ?? '0')
+    const accrualOnDebt = settings['bonus_accrual_on_debt'] === 'true'
+    const hasDebtPayment = body.payments.some(p => p.method === 'debt')
+
+    if (bonusEnabled && total >= minPurchase && !(hasDebtPayment && !accrualOnDebt)) {
+      const bonusEarned = Math.floor(total * accrualRate)
+      if (bonusEarned > 0) {
+        const [player] = await db.select().from(profiles).where(eq(profiles.id, body.playerId))
+        if (player) {
+          const newBonus = parseFloat(player.bonusPoints) + bonusEarned
+          await db.update(profiles).set({ bonusPoints: String(newBonus) }).where(eq(profiles.id, body.playerId))
+          await db.insert(bonusHistory).values({
+            profileId: body.playerId,
+            amount: String(bonusEarned),
+            balanceAfter: String(newBonus),
+            reason: `${Math.round(accrualRate * 100)}% начисление за чек`,
+          })
+        }
+      }
     }
   }
 

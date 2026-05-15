@@ -73,11 +73,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 
         {/* Layout responsive shifts */}
         <style>{`
-          @media (min-width: 1024px) {
-            .layout-main {
-              margin-left: 260px;
-            }
-          }
           @media (max-width: 1023px) {
             .layout-content {
               padding-bottom: 80px;

@@ -11,6 +11,7 @@ import {
   getShiftHistory,
   getBirthdaysToday,
   getShiftCashBalance,
+  getLastShiftCashEnd,
 } from './shifts.service.js'
 
 const OpenShiftSchema = z.object({
@@ -66,6 +67,11 @@ shiftsRouter.get('/cash-balance', async (c) => {
   if (!shift) return c.json({ expected: 0, cashStart: 0 })
   const balance = await getShiftCashBalance(shift.id)
   return c.json(balance)
+})
+
+shiftsRouter.get('/last-cash-end', requireRole('owner', 'staff'), async (c) => {
+  const cashEnd = await getLastShiftCashEnd()
+  return c.json({ cashEnd })
 })
 
 shiftsRouter.get('/history', requireRole('owner', 'staff'), async (c) => {

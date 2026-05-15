@@ -9,8 +9,8 @@ export function Providers({ children }: { children: React.ReactNode }) {
       new QueryClient({
         defaultOptions: {
           queries: {
-            staleTime: 30_000,
-            gcTime: 5 * 60_000,
+            staleTime: 2 * 60_000,   // 2 минуты — данные при навигации по вкладкам выглядят свежими
+            gcTime: 30 * 60_000,     // 30 минут — кэш живёт долго, навигация по вкладкам мгновенная
             retry: 2,
             refetchOnWindowFocus: true,
           },

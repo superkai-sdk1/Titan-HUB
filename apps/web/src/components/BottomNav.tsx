@@ -7,11 +7,11 @@ import { api } from '@/lib/api'
 
 const LEFT_ITEMS = [
   { href: '/pos', icon: 'point_of_sale', label: 'Касса' },
-  { href: '/dashboard', icon: 'dashboard', label: 'Аналитика' },
+  { href: '/events', icon: 'event', label: 'События' },
 ]
 
 const RIGHT_ITEMS = [
-  { href: '/reports', icon: 'bar_chart', label: 'Отчёты' },
+  { href: '/dashboard', icon: 'dashboard', label: 'Дашборд' },
   { href: '/manage', icon: 'settings', label: 'Управление' },
 ]
 
@@ -37,6 +37,7 @@ export function BottomNav() {
   })
 
   if (pathname === '/login') return null
+  if (pathname.startsWith('/tablet')) return null
 
   function renderNavItem(href: string, icon: string, label: string) {
     const active = pathname === href || (href !== '/pos' && pathname.startsWith(href))

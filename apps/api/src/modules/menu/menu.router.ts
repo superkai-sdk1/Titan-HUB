@@ -65,10 +65,14 @@ menuRouter.delete('/categories/:id', requireAuth, requireRole('owner'), async (c
 // Items
 menuRouter.get('/items', async (c) => {
   const categoryId = c.req.query('categoryId')
+  const tabletVisible = c.req.query('tabletVisible') === 'true'
+  const baseFilter = eq(inventory.isActive, true)
+  const catFilter = categoryId ? and(baseFilter, eq(inventory.category, categoryId)) : baseFilter
+  const where = tabletVisible ? and(catFilter, eq(inventory.isTabletVisible, true)) : catFilter
   const items = await db
     .select()
     .from(inventory)
-    .where(categoryId ? and(eq(inventory.isActive, true), eq(inventory.category, categoryId)) : eq(inventory.isActive, true))
+    .where(where)
     .orderBy(asc(inventory.sortOrder), asc(inventory.name))
   return c.json({ items })
 })

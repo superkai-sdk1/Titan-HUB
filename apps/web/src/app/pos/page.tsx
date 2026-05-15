@@ -1,10 +1,11 @@
 'use client'
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { useCurrentShift, useOpenShift, useCloseShift } from '@/hooks/useShift'
 import { differenceInMinutes } from 'date-fns'
+import { CheckDetailView } from '@/components/CheckDetailView'
 
 interface CheckCard {
   id: string
@@ -37,15 +38,15 @@ interface SpaceResult {
 
 type NewCheckStep = 'search' | 'tariff' | 'new_client' | 'space'
 
-function getTimerColor(createdAt: string): string {
-  const mins = differenceInMinutes(new Date(), new Date(createdAt))
+function getTimerColor(createdAt: string, now: number): string {
+  const mins = differenceInMinutes(now, new Date(createdAt))
   if (mins < 30) return 'var(--on-surface-variant)'
   if (mins < 60) return 'var(--warning)'
   return 'var(--danger)'
 }
 
-function formatElapsed(createdAt: string): string {
-  const mins = differenceInMinutes(new Date(), new Date(createdAt))
+function formatElapsed(createdAt: string, now: number): string {
+  const mins = differenceInMinutes(now, new Date(createdAt))
   const h = Math.floor(mins / 60)
   const m = mins % 60
   if (h > 0) return `${h}ч ${m}м`
@@ -57,8 +58,8 @@ function getInitials(name?: string | null): string {
   return name.split(' ').map(p => p[0]).join('').toUpperCase().slice(0, 2)
 }
 
-function isWarning(createdAt: string): boolean {
-  return differenceInMinutes(new Date(), new Date(createdAt)) >= 30
+function isWarning(createdAt: string, now: number): boolean {
+  return differenceInMinutes(now, new Date(createdAt)) >= 30
 }
 
 const TARIFFS = [
@@ -89,6 +90,13 @@ export default function PosPage() {
   const openShift = useOpenShift()
   const closeShift = useCloseShift()
 
+  // Таймер для обновления времени на карточках чеков каждые 30 секунд
+  const [now, setNow] = useState(Date.now())
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 30_000)
+    return () => clearInterval(t)
+  }, [])
+
   const { data: checksData, isLoading } = useQuery({
     queryKey: ['checks', 'active'],
     queryFn: () => api.get<{ checks: CheckCard[] }>('/pos/checks'),
@@ -115,6 +123,18 @@ export default function PosPage() {
   const [cashStart, setCashStart] = useState('0')
   const [eveningType, setEveningType] = useState('none')
 
+  // Prefill cash_start из cash_end предыдущей смены
+  const { data: lastCashEndData } = useQuery({
+    queryKey: ['shifts', 'last-cash-end'],
+    queryFn: () => api.get<{ cashEnd: number | null }>('/shifts/last-cash-end'),
+    enabled: showOpenShift,
+  })
+  useEffect(() => {
+    if (showOpenShift && lastCashEndData?.cashEnd != null) {
+      setCashStart(String(lastCashEndData.cashEnd))
+    }
+  }, [showOpenShift, lastCashEndData])
+
   // New check modal state
   const [showNewCheck, setShowNewCheck] = useState(false)
   const [newCheckStep, setNewCheckStep] = useState<NewCheckStep>('search')
@@ -124,6 +144,9 @@ export default function PosPage() {
   const [newClientNick, setNewClientNick] = useState('')
   const [newClientTier, setNewClientTier] = useState('guest')
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Desktop split-view: активный чек справа
+  const [activeCheckId, setActiveCheckId] = useState<string | null>(null)
 
   // Close shift modal state
   const [showCloseShift, setShowCloseShift] = useState(false)
@@ -197,15 +220,27 @@ export default function PosPage() {
 
   const checks = checksData?.checks ?? []
   const avgTime = checks.length
-    ? Math.round(checks.reduce((acc, c) => acc + differenceInMinutes(new Date(), new Date(c.createdAt)), 0) / checks.length)
+    ? Math.round(checks.reduce((acc, c) => acc + differenceInMinutes(now, new Date(c.createdAt)), 0) / checks.length)
     : 0
 
   const expected = cashBalance?.expected ?? 0
   const cashEndNum = parseFloat(cashEnd || '0') || 0
   const discrepancy = cashEndNum - expected
 
+  // Определяем режим split-view через CSS media
+  // На десктопе клик открывает панель справа, на мобильном — навигация
+  function handleCheckClick(checkId: string) {
+    if (window.innerWidth >= 1024) {
+      setActiveCheckId(checkId)
+    } else {
+      router.push(`/pos/${checkId}`)
+    }
+  }
+
   return (
-    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'row', overflow: 'hidden' }}>
+      {/* Left panel — список чеков (всегда виден) */}
+      <div className="pos-left-panel" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
 
       {/* Page header */}
       <div style={{ padding: '24px 32px 0', flexShrink: 0 }}>
@@ -257,19 +292,21 @@ export default function PosPage() {
 
           {/* Check cards */}
           {checks.map((check) => {
-            const warn = isWarning(check.createdAt)
-            const timerColor = getTimerColor(check.createdAt)
+            const warn = isWarning(check.createdAt, now)
+            const timerColor = getTimerColor(check.createdAt, now)
+            const isActive = activeCheckId === check.id
             return (
               <button
                 key={check.id}
-                onClick={() => router.push(`/pos/${check.id}`)}
+                onClick={() => handleCheckClick(check.id)}
                 className="glass-l2"
                 style={{
                   borderRadius: 20,
                   padding: 14,
                   textAlign: 'left',
                   cursor: 'pointer',
-                  border: '1px solid rgba(255,255,255,0.08)',
+                  border: isActive ? '1px solid rgba(139,92,246,0.6)' : '1px solid rgba(255,255,255,0.08)',
+                  boxShadow: isActive ? '0 0 20px rgba(139,92,246,0.2)' : 'none',
                   display: 'flex',
                   flexDirection: 'column',
                   gap: 0,
@@ -351,7 +388,7 @@ export default function PosPage() {
                       fontSize: 12, fontWeight: 600, color: timerColor,
                       animation: warn ? 'pulse-dot 2s ease-in-out infinite' : 'none',
                     }}>
-                      {formatElapsed(check.createdAt)}
+                      {formatElapsed(check.createdAt, now)}
                     </span>
                   </div>
                   {check.itemCount > 0 && (
@@ -1168,6 +1205,35 @@ export default function PosPage() {
           </div>
         </div>
       )}
+      </div>{/* /pos-left-panel */}
+
+      {/* Right panel — detail view на десктопе */}
+      {activeCheckId && (
+        <div
+          className="pos-right-panel"
+          style={{
+            width: 0,
+            flexShrink: 0,
+            overflow: 'hidden',
+            borderLeft: '1px solid rgba(255,255,255,0.07)',
+            position: 'relative',
+          }}
+        >
+          <CheckDetailView
+            checkId={activeCheckId}
+            onBack={() => setActiveCheckId(null)}
+            onClose={() => setActiveCheckId(null)}
+          />
+        </div>
+      )}
+
+      <style>{`
+        @media (min-width: 1024px) {
+          .pos-right-panel {
+            width: 680px !important;
+          }
+        }
+      `}</style>
     </div>
   )
 }

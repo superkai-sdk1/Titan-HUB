@@ -1,0 +1,248 @@
+'use client'
+import { useState, useEffect, useRef } from 'react'
+import { useRouter } from 'next/navigation'
+import { useQuery } from '@tanstack/react-query'
+import { api } from '@/lib/api'
+import { useAuthStore } from '@/store/auth.store'
+import { differenceInMinutes } from 'date-fns'
+
+interface CheckItem {
+  checkItem: { id: string; quantity: number; priceAtTime: string }
+  item: { id: string; name: string; price: string } | null
+}
+
+interface CheckData {
+  id: string
+  totalAmount: string
+  status: string
+  items: CheckItem[]
+  guestName?: string
+  spaceId?: string | null
+  spaceStartAt?: string | null
+  spaceHourlyRate?: string | null
+}
+
+interface ProfileData {
+  id: string
+  nickname: string
+  role: string
+  linkedSpaceId?: string | null
+}
+
+export default function TabletPage() {
+  const router = useRouter()
+  const { user } = useAuthStore()
+  const [spaceRental, setSpaceRental] = useState(0)
+
+  // Получаем профиль планшета (linkedSpaceId)
+  const { data: profileData } = useQuery({
+    queryKey: ['tablet', 'profile'],
+    queryFn: () => api.get<{ profile: ProfileData }>(`/pos/players/${user!.id}`).then(r => r.profile),
+    enabled: !!user?.id,
+  })
+
+  const linkedSpaceId = profileData?.linkedSpaceId
+
+  // Ищем открытый чек для этого пространства
+  const { data: checksData, isLoading, refetch } = useQuery({
+    queryKey: ['tablet', 'space-check', linkedSpaceId],
+    queryFn: () => api.get<{ checks: CheckData[] }>(`/pos/checks?spaceId=${linkedSpaceId}`),
+    enabled: !!linkedSpaceId,
+    refetchInterval: 10_000,
+  })
+
+  const activeCheck = checksData?.checks?.[0] ?? null
+
+  // SSE для realtime обновлений
+  const sseRef = useRef<EventSource | null>(null)
+  useEffect(() => {
+    if (!activeCheck?.id) return
+    const token = useAuthStore.getState().token
+    if (!token) return
+
+    const es = new EventSource(`/api/pos/checks/${activeCheck.id}/events?token=${token}`)
+    es.onmessage = () => { refetch() }
+    sseRef.current = es
+    return () => { es.close() }
+  }, [activeCheck?.id, refetch])
+
+  // Счётчик аренды
+  useEffect(() => {
+    if (!activeCheck?.spaceId || !activeCheck?.spaceStartAt || !activeCheck?.spaceHourlyRate) return
+    const calc = () => {
+      const mins = differenceInMinutes(new Date(), new Date(activeCheck.spaceStartAt!))
+      setSpaceRental(Math.ceil(mins / 60) * parseFloat(activeCheck.spaceHourlyRate ?? '0'))
+    }
+    calc()
+    const t = setInterval(calc, 30_000)
+    return () => clearInterval(t)
+  }, [activeCheck])
+
+  const baseTotal = parseFloat(activeCheck?.totalAmount ?? '0')
+  const total = baseTotal + spaceRental
+
+  // ─── Ожидание открытия сессии ─────────────────────────────────────────────
+  if (!isLoading && !activeCheck) {
+    return (
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 24, padding: 40 }}>
+        <div style={{
+          width: 100, height: 100, borderRadius: 32,
+          background: 'rgba(139,92,246,0.1)',
+          border: '1px solid rgba(139,92,246,0.25)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          <span className="material-symbols-outlined" style={{ fontSize: 52, color: '#A78BFA', fontVariationSettings: "'FILL' 0" }}>
+            meeting_room
+          </span>
+        </div>
+        <div style={{ textAlign: 'center' }}>
+          <h1 style={{ fontSize: 28, fontWeight: 900, fontStyle: 'italic', textTransform: 'uppercase', color: 'var(--on-surface)', margin: '0 0 12px' }}>
+            TITAN HUB
+          </h1>
+          <p style={{ fontSize: 16, color: 'var(--on-surface-variant)', margin: 0 }}>
+            Ожидание открытия сессии…
+          </p>
+          <p style={{ fontSize: 13, color: 'rgba(204,195,216,0.4)', marginTop: 8 }}>
+            Администратор откроет счёт — он появится здесь автоматически
+          </p>
+        </div>
+
+        {/* Пульсирующий индикатор */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
+          <div style={{
+            width: 8, height: 8, borderRadius: '50%',
+            background: '#A78BFA',
+            boxShadow: '0 0 8px rgba(139,92,246,0.6)',
+            animation: 'pulse-dot 2s ease-in-out infinite',
+          }} />
+          <span style={{ fontSize: 12, color: 'var(--on-surface-variant)' }}>Ожидание подключения</span>
+        </div>
+
+        <style>{`@keyframes pulse-dot { 0%,100%{opacity:1;} 50%{opacity:0.3;} }`}</style>
+      </div>
+    )
+  }
+
+  // ─── Загрузка ─────────────────────────────────────────────────────────────
+  if (isLoading || !activeCheck) {
+    return (
+      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <span className="material-symbols-outlined" style={{ fontSize: 36, color: 'rgba(204,195,216,0.3)', animation: 'spin 1s linear infinite' }}>refresh</span>
+        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      </div>
+    )
+  }
+
+  // ─── Активный чек ─────────────────────────────────────────────────────────
+  return (
+    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+
+      {/* Header */}
+      <div style={{
+        padding: '20px 28px',
+        background: 'rgba(29,26,36,0.6)',
+        backdropFilter: 'blur(20px)',
+        borderBottom: '1px solid rgba(255,255,255,0.08)',
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+      }}>
+        <div>
+          <h1 style={{ fontSize: 22, fontWeight: 900, fontStyle: 'italic', textTransform: 'uppercase', margin: 0, background: 'linear-gradient(135deg, #8B5CF6, #4cd7f6)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+            TITAN HUB
+          </h1>
+          <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: '3px 0 0' }}>
+            {activeCheck.guestName || 'Ваш столик'}
+          </p>
+        </div>
+
+        <button
+          onClick={() => router.push('/tablet/order')}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 10,
+            padding: '14px 24px', borderRadius: 16, border: 'none', cursor: 'pointer',
+            background: 'linear-gradient(135deg, #8B5CF6, #4cd7f6)',
+            color: '#fff', fontSize: 15, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.06em',
+            boxShadow: '0 4px 20px rgba(139,92,246,0.35)',
+          }}
+        >
+          <span className="material-symbols-outlined" style={{ fontSize: 22 }}>add_shopping_cart</span>
+          ЗАКАЗАТЬ
+        </button>
+      </div>
+
+      {/* Content */}
+      <div style={{ flex: 1, overflowY: 'auto', padding: '24px 28px' }}>
+
+        {/* Total + rental */}
+        <div className="glass-l1" style={{ borderRadius: 24, padding: '24px 28px', marginBottom: 24 }}>
+          {spaceRental > 0 && (
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}>
+              <span style={{ fontSize: 14, color: 'var(--on-surface-variant)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span className="material-symbols-outlined" style={{ fontSize: 16 }}>meeting_room</span>
+                Аренда (текущая)
+              </span>
+              <span style={{ fontSize: 16, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: '#A78BFA' }}>
+                +{spaceRental.toLocaleString('ru')} ₽
+              </span>
+            </div>
+          )}
+          <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between' }}>
+            <div>
+              <p style={{ fontSize: 13, color: 'var(--on-surface-variant)', margin: '0 0 4px', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 700 }}>Ваш счёт</p>
+              <p style={{ fontSize: 48, fontWeight: 900, fontStyle: 'italic', fontVariantNumeric: 'tabular-nums', margin: 0, color: 'var(--on-surface)', lineHeight: 1 }}>
+                {total.toLocaleString('ru')} <span style={{ fontSize: 24 }}>₽</span>
+              </p>
+            </div>
+            <div style={{ textAlign: 'right' }}>
+              <p style={{ fontSize: 13, color: 'var(--on-surface-variant)', margin: '0 0 4px' }}>Позиций</p>
+              <p style={{ fontSize: 32, fontWeight: 900, color: 'var(--on-surface)', margin: 0 }}>
+                {activeCheck.items.length}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Items list */}
+        {activeCheck.items.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '48px 0', color: 'var(--on-surface-variant)' }}>
+            <span className="material-symbols-outlined" style={{ fontSize: 48, display: 'block', marginBottom: 16, opacity: 0.3 }}>
+              shopping_cart
+            </span>
+            <p style={{ fontSize: 16, margin: 0 }}>Нет позиций в счёте</p>
+            <p style={{ fontSize: 14, margin: '8px 0 0', opacity: 0.6 }}>Нажмите «Заказать», чтобы добавить</p>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {activeCheck.items.map((ci) => (
+              <div
+                key={ci.checkItem.id}
+                className="glass-l2"
+                style={{ borderRadius: 16, padding: '16px 20px', display: 'flex', alignItems: 'center', gap: 16 }}
+              >
+                <div style={{
+                  width: 44, height: 44, borderRadius: 14, flexShrink: 0,
+                  background: 'rgba(139,92,246,0.1)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: 22, color: '#A78BFA', fontVariationSettings: "'FILL' 1" }}>
+                    restaurant_menu
+                  </span>
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <p style={{ fontSize: 16, fontWeight: 700, margin: 0, color: 'var(--on-surface)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {ci.item?.name ?? '—'}
+                  </p>
+                  <p style={{ fontSize: 13, color: 'var(--on-surface-variant)', margin: '3px 0 0' }}>
+                    {parseFloat(ci.checkItem.priceAtTime).toLocaleString('ru')} ₽ × {ci.checkItem.quantity}
+                  </p>
+                </div>
+                <p style={{ fontSize: 18, fontWeight: 900, fontStyle: 'italic', fontVariantNumeric: 'tabular-nums', color: 'var(--on-surface)', margin: 0, flexShrink: 0 }}>
+                  {(parseFloat(ci.checkItem.priceAtTime) * ci.checkItem.quantity).toLocaleString('ru')} ₽
+                </p>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
