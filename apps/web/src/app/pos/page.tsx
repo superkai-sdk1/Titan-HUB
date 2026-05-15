@@ -62,13 +62,6 @@ function isWarning(createdAt: string, now: number): boolean {
   return differenceInMinutes(now, new Date(createdAt)) >= 30
 }
 
-const TARIFFS = [
-  { id: 'regular', label: 'Обычный', price: 800 },
-  { id: 'resident', label: 'Резидент', price: 600 },
-  { id: 'student', label: 'Студент', price: 500 },
-  { id: 'single', label: 'Разовая игра', price: 1200 },
-  { id: 'none', label: 'Без тарифа', price: 0 },
-]
 
 const TIER_LABELS: Record<string, string> = {
   guest: 'Гость',
@@ -105,8 +98,14 @@ export default function PosPage() {
   })
 
   const createCheck = useMutation({
-    mutationFn: (body: { note?: string; playerId?: string; spaceId?: string }) =>
-      api.post<{ check: { id: string } }>('/pos/checks', body),
+    mutationFn: async (body: { note?: string; playerId?: string; spaceId?: string; tariffItemId?: string }) => {
+      const { tariffItemId, ...checkBody } = body
+      const res = await api.post<{ check: { id: string } }>('/pos/checks', checkBody)
+      if (tariffItemId) {
+        await api.post(`/pos/checks/${res.check.id}/items`, { menuItemId: tariffItemId, quantity: 1 })
+      }
+      return res
+    },
     onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ['checks'] })
       router.push(`/pos/${res.check.id}`)
@@ -183,6 +182,14 @@ export default function PosPage() {
     queryFn: () => api.get<{ spaces: SpaceResult[] }>('/pos/spaces'),
     enabled: newCheckStep === 'space',
   })
+
+  // Menu items for tariff step — loaded from DB
+  const { data: menuItemsData } = useQuery({
+    queryKey: ['menu', 'items', 'tariffs'],
+    queryFn: () => api.get<{ items: { id: string; name: string; price: string | number; isActive: boolean }[] }>('/menu/items/all'),
+    enabled: newCheckStep === 'tariff',
+  })
+  const tariffItems = (menuItemsData?.items ?? []).filter(i => i.isActive)
 
   // Debounced player search
   useEffect(() => {
@@ -854,33 +861,70 @@ export default function PosPage() {
                   </div>
                 </div>
 
-                {/* Tariff grid */}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10 }}>
-                  {TARIFFS.map(tariff => (
+                {/* Tariff grid — from DB */}
+                {!menuItemsData ? (
+                  <div style={{ textAlign: 'center', padding: '32px 0', color: 'var(--on-surface-variant)', fontSize: 13 }}>
+                    Загрузка тарифов…
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {tariffItems.map(item => {
+                      const price = parseFloat(String(item.price)) || 0
+                      return (
+                        <button
+                          key={item.id}
+                          onClick={() => createCheck.mutate({ playerId: selectedPlayer.id, tariffItemId: item.id })}
+                          disabled={createCheck.isPending}
+                          className="glass-l2"
+                          style={{
+                            padding: '16px 18px', borderRadius: 16,
+                            border: '1px solid rgba(255,255,255,0.08)',
+                            cursor: 'pointer', textAlign: 'left',
+                            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                            gap: 12, transition: 'all 0.15s',
+                            opacity: createCheck.isPending ? 0.6 : 1,
+                          }}
+                          onMouseEnter={e => { e.currentTarget.style.borderColor = 'rgba(139,92,246,0.45)'; e.currentTarget.style.background = 'rgba(139,92,246,0.08)' }}
+                          onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)'; e.currentTarget.style.background = '' }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                            <div style={{ width: 36, height: 36, borderRadius: 10, background: 'rgba(139,92,246,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                              <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#A78BFA', fontVariationSettings: "'FILL' 1" }}>confirmation_number</span>
+                            </div>
+                            <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--on-surface)' }}>{item.name}</span>
+                          </div>
+                          <span style={{ fontSize: 18, fontWeight: 900, fontStyle: 'italic', color: '#A78BFA', flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>
+                            {price.toLocaleString('ru')} ₽
+                          </span>
+                        </button>
+                      )
+                    })}
+
+                    {/* Без тарифа */}
                     <button
-                      key={tariff.id}
-                      onClick={() => createCheck.mutate({ playerId: selectedPlayer.id, note: tariff.id !== 'none' ? `Тариф: ${tariff.label}` : undefined })}
+                      onClick={() => createCheck.mutate({ playerId: selectedPlayer.id })}
                       disabled={createCheck.isPending}
                       className="glass-l2"
                       style={{
-                        padding: '18px 14px', borderRadius: 16,
-                        border: '1px solid rgba(255,255,255,0.08)',
+                        marginTop: 4, padding: '14px 18px', borderRadius: 16,
+                        border: '1px solid rgba(255,255,255,0.06)',
                         cursor: 'pointer', textAlign: 'left',
-                        display: 'flex', flexDirection: 'column', gap: 6,
-                        transition: 'all 0.15s',
-                        opacity: createCheck.isPending ? 0.6 : 1,
+                        display: 'flex', alignItems: 'center', gap: 12,
+                        opacity: createCheck.isPending ? 0.6 : 1, transition: 'all 0.15s',
                       }}
-                      onMouseEnter={e => { e.currentTarget.style.borderColor = 'rgba(139,92,246,0.45)'; e.currentTarget.style.background = 'rgba(139,92,246,0.08)' }}
-                      onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)'; e.currentTarget.style.background = '' }}
+                      onMouseEnter={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.15)' }}
+                      onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.06)' }}
                     >
-                      <p style={{ fontSize: 13, fontWeight: 700, margin: 0, color: 'var(--on-surface)' }}>{tariff.label}</p>
-                      {tariff.price > 0
-                        ? <p style={{ fontSize: 20, fontWeight: 900, fontStyle: 'italic', fontVariantNumeric: 'tabular-nums', margin: 0, color: '#A78BFA' }}>{tariff.price.toLocaleString('ru')} ₽</p>
-                        : <p style={{ fontSize: 13, margin: 0, color: 'var(--on-surface-variant)' }}>Без добавления</p>
-                      }
+                      <div style={{ width: 36, height: 36, borderRadius: 10, background: 'rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                        <span className="material-symbols-outlined" style={{ fontSize: 18, color: 'var(--on-surface-variant)' }}>block</span>
+                      </div>
+                      <div>
+                        <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--on-surface-variant)' }}>Без тарифа</span>
+                        <p style={{ fontSize: 11, color: 'rgba(204,195,216,0.4)', margin: '2px 0 0' }}>Открыть счёт без добавления позиции</p>
+                      </div>
                     </button>
-                  ))}
-                </div>
+                  </div>
+                )}
               </div>
             )}
 

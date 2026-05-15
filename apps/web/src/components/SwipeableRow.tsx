@@ -38,7 +38,7 @@ export function SwipeableRow({ onDelete, children }: SwipeableRowProps) {
 
   return (
     <div style={{ position: 'relative', overflow: 'hidden' }}>
-      {/* Красный фон с иконкой удаления */}
+      {/* Красный фон — виден только во время свайпа */}
       <div
         style={{
           position: 'absolute',
@@ -51,6 +51,8 @@ export function SwipeableRow({ onDelete, children }: SwipeableRowProps) {
           alignItems: 'center',
           justifyContent: 'center',
           borderRadius: 8,
+          opacity: Math.min(offset / 40, 1),
+          transition: offset === 0 ? 'opacity 0.25s ease' : 'none',
         }}
       >
         <span
