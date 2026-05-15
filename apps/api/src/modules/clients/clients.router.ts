@@ -36,9 +36,25 @@ clientsRouter.use('*', requireAuth)
 
 clientsRouter.get('/', async (c) => {
   const search = c.req.query('search')
+  const filter = c.req.query('filter')
   const page = Number(c.req.query('page') ?? 1)
   const limit = 30
   const offset = (page - 1) * limit
+
+  // debtors filter — clients with negative balance
+  if (filter === 'debtors') {
+    const clients = await db
+      .select()
+      .from(profiles)
+      .where(and(
+        eq(profiles.role, 'client'),
+        isNull(profiles.deletedAt),
+        sql`${profiles.balance}::numeric < 0`,
+      ))
+      .orderBy(sql`${profiles.balance}::numeric asc`)
+    const safe = clients.map(({ pin, passwordHash, ...c }) => c)
+    return c.json({ clients: safe, total: safe.length, page: 1, limit: safe.length })
+  }
 
   const where = and(
     eq(profiles.role, 'client'),
@@ -121,14 +137,16 @@ clientsRouter.get('/:id/transactions', async (c) => {
 clientsRouter.post('/:id/balance', requireRole('owner', 'staff'), zValidator('json', z.object({
   amount: z.number(),
   description: z.string().optional(),
+  reason: z.string().optional(), // alias for description (used by debtors page)
 })), async (c) => {
-  const { amount, description } = c.req.valid('json')
+  const { amount, description, reason } = c.req.valid('json')
+  const note = description ?? reason
   const user = c.get('user')
   const [client] = await db.select().from(profiles).where(eq(profiles.id, c.req.param('id')))
   if (!client) return c.json({ error: 'Not found' }, 404)
 
   const newBalance = parseFloat(client.balance) + amount
-  if (newBalance < 0) return c.json({ error: 'Insufficient balance' }, 400)
+  // Allow negative balance (debt scenario) — no floor check
 
   await db.update(profiles).set({ balance: String(newBalance) }).where(eq(profiles.id, client.id))
   await db.insert(transactions).values({
@@ -136,7 +154,7 @@ clientsRouter.post('/:id/balance', requireRole('owner', 'staff'), zValidator('js
     amount: String(Math.abs(amount)),
     playerId: client.id,
     createdBy: user.sub,
-    description,
+    description: note,
   })
 
   return c.json({ balance: newBalance })
