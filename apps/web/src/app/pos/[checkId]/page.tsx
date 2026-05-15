@@ -150,7 +150,7 @@ export default function CheckDetailPage({ params }: { params: Promise<{ checkId:
       setSpaceRental(Math.ceil(mins / 60) * parseFloat(check.spaceHourlyRate ?? '0'))
     }
     calc()
-    const t = setInterval(calc, 900000) // каждые 15 минут
+    const t = setInterval(calc, 15000) // каждые 15 секунд
     return () => clearInterval(t)
   }, [check])
 

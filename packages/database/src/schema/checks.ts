@@ -17,6 +17,7 @@ export const checkStatusEnum = pgEnum('check_status', ['open', 'closed', 'cancel
 export const paymentMethodEnum = pgEnum('payment_method', [
   'cash',
   'card',
+  'transfer',
   'bonus',
   'deposit',
   'debt',

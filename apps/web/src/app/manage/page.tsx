@@ -4,12 +4,16 @@ import { useAuthStore } from '@/store/auth.store'
 
 const ALL_SECTIONS = [
   { href: '/manage/menu', label: 'Меню', icon: 'restaurant_menu', roles: ['owner', 'staff'], color: '#8B5CF6' },
+  { href: '/manage/inventory', label: 'Остатки', icon: 'inventory', roles: ['owner', 'staff'], color: '#10B981' },
   { href: '/manage/clients', label: 'Клиенты', icon: 'group', roles: ['owner', 'staff'], color: '#4cd7f6' },
+  { href: '/manage/debtors', label: 'Должники', icon: 'money_off', roles: ['owner', 'staff'], color: '#F43F5E' },
   { href: '/manage/events', label: 'События', icon: 'event', roles: ['owner', 'staff'], color: '#10B981' },
   { href: '/manage/spaces', label: 'Зоны', icon: 'table_bar', roles: ['owner', 'staff'], color: '#F59E0B' },
   { href: '/manage/supplies', label: 'Закупки', icon: 'inventory_2', roles: ['owner', 'staff'], color: '#3B82F6' },
   { href: '/manage/expenses', label: 'Расходы', icon: 'receipt_long', roles: ['owner', 'staff'], color: '#F43F5E' },
+  { href: '/manage/cashops', label: 'Инкассация', icon: 'account_balance', roles: ['owner', 'staff'], color: '#F59E0B' },
   { href: '/manage/certificates', label: 'Сертификаты', icon: 'card_giftcard', roles: ['owner', 'staff'], color: '#10B981' },
+  { href: '/manage/discounts', label: 'Скидки', icon: 'discount', roles: ['owner'], color: '#A78BFA' },
   { href: '/manage/salary', label: 'Зарплата', icon: 'payments', roles: ['owner'], color: '#F59E0B' },
   { href: '/manage/refunds', label: 'Возвраты', icon: 'undo', roles: ['owner', 'staff'], color: '#F87171' },
   { href: '/shifts', label: 'Смены', icon: 'schedule', roles: ['owner', 'staff'], color: '#8B5CF6' },
@@ -17,6 +21,7 @@ const ALL_SECTIONS = [
   { href: '/manage/staff', label: 'Персонал', icon: 'badge', roles: ['owner'], color: '#A78BFA' },
   { href: '/manage/ai', label: 'AI Помощник', icon: 'psychology', roles: ['owner', 'staff'], color: '#4cd7f6' },
   { href: '/manage/settings', label: 'Настройки', icon: 'settings', roles: ['owner'], color: '#94A3B8' },
+  { href: '/manage/about', label: 'О системе', icon: 'info', roles: ['owner'], color: '#94A3B8' },
 ]
 
 export default function ManagePage() {

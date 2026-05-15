@@ -422,12 +422,29 @@ function CloseShiftModal({ onClose, onClosed }: { onClose: () => void; onClosed:
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          {/* Expected cash */}
-          <div className="glass-l2" style={{ borderRadius: 12, padding: 14, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: 13, color: 'var(--on-surface-variant)' }}>Ожидаемая касса</span>
-            <span style={{ fontSize: 16, fontWeight: 800, fontStyle: 'italic', fontVariantNumeric: 'tabular-nums', color: '#10B981' }}>
-              {fmt(expected)} ₽
-            </span>
+          {/* Expected cash breakdown */}
+          <div className="glass-l2" style={{ borderRadius: 12, padding: 14 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: cashBalance ? 10 : 0 }}>
+              <span style={{ fontSize: 13, color: 'var(--on-surface-variant)' }}>Ожидаемая касса</span>
+              <span style={{ fontSize: 16, fontWeight: 800, fontStyle: 'italic', fontVariantNumeric: 'tabular-nums', color: '#10B981' }}>
+                {fmt(expected)} ₽
+              </span>
+            </div>
+            {cashBalance && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4, borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 10 }}>
+                {[
+                  ['Начало смены', fmt(parseNum(cashBalance.cashStart)), '+'],
+                  ['Наличные платежи', fmt(parseNum(cashBalance.cashPayments)), '+'],
+                  ...(parseNum(cashBalance.deposits) > 0 ? [['Внесения', fmt(parseNum(cashBalance.deposits)), '+']] : []),
+                  ...(parseNum(cashBalance.withdrawals) > 0 ? [['Изъятия', fmt(parseNum(cashBalance.withdrawals)), '−']] : []),
+                ].map(([label, val, sign]) => (
+                  <div key={String(label)} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--on-surface-variant)' }}>
+                    <span>{label}</span>
+                    <span style={{ fontFamily: 'JetBrains Mono', color: sign === '−' ? '#F87171' : 'rgba(204,195,216,0.7)' }}>{sign} {val} ₽</span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           <div>

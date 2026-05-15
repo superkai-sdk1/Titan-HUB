@@ -1,8 +1,10 @@
 'use client'
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuthStore } from '@/store/auth.store'
 import { api, ApiError } from '@/lib/api'
+
+const REMEMBERED_KEY = 'tpos-remembered-user'
 
 type Tab = 'pin' | 'password'
 
@@ -13,6 +15,17 @@ export default function LoginPage() {
   const [pin, setPin] = useState('')
   const [pinError, setPinError] = useState(false)
   const [nickname, setNickname] = useState('')
+  const [rememberedNickname, setRememberedNickname] = useState<string | null>(null)
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(REMEMBERED_KEY)
+      if (saved) {
+        const { nickname: nick } = JSON.parse(saved)
+        if (nick) setRememberedNickname(nick)
+      }
+    } catch {}
+  }, [])
   const [password, setPassword] = useState('')
   const [nickFocused, setNickFocused] = useState(false)
   const [passFocused, setPassFocused] = useState(false)
@@ -28,6 +41,7 @@ export default function LoginPage() {
     setError('')
     try {
       const res = await api.post<{ token: string; user: any }>('/auth/login/pin', { pin: fullPin })
+      try { localStorage.setItem(REMEMBERED_KEY, JSON.stringify({ nickname: res.user?.nickname, userId: res.user?.id })) } catch {}
       setAuth(res.token, res.user)
       router.replace('/pos')
     } catch (e) {
@@ -59,6 +73,7 @@ export default function LoginPage() {
     setError('')
     try {
       const res = await api.post<{ token: string; user: any; needsPinSetup?: boolean }>('/auth/login/password', { nickname, password })
+      try { localStorage.setItem(REMEMBERED_KEY, JSON.stringify({ nickname: res.user?.nickname ?? nickname, userId: res.user?.id })) } catch {}
       if (res.needsPinSetup) {
         setPendingAuth({ token: res.token, user: res.user })
         setNeedsPinSetup(true)
@@ -167,7 +182,7 @@ export default function LoginPage() {
               TITAN HUB
             </h1>
             <p style={{ color: 'var(--on-surface-variant)', fontSize: 13, margin: '6px 0 0' }}>
-              ВХОД В СИСТЕМУ
+              {rememberedNickname ? `Привет, ${rememberedNickname}!` : 'ВХОД В СИСТЕМУ'}
             </p>
           </div>
 

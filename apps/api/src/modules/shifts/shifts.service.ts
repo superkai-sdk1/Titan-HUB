@@ -1,4 +1,4 @@
-import { db, shifts, checks, checkPayments, profiles, eq, and, isNull, sql, desc, sum } from '@titan/database'
+import { db, shifts, checks, checkPayments, cashOperations, profiles, eq, and, isNull, sql, desc, sum } from '@titan/database'
 
 export async function getCurrentShift() {
   const [shift] = await db
@@ -80,9 +80,20 @@ export async function getShiftCashBalance(shiftId: string) {
 
   const cashPayments = parseFloat(String(cashSum?.total ?? 0)) || 0
   const cashStart = parseFloat(String(shift.cashStart ?? 0)) || 0
-  const expected = cashStart + cashPayments
 
-  return { expected, cashStart, cashPayments }
+  // Cash operations: deposits (+) and withdrawals (-) during this shift
+  const [opsSum] = await db.select({
+    deposits: sql<string>`coalesce(sum(case when type = 'deposit' then amount::numeric else 0 end), 0)`,
+    withdrawals: sql<string>`coalesce(sum(case when type = 'withdrawal' then amount::numeric else 0 end), 0)`,
+  })
+    .from(cashOperations)
+    .where(eq(cashOperations.shiftId, shiftId))
+
+  const deposits = parseFloat(String(opsSum?.deposits ?? 0)) || 0
+  const withdrawals = parseFloat(String(opsSum?.withdrawals ?? 0)) || 0
+  const expected = cashStart + cashPayments + deposits - withdrawals
+
+  return { expected, cashStart, cashPayments, deposits, withdrawals }
 }
 
 export async function getShiftAnalytics(shiftId: string) {

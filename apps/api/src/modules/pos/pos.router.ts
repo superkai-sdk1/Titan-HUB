@@ -26,7 +26,7 @@ const AddItemSchema = z.object({
 
 const PaySchema = z.object({
   payments: z.array(z.object({
-    method: z.enum(['cash', 'card', 'bonus', 'deposit', 'debt', 'split', 'certificate']),
+    method: z.enum(['cash', 'card', 'transfer', 'bonus', 'deposit', 'debt', 'split', 'certificate']),
     amount: z.number().positive(),
   })).min(1),
   certificateCode: z.string().optional(),
