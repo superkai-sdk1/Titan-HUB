@@ -114,6 +114,28 @@ menuRouter.delete('/items/:id', requireAuth, requireRole('owner'), async (c) => 
   return c.json({ ok: true })
 })
 
+// Reorder items
+menuRouter.patch('/items/reorder', requireAuth, requireRole('owner', 'staff'), zValidator('json', z.object({
+  items: z.array(z.object({ id: z.string().uuid(), sortOrder: z.number().int() }))
+})), async (c) => {
+  const { items } = c.req.valid('json')
+  await Promise.all(items.map(({ id, sortOrder }) =>
+    db.update(inventory).set({ sortOrder, updatedAt: new Date() }).where(eq(inventory.id, id))
+  ))
+  return c.json({ ok: true })
+})
+
+// Reorder categories
+menuRouter.patch('/categories/reorder', requireAuth, requireRole('owner', 'staff'), zValidator('json', z.object({
+  items: z.array(z.object({ id: z.string().uuid(), sortOrder: z.number().int() }))
+})), async (c) => {
+  const { items } = c.req.valid('json')
+  await Promise.all(items.map(({ id, sortOrder }) =>
+    db.update(menuCategories).set({ sortOrder }).where(eq(menuCategories.id, id))
+  ))
+  return c.json({ ok: true })
+})
+
 // Modifiers
 menuRouter.get('/items/:id/modifiers', async (c) => {
   const mods = await db.select().from(modifiers).where(eq(modifiers.productId, c.req.param('id')))

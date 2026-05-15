@@ -1,6 +1,23 @@
 'use client'
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  TouchSensor,
+  useSensor,
+  useSensors,
+} from '@dnd-kit/core'
+import type { DragEndEvent } from '@dnd-kit/core'
+import {
+  SortableContext,
+  verticalListSortingStrategy,
+  rectSortingStrategy,
+  useSortable,
+  arrayMove,
+} from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import { api } from '@/lib/api'
 import { PageHeader, Sheet, INP, SEL, LBL } from '@/components/manage/DesignSystem'
 
@@ -25,6 +42,110 @@ function MiniToggle({ value, onChange }: { value: boolean; onChange: (v: boolean
   )
 }
 
+function SortableItem({ item, cats, onEdit, onDelete }: { item: any; cats: any[]; onEdit: () => void; onDelete: () => void }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: item.id })
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : item.isActive ? 1 : 0.5,
+    zIndex: isDragging ? 999 : 'auto',
+  }
+
+  const cat = cats.find((c: any) => c.id === item.category)
+  const catName = cat?.name ?? item.category ?? null
+  const catColor = cat ? getCatColor(cat.name) : '#94A3B8'
+  const stock = parseNum(item.stockQuantity)
+  const stockColor = stock === 0 ? '#F43F5E' : stock <= 5 ? '#F59E0B' : '#10B981'
+
+  return (
+    <div ref={setNodeRef} style={style}>
+      <div className="glass-l2" style={{ borderRadius: 14, padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 10 }}>
+        {/* Drag handle */}
+        <span
+          className="material-symbols-outlined"
+          {...attributes}
+          {...listeners}
+          style={{ fontSize: 20, color: 'rgba(204,195,216,0.3)', cursor: 'grab', flexShrink: 0, touchAction: 'none', userSelect: 'none' }}
+        >
+          drag_indicator
+        </span>
+
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+            <p style={{ fontSize: 14, fontWeight: 700, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.name}</p>
+            {item.isTop && (
+              <div style={{ width: 18, height: 18, borderRadius: 5, background: 'rgba(245,158,11,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <span className="material-symbols-outlined" style={{ fontSize: 12, color: '#F59E0B', fontVariationSettings: "'FILL' 1" }}>star</span>
+              </div>
+            )}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' as const }}>
+            {catName && (
+              <span style={{ fontSize: 10, fontWeight: 700, fontFamily: "'JetBrains Mono',monospace", padding: '2px 8px', borderRadius: 6, background: `${catColor}22`, color: catColor, letterSpacing: '0.04em' }}>
+                {cat?.icon} {catName}
+              </span>
+            )}
+            {item.trackStock && (
+              <span style={{ fontSize: 10, fontWeight: 700, fontFamily: "'JetBrains Mono',monospace", padding: '2px 8px', borderRadius: 6, background: `${stockColor}15`, color: stockColor, letterSpacing: '0.04em' }}>
+                {Math.floor(stock)} шт
+              </span>
+            )}
+            {item.trackStock && Number(item.stockQuantity) === 0 && (
+              <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 6, background: 'rgba(244,63,94,0.15)', color: '#F43F5E', fontFamily: "'JetBrains Mono',monospace", letterSpacing: '0.04em' }}>
+                НЕТ В НАЛИЧИИ
+              </span>
+            )}
+          </div>
+        </div>
+
+        <p style={{ fontSize: 15, fontWeight: 800, fontStyle: 'italic', color: 'var(--on-surface)', margin: 0, flexShrink: 0 }}>{parseNum(item.price).toLocaleString('ru')} ₽</p>
+        <button onClick={onEdit} style={{ width: 32, height: 32, borderRadius: 8, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(139,92,246,0.1)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#a78bfa', flexShrink: 0 }}>
+          <span className="material-symbols-outlined" style={{ fontSize: 16 }}>edit</span>
+        </button>
+        <button onClick={onDelete} style={{ width: 32, height: 32, borderRadius: 8, border: '1px solid rgba(244,63,94,0.2)', background: 'rgba(244,63,94,0.08)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#F87171', flexShrink: 0 }}>
+          <span className="material-symbols-outlined" style={{ fontSize: 16 }}>delete</span>
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function SortableCatCard({ cat, itemCount, onEdit, onDelete }: { cat: any; itemCount: number; onEdit: () => void; onDelete: () => void }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: cat.id })
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+    zIndex: isDragging ? 999 : 'auto',
+  }
+  const color = getCatColor(cat.name)
+
+  return (
+    <div ref={setNodeRef} style={style}>
+      <div className="glass-l2" style={{ borderRadius: 16, padding: 16, cursor: 'pointer', position: 'relative' }} onClick={onEdit}>
+        {/* Drag handle */}
+        <span
+          className="material-symbols-outlined"
+          {...attributes}
+          {...listeners}
+          style={{ position: 'absolute', top: 10, left: 10, fontSize: 18, color: 'rgba(204,195,216,0.3)', cursor: 'grab', touchAction: 'none', userSelect: 'none' }}
+        >
+          drag_indicator
+        </span>
+        <div style={{ fontSize: 32, marginBottom: 10, marginTop: 4 }}>{cat.icon || '📦'}</div>
+        <p style={{ fontSize: 14, fontWeight: 700, margin: '0 0 4px' }}>{cat.name}</p>
+        <p style={{ fontSize: 12, color, margin: 0, fontWeight: 600, fontFamily: "'JetBrains Mono',monospace" }}>{itemCount} позиций</p>
+        <button
+          onClick={e => { e.stopPropagation(); onDelete() }}
+          style={{ position: 'absolute', top: 10, right: 10, width: 26, height: 26, borderRadius: 6, border: '1px solid rgba(244,63,94,0.2)', background: 'rgba(244,63,94,0.08)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#F87171' }}
+        >
+          <span className="material-symbols-outlined" style={{ fontSize: 14 }}>delete</span>
+        </button>
+      </div>
+    </div>
+  )
+}
+
 export default function MenuPage() {
   const qc = useQueryClient()
   const [activeTab, setActiveTab] = useState<'items' | 'cats'>('items')
@@ -35,17 +156,79 @@ export default function MenuPage() {
   const [catForm, setCatForm] = useState<any>(BLANK_CAT)
   const [editingCat, setEditingCat] = useState<any>(null)
   const [showCatForm, setShowCatForm] = useState(false)
+  const [sortedItems, setSortedItems] = useState<any[]>([])
+  const [sortedCats, setSortedCats] = useState<any[]>([])
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(TouchSensor, { activationConstraint: { distance: 8 } })
+  )
 
   const { data: catsData } = useQuery({ queryKey: ['menu', 'categories'], queryFn: () => api.get<any>('/menu/categories') })
   const { data: itemsData } = useQuery({ queryKey: ['menu', 'items', 'all'], queryFn: () => api.get<any>('/menu/items/all') })
   const cats: any[] = catsData?.categories ?? []
   const allItems: any[] = itemsData?.items ?? []
-  const items = allItems.filter(i => !search || i.name?.toLowerCase().includes(search.toLowerCase()))
 
-  const saveItem = useMutation({ mutationFn: (b: any) => editing ? api.patch(`/menu/items/${editing.id}`, b) : api.post('/menu/items', b), onSuccess: () => { qc.invalidateQueries({ queryKey: ['menu', 'items'] }); setShowForm(false); setEditing(null); setForm(BLANK_ITEM) } })
-  const delItem = useMutation({ mutationFn: (id: string) => api.delete(`/menu/items/${id}`), onSuccess: () => qc.invalidateQueries({ queryKey: ['menu', 'items'] }) })
-  const saveCat = useMutation({ mutationFn: (b: any) => editingCat ? api.patch(`/menu/categories/${editingCat.id}`, b) : api.post('/menu/categories', b), onSuccess: () => { qc.invalidateQueries({ queryKey: ['menu', 'categories'] }); setShowCatForm(false); setEditingCat(null); setCatForm(BLANK_CAT) } })
-  const delCat = useMutation({ mutationFn: (id: string) => api.delete(`/menu/categories/${id}`), onSuccess: () => qc.invalidateQueries({ queryKey: ['menu', 'categories'] }) })
+  useEffect(() => {
+    if (allItems.length) setSortedItems([...allItems])
+  }, [allItems])
+
+  useEffect(() => {
+    if (cats.length) setSortedCats([...cats])
+  }, [cats])
+
+  const filteredItems = sortedItems.filter(i => !search || i.name?.toLowerCase().includes(search.toLowerCase()))
+
+  const saveItem = useMutation({
+    mutationFn: (b: any) => editing ? api.patch(`/menu/items/${editing.id}`, b) : api.post('/menu/items', b),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['menu', 'items'] }); setShowForm(false); setEditing(null); setForm(BLANK_ITEM) }
+  })
+  const delItem = useMutation({
+    mutationFn: (id: string) => api.delete(`/menu/items/${id}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['menu', 'items'] })
+  })
+  const saveCat = useMutation({
+    mutationFn: (b: any) => editingCat ? api.patch(`/menu/categories/${editingCat.id}`, b) : api.post('/menu/categories', b),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['menu', 'categories'] }); setShowCatForm(false); setEditingCat(null); setCatForm(BLANK_CAT) }
+  })
+  const delCat = useMutation({
+    mutationFn: (id: string) => api.delete(`/menu/categories/${id}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['menu', 'categories'] })
+  })
+
+  const reorderItems = useMutation({
+    mutationFn: (items: { id: string; sortOrder: number }[]) => api.patch('/menu/items/reorder', { items }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['menu', 'items'] })
+  })
+
+  const reorderCats = useMutation({
+    mutationFn: (items: { id: string; sortOrder: number }[]) => api.patch('/menu/categories/reorder', { items }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['menu', 'categories'] })
+  })
+
+  function handleItemDragEnd(event: DragEndEvent) {
+    const { active, over } = event
+    if (!over || active.id === over.id) return
+    setSortedItems(prev => {
+      const oldIndex = prev.findIndex(i => i.id === active.id)
+      const newIndex = prev.findIndex(i => i.id === over.id)
+      const next = arrayMove(prev, oldIndex, newIndex)
+      reorderItems.mutate(next.map((item, idx) => ({ id: item.id, sortOrder: idx })))
+      return next
+    })
+  }
+
+  function handleCatDragEnd(event: DragEndEvent) {
+    const { active, over } = event
+    if (!over || active.id === over.id) return
+    setSortedCats(prev => {
+      const oldIndex = prev.findIndex(c => c.id === active.id)
+      const newIndex = prev.findIndex(c => c.id === over.id)
+      const next = arrayMove(prev, oldIndex, newIndex)
+      reorderCats.mutate(next.map((cat, idx) => ({ id: cat.id, sortOrder: idx })))
+      return next
+    })
+  }
 
   function openItem(item?: any) {
     setEditing(item ?? null)
@@ -85,77 +268,55 @@ export default function MenuPage() {
 
       <div style={{ padding: '16px 16px 100px', flex: 1, maxWidth: 680, margin: '0 auto', width: '100%' }}>
         {activeTab === 'items' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {items.length === 0 && (
-              <div style={{ textAlign: 'center', padding: '60px 0' }}>
-                <span className="material-symbols-outlined" style={{ fontSize: 48, color: 'rgba(204,195,216,0.2)', display: 'block', marginBottom: 12 }}>restaurant_menu</span>
-                <p style={{ fontSize: 14, color: 'rgba(204,195,216,0.4)', margin: 0 }}>{search ? 'Ничего не найдено' : 'Позиций нет'}</p>
-              </div>
-            )}
-            {items.map((item: any) => {
-              const cat = cats.find(c => c.id === item.category)
-              const catName = cat?.name ?? item.category ?? null
-              const catColor = cat ? getCatColor(cat.name) : '#94A3B8'
-              const stock = parseNum(item.stockQuantity)
-              const stockColor = stock === 0 ? '#F43F5E' : stock <= 5 ? '#F59E0B' : '#10B981'
-              return (
-                <div key={item.id} className="glass-l2" style={{ borderRadius: 14, padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 12, opacity: item.isActive ? 1 : 0.5 }}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-                      <p style={{ fontSize: 14, fontWeight: 700, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.name}</p>
-                      {item.isTop && (
-                        <div style={{ width: 18, height: 18, borderRadius: 5, background: 'rgba(245,158,11,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                          <span className="material-symbols-outlined" style={{ fontSize: 12, color: '#F59E0B', fontVariationSettings: "'FILL' 1" }}>star</span>
-                        </div>
-                      )}
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' as const }}>
-                      {catName && (
-                        <span style={{ fontSize: 10, fontWeight: 700, fontFamily: "'JetBrains Mono',monospace", padding: '2px 8px', borderRadius: 6, background: `${catColor}22`, color: catColor, letterSpacing: '0.04em' }}>
-                          {cat?.icon} {catName}
-                        </span>
-                      )}
-                      {item.trackStock && (
-                        <span style={{ fontSize: 10, fontWeight: 700, fontFamily: "'JetBrains Mono',monospace", padding: '2px 8px', borderRadius: 6, background: `${stockColor}15`, color: stockColor, letterSpacing: '0.04em' }}>
-                          {Math.floor(stock)} шт
-                        </span>
-                      )}
-                    </div>
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleItemDragEnd}>
+            <SortableContext items={filteredItems.map(i => i.id)} strategy={verticalListSortingStrategy}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {filteredItems.length === 0 && (
+                  <div style={{ textAlign: 'center', padding: '60px 0' }}>
+                    <span className="material-symbols-outlined" style={{ fontSize: 48, color: 'rgba(204,195,216,0.2)', display: 'block', marginBottom: 12 }}>restaurant_menu</span>
+                    <p style={{ fontSize: 14, color: 'rgba(204,195,216,0.4)', margin: 0 }}>{search ? 'Ничего не найдено' : 'Позиций нет'}</p>
                   </div>
-                  <p style={{ fontSize: 15, fontWeight: 800, fontStyle: 'italic', color: 'var(--on-surface)', margin: 0, flexShrink: 0 }}>{parseNum(item.price).toLocaleString('ru')} ₽</p>
-                  <button onClick={() => openItem(item)} style={{ width: 32, height: 32, borderRadius: 8, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(139,92,246,0.1)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#a78bfa', flexShrink: 0 }}><span className="material-symbols-outlined" style={{ fontSize: 16 }}>edit</span></button>
-                  <button onClick={() => delItem.mutate(item.id)} style={{ width: 32, height: 32, borderRadius: 8, border: '1px solid rgba(244,63,94,0.2)', background: 'rgba(244,63,94,0.08)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#F87171', flexShrink: 0 }}><span className="material-symbols-outlined" style={{ fontSize: 16 }}>delete</span></button>
-                </div>
-              )
-            })}
-          </div>
+                )}
+                {filteredItems.map((item: any) => (
+                  <SortableItem
+                    key={item.id}
+                    item={item}
+                    cats={cats}
+                    onEdit={() => openItem(item)}
+                    onDelete={() => delItem.mutate(item.id)}
+                  />
+                ))}
+              </div>
+            </SortableContext>
+          </DndContext>
         )}
 
         {activeTab === 'cats' && (
           <div>
-            {cats.length === 0 && (
+            {sortedCats.length === 0 && (
               <div style={{ textAlign: 'center', padding: '60px 0' }}>
                 <span className="material-symbols-outlined" style={{ fontSize: 48, color: 'rgba(204,195,216,0.2)', display: 'block', marginBottom: 12 }}>category</span>
                 <p style={{ fontSize: 14, color: 'rgba(204,195,216,0.4)', margin: 0 }}>Категорий нет</p>
               </div>
             )}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10 }}>
-              {cats.map((cat: any) => {
-                const cnt = allItems.filter(i => i.category === cat.id).length
-                const color = getCatColor(cat.name)
-                return (
-                  <div key={cat.id} className="glass-l2" style={{ borderRadius: 16, padding: 16, cursor: 'pointer', position: 'relative' }}
-                    onClick={() => { setEditingCat(cat); setCatForm({ name: cat.name, icon: cat.icon ?? '' }); setShowCatForm(true) }}>
-                    <div style={{ fontSize: 32, marginBottom: 10 }}>{cat.icon || '📦'}</div>
-                    <p style={{ fontSize: 14, fontWeight: 700, margin: '0 0 4px' }}>{cat.name}</p>
-                    <p style={{ fontSize: 12, color, margin: 0, fontWeight: 600, fontFamily: "'JetBrains Mono',monospace" }}>{cnt} позиций</p>
-                    <button onClick={e => { e.stopPropagation(); delCat.mutate(cat.id) }} style={{ position: 'absolute', top: 10, right: 10, width: 26, height: 26, borderRadius: 6, border: '1px solid rgba(244,63,94,0.2)', background: 'rgba(244,63,94,0.08)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#F87171' }}>
-                      <span className="material-symbols-outlined" style={{ fontSize: 14 }}>delete</span>
-                    </button>
-                  </div>
-                )
-              })}
-            </div>
+            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleCatDragEnd}>
+              <SortableContext items={sortedCats.map(c => c.id)} strategy={rectSortingStrategy}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10 }}>
+                  {sortedCats.map((cat: any) => {
+                    const cnt = allItems.filter(i => i.category === cat.id).length
+                    return (
+                      <SortableCatCard
+                        key={cat.id}
+                        cat={cat}
+                        itemCount={cnt}
+                        onEdit={() => { setEditingCat(cat); setCatForm({ name: cat.name, icon: cat.icon ?? '' }); setShowCatForm(true) }}
+                        onDelete={() => delCat.mutate(cat.id)}
+                      />
+                    )
+                  })}
+                </div>
+              </SortableContext>
+            </DndContext>
           </div>
         )}
       </div>
