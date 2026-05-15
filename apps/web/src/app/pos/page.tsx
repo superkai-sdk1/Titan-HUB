@@ -400,7 +400,7 @@ function PosPageInner() {
           ))}
 
           {/* Check cards */}
-          {checks.map((check) => {
+          {checks.map((check, idx) => {
             const warn = isWarning(check.createdAt, now)
             const timerColor = getTimerColor(check.createdAt, now)
             const isActive = activeCheckId === check.id
@@ -408,7 +408,7 @@ function PosPageInner() {
               <button
                 key={check.id}
                 onClick={() => handleCheckClick(check.id)}
-                className="glass-l2"
+                className={`glass-l2 ti-slide-up stagger-${Math.min(idx, 6)}`}
                 style={{
                   borderRadius: 20,
                   padding: 14,

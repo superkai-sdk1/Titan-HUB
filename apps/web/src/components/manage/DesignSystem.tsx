@@ -1,6 +1,7 @@
 'use client'
-import React from 'react'
+import React, { useRef, useCallback, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
+import { motion, AnimatePresence, useMotionValue, useTransform, animate } from 'framer-motion'
 
 // ─── Style constants ────────────────────────────────────────────────────────
 
@@ -63,7 +64,7 @@ export function Toggle({
 // ─── Sheet ──────────────────────────────────────────────────────────────────
 
 export function Sheet({
-  open, onClose, title, children, maxHeight = '90vh',
+  open, onClose, title, children, maxHeight = '90dvh',
 }: {
   open: boolean
   onClose: () => void
@@ -71,58 +72,161 @@ export function Sheet({
   children: React.ReactNode
   maxHeight?: string
 }) {
+  const dragY = useMotionValue(0)
+  const scrollRef = useRef<HTMLDivElement>(null)
+
+  const overlayOpacity = useTransform(dragY, [0, 280], [1, 0])
+  const panelScale    = useTransform(dragY, [0, 200], [1, 0.97])
+
+  useEffect(() => {
+    if (open) animate(dragY, 0, { duration: 0 })
+  }, [open, dragY])
+
+  const DISMISS_THRESHOLD = 120
+  const DISMISS_VELOCITY  = 600
+  const SCROLL_LOCK_SLACK = 4
+
+  const handleDragEnd = useCallback((_: PointerEvent, info: { offset: { y: number }; velocity: { y: number } }) => {
+    const shouldDismiss =
+      info.offset.y > DISMISS_THRESHOLD ||
+      info.velocity.y > DISMISS_VELOCITY
+
+    if (shouldDismiss) {
+      animate(dragY, 600, { duration: 0.25, ease: [0.32, 0.72, 0, 1] }).then(onClose)
+    } else {
+      animate(dragY, 0, { type: 'spring', damping: 30, stiffness: 350 })
+    }
+  }, [dragY, onClose])
+
   return (
-    <>
-      {/* Overlay */}
-      <div
-        onClick={onClose}
-        style={{
-          position: 'fixed', inset: 0,
-          background: 'rgba(0,0,0,0.6)',
-          zIndex: 100,
-          backdropFilter: 'blur(4px)', WebkitBackdropFilter: 'blur(4px)',
-          opacity: open ? 1 : 0,
-          pointerEvents: open ? 'auto' : 'none',
-          transition: 'opacity 0.3s',
-        }}
-      />
+    <AnimatePresence onExitComplete={() => animate(dragY, 0, { duration: 0 })}>
+      {open && (
+        <>
+          {/* Overlay */}
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.22 }}
+            style={{
+              opacity: overlayOpacity,
+              position: 'fixed', inset: 0, zIndex: 100,
+              background: 'rgba(0,0,0,0.65)',
+              backdropFilter: 'blur(10px)',
+              WebkitBackdropFilter: 'blur(10px)',
+            }}
+            onClick={onClose}
+          />
 
-      {/* Sheet */}
-      <div
-        style={{
-          position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 101,
-          transform: open ? 'translateY(0)' : 'translateY(110%)',
-          transition: 'transform 0.32s cubic-bezier(0.32,0.72,0,1)',
-          background: 'rgba(25,22,34,0.98)',
-          backdropFilter: 'blur(32px)', WebkitBackdropFilter: 'blur(32px)',
-          borderRadius: '24px 24px 0 0',
-          boxShadow: '0 -8px 40px rgba(0,0,0,0.5)',
-          maxHeight, overflowY: 'auto',
-          display: 'flex', flexDirection: 'column',
-        }}
-        onClick={e => e.stopPropagation()}
-      >
-        {/* Centering wrapper */}
-        <div style={{ width: '100%', maxWidth: 480, margin: '0 auto', padding: '20px 24px 40px' }}>
-          {/* Handle */}
-          <div style={{ width: 36, height: 4, borderRadius: 2, background: 'rgba(255,255,255,0.15)', margin: '0 auto 20px' }} />
-
-          {title && (
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-              <h2 style={{ fontSize: 18, fontWeight: 800, margin: 0, color: 'var(--on-surface)' }}>{title}</h2>
-              <button
-                onClick={onClose}
-                style={{ width: 32, height: 32, borderRadius: 8, border: '1px solid rgba(255,255,255,0.1)', background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--on-surface-variant)' }}
+          {/* Sheet panel */}
+          <motion.div
+            initial={{ y: '100%' }}
+            animate={{ y: 0 }}
+            exit={{ y: '100%' }}
+            transition={{ type: 'spring', damping: 32, stiffness: 320, restDelta: 0.5 }}
+            style={{
+              y: dragY,
+              scale: panelScale,
+              position: 'fixed',
+              bottom: 0, left: 0, right: 0,
+              zIndex: 101,
+              display: 'flex',
+              alignItems: 'flex-end',
+              justifyContent: 'center',
+            }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div
+              className="glass-1"
+              style={{
+                width: '100%',
+                maxWidth: 480,
+                maxHeight,
+                borderRadius: '24px 24px 0 0',
+                boxShadow: 'var(--sh-drawer)',
+                display: 'flex',
+                flexDirection: 'column',
+                overflow: 'hidden',
+              }}
+            >
+              {/* Drag handle zone */}
+              <motion.div
+                drag="y"
+                dragConstraints={{ top: 0, bottom: 0 }}
+                dragElastic={{ top: 0, bottom: 0.18 }}
+                dragDirectionLock
+                onDragStart={() => {
+                  if ((scrollRef.current?.scrollTop ?? 0) > SCROLL_LOCK_SLACK) {
+                    animate(dragY, 0, { duration: 0 })
+                    return false
+                  }
+                }}
+                onDrag={(_, info) => {
+                  if ((scrollRef.current?.scrollTop ?? 0) > SCROLL_LOCK_SLACK) return
+                  const raw = info.offset.y
+                  dragY.set(raw > 0 ? raw : raw * 0.15)
+                }}
+                onDragEnd={handleDragEnd}
+                style={{
+                  padding: '14px 24px 8px',
+                  cursor: 'grab',
+                  touchAction: 'none',
+                  userSelect: 'none',
+                  flexShrink: 0,
+                }}
               >
-                <span className="material-symbols-outlined" style={{ fontSize: 16 }}>close</span>
-              </button>
-            </div>
-          )}
+                <div style={{
+                  width: 36, height: 4,
+                  background: 'rgba(255,255,255,0.15)',
+                  borderRadius: 4,
+                  margin: '0 auto',
+                }} />
+              </motion.div>
 
-          {children}
-        </div>
-      </div>
-    </>
+              {/* Header */}
+              {title && (
+                <div style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  padding: '4px 24px 16px',
+                  borderBottom: '1px solid rgba(255,255,255,0.06)',
+                  flexShrink: 0,
+                }}>
+                  <h2 style={{ fontSize: 18, fontWeight: 800, margin: 0, color: 'var(--on-surface)' }}>{title}</h2>
+                  <button
+                    onClick={onClose}
+                    style={{
+                      width: 32, height: 32, borderRadius: 10,
+                      border: '1px solid rgba(255,255,255,0.1)',
+                      background: 'rgba(255,255,255,0.05)',
+                      cursor: 'pointer',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      color: 'var(--on-surface-variant)',
+                      flexShrink: 0,
+                    }}
+                  >
+                    <span className="material-symbols-outlined" style={{ fontSize: 16 }}>close</span>
+                  </button>
+                </div>
+              )}
+
+              {/* Scrollable content */}
+              <div
+                ref={scrollRef}
+                style={{
+                  flex: 1,
+                  overflowY: 'auto',
+                  overscrollBehavior: 'contain',
+                  WebkitOverflowScrolling: 'touch',
+                  padding: '20px 24px 40px',
+                }}
+              >
+                {children}
+              </div>
+            </div>
+          </motion.div>
+        </>
+      )}
+    </AnimatePresence>
   )
 }
 

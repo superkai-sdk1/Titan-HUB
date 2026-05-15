@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { format, subDays, startOfMonth, endOfMonth } from 'date-fns'
 import { ru } from 'date-fns/locale'
+import { useCountUp } from '@/hooks/useCountUp'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 type MainTab = 'overview' | 'reports' | 'products' | 'players'
@@ -41,19 +42,23 @@ const INP: React.CSSProperties = { padding: '9px 13px', borderRadius: 10, border
 const LBL: React.CSSProperties = { fontFamily: "'JetBrains Mono',monospace", fontSize: 10, fontWeight: 700, textTransform: 'uppercase' as const, letterSpacing: '0.08em', color: 'var(--on-surface-variant)', margin: '0 0 12px', display: 'block' }
 
 // ─── Shared components ────────────────────────────────────────────────────────
-function KpiCard({ label, value, sub, delta, icon, iconColor, iconBg }: {
-  label: string; value: string; sub: string; delta?: number
+function KpiCard({ label, value, rawValue, suffix = ' ₽', sub, delta, icon, iconColor, iconBg }: {
+  label: string; value?: string; rawValue?: number; suffix?: string; sub: string; delta?: number
   icon: string; iconColor: string; iconBg: string
 }) {
+  const animated = useCountUp(rawValue ?? 0, 700)
+  const displayValue = rawValue !== undefined
+    ? `${animated.toLocaleString('ru', { maximumFractionDigits: 0 })}${suffix}`
+    : (value ?? '')
   return (
-    <div className="glass-l2" style={{ borderRadius: 16, padding: 20 }}>
+    <div className="glass-l2 ti-slide-up" style={{ borderRadius: 16, padding: 20 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
         <div style={{ width: 40, height: 40, borderRadius: 12, background: iconBg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <span className="material-symbols-outlined" style={{ fontSize: 20, color: iconColor }}>{icon}</span>
         </div>
         {delta !== undefined && <DeltaBadge delta={delta} />}
       </div>
-      <p style={{ fontSize: 22, fontWeight: 900, fontStyle: 'italic', margin: '0 0 4px', color: 'var(--on-surface)', lineHeight: 1 }}>{value}</p>
+      <p style={{ fontSize: 22, fontWeight: 900, fontStyle: 'italic', margin: '0 0 4px', color: 'var(--on-surface)', lineHeight: 1 }}>{displayValue}</p>
       <p style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 2px', color: 'var(--on-surface-variant)' }}>{label}</p>
       <p style={{ fontSize: 11, color: 'rgba(204,195,216,0.45)', margin: 0 }}>{sub}</p>
     </div>
@@ -144,10 +149,10 @@ function OverviewTab({ dash, revenue }: { dash: any; revenue: any }) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       {/* Month KPIs */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))', gap: 12 }}>
-        <KpiCard label="Выручка месяц" value={`${fmt(monthRev)} ₽`} sub="последние 30 дней" delta={monthDelta} icon="payments" iconColor="#8B5CF6" iconBg="rgba(139,92,246,0.1)" />
-        <KpiCard label="Прибыль месяц" value={`${fmt(monthProfit)} ₽`} sub={`маржа ${monthRev > 0 ? Math.round((monthProfit / monthRev) * 100) : 0}%`} icon="trending_up" iconColor="#10B981" iconBg="rgba(16,185,129,0.1)" />
-        <KpiCard label="Себестоимость" value={`${fmt(monthCogs)} ₽`} sub="стоимость товаров" icon="inventory" iconColor="#F59E0B" iconBg="rgba(245,158,11,0.1)" />
-        <KpiCard label="Расходы" value={`${fmt(monthExp)} ₽`} sub="операционные" icon="receipt" iconColor="#F43F5E" iconBg="rgba(244,63,94,0.1)" />
+        <KpiCard label="Выручка месяц" rawValue={monthRev} sub="последние 30 дней" delta={monthDelta} icon="payments" iconColor="#8B5CF6" iconBg="rgba(139,92,246,0.1)" />
+        <KpiCard label="Прибыль месяц" rawValue={monthProfit} sub={`маржа ${monthRev > 0 ? Math.round((monthProfit / monthRev) * 100) : 0}%`} icon="trending_up" iconColor="#10B981" iconBg="rgba(16,185,129,0.1)" />
+        <KpiCard label="Себестоимость" rawValue={monthCogs} sub="стоимость товаров" icon="inventory" iconColor="#F59E0B" iconBg="rgba(245,158,11,0.1)" />
+        <KpiCard label="Расходы" rawValue={monthExp} sub="операционные" icon="receipt" iconColor="#F43F5E" iconBg="rgba(244,63,94,0.1)" />
       </div>
 
       {/* Day navigator + chart */}

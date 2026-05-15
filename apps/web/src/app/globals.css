@@ -231,6 +231,44 @@ button, [role="button"] { user-select: none; }
 @keyframes glow-pulse { 0%, 100% { box-shadow: 0 0 12px rgba(139,92,246,0.3) } 50% { box-shadow: 0 0 24px rgba(139,92,246,0.6) } }
 @keyframes ripple { to { width: 500px; height: 500px; opacity: 0; } }
 
+/* ── Titan HUB Motion System ──────────────────────────── */
+/* fade-in */
+@keyframes ti-fade-in {
+  from { opacity: 0 }
+  to   { opacity: 1 }
+}
+/* slide-up */
+@keyframes ti-slide-up {
+  from { opacity: 0; transform: translateY(18px) }
+  to   { opacity: 1; transform: translateY(0) }
+}
+/* pop-in */
+@keyframes ti-pop-in {
+  0%   { opacity: 0; transform: scale(0.82) }
+  60%  { opacity: 1; transform: scale(1.04) }
+  100% { opacity: 1; transform: scale(1) }
+}
+/* slide-in-right — для sheet-контента */
+@keyframes ti-slide-in-right {
+  from { opacity: 0; transform: translateX(16px) }
+  to   { opacity: 1; transform: translateX(0) }
+}
+
+/* Утилитарные классы */
+.ti-fade-in  { animation: ti-fade-in  240ms var(--c-spring) both }
+.ti-slide-up { animation: ti-slide-up 280ms var(--c-spring) both }
+.ti-pop-in   { animation: ti-pop-in   300ms var(--c-snappy) both }
+
+/* Stagger helpers — применять inline style: animation-delay: Xms */
+/* Индексы 0–6 для каскада с шагом 35ms */
+.stagger-0 { animation-delay:   0ms }
+.stagger-1 { animation-delay:  35ms }
+.stagger-2 { animation-delay:  70ms }
+.stagger-3 { animation-delay: 105ms }
+.stagger-4 { animation-delay: 140ms }
+.stagger-5 { animation-delay: 175ms }
+.stagger-6 { animation-delay: 210ms }
+
 .page-enter { animation: page-enter 220ms var(--c-spring); }
 .card-enter { animation: enter-card 180ms var(--c-spring) both; }
 .shake { animation: shake 350ms var(--c-smooth); }
