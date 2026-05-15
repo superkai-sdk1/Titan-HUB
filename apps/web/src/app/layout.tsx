@@ -56,7 +56,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <main
                 style={{
                   flex: 1,
-                  overflow: 'hidden',
+                  overflowY: 'auto',
+                  overflowX: 'hidden',
                   display: 'flex',
                   flexDirection: 'column',
                   // Mobile: bottom nav space
