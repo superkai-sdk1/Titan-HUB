@@ -154,12 +154,15 @@ export default function PosPage() {
       const { tariffItemId, ...checkBody } = body
       const res = await api.post<{ check: { id: string } }>('/pos/checks', checkBody)
       if (tariffItemId) {
-        await api.post(`/pos/checks/${res.check.id}/items`, { menuItemId: tariffItemId, quantity: 1 })
+        // itemId — правильное имя поля согласно AddItemSchema на бэкенде
+        await api.post(`/pos/checks/${res.check.id}/items`, { itemId: tariffItemId, quantity: 1 })
+          .catch(() => {}) // не блокировать навигацию если добавление позиции упало
       }
       return res
     },
     onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ['checks'] })
+      setShowNewCheck(false)
       router.push(`/pos/${res.check.id}`)
     },
   })
