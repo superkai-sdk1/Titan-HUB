@@ -894,7 +894,7 @@ export default function PosPage() {
                     Загрузка тарифов…
                   </div>
                 ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                     {tariffItems.map(item => {
                       const price = parseFloat(String(item.price)) || 0
                       const isSelected = selectedTariffId === item.id
@@ -905,35 +905,30 @@ export default function PosPage() {
                           disabled={createCheck.isPending}
                           className="glass-l2"
                           style={{
-                            padding: '16px 18px', borderRadius: 16,
+                            padding: '18px 14px', borderRadius: 16,
                             border: isSelected ? '1px solid rgba(139,92,246,0.6)' : '1px solid rgba(255,255,255,0.08)',
                             background: isSelected ? 'rgba(139,92,246,0.12)' : 'transparent',
-                            boxShadow: isSelected ? '0 0 0 1px rgba(139,92,246,0.3), inset 0 0 20px rgba(139,92,246,0.05)' : 'none',
+                            boxShadow: isSelected ? '0 0 0 1px rgba(139,92,246,0.3)' : 'none',
                             cursor: 'pointer', textAlign: 'left',
-                            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                            gap: 12, transition: 'all 0.18s',
+                            display: 'flex', flexDirection: 'column', alignItems: 'flex-start',
+                            gap: 10, transition: 'all 0.18s',
                             opacity: createCheck.isPending ? 0.6 : 1,
                           }}
                         >
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                            <div style={{
-                              width: 36, height: 36, borderRadius: 10,
-                              background: isSelected ? 'rgba(139,92,246,0.25)' : 'rgba(139,92,246,0.1)',
-                              display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-                              transition: 'background 0.18s',
-                            }}>
-                              <span className="material-symbols-outlined" style={{ fontSize: 18, color: isSelected ? '#C4B5FD' : '#A78BFA', fontVariationSettings: isSelected ? "'FILL' 1" : "'FILL' 0" }}>confirmation_number</span>
-                            </div>
-                            <div>
-                              <span style={{ fontSize: 14, fontWeight: 700, color: isSelected ? '#E9D5FF' : 'var(--on-surface)' }}>{item.name}</span>
-                              {isSelected && (
-                                <p style={{ fontSize: 10, color: '#A78BFA', margin: '2px 0 0', fontFamily: "'JetBrains Mono',monospace", fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Выбрано</p>
-                              )}
-                            </div>
+                          <div style={{
+                            width: 36, height: 36, borderRadius: 10,
+                            background: isSelected ? 'rgba(139,92,246,0.25)' : 'rgba(139,92,246,0.1)',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            transition: 'background 0.18s',
+                          }}>
+                            <span className="material-symbols-outlined" style={{ fontSize: 18, color: isSelected ? '#C4B5FD' : '#A78BFA', fontVariationSettings: isSelected ? "'FILL' 1" : "'FILL' 0" }}>confirmation_number</span>
                           </div>
-                          <span style={{ fontSize: 18, fontWeight: 900, fontStyle: 'italic', color: isSelected ? '#C4B5FD' : '#A78BFA', flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>
-                            {price.toLocaleString('ru')} ₽
-                          </span>
+                          <div>
+                            <p style={{ fontSize: 14, fontWeight: 700, margin: 0, color: isSelected ? '#E9D5FF' : 'var(--on-surface)' }}>{item.name}</p>
+                            <p style={{ fontSize: 16, fontWeight: 900, fontStyle: 'italic', margin: '4px 0 0', color: isSelected ? '#C4B5FD' : '#A78BFA', fontVariantNumeric: 'tabular-nums' }}>
+                              {price.toLocaleString('ru')} ₽
+                            </p>
+                          </div>
                         </button>
                       )
                     })}
@@ -946,7 +941,8 @@ export default function PosPage() {
                           onClick={() => setSelectedTariffId(null)}
                           disabled={createCheck.isPending}
                           style={{
-                            marginTop: 4, padding: '14px 18px', borderRadius: 16,
+                            gridColumn: '1 / -1',
+                            padding: '14px 18px', borderRadius: 16,
                             border: noTariff ? '1px solid rgba(255,255,255,0.2)' : '1px solid rgba(255,255,255,0.06)',
                             background: noTariff ? 'rgba(255,255,255,0.06)' : 'transparent',
                             cursor: 'pointer', textAlign: 'left',
@@ -970,7 +966,8 @@ export default function PosPage() {
                       onClick={() => createCheck.mutate({ playerId: selectedPlayer.id, tariffItemId: selectedTariffId ?? undefined })}
                       disabled={createCheck.isPending}
                       style={{
-                        marginTop: 8, width: '100%', padding: '15px 0', borderRadius: 16,
+                        gridColumn: '1 / -1',
+                        marginTop: 4, width: '100%', padding: '15px 0', borderRadius: 16,
                         border: 'none', cursor: 'pointer',
                         background: 'linear-gradient(135deg, #8B5CF6, #4cd7f6)',
                         color: '#fff', fontSize: 14, fontWeight: 700,
