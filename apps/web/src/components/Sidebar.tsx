@@ -11,16 +11,15 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { href: '/pos', icon: 'point_of_sale', label: 'POS Система' },
-  { href: '/dashboard', icon: 'dashboard', label: 'Дашборд' },
-  { href: '/manage/clients', icon: 'group', label: 'Клиенты' },
-  { href: '/manage/menu', icon: 'restaurant_menu', label: 'Меню' },
-  { href: '/manage/events', icon: 'event', label: 'События' },
-  { href: '/manage/staff', icon: 'manage_accounts', label: 'Персонал' },
+  { href: '/pos',       icon: 'point_of_sale',   label: 'Касса' },
+  { href: '/events',    icon: 'event',            label: 'События' },
+  { href: '/dashboard', icon: 'dashboard',        label: 'Дашборд' },
+  { href: '/reports',   icon: 'bar_chart',        label: 'Отчёты' },
+  { href: '/manage',    icon: 'settings',         label: 'Управление' },
 ]
 
 const BOTTOM_NAV: NavItem[] = [
-  { href: '/manage/settings', icon: 'settings', label: 'Настройки' },
+  { href: '/shifts',    icon: 'schedule',         label: 'Смены' },
 ]
 
 function getInitialCollapsed(): boolean {
