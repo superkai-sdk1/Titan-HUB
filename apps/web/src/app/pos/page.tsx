@@ -69,6 +69,13 @@ const TIER_LABELS: Record<string, string> = {
   student: 'Студент',
 }
 
+// Маппинг clientTier → название тарифа в меню
+const TIER_TO_TARIFF_NAME: Record<string, string> = {
+  guest: 'Гость',
+  resident: 'Резидент',
+  student: 'Студент',
+}
+
 const SPACE_TYPE_LABELS: Record<string, string> = {
   small_booth: 'Малая кабинка',
   large_booth: 'Большая кабинка',
@@ -142,6 +149,7 @@ export default function PosPage() {
   const [selectedPlayer, setSelectedPlayer] = useState<PlayerResult | null>(null)
   const [newClientNick, setNewClientNick] = useState('')
   const [newClientTier, setNewClientTier] = useState('guest')
+  const [selectedTariffId, setSelectedTariffId] = useState<string | null>(null)
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Desktop split-view: активный чек справа
@@ -190,6 +198,15 @@ export default function PosPage() {
     enabled: newCheckStep === 'tariff',
   })
   const tariffItems = (menuItemsData?.items ?? []).filter(i => i.isActive)
+
+  // Предвыбор тарифа по тиру клиента
+  useEffect(() => {
+    if (newCheckStep !== 'tariff' || !menuItemsData || !selectedPlayer) return
+    const expectedName = TIER_TO_TARIFF_NAME[selectedPlayer.clientTier]
+    if (!expectedName) { setSelectedTariffId(null); return }
+    const match = tariffItems.find(i => i.name.toLowerCase() === expectedName.toLowerCase())
+    setSelectedTariffId(match?.id ?? null)
+  }, [newCheckStep, menuItemsData, selectedPlayer]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Debounced player search
   useEffect(() => {
@@ -861,7 +878,7 @@ export default function PosPage() {
                   </div>
                 </div>
 
-                {/* Tariff grid — from DB */}
+                {/* Tariff list — from DB, with pre-selection by player tier */}
                 {!menuItemsData ? (
                   <div style={{ textAlign: 'center', padding: '32px 0', color: 'var(--on-surface-variant)', fontSize: 13 }}>
                     Загрузка тарифов…
@@ -870,30 +887,41 @@ export default function PosPage() {
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                     {tariffItems.map(item => {
                       const price = parseFloat(String(item.price)) || 0
+                      const isSelected = selectedTariffId === item.id
                       return (
                         <button
                           key={item.id}
-                          onClick={() => createCheck.mutate({ playerId: selectedPlayer.id, tariffItemId: item.id })}
+                          onClick={() => setSelectedTariffId(isSelected ? null : item.id)}
                           disabled={createCheck.isPending}
                           className="glass-l2"
                           style={{
                             padding: '16px 18px', borderRadius: 16,
-                            border: '1px solid rgba(255,255,255,0.08)',
+                            border: isSelected ? '1px solid rgba(139,92,246,0.6)' : '1px solid rgba(255,255,255,0.08)',
+                            background: isSelected ? 'rgba(139,92,246,0.12)' : 'transparent',
+                            boxShadow: isSelected ? '0 0 0 1px rgba(139,92,246,0.3), inset 0 0 20px rgba(139,92,246,0.05)' : 'none',
                             cursor: 'pointer', textAlign: 'left',
                             display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                            gap: 12, transition: 'all 0.15s',
+                            gap: 12, transition: 'all 0.18s',
                             opacity: createCheck.isPending ? 0.6 : 1,
                           }}
-                          onMouseEnter={e => { e.currentTarget.style.borderColor = 'rgba(139,92,246,0.45)'; e.currentTarget.style.background = 'rgba(139,92,246,0.08)' }}
-                          onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)'; e.currentTarget.style.background = '' }}
                         >
                           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                            <div style={{ width: 36, height: 36, borderRadius: 10, background: 'rgba(139,92,246,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                              <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#A78BFA', fontVariationSettings: "'FILL' 1" }}>confirmation_number</span>
+                            <div style={{
+                              width: 36, height: 36, borderRadius: 10,
+                              background: isSelected ? 'rgba(139,92,246,0.25)' : 'rgba(139,92,246,0.1)',
+                              display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                              transition: 'background 0.18s',
+                            }}>
+                              <span className="material-symbols-outlined" style={{ fontSize: 18, color: isSelected ? '#C4B5FD' : '#A78BFA', fontVariationSettings: isSelected ? "'FILL' 1" : "'FILL' 0" }}>confirmation_number</span>
                             </div>
-                            <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--on-surface)' }}>{item.name}</span>
+                            <div>
+                              <span style={{ fontSize: 14, fontWeight: 700, color: isSelected ? '#E9D5FF' : 'var(--on-surface)' }}>{item.name}</span>
+                              {isSelected && (
+                                <p style={{ fontSize: 10, color: '#A78BFA', margin: '2px 0 0', fontFamily: "'JetBrains Mono',monospace", fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Выбрано</p>
+                              )}
+                            </div>
                           </div>
-                          <span style={{ fontSize: 18, fontWeight: 900, fontStyle: 'italic', color: '#A78BFA', flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>
+                          <span style={{ fontSize: 18, fontWeight: 900, fontStyle: 'italic', color: isSelected ? '#C4B5FD' : '#A78BFA', flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>
                             {price.toLocaleString('ru')} ₽
                           </span>
                         </button>
@@ -901,27 +929,47 @@ export default function PosPage() {
                     })}
 
                     {/* Без тарифа */}
+                    {(() => {
+                      const noTariff = selectedTariffId === null
+                      return (
+                        <button
+                          onClick={() => setSelectedTariffId(null)}
+                          disabled={createCheck.isPending}
+                          style={{
+                            marginTop: 4, padding: '14px 18px', borderRadius: 16,
+                            border: noTariff ? '1px solid rgba(255,255,255,0.2)' : '1px solid rgba(255,255,255,0.06)',
+                            background: noTariff ? 'rgba(255,255,255,0.06)' : 'transparent',
+                            cursor: 'pointer', textAlign: 'left',
+                            display: 'flex', alignItems: 'center', gap: 12,
+                            opacity: createCheck.isPending ? 0.6 : 1, transition: 'all 0.18s',
+                          }}
+                        >
+                          <div style={{ width: 36, height: 36, borderRadius: 10, background: 'rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                            <span className="material-symbols-outlined" style={{ fontSize: 18, color: 'var(--on-surface-variant)' }}>block</span>
+                          </div>
+                          <div>
+                            <span style={{ fontSize: 14, fontWeight: 600, color: noTariff ? 'var(--on-surface)' : 'var(--on-surface-variant)' }}>Без тарифа</span>
+                            <p style={{ fontSize: 11, color: 'rgba(204,195,216,0.4)', margin: '2px 0 0' }}>Открыть счёт без добавления позиции</p>
+                          </div>
+                        </button>
+                      )
+                    })()}
+
+                    {/* Confirm button */}
                     <button
-                      onClick={() => createCheck.mutate({ playerId: selectedPlayer.id })}
+                      onClick={() => createCheck.mutate({ playerId: selectedPlayer.id, tariffItemId: selectedTariffId ?? undefined })}
                       disabled={createCheck.isPending}
-                      className="glass-l2"
                       style={{
-                        marginTop: 4, padding: '14px 18px', borderRadius: 16,
-                        border: '1px solid rgba(255,255,255,0.06)',
-                        cursor: 'pointer', textAlign: 'left',
-                        display: 'flex', alignItems: 'center', gap: 12,
-                        opacity: createCheck.isPending ? 0.6 : 1, transition: 'all 0.15s',
+                        marginTop: 8, width: '100%', padding: '15px 0', borderRadius: 16,
+                        border: 'none', cursor: 'pointer',
+                        background: 'linear-gradient(135deg, #8B5CF6, #4cd7f6)',
+                        color: '#fff', fontSize: 14, fontWeight: 700,
+                        boxShadow: '0 4px 20px rgba(139,92,246,0.35)',
+                        opacity: createCheck.isPending ? 0.7 : 1,
+                        transition: 'opacity 0.15s',
                       }}
-                      onMouseEnter={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.15)' }}
-                      onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.06)' }}
                     >
-                      <div style={{ width: 36, height: 36, borderRadius: 10, background: 'rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                        <span className="material-symbols-outlined" style={{ fontSize: 18, color: 'var(--on-surface-variant)' }}>block</span>
-                      </div>
-                      <div>
-                        <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--on-surface-variant)' }}>Без тарифа</span>
-                        <p style={{ fontSize: 11, color: 'rgba(204,195,216,0.4)', margin: '2px 0 0' }}>Открыть счёт без добавления позиции</p>
-                      </div>
+                      {createCheck.isPending ? 'Открываем…' : 'Открыть счёт'}
                     </button>
                   </div>
                 )}
