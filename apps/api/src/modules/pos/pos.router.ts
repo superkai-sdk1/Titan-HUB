@@ -9,6 +9,14 @@ import {
 } from '@titan/database'
 import { requireAuth } from '../../middleware/auth.js'
 import { getCurrentShift } from '../shifts/shifts.service.js'
+import { Redis } from 'ioredis'
+
+function publishEvent(event: string, data: unknown) {
+  const redis = new Redis(process.env['REDIS_URL'] ?? 'redis://redis:6379')
+  redis.publish('titan:updates', JSON.stringify({ event, data, ts: Date.now() }))
+    .finally(() => redis.disconnect())
+    .catch(() => {})
+}
 
 const AddItemSchema = z.object({
   itemId: z.string().uuid(),
@@ -135,6 +143,7 @@ posRouter.post('/checks', zValidator('json', OpenCheckSchema), async (c) => {
     status: 'open',
     ...body,
   }).returning()
+  publishEvent('check:created', { checkId: check.id, shiftId: shift.id })
   return c.json({ check }, 201)
 })
 
@@ -164,6 +173,7 @@ posRouter.delete('/checks/:id', async (c) => {
     .where(and(eq(checks.id, c.req.param('id')), eq(checks.status, 'open')))
     .returning()
   if (!check) return c.json({ error: 'Not found or already closed' }, 400)
+  publishEvent('check:deleted', { checkId: check.id })
   return c.json({ ok: true })
 })
 
@@ -205,6 +215,7 @@ posRouter.post('/checks/:id/items', zValidator('json', AddItemSchema), async (c)
   }
 
   await recalcCheckTotal(checkId)
+  publishEvent('check:updated', { checkId })
   const data = await getCheckWithItems(checkId)
   return c.json({ check: data }, 201)
 })
@@ -305,6 +316,7 @@ posRouter.post('/checks/:id/pay', zValidator('json', PaySchema), async (c) => {
     method: p.method as any,
     amount: String(p.amount),
   })))
+  publishEvent('check:paid', { checkId })
 
   // Deduct bonus
   if (body.bonusAmount && body.bonusAmount > 0 && body.playerId) {
@@ -356,6 +368,8 @@ posRouter.post('/checks/:id/pay', zValidator('json', PaySchema), async (c) => {
     note: body.note ?? null,
     closedAt: new Date(),
   }).where(eq(checks.id, checkId)).returning()
+
+  publishEvent('check:closed', { checkId })
 
   // Award 5% bonus to player
   if (body.playerId) {

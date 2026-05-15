@@ -5,6 +5,7 @@ import { z } from 'zod'
 import { db, appSettings, profiles, eq, and, isNull, count } from '@titan/database'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
 import { getCurrentShift } from '../shifts/shifts.service.js'
+import { Redis } from 'ioredis'
 
 export const systemRouter = new Hono<AppEnv>()
 
@@ -52,16 +53,29 @@ systemRouter.get('/update', requireAuth, async (c) => {
     return writer.write(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`))
   }
 
-  // Send initial ping
-  send('ping', { ts: Date.now() }).catch(() => {})
+  // Subscribe to Redis channel
+  const subscriber = new Redis(process.env['REDIS_URL'] ?? 'redis://redis:6379')
+  await subscriber.subscribe('titan:updates')
 
-  // Keep alive every 25s
+  subscriber.on('message', (_channel: string, message: string) => {
+    try {
+      const payload = JSON.parse(message)
+      send(payload.event, payload.data).catch(() => {})
+    } catch {}
+  })
+
+  // Ping every 25s to keep connection alive
   const interval = setInterval(() => {
     send('ping', { ts: Date.now() }).catch(() => clearInterval(interval))
   }, 25000)
 
+  // Send initial state
+  send('connected', { ts: Date.now() }).catch(() => {})
+
   c.req.raw.signal.addEventListener('abort', () => {
     clearInterval(interval)
+    subscriber.unsubscribe('titan:updates').catch(() => {})
+    subscriber.disconnect()
     writer.close().catch(() => {})
   })
 

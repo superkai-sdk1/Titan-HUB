@@ -8,4 +8,10 @@
 body {
   background-color: var(--color-background);
   color: var(--color-foreground);
+  margin: 0;
+  padding: 0;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }

@@ -8,8 +8,8 @@ import { api } from '@/lib/api'
 const NAV_ITEMS = [
   { href: '/pos', icon: 'point_of_sale', label: 'Касса' },
   { href: '/dashboard', icon: 'dashboard', label: 'Аналитика' },
-  { href: '/manage/clients', icon: 'group', label: 'Клиенты' },
-  { href: '/manage/menu', icon: 'restaurant_menu', label: 'Меню' },
+  { href: '/reports', icon: 'bar_chart', label: 'Отчёты' },
+  { href: '/manage', icon: 'settings', label: 'Управление' },
 ]
 
 export function BottomNav() {
