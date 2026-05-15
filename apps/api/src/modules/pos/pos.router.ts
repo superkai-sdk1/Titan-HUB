@@ -149,13 +149,25 @@ posRouter.get('/checks', async (c) => {
     .from(checks)
     .where(whereClause)
     .orderBy(desc(checks.createdAt))
-  // attach item count
+  // attach item count + player nickname
   const enriched = await Promise.all(rows.map(async (ch) => {
     const [{ count }] = await db
       .select({ count: sql<number>`count(*)::int` })
       .from(checkItems)
       .where(eq(checkItems.checkId, ch.id))
-    return { ...ch, itemCount: count }
+
+    let guestName: string | null = null
+    if (ch.playerId) {
+      const [player] = await db
+        .select({ nickname: profiles.nickname })
+        .from(profiles)
+        .where(eq(profiles.id, ch.playerId))
+      guestName = player?.nickname ?? null
+    } else if (ch.guestNames && ch.guestNames.length > 0) {
+      guestName = ch.guestNames[0]
+    }
+
+    return { ...ch, itemCount: count, guestName }
   }))
   return c.json({ checks: enriched })
 })
