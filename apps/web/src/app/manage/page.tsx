@@ -1,27 +1,22 @@
 'use client'
 import Link from 'next/link'
 import { useAuthStore } from '@/store/auth.store'
-import {
-  UtensilsCrossed, Users, Calendar, MapPin, Package,
-  Receipt, Gift, DollarSign, RotateCcw, Bell, UserCog,
-  Bot, Settings, LogOut, Clock
-} from 'lucide-react'
 
 const ALL_SECTIONS = [
-  { href: '/manage/menu', label: 'Меню', Icon: UtensilsCrossed, roles: ['owner', 'staff'] },
-  { href: '/manage/clients', label: 'Клиенты', Icon: Users, roles: ['owner', 'staff'] },
-  { href: '/manage/events', label: 'События', Icon: Calendar, roles: ['owner', 'staff'] },
-  { href: '/manage/spaces', label: 'Зоны', Icon: MapPin, roles: ['owner', 'staff'] },
-  { href: '/manage/supplies', label: 'Поставки', Icon: Package, roles: ['owner', 'staff'] },
-  { href: '/manage/expenses', label: 'Расходы', Icon: Receipt, roles: ['owner', 'staff'] },
-  { href: '/manage/certificates', label: 'Сертификаты', Icon: Gift, roles: ['owner', 'staff'] },
-  { href: '/manage/salary', label: 'Зарплата', Icon: DollarSign, roles: ['owner'] },
-  { href: '/manage/refunds', label: 'Возвраты', Icon: RotateCcw, roles: ['owner', 'staff'] },
-  { href: '/shifts', label: 'Смены', Icon: Clock, roles: ['owner', 'staff'] },
-  { href: '/manage/notifications', label: 'Уведомления', Icon: Bell, roles: ['owner', 'staff'] },
-  { href: '/manage/staff', label: 'Персонал', Icon: UserCog, roles: ['owner'] },
-  { href: '/manage/ai', label: 'AI Помощник', Icon: Bot, roles: ['owner', 'staff'] },
-  { href: '/manage/settings', label: 'Настройки', Icon: Settings, roles: ['owner'] },
+  { href: '/manage/menu', label: 'Меню', icon: 'restaurant_menu', roles: ['owner', 'staff'], color: '#8B5CF6' },
+  { href: '/manage/clients', label: 'Клиенты', icon: 'group', roles: ['owner', 'staff'], color: '#4cd7f6' },
+  { href: '/manage/events', label: 'События', icon: 'event', roles: ['owner', 'staff'], color: '#10B981' },
+  { href: '/manage/spaces', label: 'Зоны', icon: 'table_bar', roles: ['owner', 'staff'], color: '#F59E0B' },
+  { href: '/manage/supplies', label: 'Закупки', icon: 'inventory_2', roles: ['owner', 'staff'], color: '#3B82F6' },
+  { href: '/manage/expenses', label: 'Расходы', icon: 'receipt_long', roles: ['owner', 'staff'], color: '#F43F5E' },
+  { href: '/manage/certificates', label: 'Сертификаты', icon: 'card_giftcard', roles: ['owner', 'staff'], color: '#10B981' },
+  { href: '/manage/salary', label: 'Зарплата', icon: 'payments', roles: ['owner'], color: '#F59E0B' },
+  { href: '/manage/refunds', label: 'Возвраты', icon: 'undo', roles: ['owner', 'staff'], color: '#F87171' },
+  { href: '/shifts', label: 'Смены', icon: 'schedule', roles: ['owner', 'staff'], color: '#8B5CF6' },
+  { href: '/manage/notifications', label: 'Уведомления', icon: 'notifications', roles: ['owner', 'staff'], color: '#4cd7f6' },
+  { href: '/manage/staff', label: 'Персонал', icon: 'badge', roles: ['owner'], color: '#A78BFA' },
+  { href: '/manage/ai', label: 'AI Помощник', icon: 'psychology', roles: ['owner', 'staff'], color: '#4cd7f6' },
+  { href: '/manage/settings', label: 'Настройки', icon: 'settings', roles: ['owner'], color: '#94A3B8' },
 ]
 
 export default function ManagePage() {
@@ -32,24 +27,32 @@ export default function ManagePage() {
   const sections = ALL_SECTIONS.filter(s => s.roles.includes(role))
 
   return (
-    <div className="min-h-screen bg-background">
-      <div className="sticky top-0 bg-background/95 backdrop-blur border-b border-border z-30 px-4 py-3 safe-top">
-        <div className="flex items-center justify-between">
+    <div style={{ minHeight: '100vh', background: 'var(--background)' }}>
+      <div style={{ position: 'sticky', top: 0, zIndex: 30, background: 'rgba(21,18,27,0.95)', backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)', borderBottom: '1px solid rgba(255,255,255,0.06)', padding: '16px 20px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div>
-            <h1 className="text-lg font-bold">Управление</h1>
-            <p className="text-xs text-muted-foreground">{user?.nickname} · {role}</p>
+            <h1 style={{ fontSize: 20, fontWeight: 800, margin: 0 }}>Управление</h1>
+            <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: '2px 0 0' }}>
+              {user?.nickname} · {role === 'owner' ? 'Владелец' : 'Персонал'}
+            </p>
           </div>
-          <button onClick={logout} className="p-2 text-muted-foreground">
-            <LogOut size={18} />
+          <button onClick={logout} style={{ width: 36, height: 36, borderRadius: 10, border: '1px solid rgba(255,255,255,0.08)', background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--on-surface-variant)' }}>
+            <span className="material-symbols-outlined" style={{ fontSize: 18 }}>logout</span>
           </button>
         </div>
       </div>
 
-      <div className="px-4 py-4 grid grid-cols-3 gap-3">
-        {sections.map(({ href, label, Icon }) => (
-          <Link key={href} href={href} className="flex flex-col items-center gap-2 py-5 rounded-2xl bg-surface border border-border active:scale-95 transition-transform">
-            <Icon size={24} className="text-primary" strokeWidth={1.5} />
-            <span className="text-xs text-center leading-tight">{label}</span>
+      <div style={{ padding: '16px 16px 100px', display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
+        {sections.map(({ href, label, icon, color }) => (
+          <Link key={href} href={href} style={{ textDecoration: 'none' }}>
+            <div className="glass-l2" style={{ borderRadius: 18, padding: '20px 12px 16px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, cursor: 'pointer', transition: 'border-color 0.2s, transform 0.15s', userSelect: 'none' }}
+              onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.borderColor = `${color}55`; (e.currentTarget as HTMLDivElement).style.transform = 'scale(0.97)' }}
+              onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.borderColor = 'rgba(255,255,255,0.08)'; (e.currentTarget as HTMLDivElement).style.transform = 'scale(1)' }}>
+              <div style={{ width: 48, height: 48, borderRadius: 14, background: `${color}18`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <span className="material-symbols-outlined" style={{ fontSize: 24, color }}>{icon}</span>
+              </div>
+              <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--on-surface)', textAlign: 'center', lineHeight: 1.3 }}>{label}</span>
+            </div>
           </Link>
         ))}
       </div>

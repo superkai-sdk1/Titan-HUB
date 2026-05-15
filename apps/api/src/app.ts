@@ -22,6 +22,7 @@ import { notificationsRouter } from './modules/notifications/notifications.route
 import { aiRouter } from './modules/ai/ai.router.js'
 import { systemRouter } from './modules/system/system.router.js'
 import { uploadRouter } from './modules/upload/upload.router.js'
+import { staffRouter } from './modules/staff/staff.router.js'
 
 const app = new Hono()
 
@@ -57,6 +58,7 @@ app.route('/api/notifications', notificationsRouter)
 app.route('/api/ai', aiRouter)
 app.route('/api/system', systemRouter)
 app.route('/api/upload', uploadRouter)
+app.route('/api/staff', staffRouter)
 
 app.onError((err, c) => {
   console.error(err)
