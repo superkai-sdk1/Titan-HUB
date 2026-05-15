@@ -37,12 +37,52 @@ export async function closeShift(shiftId: string, closedBy: string, cashEnd: num
   if (!shift) throw new Error('Shift not found')
   if (shift.status !== 'open') throw new Error('Shift already closed')
 
+  // Block close if open checks exist
+  const [{ count: openChecks }] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(checks)
+    .where(and(eq(checks.shiftId, shiftId), eq(checks.status, 'open')))
+  if (openChecks > 0) throw new Error(`Есть ${openChecks} незакрытых чек(а). Закройте их перед закрытием смены.`)
+
   const [updated] = await db
     .update(shifts)
     .set({ status: 'closed', closedBy, cashEnd: String(cashEnd), closedAt: new Date() })
     .where(eq(shifts.id, shiftId))
     .returning()
   return updated
+}
+
+export async function getBirthdaysToday() {
+  const today = new Date()
+  const mm = String(today.getMonth() + 1).padStart(2, '0')
+  const dd = String(today.getDate()).padStart(2, '0')
+  const rows = await db.select({
+    id: profiles.id,
+    nickname: profiles.nickname,
+    birthday: profiles.birthday,
+  }).from(profiles)
+    .where(and(
+      eq(profiles.role, 'client'),
+      isNull(profiles.deletedAt),
+      sql`to_char(${profiles.birthday}::date, 'MM-DD') = ${mm + '-' + dd}`,
+    ))
+  return rows
+}
+
+export async function getShiftCashBalance(shiftId: string) {
+  const [shift] = await db.select().from(shifts).where(eq(shifts.id, shiftId))
+  if (!shift) return { expected: 0, cashStart: 0 }
+
+  const [cashSum] = await db.select({ total: sum(checkPayments.amount) })
+    .from(checkPayments)
+    .innerJoin(checks, eq(checks.id, checkPayments.checkId))
+    .where(and(eq(checks.shiftId, shiftId), eq(checkPayments.method, 'cash')))
+
+  const cashPayments = parseFloat(String(cashSum?.total ?? 0)) || 0
+  const cashStart = parseFloat(String(shift.cashStart ?? 0)) || 0
+  const expected = cashStart + cashPayments
+
+  return { expected, cashStart, cashPayments }
 }
 
 export async function getShiftAnalytics(shiftId: string) {

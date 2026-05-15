@@ -4,8 +4,8 @@ import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import {
   db, checks, checkItems, checkItemModifiers, checkPayments, checkDiscounts,
-  inventory, profiles, certificates, bonusHistory, transactions, modifiers as modifiersTable,
-  eq, and, inArray, desc, sql,
+  inventory, profiles, spaces, certificates, bonusHistory, transactions, modifiers as modifiersTable,
+  eq, and, inArray, desc, sql, isNull,
 } from '@titan/database'
 import { requireAuth } from '../../middleware/auth.js'
 import { getCurrentShift } from '../shifts/shifts.service.js'
@@ -62,6 +62,47 @@ async function recalcCheckTotal(checkId: string) {
   }).where(eq(checks.id, checkId))
   return total
 }
+
+posRouter.get('/players/search', async (c) => {
+  const q = c.req.query('q') ?? ''
+  if (!q.trim()) return c.json({ players: [] })
+  const term = `%${q.toLowerCase()}%`
+
+  const byNick = await db.select({
+    id: profiles.id,
+    nickname: profiles.nickname,
+    clientTier: profiles.clientTier,
+    balance: profiles.balance,
+    bonusPoints: profiles.bonusPoints,
+    photoUrl: profiles.photoUrl,
+  }).from(profiles)
+    .where(and(
+      eq(profiles.role, 'client'),
+      isNull(profiles.deletedAt),
+      sql`lower(${profiles.nickname}) like ${term}`,
+    ))
+    .limit(20)
+
+  return c.json({ players: byNick })
+})
+
+posRouter.get('/spaces', async (c) => {
+  const rows = await db.select().from(spaces).where(eq(spaces.isActive, true))
+  return c.json({ spaces: rows })
+})
+
+posRouter.get('/players/:id', async (c) => {
+  const [player] = await db.select({
+    id: profiles.id,
+    nickname: profiles.nickname,
+    clientTier: profiles.clientTier,
+    balance: profiles.balance,
+    bonusPoints: profiles.bonusPoints,
+    photoUrl: profiles.photoUrl,
+  }).from(profiles).where(eq(profiles.id, c.req.param('id')))
+  if (!player) return c.json({ error: 'Not found' }, 404)
+  return c.json({ player })
+})
 
 posRouter.get('/checks', async (c) => {
   const shift = await getCurrentShift()

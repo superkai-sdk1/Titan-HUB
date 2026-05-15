@@ -9,6 +9,8 @@ import {
   closeShift,
   getShiftAnalytics,
   getShiftHistory,
+  getBirthdaysToday,
+  getShiftCashBalance,
 } from './shifts.service.js'
 
 const OpenShiftSchema = z.object({
@@ -52,6 +54,18 @@ shiftsRouter.post('/close', requireRole('owner', 'staff'), zValidator('json', Cl
   } catch (e: any) {
     return c.json({ error: e.message }, 400)
   }
+})
+
+shiftsRouter.get('/birthdays-today', async (c) => {
+  const people = await getBirthdaysToday()
+  return c.json({ birthdays: people })
+})
+
+shiftsRouter.get('/cash-balance', async (c) => {
+  const shift = await getCurrentShift()
+  if (!shift) return c.json({ expected: 0, cashStart: 0 })
+  const balance = await getShiftCashBalance(shift.id)
+  return c.json(balance)
 })
 
 shiftsRouter.get('/history', requireRole('owner', 'staff'), async (c) => {

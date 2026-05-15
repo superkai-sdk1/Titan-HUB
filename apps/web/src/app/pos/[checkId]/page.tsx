@@ -1,8 +1,9 @@
 'use client'
-import { useState, use } from 'react'
+import { useState, use, useEffect, useCallback, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
+import { differenceInMinutes } from 'date-fns'
 
 interface InventoryItem {
   id: string
@@ -31,24 +32,65 @@ interface CheckData {
   totalAmount: string
   status: string
   items: CheckItem[]
-  payments: any[]
+  payments: { id: string; method: string; amount: string }[]
   guestName?: string
+  playerId?: string | null
+  spaceId?: string | null
+  spaceStartAt?: string | null
+  spaceHourlyRate?: string | null
 }
 
-const PAYMENT_METHODS = [
-  { id: 'cash', label: 'Наличные', icon: 'payments', color: 'var(--pay-cash)', rgb: '16,185,129' },
-  { id: 'card', label: 'Карта', icon: 'credit_card', color: 'var(--pay-card)', rgb: '59,130,246' },
-  { id: 'transfer', label: 'СБП/QR', icon: 'qr_code_2', color: 'var(--pay-split)', rgb: '139,92,246' },
-  { id: 'bonus', label: 'Бонусы', icon: 'stars', color: 'var(--pay-bonus)', rgb: '245,158,11' },
-  { id: 'deposit', label: 'Депозит', icon: 'account_balance_wallet', color: 'var(--pay-deposit)', rgb: '6,182,212' },
-  { id: 'certificate', label: 'В долг', icon: 'person_pin', color: 'var(--pay-debt)', rgb: '244,63,94' },
-]
+interface PlayerProfile {
+  id: string
+  nickname: string
+  clientTier: string
+  balance: string
+  bonusPoints: string
+  photoUrl: string | null
+}
 
-const QUICK_AMOUNTS = [500, 1000, 2000, 5000]
+interface CertificateInfo {
+  id: string
+  code: string
+  nominal: string
+  balance: string
+  isUsed: boolean
+}
 
-function getInitials(name?: string): string {
+interface SplitPart {
+  method: string
+  amount: number
+  label?: string
+}
+
+type PayScreen = 'methods' | 'bonus' | 'deposit' | 'certificate' | 'split'
+
+const METHOD_CONFIGS: Record<string, { label: string; icon: string; color: string; rgb: string }> = {
+  cash: { label: 'Наличные', icon: 'payments', color: 'var(--pay-cash)', rgb: '16,185,129' },
+  card: { label: 'Карта', icon: 'credit_card', color: 'var(--pay-card)', rgb: '59,130,246' },
+  transfer: { label: 'СБП/QR', icon: 'qr_code_2', color: 'var(--pay-split)', rgb: '139,92,246' },
+  bonus: { label: 'Бонусы', icon: 'stars', color: 'var(--pay-bonus)', rgb: '245,158,11' },
+  deposit: { label: 'Депозит', icon: 'account_balance_wallet', color: 'var(--pay-deposit)', rgb: '6,182,212' },
+  debt: { label: 'В долг', icon: 'person_pin', color: 'var(--pay-debt, #f43f5e)', rgb: '244,63,94' },
+  certificate: { label: 'Сертификат', icon: 'card_membership', color: 'var(--pay-cert)', rgb: '251,191,36' },
+  split: { label: 'Раздельная', icon: 'call_split', color: 'var(--on-surface-variant)', rgb: '148,163,184' },
+}
+
+function getInitials(name?: string | null): string {
   if (!name) return 'Г'
   return name.split(' ').map(p => p[0]).join('').toUpperCase().slice(0, 2)
+}
+
+function methodColor(m: string): string {
+  return METHOD_CONFIGS[m]?.color ?? 'var(--on-surface-variant)'
+}
+
+function methodLabel(m: string): string {
+  return METHOD_CONFIGS[m]?.label ?? m
+}
+
+function methodIcon(m: string): string {
+  return METHOD_CONFIGS[m]?.icon ?? 'payments'
 }
 
 export default function CheckDetailPage({ params }: { params: Promise<{ checkId: string }> }) {
@@ -75,11 +117,72 @@ export default function CheckDetailPage({ params }: { params: Promise<{ checkId:
   const [activeCat, setActiveCat] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [showPayment, setShowPayment] = useState(false)
-  const [payMethod, setPayMethod] = useState('cash')
-  const [payAmount, setPayAmount] = useState('')
   const [isPaid, setIsPaid] = useState(false)
 
-  const invalidateCheck = () => qc.invalidateQueries({ queryKey: ['check', checkId] })
+  // Space rental live timer
+  const [spaceRental, setSpaceRental] = useState(0)
+
+  // Payment drawer state
+  const [payScreen, setPayScreen] = useState<PayScreen>('methods')
+  const [splitParts, setSplitParts] = useState<SplitPart[]>([])
+  const [bonusAmount, setBonusAmount] = useState(0)
+  const [depositAmt, setDepositAmt] = useState(0)
+  const [certCode, setCertCode] = useState('')
+  const [certInfo, setCertInfo] = useState<CertificateInfo | null>(null)
+  const [certError, setCertError] = useState('')
+  const [certLoading, setCertLoading] = useState(false)
+  const [isProcessing, setIsProcessing] = useState(false)
+
+  const check = checkData
+  const categories = categoriesData?.categories ?? []
+  const allItems = (itemsData?.items ?? []).filter(i => i.isActive)
+  const filteredItems = allItems.filter(item => {
+    const matchCat = !activeCat || item.category === activeCat
+    const matchSearch = !search || item.name.toLowerCase().includes(search.toLowerCase())
+    return matchCat && matchSearch
+  })
+
+  // Space rental calc
+  useEffect(() => {
+    if (!check?.spaceId || !check?.spaceStartAt || !check?.spaceHourlyRate) return
+    const calc = () => {
+      const mins = differenceInMinutes(new Date(), new Date(check.spaceStartAt!))
+      setSpaceRental(Math.ceil(mins / 60) * parseFloat(check.spaceHourlyRate ?? '0'))
+    }
+    calc()
+    const t = setInterval(calc, 900000) // каждые 15 минут
+    return () => clearInterval(t)
+  }, [check])
+
+  const baseTotal = parseFloat(check?.totalAmount ?? '0')
+  const total = baseTotal + spaceRental
+  const splitSum = splitParts.reduce((s, p) => s + p.amount, 0)
+  const remaining = Math.max(0, total - splitSum)
+
+  // Player profile query (only when payment drawer is open)
+  const { data: playerData } = useQuery({
+    queryKey: ['player', check?.playerId],
+    queryFn: () => api.get<{ player: PlayerProfile }>(`/pos/players/${check!.playerId}`).then(r => r.player),
+    enabled: !!check?.playerId && showPayment,
+  })
+  const player = playerData ?? null
+
+  const playerBalance = parseFloat(player?.balance ?? '0') || 0
+  const playerBonus = parseFloat(player?.bonusPoints ?? '0') || 0
+
+  function openPaymentDrawer() {
+    setSplitParts([])
+    setBonusAmount(0)
+    setDepositAmt(0)
+    setCertCode('')
+    setCertInfo(null)
+    setCertError('')
+    setPayScreen('methods')
+    setIsProcessing(false)
+    setShowPayment(true)
+  }
+
+  const invalidateCheck = useCallback(() => qc.invalidateQueries({ queryKey: ['check', checkId] }), [qc, checkId])
 
   const addItem = useMutation({
     mutationFn: (itemId: string) => api.post(`/pos/checks/${checkId}/items`, { itemId, quantity: 1 }),
@@ -95,9 +198,11 @@ export default function CheckDetailPage({ params }: { params: Promise<{ checkId:
   })
 
   const pay = useMutation({
-    mutationFn: (body: any) => api.post(`/pos/checks/${checkId}/pay`, body),
+    mutationFn: (body: { payments: SplitPart[]; bonusAmount?: number; certificateCode?: string; playerId?: string }) =>
+      api.post(`/pos/checks/${checkId}/pay`, body),
     onSuccess: () => {
       setIsPaid(true)
+      setShowPayment(false)
       qc.invalidateQueries({ queryKey: ['checks', 'active'] })
       setTimeout(() => router.replace('/pos'), 1800)
     },
@@ -111,21 +216,70 @@ export default function CheckDetailPage({ params }: { params: Promise<{ checkId:
     },
   })
 
-  const check = checkData
-  const categories = categoriesData?.categories ?? []
-  const allItems = (itemsData?.items ?? []).filter(i => i.isActive)
-  const filteredItems = allItems.filter(item => {
-    const matchCat = !activeCat || item.category === activeCat
-    const matchSearch = !search || item.name.toLowerCase().includes(search.toLowerCase())
-    return matchCat && matchSearch
-  })
-  const total = parseFloat(check?.totalAmount ?? '0')
-  const paid = parseFloat(payAmount || '0')
-  const change = Math.max(0, paid - total)
-  const remaining = Math.max(0, total - paid)
-  const isReady = paid >= total && total > 0
+  async function lookupCertificate() {
+    if (!certCode.trim()) return
+    setCertLoading(true)
+    setCertError('')
+    setCertInfo(null)
+    let attempts = 0
+    const delays = [500, 1000, 1500]
+    while (attempts <= 2) {
+      try {
+        const res = await api.get<{ certificate: CertificateInfo }>(`/certificates/validate/${certCode.trim().toUpperCase()}`)
+        setCertInfo(res.certificate)
+        setCertLoading(false)
+        return
+      } catch (err) {
+        attempts++
+        if (attempts > 2) {
+          setCertError((err as Error)?.message ?? 'Сертификат не найден')
+          setCertLoading(false)
+          return
+        }
+        await new Promise(r => setTimeout(r, delays[attempts - 1]))
+      }
+    }
+  }
+
+  function addSplitPart(part: SplitPart) {
+    setSplitParts(prev => [...prev, part])
+  }
+
+  function removeSplitPart(idx: number) {
+    setSplitParts(prev => prev.filter((_, i) => i !== idx))
+  }
+
+  function handleMethodClick(method: string) {
+    if (method === 'bonus') {
+      setPayScreen('bonus')
+    } else if (method === 'deposit') {
+      setPayScreen('deposit')
+    } else if (method === 'certificate') {
+      setPayScreen('certificate')
+    } else {
+      // cash / card / transfer / debt / split → add full remaining as part or go to split
+      addSplitPart({ method, amount: remaining > 0 ? remaining : total, label: METHOD_CONFIGS[method]?.label })
+      setPayScreen('split')
+    }
+  }
+
+  async function finishPayment() {
+    if (isProcessing || remaining > 0.01) return
+    setIsProcessing(true)
+    try {
+      await pay.mutateAsync({
+        payments: splitParts,
+        bonusAmount: bonusAmount > 0 ? bonusAmount : undefined,
+        certificateCode: certInfo?.code,
+        playerId: check?.playerId ?? undefined,
+      })
+    } catch {
+      setIsProcessing(false)
+    }
+  }
 
   if (isPaid) {
+    const change = splitSum - total
     return (
       <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
         <div style={{ textAlign: 'center' }}>
@@ -275,6 +429,17 @@ export default function CheckDetailPage({ params }: { params: Promise<{ checkId:
 
           {/* Payment footer */}
           <div className="glass-l1" style={{ padding: 16, borderLeft: 'none', borderRight: 'none', borderBottom: 'none', borderRadius: 0 }}>
+            {spaceRental > 0 && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                <span style={{ fontSize: 12, color: 'var(--on-surface-variant)', display: 'flex', alignItems: 'center', gap: 5 }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: 14 }}>meeting_room</span>
+                  Аренда (живой счётчик)
+                </span>
+                <span style={{ fontSize: 13, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: '#A78BFA' }}>
+                  +{spaceRental.toLocaleString('ru')} ₽
+                </span>
+              </div>
+            )}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <div>
                 <p style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--on-surface-variant)', margin: '0 0 4px' }}>
@@ -285,7 +450,7 @@ export default function CheckDetailPage({ params }: { params: Promise<{ checkId:
                 </p>
               </div>
               <button
-                onClick={() => { setPayAmount(String(total)); setShowPayment(true) }}
+                onClick={openPaymentDrawer}
                 disabled={total === 0}
                 style={{
                   padding: '14px 28px', borderRadius: 16, border: 'none', cursor: 'pointer',
@@ -395,7 +560,7 @@ export default function CheckDetailPage({ params }: { params: Promise<{ checkId:
         </div>
       </div>
 
-      {/* Stitch Payment Modal */}
+      {/* Full Payment Drawer */}
       {showPayment && (
         <div
           style={{
@@ -416,186 +581,420 @@ export default function CheckDetailPage({ params }: { params: Promise<{ checkId:
               boxShadow: '0 24px 80px rgba(0,0,0,0.6)',
             }}
           >
-            {/* Modal header */}
-            <div style={{ padding: '28px 28px 0', display: 'flex', alignItems: 'flex-start', gap: 16 }}>
-              <div style={{
-                width: 56, height: 56, borderRadius: 16, flexShrink: 0,
-                background: '#8B5CF6',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                boxShadow: '0 4px 20px rgba(139,92,246,0.35)',
-              }}>
-                <span className="material-symbols-outlined" style={{ fontSize: 28, color: '#fff', fontVariationSettings: "'FILL' 1" }}>
-                  payments
-                </span>
-              </div>
-              <div style={{ flex: 1 }}>
-                <h2 style={{ fontSize: 20, fontWeight: 900, fontStyle: 'italic', textTransform: 'uppercase', margin: 0, color: 'var(--on-surface)' }}>
-                  ОПЛАТА
-                </h2>
-                <p style={{
-                  fontFamily: "'JetBrains Mono', monospace", fontSize: 10, fontWeight: 700,
-                  textTransform: 'uppercase', letterSpacing: '0.1em',
-                  color: 'var(--on-surface-variant)', margin: '4px 0 0',
-                }}>
-                  ВЫБЕРИТЕ МЕТОД
-                </p>
-              </div>
-              <button
-                onClick={() => setShowPayment(false)}
-                style={{
-                  width: 32, height: 32, borderRadius: 10, border: 'none', cursor: 'pointer',
-                  background: 'rgba(255,255,255,0.06)', color: 'var(--on-surface-variant)',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-                }}
-              >
-                <span className="material-symbols-outlined" style={{ fontSize: 16 }}>close</span>
-              </button>
-            </div>
-
-            <div style={{ padding: '20px 28px 28px' }}>
-
-              {/* Progress bar */}
-              <div style={{ marginBottom: 6 }}>
-                <div style={{ height: 12, borderRadius: 9999, background: 'rgba(255,255,255,0.05)', overflow: 'hidden', display: 'flex' }}>
+            {/* ===== SCREEN: METHODS ===== */}
+            {payScreen === 'methods' && (
+              <div style={{ padding: '28px 28px 32px' }}>
+                {/* Header */}
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16, marginBottom: 20 }}>
                   <div style={{
-                    height: '100%',
-                    width: `${Math.min(100, (paid / total) * 100)}%`,
-                    background: isReady ? 'linear-gradient(90deg, var(--success), #059669)' : 'linear-gradient(90deg, #8B5CF6, #4cd7f6)',
-                    borderRadius: 9999,
-                    transition: 'width 0.3s',
-                  }} />
+                    width: 56, height: 56, borderRadius: 16, flexShrink: 0,
+                    background: '#8B5CF6',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    boxShadow: '0 4px 20px rgba(139,92,246,0.35)',
+                  }}>
+                    <span className="material-symbols-outlined" style={{ fontSize: 28, color: '#fff', fontVariationSettings: "'FILL' 1" }}>payments</span>
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <h2 style={{ fontSize: 20, fontWeight: 900, fontStyle: 'italic', textTransform: 'uppercase', margin: 0, color: 'var(--on-surface)' }}>ОПЛАТА</h2>
+                    <p style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--on-surface-variant)', margin: '4px 0 0' }}>
+                      ВЫБЕРИТЕ МЕТОД
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setShowPayment(false)}
+                    style={{ width: 32, height: 32, borderRadius: 10, border: 'none', cursor: 'pointer', background: 'rgba(255,255,255,0.06)', color: 'var(--on-surface-variant)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
+                  >
+                    <span className="material-symbols-outlined" style={{ fontSize: 16 }}>close</span>
+                  </button>
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6 }}>
-                  <span style={{ fontSize: 11, color: 'var(--on-surface-variant)' }}>РАСПРЕДЕЛЕНИЕ СУММЫ</span>
-                  <span style={{ fontSize: 11, fontWeight: 700, color: '#8B5CF6' }}>
-                    ОСТАТОК: {remaining.toLocaleString('ru')}₽
-                  </span>
+
+                {/* Player info bar */}
+                {player && (
+                  <div className="glass-l2" style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', borderRadius: 14, marginBottom: 16, border: '1px solid rgba(139,92,246,0.2)' }}>
+                    <div style={{ width: 36, height: 36, borderRadius: '50%', flexShrink: 0, background: 'linear-gradient(135deg, rgba(139,92,246,0.35), rgba(76,215,246,0.35))', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, color: '#A78BFA' }}>
+                      {getInitials(player.nickname)}
+                    </div>
+                    <span style={{ flex: 1, fontWeight: 700, fontSize: 14, color: 'var(--on-surface)' }}>{player.nickname}</span>
+                    <span style={{ fontSize: 11, fontWeight: 600, borderRadius: 6, padding: '3px 8px', background: playerBalance < 0 ? 'rgba(244,63,94,0.1)' : 'rgba(6,182,212,0.1)', color: playerBalance < 0 ? 'var(--danger)' : 'var(--pay-deposit)' }}>
+                      {playerBalance.toLocaleString('ru')} ₽
+                    </span>
+                    <span style={{ fontSize: 11, fontWeight: 600, borderRadius: 6, padding: '3px 8px', background: 'rgba(245,158,11,0.1)', color: 'var(--pay-bonus)' }}>
+                      ★ {playerBonus.toLocaleString('ru')}
+                    </span>
+                  </div>
+                )}
+
+                {/* Total */}
+                <div style={{
+                  textAlign: 'center', padding: '16px 0',
+                  borderRadius: 16,
+                  background: 'rgba(139,92,246,0.06)',
+                  border: '1px solid rgba(139,92,246,0.15)',
+                  marginBottom: 20,
+                }}>
+                  <p style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--on-surface-variant)', margin: '0 0 4px' }}>
+                    ИТОГО К ОПЛАТЕ:
+                  </p>
+                  <p style={{ fontSize: 36, fontWeight: 900, fontStyle: 'italic', fontVariantNumeric: 'tabular-nums', color: '#A78BFA', margin: 0 }}>
+                    {total.toLocaleString('ru')} ₽
+                  </p>
+                </div>
+
+                {/* Method grid */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
+                  {Object.entries(METHOD_CONFIGS).map(([id, cfg]) => {
+                    const disabled = id === 'debt' && !check?.playerId
+                    return (
+                      <button
+                        key={id}
+                        onClick={() => !disabled && handleMethodClick(id)}
+                        disabled={disabled}
+                        className="glass-l2"
+                        style={{
+                          padding: '14px 10px', borderRadius: 14, border: 'none', cursor: disabled ? 'not-allowed' : 'pointer', textAlign: 'left',
+                          background: 'rgba(255,255,255,0.04)',
+                          boxShadow: `inset 0 0 0 1px rgba(255,255,255,0.07)`,
+                          transition: 'all 0.2s',
+                          display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 10,
+                          opacity: disabled ? 0.35 : 1,
+                        }}
+                        onMouseEnter={e => { if (!disabled) { e.currentTarget.style.background = `rgba(${cfg.rgb},0.12)`; e.currentTarget.style.boxShadow = `0 0 20px rgba(${cfg.rgb},0.2), inset 0 0 0 1px rgba(${cfg.rgb},0.35)` } }}
+                        onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; e.currentTarget.style.boxShadow = 'inset 0 0 0 1px rgba(255,255,255,0.07)' }}
+                      >
+                        <span className="material-symbols-outlined" style={{ fontSize: 22, color: cfg.color, fontVariationSettings: "'FILL' 1, 'wght' 400" }}>
+                          {cfg.icon}
+                        </span>
+                        <div>
+                          <p style={{ fontSize: 12, fontWeight: 600, color: 'var(--on-surface)', margin: 0 }}>{cfg.label}</p>
+                          {id === 'bonus' && player && <p style={{ fontSize: 10, color: 'var(--pay-bonus)', margin: '2px 0 0', fontVariantNumeric: 'tabular-nums' }}>{playerBonus.toLocaleString('ru')} б.</p>}
+                          {id === 'deposit' && player && <p style={{ fontSize: 10, color: 'var(--pay-deposit)', margin: '2px 0 0', fontVariantNumeric: 'tabular-nums' }}>{playerBalance.toLocaleString('ru')} ₽</p>}
+                        </div>
+                      </button>
+                    )
+                  })}
                 </div>
               </div>
+            )}
 
-              {/* Total display */}
-              <div style={{
-                textAlign: 'center', padding: '20px 0 16px',
-                borderRadius: 20,
-                background: isReady ? 'rgba(52,211,153,0.08)' : 'rgba(139,92,246,0.06)',
-                border: `1px solid ${isReady ? 'rgba(52,211,153,0.2)' : 'rgba(139,92,246,0.15)'}`,
-                marginBottom: 20,
-              }}>
-                <p style={{
-                  fontFamily: "'JetBrains Mono', monospace", fontSize: 10, fontWeight: 700,
-                  textTransform: 'uppercase', letterSpacing: '0.1em',
-                  color: 'var(--on-surface-variant)', margin: '0 0 6px',
-                }}>
-                  ИТОГО К ОПЛАТЕ:
-                </p>
-                <p style={{
-                  fontSize: 40, fontWeight: 900, fontStyle: 'italic', fontVariantNumeric: 'tabular-nums',
-                  color: isReady ? 'var(--success)' : '#A78BFA', margin: 0,
-                }}>
-                  {total.toLocaleString('ru')} ₽
-                </p>
-                {change > 0 && (
-                  <p style={{ color: 'var(--success)', fontSize: 13, marginTop: 4, margin: '4px 0 0' }}>
-                    Сдача: {change.toLocaleString('ru')} ₽
+            {/* ===== SCREEN: BONUS ===== */}
+            {payScreen === 'bonus' && (
+              <div style={{ padding: '28px 28px 32px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
+                  <button onClick={() => setPayScreen('methods')} style={{ width: 36, height: 36, borderRadius: 10, border: 'none', cursor: 'pointer', background: 'rgba(255,255,255,0.06)', color: 'var(--on-surface-variant)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <span className="material-symbols-outlined" style={{ fontSize: 18 }}>arrow_back</span>
+                  </button>
+                  <div>
+                    <h2 style={{ fontSize: 18, fontWeight: 900, fontStyle: 'italic', textTransform: 'uppercase', margin: 0, color: 'var(--on-surface)' }}>БОНУСНАЯ ОПЛАТА</h2>
+                  </div>
+                </div>
+
+                {player && (
+                  <div className="glass-l2" style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', borderRadius: 14, marginBottom: 20, border: '1px solid rgba(245,158,11,0.2)' }}>
+                    <div style={{ width: 36, height: 36, borderRadius: '50%', flexShrink: 0, background: 'linear-gradient(135deg, rgba(139,92,246,0.35), rgba(76,215,246,0.35))', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, color: '#A78BFA' }}>
+                      {getInitials(player.nickname)}
+                    </div>
+                    <span style={{ flex: 1, fontWeight: 700, fontSize: 14, color: 'var(--on-surface)' }}>{player.nickname}</span>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--pay-bonus)' }}>★ {playerBonus.toLocaleString('ru')} бонусов</span>
+                  </div>
+                )}
+
+                {(() => {
+                  const maxBonus = Math.min(playerBonus, Math.floor(total * 0.5))
+                  const step = Math.max(10, Math.round(maxBonus / 20) * 10) || 10
+                  const bonusRemainder = total - bonusAmount
+                  return (
+                    <>
+                      <div style={{ marginBottom: 16 }}>
+                        <p style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--on-surface-variant)', marginBottom: 8 }}>
+                          Сумма бонусов (макс. {maxBonus.toLocaleString('ru')})
+                        </p>
+                        <input
+                          type="range"
+                          min={0}
+                          max={maxBonus}
+                          step={step}
+                          value={bonusAmount}
+                          onChange={e => setBonusAmount(Number(e.target.value))}
+                          style={{ width: '100%', accentColor: '#f59e0b' }}
+                        />
+                        <p style={{ fontSize: 28, fontWeight: 900, fontStyle: 'italic', fontVariantNumeric: 'tabular-nums', color: 'var(--pay-bonus)', textAlign: 'center', margin: '8px 0' }}>
+                          {bonusAmount.toLocaleString('ru')} бонусов
+                        </p>
+                      </div>
+
+                      <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+                        {[0.25, 0.5, 0.75, 1].map(pct => (
+                          <button
+                            key={pct}
+                            onClick={() => setBonusAmount(Math.min(maxBonus, Math.round(maxBonus * pct / step) * step))}
+                            className="glass-l2"
+                            style={{ flex: 1, padding: '8px 0', borderRadius: 10, border: '1px solid rgba(245,158,11,0.2)', cursor: 'pointer', color: 'var(--pay-bonus)', fontSize: 12, fontWeight: 700 }}
+                          >
+                            {Math.round(pct * 100)}%
+                          </button>
+                        ))}
+                      </div>
+
+                      {bonusRemainder > 0.01 && (
+                        <div className="glass-l2" style={{ padding: '12px 14px', borderRadius: 12, marginBottom: 16, border: '1px solid rgba(255,255,255,0.07)' }}>
+                          <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: '0 0 4px' }}>Остаток к доплате:</p>
+                          <p style={{ fontSize: 20, fontWeight: 800, fontStyle: 'italic', fontVariantNumeric: 'tabular-nums', color: 'var(--on-surface)', margin: 0 }}>{bonusRemainder.toLocaleString('ru')} ₽</p>
+                        </div>
+                      )}
+
+                      <button
+                        onClick={() => {
+                          if (bonusAmount > 0) {
+                            addSplitPart({ method: 'bonus', amount: bonusAmount, label: 'Бонусы' })
+                            if (bonusRemainder > 0.01) {
+                              addSplitPart({ method: 'cash', amount: bonusRemainder, label: 'Наличные (остаток)' })
+                            }
+                          }
+                          setPayScreen('split')
+                        }}
+                        disabled={bonusAmount === 0}
+                        style={{
+                          width: '100%', padding: '14px 0', borderRadius: 14, border: 'none', cursor: 'pointer',
+                          background: 'linear-gradient(135deg, #f59e0b, #d97706)',
+                          color: '#fff', fontSize: 13, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.06em',
+                          opacity: bonusAmount === 0 ? 0.5 : 1,
+                        }}
+                      >
+                        ПРИМЕНИТЬ
+                      </button>
+                    </>
+                  )
+                })()}
+              </div>
+            )}
+
+            {/* ===== SCREEN: DEPOSIT ===== */}
+            {payScreen === 'deposit' && (
+              <div style={{ padding: '28px 28px 32px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
+                  <button onClick={() => setPayScreen('methods')} style={{ width: 36, height: 36, borderRadius: 10, border: 'none', cursor: 'pointer', background: 'rgba(255,255,255,0.06)', color: 'var(--on-surface-variant)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <span className="material-symbols-outlined" style={{ fontSize: 18 }}>arrow_back</span>
+                  </button>
+                  <h2 style={{ fontSize: 18, fontWeight: 900, fontStyle: 'italic', textTransform: 'uppercase', margin: 0, color: 'var(--on-surface)' }}>ОПЛАТА ДЕПОЗИТОМ</h2>
+                </div>
+
+                {player && (
+                  <div className="glass-l2" style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', borderRadius: 14, marginBottom: 20, border: '1px solid rgba(6,182,212,0.2)' }}>
+                    <div style={{ width: 36, height: 36, borderRadius: '50%', flexShrink: 0, background: 'linear-gradient(135deg, rgba(139,92,246,0.35), rgba(76,215,246,0.35))', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, color: '#A78BFA' }}>
+                      {getInitials(player.nickname)}
+                    </div>
+                    <span style={{ flex: 1, fontWeight: 700, fontSize: 14, color: 'var(--on-surface)' }}>{player.nickname}</span>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--pay-deposit)' }}>{playerBalance.toLocaleString('ru')} ₽</span>
+                  </div>
+                )}
+
+                {(() => {
+                  const maxDeposit = Math.min(Math.max(0, playerBalance), total)
+                  return (
+                    <>
+                      <div style={{ marginBottom: 16 }}>
+                        <p style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--on-surface-variant)', marginBottom: 8 }}>
+                          Сумма депозита (макс. {maxDeposit.toLocaleString('ru')} ₽)
+                        </p>
+                        <input
+                          type="range"
+                          min={0}
+                          max={maxDeposit}
+                          step={10}
+                          value={depositAmt}
+                          onChange={e => setDepositAmt(Number(e.target.value))}
+                          style={{ width: '100%', accentColor: '#06b6d4' }}
+                        />
+                        <p style={{ fontSize: 28, fontWeight: 900, fontStyle: 'italic', fontVariantNumeric: 'tabular-nums', color: 'var(--pay-deposit)', textAlign: 'center', margin: '8px 0' }}>
+                          {depositAmt.toLocaleString('ru')} ₽
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => {
+                          if (depositAmt > 0) addSplitPart({ method: 'deposit', amount: depositAmt, label: 'Депозит' })
+                          setPayScreen('split')
+                        }}
+                        disabled={depositAmt === 0}
+                        style={{
+                          width: '100%', padding: '14px 0', borderRadius: 14, border: 'none', cursor: 'pointer',
+                          background: 'linear-gradient(135deg, #06b6d4, #0891b2)',
+                          color: '#fff', fontSize: 13, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.06em',
+                          opacity: depositAmt === 0 ? 0.5 : 1,
+                        }}
+                      >
+                        ПРИМЕНИТЬ
+                      </button>
+                    </>
+                  )
+                })()}
+              </div>
+            )}
+
+            {/* ===== SCREEN: CERTIFICATE ===== */}
+            {payScreen === 'certificate' && (
+              <div style={{ padding: '28px 28px 32px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
+                  <button onClick={() => setPayScreen('methods')} style={{ width: 36, height: 36, borderRadius: 10, border: 'none', cursor: 'pointer', background: 'rgba(255,255,255,0.06)', color: 'var(--on-surface-variant)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <span className="material-symbols-outlined" style={{ fontSize: 18 }}>arrow_back</span>
+                  </button>
+                  <h2 style={{ fontSize: 18, fontWeight: 900, fontStyle: 'italic', textTransform: 'uppercase', margin: 0, color: 'var(--on-surface)' }}>СЕРТИФИКАТ</h2>
+                </div>
+
+                <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
+                  <input
+                    value={certCode}
+                    onChange={e => { setCertCode(e.target.value.toUpperCase()); setCertInfo(null); setCertError('') }}
+                    placeholder="КОД СЕРТИФИКАТА"
+                    className="glass-l2"
+                    style={{
+                      flex: 1, padding: '14px 16px', borderRadius: 14,
+                      border: '1px solid rgba(255,255,255,0.08)', color: 'var(--on-surface)',
+                      fontSize: 15, fontWeight: 700, letterSpacing: '0.05em', outline: 'none', background: 'none',
+                    }}
+                  />
+                  <button
+                    onClick={lookupCertificate}
+                    disabled={certLoading || !certCode.trim()}
+                    style={{
+                      padding: '14px 20px', borderRadius: 14, border: 'none', cursor: 'pointer',
+                      background: 'rgba(139,92,246,0.2)', color: '#A78BFA',
+                      fontSize: 13, fontWeight: 700, opacity: (certLoading || !certCode.trim()) ? 0.5 : 1,
+                    }}
+                  >
+                    {certLoading ? '...' : 'НАЙТИ'}
+                  </button>
+                </div>
+
+                {certError && (
+                  <p style={{ color: 'var(--danger)', fontSize: 12, marginBottom: 12 }}>{certError}</p>
+                )}
+
+                {certInfo && (
+                  <div className="glass-l2" style={{ padding: '14px 16px', borderRadius: 14, marginBottom: 16, border: '1px solid rgba(251,191,36,0.2)' }}>
+                    <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: '0 0 4px' }}>Сертификат {certInfo.code}</p>
+                    <p style={{ fontSize: 22, fontWeight: 800, fontStyle: 'italic', fontVariantNumeric: 'tabular-nums', color: 'var(--pay-cert, #fbbf24)', margin: 0 }}>
+                      {parseFloat(certInfo.balance).toLocaleString('ru')} ₽
+                    </p>
+                    <p style={{ fontSize: 10, color: 'var(--on-surface-variant)', margin: '4px 0 0' }}>
+                      Номинал: {parseFloat(certInfo.nominal).toLocaleString('ru')} ₽
+                    </p>
+                  </div>
+                )}
+
+                {certInfo && (
+                  <button
+                    onClick={() => {
+                      const certBal = parseFloat(certInfo.balance)
+                      const certUsed = Math.min(certBal, total)
+                      addSplitPart({ method: 'certificate', amount: certUsed, label: `Сертификат ${certInfo.code}` })
+                      setPayScreen('split')
+                    }}
+                    style={{
+                      width: '100%', padding: '14px 0', borderRadius: 14, border: 'none', cursor: 'pointer',
+                      background: 'linear-gradient(135deg, #fbbf24, #d97706)',
+                      color: '#fff', fontSize: 13, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.06em',
+                    }}
+                  >
+                    ПРИМЕНИТЬ
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* ===== SCREEN: SPLIT ===== */}
+            {payScreen === 'split' && (
+              <div style={{ padding: '28px 28px 32px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
+                  <button onClick={() => setPayScreen('methods')} style={{ width: 36, height: 36, borderRadius: 10, border: 'none', cursor: 'pointer', background: 'rgba(255,255,255,0.06)', color: 'var(--on-surface-variant)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <span className="material-symbols-outlined" style={{ fontSize: 18 }}>arrow_back</span>
+                  </button>
+                  <div>
+                    <h2 style={{ fontSize: 18, fontWeight: 900, fontStyle: 'italic', textTransform: 'uppercase', margin: 0, color: 'var(--on-surface)' }}>ПОДТВЕРЖДЕНИЕ</h2>
+                    <p style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--on-surface-variant)', margin: '4px 0 0' }}>
+                      ИТОГО: {total.toLocaleString('ru')} ₽
+                    </p>
+                  </div>
+                </div>
+
+                {/* Progress bar */}
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ height: 10, borderRadius: 9999, background: 'rgba(255,255,255,0.05)', overflow: 'hidden', display: 'flex' }}>
+                    {splitParts.map((p, i) => (
+                      <div
+                        key={i}
+                        style={{
+                          height: '100%',
+                          width: `${Math.min(100, (p.amount / total) * 100)}%`,
+                          background: methodColor(p.method),
+                          opacity: 0.85,
+                        }}
+                      />
+                    ))}
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 5 }}>
+                    <span style={{ fontSize: 11, color: 'var(--on-surface-variant)' }}>ОПЛАЧЕНО: {splitSum.toLocaleString('ru')} ₽</span>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: remaining > 0.01 ? '#8B5CF6' : 'var(--success)' }}>
+                      {remaining > 0.01 ? `ОСТАТОК: ${remaining.toLocaleString('ru')} ₽` : '✓ ПОЛНОСТЬЮ'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Split parts list */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
+                  {splitParts.map((part, idx) => (
+                    <div key={idx} className="glass-l2" style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.07)' }}>
+                      <span className="material-symbols-outlined" style={{ fontSize: 18, color: methodColor(part.method), fontVariationSettings: "'FILL' 1" }}>
+                        {methodIcon(part.method)}
+                      </span>
+                      <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: 'var(--on-surface)' }}>{part.label ?? methodLabel(part.method)}</span>
+                      <span style={{ fontSize: 14, fontWeight: 800, fontVariantNumeric: 'tabular-nums', color: methodColor(part.method) }}>
+                        {part.amount.toLocaleString('ru')} ₽
+                      </span>
+                      <button
+                        onClick={() => removeSplitPart(idx)}
+                        style={{ width: 28, height: 28, borderRadius: 8, border: 'none', cursor: 'pointer', background: 'rgba(244,63,94,0.1)', color: 'var(--danger)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
+                      >
+                        <span className="material-symbols-outlined" style={{ fontSize: 14 }}>close</span>
+                      </button>
+                    </div>
+                  ))}
+                </div>
+
+                {remaining > 0.01 && (
+                  <div style={{ textAlign: 'center', padding: '10px 0 14px', color: '#8B5CF6', fontSize: 13, fontWeight: 600 }}>
+                    Ещё нужно: {remaining.toLocaleString('ru')} ₽
+                  </div>
+                )}
+
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <button
+                    onClick={() => setPayScreen('methods')}
+                    className="glass-l2"
+                    style={{ flex: 1, padding: '13px 0', borderRadius: 14, border: '1px solid rgba(255,255,255,0.08)', cursor: 'pointer', color: 'var(--on-surface-variant)', fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}
+                  >
+                    + МЕТОД
+                  </button>
+                  <button
+                    onClick={finishPayment}
+                    disabled={remaining > 0.01 || isProcessing || pay.isPending}
+                    style={{
+                      flex: 2, padding: '13px 0', borderRadius: 14, border: 'none', cursor: 'pointer',
+                      background: 'linear-gradient(135deg, #8B5CF6, #4cd7f6)',
+                      color: '#fff', fontSize: 13, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.06em',
+                      boxShadow: '0 4px 20px rgba(139,92,246,0.35)',
+                      opacity: (remaining > 0.01 || isProcessing || pay.isPending) ? 0.5 : 1,
+                    }}
+                  >
+                    {pay.isPending || isProcessing ? 'ПРОВОДИМ...' : 'ЗАВЕРШИТЬ ОПЛАТУ'}
+                  </button>
+                </div>
+                {pay.isError && (
+                  <p style={{ color: 'var(--danger)', fontSize: 12, marginTop: 10, textAlign: 'center' }}>
+                    {(pay.error as Error)?.message ?? 'Ошибка оплаты'}
                   </p>
                 )}
               </div>
-
-              {/* Payment methods grid */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginBottom: 20 }}>
-                {PAYMENT_METHODS.map(m => {
-                  const active = payMethod === m.id
-                  return (
-                    <button
-                      key={m.id}
-                      onClick={() => setPayMethod(m.id)}
-                      className="glass-l2"
-                      style={{
-                        padding: '14px 10px', borderRadius: 14, border: 'none', cursor: 'pointer', textAlign: 'left',
-                        background: active ? `rgba(${m.rgb},0.12)` : 'rgba(255,255,255,0.04)',
-                        boxShadow: active
-                          ? `0 0 20px rgba(${m.rgb},0.25), inset 0 0 0 1px rgba(${m.rgb},0.4)`
-                          : 'inset 0 0 0 1px rgba(255,255,255,0.07)',
-                        transition: 'all 0.2s',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        alignItems: 'flex-start',
-                        gap: 10,
-                      }}
-                    >
-                      <span className="material-symbols-outlined" style={{
-                        fontSize: 22, color: m.color,
-                        fontVariationSettings: "'FILL' 1, 'wght' 400",
-                      }}>
-                        {m.icon}
-                      </span>
-                      <p style={{ fontSize: 12, fontWeight: 600, color: active ? 'var(--on-surface)' : 'var(--on-surface-variant)', margin: 0 }}>
-                        {m.label}
-                      </p>
-                    </button>
-                  )
-                })}
-              </div>
-
-              {/* Amount input */}
-              <p style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--on-surface-variant)', marginBottom: 8 }}>
-                Сумма
-              </p>
-              <input
-                type="number"
-                value={payAmount}
-                onChange={e => setPayAmount(e.target.value)}
-                className="glass-l2"
-                style={{
-                  width: '100%', padding: '14px 16px', borderRadius: 14,
-                  border: '1px solid rgba(139,92,246,0.25)',
-                  color: 'var(--on-surface)', fontSize: 22, fontWeight: 800, fontStyle: 'italic',
-                  outline: 'none', background: 'none', marginBottom: 12,
-                  fontVariantNumeric: 'tabular-nums',
-                }}
-              />
-
-              {/* Quick pills */}
-              <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap' }}>
-                <button
-                  onClick={() => setPayAmount(String(total))}
-                  style={{
-                    padding: '8px 14px', borderRadius: 9999, border: '1px solid rgba(139,92,246,0.3)',
-                    cursor: 'pointer', background: 'rgba(139,92,246,0.1)', color: '#A78BFA', fontSize: 12, fontWeight: 600,
-                  }}
-                >
-                  Весь остаток
-                </button>
-                {QUICK_AMOUNTS.map(a => (
-                  <button
-                    key={a}
-                    onClick={() => setPayAmount(v => String((parseFloat(v) || 0) + a))}
-                    style={{
-                      padding: '8px 14px', borderRadius: 9999, border: '1px solid rgba(255,255,255,0.08)',
-                      cursor: 'pointer', background: 'rgba(255,255,255,0.04)', color: 'var(--on-surface-variant)', fontSize: 12, fontWeight: 600,
-                    }}
-                  >
-                    +{a.toLocaleString('ru')}
-                  </button>
-                ))}
-              </div>
-
-              {/* CTA */}
-              <button
-                onClick={() => pay.mutate({ payments: [{ method: payMethod, amount: total }] })}
-                disabled={paid < total || pay.isPending}
-                style={{
-                  width: '100%', height: 56, borderRadius: 16, border: 'none', cursor: 'pointer',
-                  background: 'linear-gradient(135deg, #8B5CF6, #4cd7f6)',
-                  color: '#fff', fontSize: 13, fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.08em',
-                  boxShadow: '0 4px 20px rgba(139,92,246,0.35)',
-                  opacity: (paid < total || pay.isPending) ? 0.5 : 1,
-                  transition: 'all 0.3s',
-                }}
-              >
-                {pay.isPending ? 'ПРОВОДИМ...' : isReady ? 'ЗАВЕРШИТЬ ОПЛАТУ' : `НУЖНО ЕЩЁ ${remaining.toLocaleString('ru')} ₽`}
-              </button>
-            </div>
+            )}
           </div>
         </div>
       )}
