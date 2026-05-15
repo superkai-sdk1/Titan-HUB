@@ -22,15 +22,15 @@ export function SessionLock() {
     }
   }, [token, updateActivity])
 
-  // Check inactivity every minute
+  // Reset activity timer on page load (reload = user is present)
   useEffect(() => {
     if (!token) return
+    updateActivity()
+  }, [token]) // eslint-disable-line react-hooks/exhaustive-deps
 
-    // Check immediately on mount (e.g. browser opened after 30+ min)
-    const lastActiveAt = useAuthStore.getState().lastActiveAt
-    if (Date.now() - lastActiveAt >= LOCK_AFTER_MS) {
-      lock()
-    }
+  // Check inactivity every minute (only locks while page is open and idle)
+  useEffect(() => {
+    if (!token) return
 
     const interval = setInterval(() => {
       const lastActiveAt = useAuthStore.getState().lastActiveAt
