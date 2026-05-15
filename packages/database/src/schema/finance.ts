@@ -13,6 +13,7 @@ export const discounts = pgTable('discounts', {
   minQuantity: integer('min_quantity').default(1),
   itemId: uuid('item_id').references(() => inventory.id),
   clientRuleId: uuid('client_rule_id'),
+  clientId: uuid('client_id').references(() => profiles.id),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 })
 
