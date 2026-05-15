@@ -503,26 +503,6 @@ export default function PosPage() {
             style={{
               padding: '12px 20px',
               borderRadius: 14,
-              border: '1px solid rgba(76,215,246,0.4)',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8,
-              color: '#4cd7f6',
-              fontSize: 12,
-              fontWeight: 700,
-              textTransform: 'uppercase',
-              letterSpacing: '0.06em',
-            }}
-          >
-            <span className="material-symbols-outlined" style={{ fontSize: 18 }}>table_restaurant</span>
-            СХЕМА ЗАЛА
-          </button>
-          <button
-            className="glass-l2"
-            style={{
-              padding: '12px 20px',
-              borderRadius: 14,
               border: '1px solid rgba(255,255,255,0.1)',
               cursor: 'pointer',
               display: 'flex',

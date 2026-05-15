@@ -4,6 +4,7 @@ import { Providers } from './providers'
 import { AuthGuard } from '@/components/AuthGuard'
 import { BottomNav } from '@/components/BottomNav'
 import { Sidebar } from '@/components/Sidebar'
+import { SessionLock } from '@/components/SessionLock'
 
 export const metadata: Metadata = {
   title: 'Titan HUB',
@@ -36,6 +37,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </head>
       <body className="bg-mesh" style={{ color: 'var(--on-surface)', overflow: 'hidden' }}>
         <Providers>
+          <SessionLock />
           <AuthGuard>
             {/* Desktop sidebar (hidden on mobile via CSS) */}
             <Sidebar />

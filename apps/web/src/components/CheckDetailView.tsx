@@ -120,6 +120,7 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
 
   const [activeCat, setActiveCat] = useState<string | null>(null)
   const [search, setSearch] = useState('')
+  const [showMenuDrawer, setShowMenuDrawer] = useState(false)
   const [showPayment, setShowPayment] = useState(false)
   const [isPaid, setIsPaid] = useState(false)
 
@@ -313,7 +314,7 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
   }
 
   return (
-    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden', position: 'relative' }}>
 
       {/* Header */}
       <div className="glass-l1" style={{
@@ -450,7 +451,7 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
                 </span>
               </div>
             )}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
               <div>
                 <p style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--on-surface-variant)', margin: '0 0 4px' }}>
                   Итого
@@ -459,116 +460,119 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
                   {total.toLocaleString('ru')} ₽
                 </p>
               </div>
-              <button
-                onClick={openPaymentDrawer}
-                disabled={total === 0}
-                style={{
-                  padding: '14px 28px', borderRadius: 16, border: 'none', cursor: 'pointer',
-                  background: 'linear-gradient(135deg, #8B5CF6, #4cd7f6)',
-                  color: '#fff', fontSize: 13, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.06em',
-                  boxShadow: '0 4px 20px rgba(139,92,246,0.35)', opacity: total === 0 ? 0.4 : 1,
-                }}
-              >
-                К ОПЛАТЕ
-              </button>
+              <div style={{ display: 'flex', gap: 10 }}>
+                <button
+                  onClick={() => setShowMenuDrawer(true)}
+                  style={{
+                    padding: '14px 20px', borderRadius: 16, border: '1px solid rgba(139,92,246,0.35)',
+                    cursor: 'pointer', background: 'rgba(139,92,246,0.1)',
+                    color: '#A78BFA', fontSize: 13, fontWeight: 800,
+                    textTransform: 'uppercase', letterSpacing: '0.06em',
+                    display: 'flex', alignItems: 'center', gap: 8,
+                  }}
+                >
+                  <span className="material-symbols-outlined" style={{ fontSize: 18 }}>add</span>
+                  Добавить
+                </button>
+                <button
+                  onClick={openPaymentDrawer}
+                  disabled={total === 0}
+                  style={{
+                    padding: '14px 28px', borderRadius: 16, border: 'none', cursor: 'pointer',
+                    background: 'linear-gradient(135deg, #8B5CF6, #4cd7f6)',
+                    color: '#fff', fontSize: 13, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.06em',
+                    boxShadow: '0 4px 20px rgba(139,92,246,0.35)', opacity: total === 0 ? 0.4 : 1,
+                  }}
+                >
+                  К ОПЛАТЕ
+                </button>
+              </div>
             </div>
           </div>
         </div>
 
-        {/* Right: menu picker */}
-        <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-          {/* Search */}
-          <div style={{ padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
-            <div style={{ position: 'relative' }}>
-              <span className="material-symbols-outlined" style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', fontSize: 16, color: 'var(--on-surface-variant)' }}>
-                search
-              </span>
-              <input
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-                placeholder="Поиск..."
-                className="glass-l2"
-                style={{
-                  width: '100%', padding: '10px 12px 10px 36px', borderRadius: 12,
-                  border: '1px solid rgba(255,255,255,0.08)', color: 'var(--on-surface)',
-                  fontSize: 13, outline: 'none', background: 'none',
-                }}
-              />
-            </div>
-          </div>
-
-          {/* Category filters */}
-          <div style={{ display: 'flex', gap: 8, padding: '8px 16px', overflowX: 'auto', borderBottom: '1px solid rgba(255,255,255,0.07)', flexShrink: 0 }}>
-            <button
-              onClick={() => setActiveCat(null)}
-              style={{
-                flexShrink: 0, padding: '6px 14px', borderRadius: 9999, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 600,
-                background: !activeCat ? 'linear-gradient(135deg, #8B5CF6, #6D28D9)' : 'rgba(255,255,255,0.05)',
-                color: !activeCat ? '#fff' : 'var(--on-surface-variant)',
-                boxShadow: !activeCat ? '0 2px 12px rgba(139,92,246,0.3)' : 'none',
-              }}
-            >
-              Все
-            </button>
-            {categories.map(cat => (
-              <button
-                key={cat.id}
-                onClick={() => setActiveCat(cat.id)}
-                style={{
-                  flexShrink: 0, padding: '6px 14px', borderRadius: 9999, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 600,
-                  background: activeCat === cat.id ? 'linear-gradient(135deg, #8B5CF6, #6D28D9)' : 'rgba(255,255,255,0.05)',
-                  color: activeCat === cat.id ? '#fff' : 'var(--on-surface-variant)',
-                  boxShadow: activeCat === cat.id ? '0 2px 12px rgba(139,92,246,0.3)' : 'none',
-                }}
-              >
-                {cat.name}
-              </button>
-            ))}
-          </div>
-
-          {/* Items grid */}
-          <div style={{
-            flex: 1, overflowY: 'auto', padding: 16,
-            display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, alignContent: 'start',
-          }}>
-            {filteredItems.map(item => (
-              <button
-                key={item.id}
-                onClick={() => addItem.mutate(item.id)}
-                disabled={item.trackStock && item.stockQuantity === 0}
-                className="glass-l2"
-                style={{
-                  borderRadius: 14, padding: 12, border: '1px solid rgba(255,255,255,0.08)',
-                  cursor: 'pointer', textAlign: 'left',
-                  opacity: item.trackStock && item.stockQuantity === 0 ? 0.4 : 1,
-                  transition: 'all 0.15s',
-                  background: 'rgba(255,255,255,0.04)',
-                }}
-                onMouseEnter={e => {
-                  e.currentTarget.style.background = 'rgba(139,92,246,0.08)'
-                  e.currentTarget.style.borderColor = 'rgba(139,92,246,0.3)'
-                }}
-                onMouseLeave={e => {
-                  e.currentTarget.style.background = 'rgba(255,255,255,0.04)'
-                  e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)'
-                }}
-              >
-                <p style={{ fontSize: 12, fontWeight: 600, margin: 0, color: 'var(--on-surface)', lineHeight: 1.3, marginBottom: 6 }}>
-                  {item.name}
-                </p>
-                <p style={{ fontSize: 14, fontStyle: 'italic', fontWeight: 800, fontVariantNumeric: 'tabular-nums', color: '#A78BFA', margin: 0 }}>
-                  {parseFloat(item.price).toLocaleString('ru')} ₽
-                </p>
-                {item.trackStock && (
-                  <p style={{ fontSize: 10, color: 'var(--on-surface-variant)', margin: '4px 0 0' }}>
-                    {item.stockQuantity} шт.
-                  </p>
-                )}
-              </button>
-            ))}
-          </div>
-        </div>
       </div>
+
+      {/* Menu Drawer */}
+      {showMenuDrawer && (
+        <>
+          {/* Backdrop */}
+          <div
+            onClick={() => setShowMenuDrawer(false)}
+            style={{
+              position: 'absolute', inset: 0, zIndex: 40,
+              background: 'rgba(0,0,0,0.5)',
+              backdropFilter: 'blur(4px)',
+              WebkitBackdropFilter: 'blur(4px)',
+            }}
+          />
+          {/* Sheet */}
+          <div style={{
+            position: 'absolute', bottom: 0, left: 0, right: 0, zIndex: 41,
+            background: 'rgba(21,18,27,0.98)',
+            backdropFilter: 'blur(32px)',
+            WebkitBackdropFilter: 'blur(32px)',
+            borderRadius: '20px 20px 0 0',
+            border: '1px solid rgba(255,255,255,0.08)',
+            borderBottom: 'none',
+            boxShadow: '0 -8px 40px rgba(0,0,0,0.5)',
+            height: '70%',
+            display: 'flex',
+            flexDirection: 'column',
+          }}>
+            {/* Handle + header */}
+            <div style={{ padding: '12px 16px 0', flexShrink: 0 }}>
+              <div style={{ width: 36, height: 4, borderRadius: 2, background: 'rgba(255,255,255,0.15)', margin: '0 auto 12px' }} />
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                <h3 style={{ fontSize: 16, fontWeight: 800, margin: 0 }}>Добавить позицию</h3>
+                <button
+                  onClick={() => setShowMenuDrawer(false)}
+                  style={{ width: 32, height: 32, borderRadius: 9, border: '1px solid rgba(255,255,255,0.1)', background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--on-surface-variant)' }}
+                >
+                  <span className="material-symbols-outlined" style={{ fontSize: 16 }}>close</span>
+                </button>
+              </div>
+              {/* Search */}
+              <div style={{ position: 'relative', marginBottom: 8 }}>
+                <span className="material-symbols-outlined" style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', fontSize: 16, color: 'var(--on-surface-variant)' }}>search</span>
+                <input
+                  value={search}
+                  onChange={e => setSearch(e.target.value)}
+                  placeholder="Поиск..."
+                  className="glass-l2"
+                  style={{ width: '100%', padding: '9px 12px 9px 36px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.08)', color: 'var(--on-surface)', fontSize: 13, outline: 'none', background: 'none', boxSizing: 'border-box' }}
+                />
+              </div>
+              {/* Category pills */}
+              <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 10 }}>
+                <button onClick={() => setActiveCat(null)} style={{ flexShrink: 0, padding: '5px 14px', borderRadius: 9999, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 600, background: !activeCat ? 'linear-gradient(135deg, #8B5CF6, #6D28D9)' : 'rgba(255,255,255,0.06)', color: !activeCat ? '#fff' : 'var(--on-surface-variant)' }}>Все</button>
+                {categories.map(cat => (
+                  <button key={cat.id} onClick={() => setActiveCat(cat.id)} style={{ flexShrink: 0, padding: '5px 14px', borderRadius: 9999, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 600, background: activeCat === cat.id ? 'linear-gradient(135deg, #8B5CF6, #6D28D9)' : 'rgba(255,255,255,0.06)', color: activeCat === cat.id ? '#fff' : 'var(--on-surface-variant)' }}>{cat.name}</button>
+                ))}
+              </div>
+            </div>
+
+            {/* Items grid */}
+            <div style={{ flex: 1, overflowY: 'auto', padding: '0 16px 24px', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))', gap: 10, alignContent: 'start' }}>
+              {filteredItems.map(item => (
+                <button
+                  key={item.id}
+                  onClick={() => { addItem.mutate(item.id) }}
+                  disabled={item.trackStock && item.stockQuantity === 0}
+                  className="glass-l2"
+                  style={{ borderRadius: 14, padding: '12px 10px', border: '1px solid rgba(255,255,255,0.08)', cursor: 'pointer', textAlign: 'left', opacity: item.trackStock && item.stockQuantity === 0 ? 0.4 : 1, transition: 'all 0.15s', background: 'rgba(255,255,255,0.04)' }}
+                  onMouseEnter={e => { e.currentTarget.style.background = 'rgba(139,92,246,0.1)'; e.currentTarget.style.borderColor = 'rgba(139,92,246,0.35)' }}
+                  onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)' }}
+                >
+                  <p style={{ fontSize: 13, fontWeight: 600, margin: '0 0 4px', color: 'var(--on-surface)', lineHeight: 1.3 }}>{item.name}</p>
+                  <p style={{ fontSize: 12, fontWeight: 800, fontStyle: 'italic', color: '#A78BFA', margin: 0 }}>{parseFloat(item.price).toLocaleString('ru')} ₽</p>
+                  {item.trackStock && <p style={{ fontSize: 10, color: item.stockQuantity <= 3 ? '#F59E0B' : 'var(--on-surface-variant)', margin: '4px 0 0' }}>×{item.stockQuantity}</p>}
+                </button>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
 
       {/* Full Payment Drawer */}
       {showPayment && (
@@ -891,11 +895,6 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
       <style>{`
         .check-layout {
           position: relative;
-        }
-        @media (min-width: 768px) {
-          .check-layout {
-            grid-template-columns: 420px 1fr !important;
-          }
         }
       `}</style>
     </div>
