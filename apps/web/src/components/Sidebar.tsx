@@ -126,7 +126,7 @@ export function Sidebar() {
         {/* Nav items */}
         <nav style={{ flex: 1, overflowY: 'auto', padding: collapsed ? '8px 10px' : '8px 12px' }}>
           {NAV_ITEMS.map(({ href, icon, label }) => {
-            const active = pathname === href || (href !== '/pos' && pathname.startsWith(href))
+            const active = pathname === href || (href !== '/pos' && href !== '/manage' && pathname.startsWith(href)) || (href === '/manage' && pathname.startsWith('/manage') && !pathname.startsWith('/manage/events'))
             return (
               <Link
                 key={href}
