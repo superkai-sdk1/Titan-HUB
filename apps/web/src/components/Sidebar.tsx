@@ -14,7 +14,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: '/pos',       icon: 'point_of_sale',   label: 'Касса' },
   { href: '/events',    icon: 'event',            label: 'События' },
   { href: '/dashboard', icon: 'dashboard',        label: 'Дашборд' },
-  { href: '/reports',   icon: 'bar_chart',        label: 'Отчёты' },
+  { href: '/dashboard', icon: 'bar_chart',        label: 'Отчёты' },
   { href: '/manage',    icon: 'settings',         label: 'Управление' },
 ]
 
