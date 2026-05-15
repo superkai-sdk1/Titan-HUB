@@ -1,6 +1,5 @@
 'use client'
 import { motion, AnimatePresence } from 'framer-motion'
-import { X } from 'lucide-react'
 
 interface DrawerProps {
   open: boolean
@@ -87,7 +86,7 @@ export function Drawer({ open, onClose, title, subtitle, icon, children }: Drawe
                     flexShrink: 0,
                   }}
                 >
-                  <X size={16} />
+                  <span className="material-symbols-outlined" style={{ fontSize: 16 }}>close</span>
                 </button>
               </div>
             )}

@@ -1,7 +1,6 @@
 'use client'
 import { useState, useCallback, createContext, useContext, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { CheckCircle2, XCircle, AlertTriangle, Info, X } from 'lucide-react'
 
 type ToastType = 'success' | 'error' | 'warning' | 'info'
 
@@ -49,11 +48,11 @@ export function useToast() {
   return ctx
 }
 
-const TOAST_CONFIG: Record<ToastType, { icon: React.ComponentType<any>; color: string; bg: string }> = {
-  success: { icon: CheckCircle2, color: 'var(--success)', bg: 'rgba(52,211,153,0.12)' },
-  error:   { icon: XCircle,      color: 'var(--danger)',  bg: 'rgba(251,113,133,0.12)' },
-  warning: { icon: AlertTriangle,color: 'var(--warning)', bg: 'rgba(251,191,36,0.12)' },
-  info:    { icon: Info,         color: 'var(--info)',    bg: 'rgba(96,165,250,0.12)' },
+const TOAST_CONFIG: Record<ToastType, { icon: string; color: string; bg: string }> = {
+  success: { icon: 'check_circle', color: 'var(--success)', bg: 'rgba(52,211,153,0.12)' },
+  error:   { icon: 'cancel',       color: 'var(--danger)',  bg: 'rgba(251,113,133,0.12)' },
+  warning: { icon: 'warning',      color: 'var(--warning)', bg: 'rgba(251,191,36,0.12)' },
+  info:    { icon: 'info',         color: 'var(--info)',    bg: 'rgba(96,165,250,0.12)' },
 }
 
 function ToastContainer({ toasts, onDismiss }: { toasts: Toast[]; onDismiss: (id: string) => void }) {
@@ -65,7 +64,7 @@ function ToastContainer({ toasts, onDismiss }: { toasts: Toast[]; onDismiss: (id
     }}>
       <AnimatePresence>
         {toasts.map(toast => {
-          const { icon: Icon, color, bg } = TOAST_CONFIG[toast.type]
+          const { icon, color, bg } = TOAST_CONFIG[toast.type]
           return (
             <motion.div
               key={toast.id}
@@ -85,15 +84,15 @@ function ToastContainer({ toasts, onDismiss }: { toasts: Toast[]; onDismiss: (id
                 pointerEvents: 'all',
               }}
             >
-              <Icon size={18} color={color} style={{ flexShrink: 0 }} />
-              <span style={{ flex: 1, fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>
+              <span className="material-symbols-outlined" style={{ fontSize: 18, color, flexShrink: 0, fontVariationSettings: "'FILL' 1" }}>{icon}</span>
+              <span style={{ flex: 1, fontSize: 13, fontWeight: 500, color: 'var(--on-surface)' }}>
                 {toast.message}
               </span>
               <button
                 onClick={() => onDismiss(toast.id)}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', padding: 2, flexShrink: 0 }}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--on-surface-variant)', display: 'flex', padding: 2, flexShrink: 0 }}
               >
-                <X size={14} />
+                <span className="material-symbols-outlined" style={{ fontSize: 14 }}>close</span>
               </button>
             </motion.div>
           )

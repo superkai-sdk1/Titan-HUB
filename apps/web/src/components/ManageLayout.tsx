@@ -1,19 +1,18 @@
 'use client'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft } from 'lucide-react'
 
 export function ManageLayout({ title, children, action }: { title: string; children: React.ReactNode; action?: React.ReactNode }) {
   const router = useRouter()
   return (
-    <div className="min-h-screen bg-background">
-      <div className="sticky top-0 bg-background/95 backdrop-blur border-b border-border z-30 px-4 py-3 safe-top flex items-center gap-3">
-        <button onClick={() => router.back()} className="p-2 -ml-2 text-muted-foreground">
-          <ArrowLeft size={20} />
+    <div style={{ minHeight: '100dvh', background: 'var(--background)' }}>
+      <div style={{ position: 'sticky', top: 0, background: 'rgba(21,18,27,0.95)', backdropFilter: 'blur(16px)', borderBottom: '1px solid rgba(255,255,255,0.06)', zIndex: 30, padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 12 }}>
+        <button onClick={() => router.back()} style={{ padding: 8, marginLeft: -8, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--on-surface-variant)', display: 'flex' }}>
+          <span className="material-symbols-outlined" style={{ fontSize: 20 }}>arrow_back</span>
         </button>
-        <h1 className="font-bold text-lg flex-1">{title}</h1>
+        <h1 style={{ fontWeight: 700, fontSize: 18, flex: 1, margin: 0, color: 'var(--on-surface)' }}>{title}</h1>
         {action}
       </div>
-      <div className="px-4 py-4">{children}</div>
+      <div style={{ padding: '16px' }}>{children}</div>
     </div>
   )
 }
