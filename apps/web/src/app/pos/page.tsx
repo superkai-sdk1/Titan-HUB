@@ -191,13 +191,23 @@ export default function PosPage() {
     enabled: newCheckStep === 'space',
   })
 
-  // Menu items for tariff step — loaded from DB
-  const { data: menuItemsData } = useQuery({
-    queryKey: ['menu', 'items', 'tariffs'],
-    queryFn: () => api.get<{ items: { id: string; name: string; price: string | number; isActive: boolean }[] }>('/menu/items/all'),
+  // Menu items + categories for tariff step — filter by "Тарифы" category
+  const { data: menuCatsData } = useQuery({
+    queryKey: ['menu', 'categories'],
+    queryFn: () => api.get<{ categories: { id: string; name: string }[] }>('/menu/categories'),
     enabled: newCheckStep === 'tariff',
   })
-  const tariffItems = (menuItemsData?.items ?? []).filter(i => i.isActive)
+  const { data: menuItemsData } = useQuery({
+    queryKey: ['menu', 'items', 'tariffs'],
+    queryFn: () => api.get<{ items: { id: string; name: string; price: string | number; isActive: boolean; category?: string }[] }>('/menu/items/all'),
+    enabled: newCheckStep === 'tariff',
+  })
+  const tariffCategoryId = (menuCatsData?.categories ?? []).find(
+    c => c.name.toLowerCase().includes('тариф')
+  )?.id ?? null
+  const tariffItems = (menuItemsData?.items ?? []).filter(i =>
+    i.isActive && (tariffCategoryId ? i.category === tariffCategoryId : true)
+  )
 
   // Предвыбор тарифа по тиру клиента
   useEffect(() => {
