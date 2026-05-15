@@ -418,8 +418,9 @@ async function buildContext(action: string, payload?: Record<string, unknown>, q
 export const aiRouter = new Hono<AppEnv>()
 aiRouter.use('*', requireAuth, requireRole('owner', 'staff'))
 
-async function handleChat(c: Parameters<Parameters<typeof aiRouter.post>[1]>[0]) {
-  const { action, payload, question } = c.req.valid('json' as never) as z.infer<typeof ActionSchema>
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function handleChat(c: any) {
+  const { action, payload, question } = c.req.valid('json') as z.infer<typeof ActionSchema>
   const cacheKey = `ai:${action}:${JSON.stringify(payload ?? {})}:${question ?? ''}`
 
   const redis = getRedis()
