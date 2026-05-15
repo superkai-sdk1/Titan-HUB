@@ -76,6 +76,51 @@ const TIER_TO_TARIFF_NAME: Record<string, string> = {
   student: 'Студент',
 }
 
+// Цветовая палитра тарифов (по индексу)
+const TARIFF_PALETTE = [
+  { color: '#8B5CF6', bg: 'rgba(139,92,246,0.15)', selBg: 'rgba(139,92,246,0.22)', selBorder: 'rgba(139,92,246,0.65)' },
+  { color: '#10B981', bg: 'rgba(16,185,129,0.15)',  selBg: 'rgba(16,185,129,0.22)',  selBorder: 'rgba(16,185,129,0.65)'  },
+  { color: '#F59E0B', bg: 'rgba(245,158,11,0.15)',  selBg: 'rgba(245,158,11,0.22)',  selBorder: 'rgba(245,158,11,0.65)'  },
+  { color: '#3B82F6', bg: 'rgba(59,130,246,0.15)',  selBg: 'rgba(59,130,246,0.22)',  selBorder: 'rgba(59,130,246,0.65)'  },
+  { color: '#F43F5E', bg: 'rgba(244,63,94,0.15)',   selBg: 'rgba(244,63,94,0.22)',   selBorder: 'rgba(244,63,94,0.65)'   },
+  { color: '#4cd7f6', bg: 'rgba(76,215,246,0.15)',  selBg: 'rgba(76,215,246,0.22)',  selBorder: 'rgba(76,215,246,0.65)'  },
+]
+
+// ── Умный поиск: раскладка + транслитерация ───────────────────────────────
+const EN_TO_RU: Record<string, string> = {
+  q:'й',w:'ц',e:'у',r:'к',t:'е',y:'н',u:'г',i:'ш',o:'щ',p:'з','[':'х',']':'ъ',
+  a:'ф',s:'ы',d:'в',f:'а',g:'п',h:'р',j:'о',k:'л',l:'д',';':'ж',"'":'э',
+  z:'я',x:'ч',c:'с',v:'м',b:'и',n:'т',m:'ь',',':'б','.':'ю',
+}
+
+function switchLayout(s: string): string {
+  return s.toLowerCase().split('').map(c => EN_TO_RU[c] ?? c).join('')
+}
+
+function latinToRu(s: string): string {
+  return s.toLowerCase()
+    .replace(/shch/g,'щ').replace(/sch/g,'щ').replace(/sh/g,'ш')
+    .replace(/zh/g,'ж').replace(/ch/g,'ч').replace(/ts/g,'ц').replace(/kh/g,'х')
+    .replace(/ya/g,'я').replace(/yu/g,'ю').replace(/yo/g,'ё').replace(/ye/g,'е')
+    .replace(/a/g,'а').replace(/b/g,'б').replace(/v/g,'в').replace(/g/g,'г')
+    .replace(/d/g,'д').replace(/e/g,'е').replace(/z/g,'з').replace(/i/g,'и')
+    .replace(/y/g,'й').replace(/k/g,'к').replace(/l/g,'л').replace(/m/g,'м')
+    .replace(/n/g,'н').replace(/o/g,'о').replace(/p/g,'п').replace(/r/g,'р')
+    .replace(/s/g,'с').replace(/t/g,'т').replace(/u/g,'у').replace(/f/g,'ф')
+    .replace(/h/g,'х')
+}
+
+function isLatin(s: string): boolean { return /[a-zA-Z]/.test(s) }
+
+function getSearchVariants(q: string): string[] {
+  const variants = new Set<string>([q.toLowerCase()])
+  if (isLatin(q)) {
+    variants.add(switchLayout(q))
+    variants.add(latinToRu(q))
+  }
+  return [...variants].filter(Boolean)
+}
+
 const SPACE_TYPE_LABELS: Record<string, string> = {
   small_booth: 'Малая кабинка',
   large_booth: 'Большая кабинка',
@@ -218,7 +263,7 @@ export default function PosPage() {
     setSelectedTariffId(match?.id ?? null)
   }, [newCheckStep, menuItemsData, selectedPlayer]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Debounced player search
+  // Debounced smart player search (layout switch + transliteration)
   useEffect(() => {
     if (searchTimerRef.current) clearTimeout(searchTimerRef.current)
     if (!searchQuery.trim()) {
@@ -227,8 +272,22 @@ export default function PosPage() {
     }
     searchTimerRef.current = setTimeout(async () => {
       try {
-        const res = await api.get<{ players: PlayerResult[] }>(`/pos/players/search?q=${encodeURIComponent(searchQuery)}`)
-        setSearchResults(res.players)
+        const variants = getSearchVariants(searchQuery)
+        const results = await Promise.all(
+          variants.map(v =>
+            api.get<{ players: PlayerResult[] }>(`/pos/players/search?q=${encodeURIComponent(v)}`)
+              .then(r => r.players).catch(() => [] as PlayerResult[])
+          )
+        )
+        // Merge + deduplicate by id, preserve order
+        const seen = new Set<string>()
+        const merged: PlayerResult[] = []
+        for (const list of results) {
+          for (const p of list) {
+            if (!seen.has(p.id)) { seen.add(p.id); merged.push(p) }
+          }
+        }
+        setSearchResults(merged)
       } catch {
         setSearchResults([])
       }
@@ -895,9 +954,10 @@ export default function PosPage() {
                   </div>
                 ) : (
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                    {tariffItems.map(item => {
+                    {tariffItems.map((item, idx) => {
                       const price = parseFloat(String(item.price)) || 0
                       const isSelected = selectedTariffId === item.id
+                      const pal = TARIFF_PALETTE[idx % TARIFF_PALETTE.length]
                       return (
                         <button
                           key={item.id}
@@ -906,9 +966,9 @@ export default function PosPage() {
                           className="glass-l2"
                           style={{
                             padding: '18px 14px', borderRadius: 16,
-                            border: isSelected ? '1px solid rgba(139,92,246,0.6)' : '1px solid rgba(255,255,255,0.08)',
-                            background: isSelected ? 'rgba(139,92,246,0.12)' : 'transparent',
-                            boxShadow: isSelected ? '0 0 0 1px rgba(139,92,246,0.3)' : 'none',
+                            border: isSelected ? `1px solid ${pal.selBorder}` : '1px solid rgba(255,255,255,0.08)',
+                            background: isSelected ? pal.selBg : 'transparent',
+                            boxShadow: isSelected ? `0 0 0 1px ${pal.selBorder}40` : 'none',
                             cursor: 'pointer', textAlign: 'left',
                             display: 'flex', flexDirection: 'column', alignItems: 'flex-start',
                             gap: 10, transition: 'all 0.18s',
@@ -917,15 +977,15 @@ export default function PosPage() {
                         >
                           <div style={{
                             width: 36, height: 36, borderRadius: 10,
-                            background: isSelected ? 'rgba(139,92,246,0.25)' : 'rgba(139,92,246,0.1)',
+                            background: isSelected ? `${pal.color}44` : pal.bg,
                             display: 'flex', alignItems: 'center', justifyContent: 'center',
                             transition: 'background 0.18s',
                           }}>
-                            <span className="material-symbols-outlined" style={{ fontSize: 18, color: isSelected ? '#C4B5FD' : '#A78BFA', fontVariationSettings: isSelected ? "'FILL' 1" : "'FILL' 0" }}>confirmation_number</span>
+                            <span className="material-symbols-outlined" style={{ fontSize: 18, color: pal.color, fontVariationSettings: isSelected ? "'FILL' 1" : "'FILL' 0" }}>confirmation_number</span>
                           </div>
                           <div>
-                            <p style={{ fontSize: 14, fontWeight: 700, margin: 0, color: isSelected ? '#E9D5FF' : 'var(--on-surface)' }}>{item.name}</p>
-                            <p style={{ fontSize: 16, fontWeight: 900, fontStyle: 'italic', margin: '4px 0 0', color: isSelected ? '#C4B5FD' : '#A78BFA', fontVariantNumeric: 'tabular-nums' }}>
+                            <p style={{ fontSize: 14, fontWeight: 700, margin: 0, color: isSelected ? '#fff' : 'var(--on-surface)' }}>{item.name}</p>
+                            <p style={{ fontSize: 16, fontWeight: 900, fontStyle: 'italic', margin: '4px 0 0', color: pal.color, fontVariantNumeric: 'tabular-nums' }}>
                               {price.toLocaleString('ru')} ₽
                             </p>
                           </div>
