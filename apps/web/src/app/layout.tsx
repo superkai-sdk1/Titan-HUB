@@ -6,6 +6,7 @@ import { BottomNav } from '@/components/BottomNav'
 import { Sidebar } from '@/components/Sidebar'
 import { SessionLock } from '@/components/SessionLock'
 import { StaffNotifications } from '@/components/StaffNotifications'
+import { ServiceWorkerRegister } from '@/components/ServiceWorkerRegister'
 
 export const metadata: Metadata = {
   title: 'Titan HUB',
@@ -75,6 +76,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 
             {/* SSE-toasts для staff/owner: вызовы с планшета, запросы счёта */}
             <StaffNotifications />
+
+            {/* Service Worker для PWA-offline */}
+            <ServiceWorkerRegister />
           </AuthGuard>
         </Providers>
 

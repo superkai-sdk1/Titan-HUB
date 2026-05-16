@@ -4,6 +4,7 @@ import { logger } from 'hono/logger'
 import { secureHeaders } from 'hono/secure-headers'
 import { prettyJSON } from 'hono/pretty-json'
 import { bodyLimit } from 'hono/body-limit'
+import { rateLimit } from './middleware/rateLimit.js'
 
 import { authRouter } from './modules/auth/auth.router.js'
 import { posRouter } from './modules/pos/pos.router.js'
@@ -40,6 +41,7 @@ app.use(
 )
 app.use('*', prettyJSON())
 app.use('/api/*', bodyLimit({ maxSize: 1 * 1024 * 1024 }))
+app.use('/api/*', rateLimit)
 
 app.get('/health', (c) => c.json({ ok: true, ts: Date.now() }))
 app.get('/api/health', (c) => c.json({ ok: true, ts: Date.now() }))
