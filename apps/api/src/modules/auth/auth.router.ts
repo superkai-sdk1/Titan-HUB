@@ -13,6 +13,7 @@ import {
   generateAuthenticationOptions,
   verifyAuthenticationResponse,
 } from '@simplewebauthn/server'
+import type { AuthenticatorTransportFuture } from '@simplewebauthn/server'
 import type { AppEnv } from '../../types.js'
 import { z } from 'zod'
 import { isoBase64URL, isoUint8Array } from '@simplewebauthn/server/helpers'
@@ -130,7 +131,7 @@ authRouter.post('/passkey/register/options', requireAuth, async (c) => {
   const existing = await db.select().from(passkeys).where(eq(passkeys.userId, userId))
   const excludeCredentials = existing.map((pk: any) => ({
     id: pk.id,
-    transports: pk.transports ?? [],
+    transports: (pk.transports ?? []) as AuthenticatorTransportFuture[],
   }))
 
   const options = await generateRegistrationOptions({
@@ -221,12 +222,12 @@ authRouter.post(
   async (c) => {
     const { userId } = c.req.valid('json')
 
-    let allowCredentials: { id: string; transports?: string[] }[] = []
+    let allowCredentials: { id: string; transports?: AuthenticatorTransportFuture[] }[] = []
     if (userId) {
       const existing = await db.select().from(passkeys).where(eq(passkeys.userId, userId))
       allowCredentials = existing.map((pk: any) => ({
         id: pk.id,
-        transports: pk.transports ?? [],
+        transports: (pk.transports ?? []) as AuthenticatorTransportFuture[],
       }))
     }
 
@@ -307,7 +308,7 @@ authRouter.post(
           id: pkRecord.id,
           publicKey: isoBase64URL.toBuffer(pkRecord.publicKey),
           counter: pkRecord.counter,
-          transports: pkRecord.transports ?? [],
+          transports: (pkRecord.transports ?? []) as AuthenticatorTransportFuture[],
         },
       })
     } catch (err: any) {
