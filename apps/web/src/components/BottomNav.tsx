@@ -98,35 +98,28 @@ export function BottomNav() {
 
   return (
     <>
-      {/* Safe-area fill — закрывает тёмную полосу под плавающим навбаром */}
-      <div style={{
-        position: 'fixed',
-        bottom: 0,
-        left: 0,
-        right: 0,
-        height: 'env(safe-area-inset-bottom)',
-        background: 'rgba(15, 12, 20, 0.96)',
-        zIndex: 39,
-        pointerEvents: 'none',
-      }} />
-
       <nav
         className="bottom-nav-root"
         style={{
           position: 'fixed',
-          bottom: 'calc(env(safe-area-inset-bottom) + 8px)',
-          left: 12,
-          right: 12,
+          // bottom: 0 + внутренний padding-bottom учитывает home indicator
+          bottom: 0,
+          left: 0,
+          right: 0,
           zIndex: 40,
-          background: 'rgba(29, 24, 40, 0.75)',
-          backdropFilter: 'blur(24px)',
-          WebkitBackdropFilter: 'blur(24px)',
-          border: '1px solid rgba(255,255,255,0.1)',
-          borderRadius: 9999,
-          boxShadow: '0 4px 32px rgba(0,0,0,0.5), 0 0 0 0.5px rgba(255,255,255,0.06)',
+          background: 'rgba(21, 18, 27, 0.88)',
+          backdropFilter: 'blur(28px) saturate(180%)',
+          WebkitBackdropFilter: 'blur(28px) saturate(180%)',
+          borderTop: '1px solid rgba(255,255,255,0.08)',
+          // Внутренний padding-bottom = safe-area-inset (home indicator зона)
+          // Внутренний padding-top = небольшой отступ сверху
+          paddingTop: 6,
+          paddingBottom: 'env(safe-area-inset-bottom)',
+          paddingLeft: 8,
+          paddingRight: 8,
+          boxShadow: '0 -4px 24px rgba(0,0,0,0.3)',
           display: 'flex',
           alignItems: 'center',
-          padding: '6px 8px',
           gap: 0,
         }}
       >

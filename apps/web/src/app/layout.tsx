@@ -99,8 +99,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               max-width: 100vw;
             }
             .layout-content {
-              /* pill nav (60px) + gap (8px) + safe-area + FAB overhang (14px) */
-              padding-bottom: calc(82px + env(safe-area-inset-bottom));
+              /* nav height (≈68px с padding-top + tab content) + FAB overhang (14px) + safe-area-bottom */
+              padding-bottom: calc(78px + env(safe-area-inset-bottom));
               overflow-x: hidden;
               overscroll-behavior: none;
             }
