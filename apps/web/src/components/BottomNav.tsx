@@ -96,26 +96,35 @@ export function BottomNav() {
 
   return (
     <>
+      {/* Safe-area fill — закрывает тёмную полосу под плавающим навбаром */}
+      <div style={{
+        position: 'fixed',
+        bottom: 0,
+        left: 0,
+        right: 0,
+        height: 'env(safe-area-inset-bottom)',
+        background: 'rgba(15, 12, 20, 0.96)',
+        zIndex: 39,
+        pointerEvents: 'none',
+      }} />
+
       <nav
         className="bottom-nav-root"
         style={{
           position: 'fixed',
-          bottom: 0,
-          left: 0,
-          right: 0,
+          bottom: 'calc(env(safe-area-inset-bottom) + 8px)',
+          left: 12,
+          right: 12,
           zIndex: 40,
-          background: 'rgba(21, 18, 27, 0.82)',
-          backdropFilter: 'blur(28px)',
-          WebkitBackdropFilter: 'blur(28px)',
-          borderTop: '1px solid rgba(255,255,255,0.08)',
-          borderRadius: '22px 22px 0 0',
-          boxShadow: '0 -4px 32px rgba(0,0,0,0.4)',
+          background: 'rgba(29, 24, 40, 0.75)',
+          backdropFilter: 'blur(24px)',
+          WebkitBackdropFilter: 'blur(24px)',
+          border: '1px solid rgba(255,255,255,0.1)',
+          borderRadius: 9999,
+          boxShadow: '0 4px 32px rgba(0,0,0,0.5), 0 0 0 0.5px rgba(255,255,255,0.06)',
           display: 'flex',
           alignItems: 'center',
-          paddingTop: 10,
-          paddingBottom: 'env(safe-area-inset-bottom)',
-          paddingLeft: 8,
-          paddingRight: 8,
+          padding: '6px 8px',
           gap: 0,
         }}
       >
