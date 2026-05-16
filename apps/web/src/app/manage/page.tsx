@@ -120,7 +120,7 @@ export default function ManagePage() {
   const roleColor = role === 'owner' ? '#F59E0B' : '#8B5CF6'
 
   return (
-    <div style={{ minHeight: '100dvh', background: 'var(--background)', display: 'flex', flexDirection: 'column' }}>
+    <div style={{ minHeight: '100%', display: 'flex', flexDirection: 'column', overflowX: 'hidden', width: '100%' }}>
       {/* Header */}
       <div style={{ position: 'sticky', top: 0, zIndex: 30, background: 'rgba(21,18,27,0.95)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)', borderBottom: '1px solid rgba(255,255,255,0.06)', padding: '16px 20px' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', maxWidth: 680, margin: '0 auto' }}>

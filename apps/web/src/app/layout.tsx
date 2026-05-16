@@ -35,7 +35,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap"
         />
       </head>
-      <body className="bg-mesh" style={{ color: 'var(--on-surface)', overflow: 'hidden' }}>
+      <body className="bg-mesh" style={{ color: 'var(--on-surface)', overflow: 'hidden', maxWidth: '100vw', overscrollBehavior: 'none' }}>
         <Providers>
           <SessionLock />
           <AuthGuard>
@@ -76,14 +76,25 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 
         {/* Layout responsive shifts */}
         <style>{`
+          /* Глобальная защита от горизонтального скролла */
+          *, *::before, *::after { box-sizing: border-box; }
+          div, section, main, header, footer, nav, aside {
+            max-width: 100%;
+            min-width: 0;
+          }
+
           @media (max-width: 1023px) {
-            .layout-content {
-              padding-bottom: calc(80px + env(safe-area-inset-bottom));
-            }
             .layout-main {
+              /* Safe area top — только padding сверху, без боковых (они вызывают сдвиг) */
               padding-top: env(safe-area-inset-top);
-              padding-left: env(safe-area-inset-left);
-              padding-right: env(safe-area-inset-right);
+              overflow: hidden;
+              max-width: 100vw;
+            }
+            .layout-content {
+              /* Пространство под bottom nav + home indicator */
+              padding-bottom: calc(80px + env(safe-area-inset-bottom));
+              overflow-x: hidden;
+              overscroll-behavior: none;
             }
           }
         `}</style>

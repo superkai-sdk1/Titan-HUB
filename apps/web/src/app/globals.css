@@ -68,10 +68,21 @@
 }
 
 /* ── Reset ──────────────────────────────────────────── */
-* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-html, body { margin: 0; padding: 0; overflow: hidden; height: 100dvh; }
-
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; max-width: 100%; }
+html {
+  margin: 0; padding: 0;
+  overflow: hidden;
+  height: 100dvh;
+  /* iOS Safari: prevent bounce scroll on the root */
+  overscroll-behavior: none;
+}
 body {
+  margin: 0; padding: 0;
+  overflow: hidden;
+  height: 100dvh;
+  max-width: 100vw;
+  /* Prevent horizontal swipe bounce on iOS */
+  overscroll-behavior-x: none;
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
   font-size: 14px;
   line-height: 1.5;

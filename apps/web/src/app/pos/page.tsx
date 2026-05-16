@@ -352,37 +352,66 @@ function PosPageInner() {
 
       {/* Page header */}
       <div className="pos-header" style={{ flexShrink: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <h2 className="pos-header-title" style={{ margin: 0, color: 'var(--on-surface)' }}>Касса</h2>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+          {/* Left: title + count */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+            <h2 className="pos-header-title" style={{ margin: 0, color: 'var(--on-surface)', flexShrink: 0 }}>Касса</h2>
             {checks.length > 0 && (
-              <div
-                className="glass-l2"
-                style={{ borderRadius: 999, padding: '3px 10px', display: 'flex', alignItems: 'center', gap: 5 }}
-              >
+              <div className="glass-l2" style={{ borderRadius: 999, padding: '3px 9px', display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
                 <span className="material-symbols-outlined" style={{ fontSize: 13, color: 'var(--on-surface-variant)' }}>groups</span>
-                <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--on-surface-variant)' }}>
-                  {checks.length}
-                </span>
+                <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--on-surface-variant)' }}>{checks.length}</span>
               </div>
             )}
           </div>
+
+          {/* Right: action icon buttons — мобильный режим */}
+          {shift && (
+            <div className="pos-header-actions" style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+              <button
+                onClick={openNewCheckModal}
+                className="glass-l2"
+                title="Новый счёт"
+                style={{ width: 36, height: 36, borderRadius: 10, border: '1px solid rgba(139,92,246,0.4)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#A78BFA' }}>add_circle</span>
+              </button>
+              <button
+                className="glass-l2"
+                title="Отчёт смены"
+                style={{ width: 36, height: 36, borderRadius: 10, border: '1px solid rgba(255,255,255,0.1)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 18, color: 'var(--on-surface-variant)' }}>print</span>
+              </button>
+              <button
+                onClick={() => router.push('/manage/refunds')}
+                className="glass-l2"
+                title="Возврат"
+                style={{ width: 36, height: 36, borderRadius: 10, border: '1px solid rgba(255,255,255,0.1)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 18, color: 'var(--on-surface-variant)' }}>undo</span>
+              </button>
+            </div>
+          )}
         </div>
       </div>
       <style>{`
         .pos-header {
-          padding: 12px 16px 0;
+          padding: 10px 14px 8px;
         }
         .pos-header-title {
           font-size: 18px;
           font-weight: 800;
         }
+        /* На десктопе шапку с иконками прячем — там есть нижняя панель */
         @media (min-width: 1024px) {
           .pos-header {
             padding: 24px 32px 0;
           }
           .pos-header-title {
             font-size: 24px;
+          }
+          .pos-header-actions {
+            display: none;
           }
         }
       `}</style>
@@ -623,15 +652,12 @@ function PosPageInner() {
           gap: 8,
         }}>
         <style>{`
-          .pos-action-bar { padding: 10px 12px; }
-          .pos-action-btn { padding: 10px 14px !important; border-radius: 12px !important; }
-          .pos-action-btn .btn-label { display: none; }
-          @media (min-width: 480px) {
-            .pos-action-btn .btn-label { display: inline; }
-          }
+          /* На мобильном bottom bar скрыт — кнопки перенесены в шапку */
+          .pos-action-bar { display: none; }
           @media (min-width: 1024px) {
-            .pos-action-bar { padding: 16px 32px; gap: 12px; }
+            .pos-action-bar { display: flex; padding: 16px 32px; gap: 12px; }
             .pos-action-btn { padding: 12px 20px !important; border-radius: 14px !important; }
+            .pos-action-btn .btn-label { display: inline; }
           }
         `}</style>
           <button

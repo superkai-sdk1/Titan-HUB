@@ -41,7 +41,7 @@ export default function EventsPage() {
   const del = useMutation({ mutationFn: (id: string) => api.delete(`/events/${id}`), onSuccess: () => { qc.invalidateQueries({ queryKey: ['events'] }); setSelected(null) } })
 
   return (
-    <div style={{ minHeight: '100dvh', background: 'var(--background)', display: 'flex', flexDirection: 'column' }}>
+    <div style={{ minHeight: '100%', display: 'flex', flexDirection: 'column', overflowX: 'hidden', width: '100%' }}>
       {/* Header — top-level route, no back button */}
       <div style={{
         position: 'sticky', top: 0, zIndex: 20,

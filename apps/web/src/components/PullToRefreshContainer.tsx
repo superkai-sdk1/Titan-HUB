@@ -73,7 +73,7 @@ export function PullToRefreshContainer({ onRefresh, children, disabled }: PullTo
   const showIndicator = pullDistance > 8 || state === 'refreshing'
 
   return (
-    <div ref={containerRef} style={{ position: 'relative', overflowY: 'auto', height: '100%', WebkitOverflowScrolling: 'touch' }}>
+    <div ref={containerRef} style={{ position: 'relative', overflowY: 'auto', overflowX: 'hidden', height: '100%', WebkitOverflowScrolling: 'touch', overscrollBehavior: 'contain' }}>
       {/* Pull indicator */}
       {showIndicator && (
         <div
