@@ -1,14 +1,12 @@
 'use client'
 import { useState, useEffect } from 'react'
-import { useAuthStore } from '@/store/auth.store'
+import { useAuthStore, INACTIVITY_TIMEOUT_MS } from '@/store/auth.store'
 import { api } from '@/lib/api'
-
-const LOCK_AFTER_MS = 30 * 60 * 1000 // 30 minutes
 
 export function SessionLock() {
   const { token, user, isLocked, lock, unlock, updateActivity } = useAuthStore()
 
-  // Track activity
+  // Обновляем метку активности при любом взаимодействии
   useEffect(() => {
     if (!token) return
     const handler = () => updateActivity()
@@ -22,24 +20,16 @@ export function SessionLock() {
     }
   }, [token, updateActivity])
 
-  // Reset activity timer on page load (reload = user is present)
+  // Проверяем неактивность раз в минуту (только пока страница открыта)
   useEffect(() => {
     if (!token) return
-    updateActivity()
-  }, [token]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Check inactivity every minute (only locks while page is open and idle)
-  useEffect(() => {
-    if (!token) return
-
     const interval = setInterval(() => {
-      const lastActiveAt = useAuthStore.getState().lastActiveAt
+      const { lastActiveAt, isLocked: locked } = useAuthStore.getState()
       const idle = Date.now() - lastActiveAt
-      if (idle >= LOCK_AFTER_MS && !useAuthStore.getState().isLocked) {
+      if (idle >= INACTIVITY_TIMEOUT_MS && !locked) {
         lock()
       }
     }, 60_000)
-
     return () => clearInterval(interval)
   }, [token, lock])
 
@@ -106,7 +96,7 @@ function PinLockOverlay({
           TITAN HUB
         </h1>
         <p style={{ fontSize: 13, color: 'var(--on-surface-variant)', margin: 0 }}>
-          Сессия заблокирована
+          Сессия заблокирована · 8 ч без активности
         </p>
       </div>
 
@@ -148,10 +138,7 @@ function PinLockOverlay({
       </div>
 
       {/* Keypad */}
-      <div style={{
-        display: 'grid', gridTemplateColumns: 'repeat(3, 72px)',
-        gap: 12,
-      }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 72px)', gap: 12 }}>
         {PAD.map((key, idx) => {
           if (key === '') return <div key={idx} />
           const isDelete = key === '⌫'

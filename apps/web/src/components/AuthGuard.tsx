@@ -8,9 +8,14 @@ const PUBLIC = ['/login']
 export function AuthGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter()
   const pathname = usePathname()
-  const { token, user } = useAuthStore()
+  const { token, user, _hasHydrated } = useAuthStore()
 
   useEffect(() => {
+    // Не делаем ничего пока Zustand не загрузил данные из localStorage.
+    // Без этой проверки на первом рендере token === null (начальное состояние),
+    // и роутер отправляет пользователя на /login, хотя токен есть в storage.
+    if (!_hasHydrated) return
+
     if (!token && !PUBLIC.includes(pathname)) {
       router.replace('/login')
       return
@@ -24,7 +29,10 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
     if (token && user?.role !== 'tablet' && pathname.startsWith('/tablet')) {
       router.replace('/pos')
     }
-  }, [token, user, pathname, router])
+  }, [token, user, pathname, router, _hasHydrated])
+
+  // Пока store не гидрирован — не рендерим ничего (избегаем flash на /login)
+  if (!_hasHydrated) return null
 
   if (!token && !PUBLIC.includes(pathname)) return null
   return <>{children}</>

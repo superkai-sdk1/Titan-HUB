@@ -10,7 +10,16 @@ type Tab = 'pin' | 'password'
 
 export default function LoginPage() {
   const router = useRouter()
-  const { setAuth } = useAuthStore()
+  const { setAuth, token, user, _hasHydrated } = useAuthStore()
+
+  // Если уже авторизован — сразу перенаправляем, не показываем логин
+  useEffect(() => {
+    if (!_hasHydrated) return
+    if (token) {
+      router.replace(user?.role === 'tablet' ? '/tablet' : '/pos')
+    }
+  }, [token, user, _hasHydrated, router])
+
   const [tab, setTab] = useState<Tab>('pin')
   const [pin, setPin] = useState('')
   const [pinError, setPinError] = useState(false)
