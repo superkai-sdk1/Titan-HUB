@@ -1,11 +1,31 @@
 import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { db, profiles, eq, isNull } from '@titan/database'
+// @ts-ignore
+import { passkeys } from '@titan/database'
 import { signToken, verifyPin, verifyPassword, hashPassword, hashPin, isPlaintext, verifyTelegramInitData } from '@titan/auth'
 import { LoginPinSchema, LoginPasswordSchema, LoginTelegramSchema, SetPinSchema } from '@titan/types'
 import { requireAuth } from '../../middleware/auth.js'
+import { Redis } from 'ioredis'
+import {
+  generateRegistrationOptions,
+  verifyRegistrationResponse,
+  generateAuthenticationOptions,
+  verifyAuthenticationResponse,
+} from '@simplewebauthn/server'
+import type { AppEnv } from '../../types.js'
+import { z } from 'zod'
+import { isoBase64URL, isoUint8Array } from '@simplewebauthn/server/helpers'
 
-export const authRouter = new Hono()
+const RP_NAME = process.env['WEBAUTHN_RP_NAME'] ?? 'Titan HUB'
+const RP_ID = process.env['WEBAUTHN_RP_ID'] ?? 'localhost'
+const ORIGIN = process.env['WEBAUTHN_ORIGIN'] ?? 'http://localhost:3000'
+
+function getRedis() {
+  return new Redis(process.env['REDIS_URL'] ?? 'redis://redis:6379', { lazyConnect: true })
+}
+
+export const authRouter = new Hono<AppEnv>()
 
 authRouter.post('/login/pin', zValidator('json', LoginPinSchema), async (c) => {
   const { pin, userId } = c.req.valid('json')
@@ -43,8 +63,11 @@ authRouter.post('/login/password', zValidator('json', LoginPasswordSchema), asyn
   if (!ok) return c.json({ error: 'Invalid password' }, 401)
 
   const needsPinSetup = !profile.pin
+  // Check if user has any passkeys registered
+  const userPasskeys = await db.select({ id: passkeys.id }).from(passkeys).where(eq(passkeys.userId, profile.id))
+  const hasPasskey = userPasskeys.length > 0
   const token = await signToken({ sub: profile.id, role: profile.role, nickname: profile.nickname })
-  return c.json({ token, needsPinSetup, user: { id: profile.id, nickname: profile.nickname, role: profile.role, photoUrl: profile.photoUrl } })
+  return c.json({ token, needsPinSetup, hasPasskey, user: { id: profile.id, nickname: profile.nickname, role: profile.role, photoUrl: profile.photoUrl } })
 })
 
 authRouter.post('/login/telegram', zValidator('json', LoginTelegramSchema), async (c) => {
@@ -78,3 +101,244 @@ authRouter.get('/me', requireAuth, async (c) => {
   const { pin, passwordHash, ...safe } = profile
   return c.json(safe)
 })
+
+// ── Passkey / WebAuthn endpoints ────────────────────────────────────────────
+
+// GET /auth/passkey/list  (requires auth) → list user's passkeys
+authRouter.get('/passkey/list', requireAuth, async (c) => {
+  const user = c.get('user')
+  const rows = await db
+    .select({ id: passkeys.id, deviceType: passkeys.deviceType, backedUp: passkeys.backedUp, createdAt: passkeys.createdAt })
+    .from(passkeys)
+    .where(eq(passkeys.userId, user.sub))
+  return c.json({ passkeys: rows })
+})
+
+// DELETE /auth/passkey/:id  (requires auth) → remove a passkey
+authRouter.delete('/passkey/:id', requireAuth, async (c) => {
+  const user = c.get('user')
+  await db.delete(passkeys).where(eq(passkeys.id, c.req.param('id')))
+  return c.json({ ok: true })
+})
+
+// POST /auth/passkey/register/options  (requires auth)
+authRouter.post('/passkey/register/options', requireAuth, async (c) => {
+  const user = c.get('user')
+  const userId = user.sub
+
+  // Fetch existing credentials to exclude from registration
+  const existing = await db.select().from(passkeys).where(eq(passkeys.userId, userId))
+  const excludeCredentials = existing.map((pk: any) => ({
+    id: pk.id,
+    transports: pk.transports ?? [],
+  }))
+
+  const options = await generateRegistrationOptions({
+    rpName: RP_NAME,
+    rpID: RP_ID,
+    userID: isoUint8Array.fromUTF8String(userId),
+    userName: userId,
+    excludeCredentials,
+    authenticatorSelection: {
+      residentKey: 'preferred',
+      userVerification: 'preferred',
+    },
+  })
+
+  const redis = getRedis()
+  try {
+    await redis.connect()
+    await redis.set(`titan:pk:reg:${userId}`, options.challenge, 'EX', 300)
+  } finally {
+    redis.disconnect()
+  }
+
+  return c.json(options)
+})
+
+// POST /auth/passkey/register/verify  (requires auth)
+authRouter.post('/passkey/register/verify', requireAuth, async (c) => {
+  const user = c.get('user')
+  const userId = user.sub
+  const body = await c.req.json()
+
+  const redis = getRedis()
+  let expectedChallenge: string | null = null
+  try {
+    await redis.connect()
+    expectedChallenge = await redis.get(`titan:pk:reg:${userId}`)
+  } finally {
+    redis.disconnect()
+  }
+
+  if (!expectedChallenge) {
+    return c.json({ error: 'Challenge not found or expired' }, 400)
+  }
+
+  let verification
+  try {
+    verification = await verifyRegistrationResponse({
+      response: body,
+      expectedChallenge,
+      expectedOrigin: ORIGIN,
+      expectedRPID: RP_ID,
+    })
+  } catch (err: any) {
+    return c.json({ error: err.message ?? 'Verification failed' }, 400)
+  }
+
+  const { verified, registrationInfo } = verification
+  if (!verified || !registrationInfo) {
+    return c.json({ error: 'Verification failed' }, 400)
+  }
+
+  const { credential } = registrationInfo
+  await db.insert(passkeys).values({
+    id: credential.id,
+    userId,
+    publicKey: isoBase64URL.fromBuffer(credential.publicKey),
+    counter: credential.counter,
+    deviceType: registrationInfo.credentialDeviceType ?? null,
+    backedUp: registrationInfo.credentialBackedUp ?? false,
+    transports: (credential.transports as string[]) ?? [],
+  })
+
+  const redis2 = getRedis()
+  try {
+    await redis2.connect()
+    await redis2.del(`titan:pk:reg:${userId}`)
+  } finally {
+    redis2.disconnect()
+  }
+
+  return c.json({ ok: true })
+})
+
+// POST /auth/passkey/authenticate/options  (no auth required)
+authRouter.post(
+  '/passkey/authenticate/options',
+  zValidator('json', z.object({ userId: z.string().optional() })),
+  async (c) => {
+    const { userId } = c.req.valid('json')
+
+    let allowCredentials: { id: string; transports?: string[] }[] = []
+    if (userId) {
+      const existing = await db.select().from(passkeys).where(eq(passkeys.userId, userId))
+      allowCredentials = existing.map((pk: any) => ({
+        id: pk.id,
+        transports: pk.transports ?? [],
+      }))
+    }
+
+    const options = await generateAuthenticationOptions({
+      rpID: RP_ID,
+      allowCredentials,
+      userVerification: 'preferred',
+    })
+
+    const challengeId = crypto.randomUUID()
+    const redis = getRedis()
+    try {
+      await redis.connect()
+      await redis.set(
+        `titan:pk:authn:${challengeId}`,
+        JSON.stringify({ challenge: options.challenge, userId }),
+        'EX',
+        300,
+      )
+    } finally {
+      redis.disconnect()
+    }
+
+    return c.json({ options, challengeId })
+  },
+)
+
+// POST /auth/passkey/authenticate/verify  (no auth required)
+authRouter.post(
+  '/passkey/authenticate/verify',
+  zValidator('json', z.object({ challengeId: z.string(), response: z.any() })),
+  async (c) => {
+    const { challengeId, response } = c.req.valid('json')
+
+    const redis = getRedis()
+    let raw: string | null = null
+    try {
+      await redis.connect()
+      raw = await redis.get(`titan:pk:authn:${challengeId}`)
+    } finally {
+      redis.disconnect()
+    }
+
+    if (!raw) {
+      return c.json({ error: 'Challenge not found or expired' }, 400)
+    }
+
+    const { challenge: expectedChallenge, userId: knownUserId } = JSON.parse(raw) as {
+      challenge: string
+      userId?: string
+    }
+
+    // Find the passkey record
+    let pkRecord: any = null
+    if (knownUserId) {
+      const rows = await db
+        .select()
+        .from(passkeys)
+        .where(eq(passkeys.userId, knownUserId))
+      pkRecord = rows.find((pk: any) => pk.id === response.id) ?? null
+    } else {
+      const rows = await db.select().from(passkeys).where(eq(passkeys.id, response.id))
+      pkRecord = rows[0] ?? null
+    }
+
+    if (!pkRecord) {
+      return c.json({ error: 'Passkey not found' }, 404)
+    }
+
+    let verification
+    try {
+      verification = await verifyAuthenticationResponse({
+        response,
+        expectedChallenge,
+        expectedOrigin: ORIGIN,
+        expectedRPID: RP_ID,
+        credential: {
+          id: pkRecord.id,
+          publicKey: isoBase64URL.toBuffer(pkRecord.publicKey),
+          counter: pkRecord.counter,
+          transports: pkRecord.transports ?? [],
+        },
+      })
+    } catch (err: any) {
+      return c.json({ error: err.message ?? 'Verification failed' }, 400)
+    }
+
+    const { verified, authenticationInfo } = verification
+    if (!verified) {
+      return c.json({ error: 'Authentication failed' }, 401)
+    }
+
+    // Update counter
+    await db
+      .update(passkeys)
+      .set({ counter: authenticationInfo.newCounter })
+      .where(eq(passkeys.id, pkRecord.id))
+
+    // Delete challenge
+    const redis2 = getRedis()
+    try {
+      await redis2.connect()
+      await redis2.del(`titan:pk:authn:${challengeId}`)
+    } finally {
+      redis2.disconnect()
+    }
+
+    // Get user profile and sign JWT
+    const [profile] = await db.select().from(profiles).where(eq(profiles.id, pkRecord.userId))
+    if (!profile) return c.json({ error: 'User not found' }, 404)
+
+    const token = await signToken({ sub: profile.id, role: profile.role, nickname: profile.nickname })
+    return c.json({ token, user: { id: profile.id, nickname: profile.nickname, role: profile.role, photoUrl: profile.photoUrl } })
+  },
+)

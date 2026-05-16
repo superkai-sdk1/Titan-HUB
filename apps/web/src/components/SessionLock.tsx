@@ -1,12 +1,15 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useAuthStore, INACTIVITY_TIMEOUT_MS } from '@/store/auth.store'
 import { api } from '@/lib/api'
+import { startAuthentication } from '@simplewebauthn/browser'
+
+// ─── SessionLock wrapper (activity tracking + interval check) ─────────────────
 
 export function SessionLock() {
   const { token, user, isLocked, lock, unlock, updateActivity } = useAuthStore()
 
-  // Обновляем метку активности при любом взаимодействии
+  // Track user activity
   useEffect(() => {
     if (!token) return
     const handler = () => updateActivity()
@@ -20,7 +23,7 @@ export function SessionLock() {
     }
   }, [token, updateActivity])
 
-  // Проверяем неактивность раз в минуту (только пока страница открыта)
+  // Check inactivity every 30 seconds
   useEffect(() => {
     if (!token) return
     const interval = setInterval(() => {
@@ -29,154 +32,261 @@ export function SessionLock() {
       if (idle >= INACTIVITY_TIMEOUT_MS && !locked) {
         lock()
       }
-    }, 60_000)
+    }, 30_000)
     return () => clearInterval(interval)
   }, [token, lock])
 
   if (!isLocked || !token) return null
 
-  return <PinLockOverlay user={user} onUnlock={unlock} />
+  return <LockOverlay user={user} onUnlock={unlock} />
 }
 
-function PinLockOverlay({
+// ─── Lock Overlay ─────────────────────────────────────────────────────────────
+
+function LockOverlay({
   user,
   onUnlock,
 }: {
-  user: { nickname: string; role: string; photoUrl: string | null } | null
+  user: { id?: string; nickname: string; role: string; photoUrl: string | null } | null
   onUnlock: () => void
 }) {
   const [pin, setPin] = useState('')
-  const [error, setError] = useState(false)
-  const [loading, setLoading] = useState(false)
+  const [pinError, setPinError] = useState(false)
+  const [pinLoading, setPinLoading] = useState(false)
+  const [passkeyLoading, setPasskeyLoading] = useState(false)
+  const [errorMsg, setErrorMsg] = useState('')
   const { setAuth } = useAuthStore()
 
+  // Check if WebAuthn is available
+  const webAuthnSupported = typeof window !== 'undefined' && !!window.PublicKeyCredential
+
   async function handlePin(fullPin: string) {
-    setLoading(true)
+    setPinLoading(true)
+    setErrorMsg('')
     try {
       const res = await api.post<{ token: string; user: any }>('/auth/login/pin', { pin: fullPin })
       setAuth(res.token, res.user)
       onUnlock()
     } catch {
-      setError(true)
+      setPinError(true)
       setPin('')
-      setTimeout(() => setError(false), 600)
+      setErrorMsg('Неверный PIN')
+      setTimeout(() => { setPinError(false); setErrorMsg('') }, 1500)
     } finally {
-      setLoading(false)
+      setPinLoading(false)
+    }
+  }
+
+  async function handlePasskey() {
+    setPasskeyLoading(true)
+    setErrorMsg('')
+    try {
+      const userId = useAuthStore.getState().user?.id
+      const { options, challengeId } = await api.post<{ options: any; challengeId: string }>(
+        '/auth/passkey/authenticate/options',
+        { userId }
+      )
+      const response = await startAuthentication({ optionsJSON: options })
+      const res = await api.post<{ token: string; user: any }>(
+        '/auth/passkey/authenticate/verify',
+        { challengeId, response }
+      )
+      setAuth(res.token, res.user)
+      onUnlock()
+    } catch (e: any) {
+      if (e?.name === 'NotAllowedError') { setPasskeyLoading(false); return }
+      setErrorMsg('Ошибка Passkey')
+      setTimeout(() => setErrorMsg(''), 2000)
+      setPasskeyLoading(false)
     }
   }
 
   function append(digit: string) {
-    if (loading || pin.length >= 4) return
+    if (pinLoading || pin.length >= 4) return
     const next = pin + digit
     setPin(next)
     if (next.length === 4) setTimeout(() => handlePin(next), 80)
   }
 
-  const dots = [0, 1, 2, 3]
-  const PAD = ['1','2','3','4','5','6','7','8','9','','0','⌫']
+  const keys = ['1','2','3','4','5','6','7','8','9','','0','⌫']
+  const initials = (user?.nickname ?? '?').slice(0, 2).toUpperCase()
 
   return (
     <div style={{
       position: 'fixed', inset: 0, zIndex: 9999,
-      background: 'rgba(15,12,20,0.97)',
-      backdropFilter: 'blur(24px)',
-      WebkitBackdropFilter: 'blur(24px)',
-      display: 'flex', flexDirection: 'column',
-      alignItems: 'center', justifyContent: 'center',
-      padding: 32,
+      display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+      padding: '24px 20px',
     }}>
-      {/* Logo */}
-      <div style={{ marginBottom: 40, textAlign: 'center' }}>
-        <h1 style={{
-          fontSize: 28, fontWeight: 900, fontStyle: 'italic',
-          background: 'linear-gradient(135deg, #8B5CF6, #4cd7f6)',
-          WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent',
-          margin: '0 0 8px',
+      {/* Blurred background */}
+      <div style={{
+        position: 'absolute', inset: 0,
+        background: 'rgba(10, 8, 18, 0.92)',
+        backdropFilter: 'blur(32px)',
+        WebkitBackdropFilter: 'blur(32px)',
+      }} />
+
+      {/* Ambient */}
+      <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden' }}>
+        <div style={{ position: 'absolute', top: '-15%', left: '25%', width: 360, height: 360, borderRadius: '50%', background: 'rgba(139,92,246,0.1)', filter: 'blur(80px)' }} />
+        <div style={{ position: 'absolute', bottom: '5%', right: '20%', width: 280, height: 280, borderRadius: '50%', background: 'rgba(76,215,246,0.06)', filter: 'blur(80px)' }} />
+      </div>
+
+      <div style={{ position: 'relative', zIndex: 1, width: '100%', maxWidth: 380, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+
+        {/* Lock badge */}
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 6, marginBottom: 28,
+          padding: '6px 14px', borderRadius: 99,
+          background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)',
         }}>
-          TITAN HUB
-        </h1>
-        <p style={{ fontSize: 13, color: 'var(--on-surface-variant)', margin: 0 }}>
-          Сессия заблокирована · 8 ч без активности
+          <span className="material-symbols-outlined" style={{ fontSize: 14, color: 'rgba(167,139,250,0.8)', fontVariationSettings: "'FILL' 1" }}>lock</span>
+          <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.45)', fontWeight: 500 }}>Сессия заблокирована · 30 мин</span>
+        </div>
+
+        {/* Avatar */}
+        <div style={{
+          width: 72, height: 72, borderRadius: '50%', marginBottom: 12,
+          background: 'linear-gradient(135deg, rgba(139,92,246,0.5), rgba(76,215,246,0.3))',
+          border: '2px solid rgba(139,92,246,0.4)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          fontSize: 26, fontWeight: 800, color: '#fff',
+          boxShadow: '0 0 32px rgba(139,92,246,0.25)',
+        }}>
+          {initials}
+        </div>
+
+        <p style={{ fontSize: 17, fontWeight: 700, color: 'rgba(255,255,255,0.9)', margin: '0 0 4px' }}>
+          {user?.nickname ?? 'Пользователь'}
         </p>
+        <p style={{ fontSize: 12, color: 'rgba(255,255,255,0.35)', margin: '0 0 32px' }}>
+          Введите PIN для продолжения
+        </p>
+
+        {/* PIN dots */}
+        <div style={{
+          display: 'flex', gap: 18, marginBottom: 28,
+          animation: pinError ? 'lock-shake 0.35s ease' : 'none',
+        }}>
+          {[0,1,2,3].map(i => {
+            const filled = i < pin.length
+            return (
+              <div key={i} style={{
+                width: 16, height: 16, borderRadius: '50%',
+                background: filled ? (pinError ? '#EF4444' : '#8B5CF6') : 'transparent',
+                border: `2px solid ${filled ? (pinError ? '#EF4444' : '#8B5CF6') : 'rgba(255,255,255,0.2)'}`,
+                boxShadow: filled && !pinError ? '0 0 14px rgba(139,92,246,0.7)' : filled && pinError ? '0 0 14px rgba(239,68,68,0.6)' : 'none',
+                transition: 'all 0.15s',
+                transform: filled ? 'scale(1.2)' : 'scale(1)',
+              }} />
+            )
+          })}
+        </div>
+
+        {/* Keypad */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 72px)', gap: 10, marginBottom: 20 }}>
+          {keys.map((k, idx) => {
+            if (k === '') return <div key={idx} />
+            const isDel = k === '⌫'
+            return (
+              <button
+                key={idx}
+                onClick={() => isDel ? setPin(p => p.slice(0, -1)) : append(k)}
+                disabled={pinLoading}
+                style={{
+                  width: 72, height: 72, borderRadius: '50%',
+                  border: '1px solid rgba(255,255,255,0.1)',
+                  background: isDel ? 'transparent' : 'rgba(255,255,255,0.07)',
+                  color: 'rgba(255,255,255,0.9)', fontSize: isDel ? 20 : 24, fontWeight: 700,
+                  cursor: 'pointer', transition: 'all 0.1s',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}
+                onMouseDown={e => { e.currentTarget.style.background = 'rgba(139,92,246,0.2)'; e.currentTarget.style.transform = 'scale(0.9)' }}
+                onMouseUp={e => { e.currentTarget.style.background = isDel ? 'transparent' : 'rgba(255,255,255,0.07)'; e.currentTarget.style.transform = 'scale(1)' }}
+                onMouseLeave={e => { e.currentTarget.style.background = isDel ? 'transparent' : 'rgba(255,255,255,0.07)'; e.currentTarget.style.transform = 'scale(1)' }}
+              >
+                {k}
+              </button>
+            )
+          })}
+        </div>
+
+        {/* Error message */}
+        {errorMsg && (
+          <p style={{ fontSize: 13, color: '#FCA5A5', margin: '0 0 12px', textAlign: 'center' }}>{errorMsg}</p>
+        )}
+
+        {/* Passkey button */}
+        {webAuthnSupported && (
+          <button
+            onClick={handlePasskey}
+            disabled={passkeyLoading}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 8,
+              padding: '12px 24px', borderRadius: 14,
+              border: '1px solid rgba(255,255,255,0.1)',
+              background: 'rgba(255,255,255,0.05)',
+              color: 'rgba(255,255,255,0.7)', fontWeight: 600, fontSize: 14, cursor: 'pointer',
+              transition: 'all 0.2s', marginBottom: 20,
+            }}
+            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(139,92,246,0.12)'; e.currentTarget.style.borderColor = 'rgba(139,92,246,0.3)' }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.1)' }}
+          >
+            <PasskeyIcon size={18} />
+            {passkeyLoading ? 'Ожидание...' : 'Войти с Passkey'}
+          </button>
+        )}
+
+        {/* Logout */}
+        <LogoutBtn />
       </div>
-
-      {/* Avatar */}
-      <div style={{
-        width: 72, height: 72, borderRadius: '50%',
-        background: 'linear-gradient(135deg, rgba(139,92,246,0.3), rgba(76,215,246,0.3))',
-        border: '2px solid rgba(139,92,246,0.4)',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        marginBottom: 12,
-        fontSize: 26, fontWeight: 700, color: '#A78BFA',
-      }}>
-        {(user?.nickname ?? '?').slice(0, 2).toUpperCase()}
-      </div>
-
-      <p style={{ fontSize: 16, fontWeight: 700, color: 'var(--on-surface)', marginBottom: 4 }}>
-        {user?.nickname ?? 'Пользователь'}
-      </p>
-      <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', marginBottom: 32 }}>
-        Введите PIN для разблокировки
-      </p>
-
-      {/* PIN dots */}
-      <div style={{
-        display: 'flex', gap: 16, marginBottom: 40,
-        animation: error ? 'pin-shake 0.35s ease' : 'none',
-      }}>
-        {dots.map(i => (
-          <div key={i} style={{
-            width: 16, height: 16, borderRadius: '50%',
-            background: i < pin.length
-              ? (error ? '#F43F5E' : '#8B5CF6')
-              : 'rgba(255,255,255,0.15)',
-            transition: 'background 0.15s, transform 0.1s',
-            transform: i < pin.length ? 'scale(1.2)' : 'scale(1)',
-            boxShadow: i < pin.length && !error ? '0 0 12px rgba(139,92,246,0.6)' : 'none',
-          }} />
-        ))}
-      </div>
-
-      {/* Keypad */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 72px)', gap: 12 }}>
-        {PAD.map((key, idx) => {
-          if (key === '') return <div key={idx} />
-          const isDelete = key === '⌫'
-          return (
-            <button
-              key={idx}
-              onClick={() => isDelete ? setPin(p => p.slice(0, -1)) : append(key)}
-              disabled={loading}
-              style={{
-                width: 72, height: 72, borderRadius: '50%',
-                border: '1px solid rgba(255,255,255,0.1)',
-                background: isDelete ? 'transparent' : 'rgba(255,255,255,0.07)',
-                color: 'var(--on-surface)', fontSize: isDelete ? 20 : 24, fontWeight: 700,
-                cursor: 'pointer', transition: 'all 0.1s',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-              }}
-              onMouseEnter={e => { if (!isDelete) e.currentTarget.style.background = 'rgba(139,92,246,0.2)' }}
-              onMouseLeave={e => { if (!isDelete) e.currentTarget.style.background = 'rgba(255,255,255,0.07)' }}
-            >
-              {key}
-            </button>
-          )
-        })}
-      </div>
-
-      {error && (
-        <p style={{ fontSize: 12, color: '#F43F5E', marginTop: 24 }}>Неверный PIN</p>
-      )}
 
       <style>{`
-        @keyframes pin-shake {
+        @keyframes lock-shake {
           0%, 100% { transform: translateX(0); }
-          20% { transform: translateX(-8px); }
-          40% { transform: translateX(8px); }
-          60% { transform: translateX(-6px); }
-          80% { transform: translateX(6px); }
+          20%       { transform: translateX(-8px); }
+          40%       { transform: translateX(8px); }
+          60%       { transform: translateX(-5px); }
+          80%       { transform: translateX(5px); }
         }
       `}</style>
     </div>
+  )
+}
+
+function LogoutBtn() {
+  const { logout } = useAuthStore()
+  const [confirm, setConfirm] = useState(false)
+  if (confirm) {
+    return (
+      <div style={{ display: 'flex', gap: 8 }}>
+        <button onClick={() => setConfirm(false)} style={{ background: 'none', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 10, padding: '8px 16px', color: 'rgba(255,255,255,0.5)', cursor: 'pointer', fontSize: 13 }}>
+          Отмена
+        </button>
+        <button onClick={logout} style={{ background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 10, padding: '8px 16px', color: '#FCA5A5', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
+          Выйти
+        </button>
+      </div>
+    )
+  }
+  return (
+    <button
+      onClick={() => setConfirm(true)}
+      style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.25)', fontSize: 12, fontWeight: 500 }}
+      onMouseEnter={e => e.currentTarget.style.color = 'rgba(255,255,255,0.5)'}
+      onMouseLeave={e => e.currentTarget.style.color = 'rgba(255,255,255,0.25)'}
+    >
+      Выйти из аккаунта
+    </button>
+  )
+}
+
+function PasskeyIcon({ size = 24 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <circle cx="8" cy="9" r="4" stroke="currentColor" strokeWidth="2" />
+      <path d="M12.5 13.5L15 11L18 14L21 11" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M18 14V17" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      <path d="M4 19.5C4 17.5 5.8 16 8 16s4 1.5 4 3.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+    </svg>
   )
 }

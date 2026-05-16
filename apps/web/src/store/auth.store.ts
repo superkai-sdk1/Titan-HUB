@@ -2,8 +2,8 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 
-// После 8 часов бездействия — запрашиваем PIN повторно
-export const INACTIVITY_TIMEOUT_MS = 8 * 60 * 60 * 1000
+// После 30 минут бездействия — запрашиваем PIN/Passkey
+export const INACTIVITY_TIMEOUT_MS = 30 * 60 * 1000
 
 interface AuthUser {
   id: string
