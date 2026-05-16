@@ -9,7 +9,7 @@ import { hashPassword, hashPin } from '@titan/auth'
 const CreateStaffSchema = z.object({
   nickname: z.string().min(2),
   password: z.string().min(4),
-  pin: z.string().length(6).optional(),
+  pin: z.string().length(4).regex(/^\d{4}$/).optional(),
   phone: z.string().optional(),
   role: z.enum(['owner', 'staff']).default('staff'),
 })
@@ -123,7 +123,7 @@ staffRouter.delete('/:id', async (c) => {
   return c.json({ ok: true })
 })
 
-staffRouter.post('/:id/reset-pin', zValidator('json', z.object({ pin: z.string().length(6) })), async (c) => {
+staffRouter.post('/:id/reset-pin', zValidator('json', z.object({ pin: z.string().length(4).regex(/^\d{4}$/) })), async (c) => {
   const { pin } = c.req.valid('json')
   const hashedPin = await hashPin(pin)
   await db

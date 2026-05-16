@@ -3,10 +3,7 @@
 import React, { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
-
-const INP: React.CSSProperties = { width: '100%', padding: '12px 16px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.05)', color: 'var(--on-surface)', fontSize: 14, outline: 'none', boxSizing: 'border-box' }
-const SEL: React.CSSProperties = { width: '100%', padding: '12px 16px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(29,26,36,0.8)', color: 'var(--on-surface)', fontSize: 14, outline: 'none', cursor: 'pointer', boxSizing: 'border-box' }
-const LBL: React.CSSProperties = { fontFamily: "'JetBrains Mono',monospace", fontSize: 10, fontWeight: 700, textTransform: 'uppercase' as const, letterSpacing: '0.08em', color: 'var(--on-surface-variant)', margin: '0 0 6px', display: 'block' }
+import { Sheet, LBL, INP, SEL } from '@/components/manage/DesignSystem'
 
 interface StaffMember {
   id: string
@@ -36,6 +33,20 @@ const PERMISSION_LABELS = [
   { key: 'about',     label: 'О заведении',   icon: 'info' },
 ]
 
+const ROLE_LABELS: Record<string, { label: string; color: string }> = {
+  owner: { label: 'Владелец', color: '#F59E0B' },
+  staff: { label: 'Персонал', color: '#8B5CF6' },
+}
+
+const AVATAR_COLORS = ['#8B5CF6', '#4cd7f6', '#10B981', '#F59E0B', '#F43F5E', '#3B82F6']
+function getAvatarColor(name: string) {
+  let h = 0
+  for (let i = 0; i < name.length; i++) h = name.charCodeAt(i) + ((h << 5) - h)
+  return AVATAR_COLORS[Math.abs(h) % AVATAR_COLORS.length]
+}
+
+// ─── Mini helpers ──────────────────────────────────────────────────────────
+
 function MiniToggle({ value, onChange }: { value: boolean; onChange: (v: boolean) => void }) {
   return (
     <button
@@ -56,7 +67,7 @@ function MiniToggle({ value, onChange }: { value: boolean; onChange: (v: boolean
 
 function PermissionRow({ label, icon, value, onChange }: { label: string; icon: string; value: boolean; onChange: (v: boolean) => void }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 0', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
       <span className="material-symbols-outlined" style={{ fontSize: 16, color: 'var(--on-surface-variant)', width: 18, flexShrink: 0 }}>{icon}</span>
       <span style={{ flex: 1, fontSize: 13, color: 'var(--on-surface)', fontWeight: 500 }}>{label}</span>
       <MiniToggle value={value} onChange={onChange} />
@@ -64,37 +75,104 @@ function PermissionRow({ label, icon, value, onChange }: { label: string; icon: 
   )
 }
 
-const ROLE_LABELS: Record<string, { label: string; color: string }> = {
-  owner: { label: 'Владелец', color: '#F59E0B' },
-  staff: { label: 'Персонал', color: '#8B5CF6' },
+// ─── 4-digit PIN keypad ────────────────────────────────────────────────────
+
+function PinKeypad({
+  value,
+  onChange,
+  error,
+  label,
+}: {
+  value: string
+  onChange: (v: string) => void
+  error?: boolean
+  label?: string
+}) {
+  const PAD = ['1','2','3','4','5','6','7','8','9','','0','⌫']
+
+  function press(key: string) {
+    if (key === '⌫') { onChange(value.slice(0, -1)); return }
+    if (value.length >= 4) return
+    onChange(value + key)
+  }
+
+  return (
+    <div>
+      {label && <label style={LBL}>{label}</label>}
+
+      {/* Dots */}
+      <div style={{ display: 'flex', justifyContent: 'center', gap: 14, marginBottom: 20 }}>
+        {[0,1,2,3].map(i => (
+          <div key={i} style={{
+            width: 14, height: 14, borderRadius: '50%',
+            background: i < value.length ? (error ? '#F43F5E' : '#8B5CF6') : 'rgba(255,255,255,0.15)',
+            border: `2px solid ${i < value.length ? (error ? '#F43F5E' : '#8B5CF6') : 'rgba(255,255,255,0.2)'}`,
+            boxShadow: (i < value.length && !error) ? '0 0 10px rgba(139,92,246,0.6)' : 'none',
+            transition: 'all 0.15s',
+            transform: i < value.length ? 'scale(1.15)' : 'scale(1)',
+          }} />
+        ))}
+      </div>
+
+      {/* Keypad */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
+        {PAD.map((key, idx) => {
+          if (key === '') return <div key={idx} />
+          const isDel = key === '⌫'
+          return (
+            <button
+              key={idx}
+              onClick={() => press(key)}
+              className="glass-l2"
+              style={{
+                padding: '14px 0', borderRadius: 14,
+                border: '1px solid rgba(255,255,255,0.08)',
+                background: isDel ? 'transparent' : 'rgba(255,255,255,0.04)',
+                color: 'var(--on-surface)', fontSize: isDel ? 18 : 22, fontWeight: 600,
+                cursor: 'pointer', transition: 'background 0.12s',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}
+              onMouseDown={e => { e.currentTarget.style.background = 'rgba(139,92,246,0.15)' }}
+              onMouseUp={e => { e.currentTarget.style.background = isDel ? 'transparent' : 'rgba(255,255,255,0.04)' }}
+              onMouseLeave={e => { e.currentTarget.style.background = isDel ? 'transparent' : 'rgba(255,255,255,0.04)' }}
+            >
+              {key}
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
 }
 
-const AVATAR_COLORS = ['#8B5CF6', '#4cd7f6', '#10B981', '#F59E0B', '#F43F5E', '#3B82F6']
-
-function getAvatarColor(name: string) {
-  let hash = 0
-  for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash)
-  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length]
-}
+// ─── Main page ─────────────────────────────────────────────────────────────
 
 export default function StaffPage() {
   const qc = useQueryClient()
+
+  // Sheets
   const [selected, setSelected] = useState<StaffMember | null>(null)
   const [showForm, setShowForm] = useState(false)
   const [editTarget, setEditTarget] = useState<StaffMember | null>(null)
   const [showPin, setShowPin] = useState(false)
   const [pinTarget, setPinTarget] = useState<StaffMember | null>(null)
 
+  // Create / Edit form
   const [formNickname, setFormNickname] = useState('')
   const [formPhone, setFormPhone] = useState('')
   const [formRole, setFormRole] = useState<'staff' | 'owner'>('staff')
   const [formPassword, setFormPassword] = useState('')
+  const [formPinStep, setFormPinStep] = useState(false) // show PIN keypad after filling main fields
+  const [formPin, setFormPin] = useState('')
 
-  const [pinNew, setPinNew] = useState('')
+  // PIN reset
+  const [pinValue, setPinValue] = useState('')
   const [pinConfirm, setPinConfirm] = useState('')
-  const [pinError, setPinError] = useState('')
-  const [pinSuccess, setPinSuccess] = useState('')
+  const [pinStep, setPinStep] = useState<'enter' | 'confirm'>('enter')
+  const [pinError, setPinError] = useState(false)
+  const [pinSuccess, setPinSuccess] = useState(false)
 
+  // Permissions
   const [perms, setPerms] = useState<Record<string, boolean>>(DEFAULT_PERMISSIONS)
   const [permsSaved, setPermsSaved] = useState(false)
 
@@ -102,9 +180,7 @@ export default function StaffPage() {
     queryKey: ['staff'],
     queryFn: () => api.get('/staff'),
   })
-
   const staff = data?.staff ?? []
-
   const invalidate = () => qc.invalidateQueries({ queryKey: ['staff'] })
 
   const createMutation = useMutation({
@@ -126,8 +202,8 @@ export default function StaffPage() {
     mutationFn: ({ id, pin }: { id: string; pin: string }) =>
       api.post(`/staff/${id}/reset-pin`, { pin }),
     onSuccess: () => {
-      setPinSuccess('PIN успешно изменён')
-      setTimeout(() => { setShowPin(false); setPinSuccess('') }, 1500)
+      setPinSuccess(true)
+      setTimeout(() => { setShowPin(false); setPinSuccess(false) }, 1500)
     },
   })
 
@@ -141,12 +217,16 @@ export default function StaffPage() {
     },
   })
 
+  // ── Form helpers ─────────────────────────────────────────────────────────
+
   function openCreate() {
     setEditTarget(null)
     setFormNickname('')
     setFormPhone('')
     setFormRole('staff')
     setFormPassword('')
+    setFormPin('')
+    setFormPinStep(false)
     setShowForm(true)
   }
 
@@ -156,6 +236,8 @@ export default function StaffPage() {
     setFormPhone(s.phone ?? '')
     setFormRole(s.role)
     setFormPassword('')
+    setFormPin('')
+    setFormPinStep(false)
     setShowForm(true)
     setSelected(null)
   }
@@ -163,14 +245,16 @@ export default function StaffPage() {
   function closeForm() {
     setShowForm(false)
     setEditTarget(null)
+    setFormPinStep(false)
   }
 
   function openPinReset(s: StaffMember) {
     setPinTarget(s)
-    setPinNew('')
+    setPinValue('')
     setPinConfirm('')
-    setPinError('')
-    setPinSuccess('')
+    setPinStep('enter')
+    setPinError(false)
+    setPinSuccess(false)
     setShowPin(true)
     setSelected(null)
   }
@@ -181,36 +265,66 @@ export default function StaffPage() {
     setPermsSaved(false)
   }
 
+  // Проверяем что основные поля заполнены
+  const mainFieldsOk = formNickname.trim().length >= 2 && (!editTarget ? formPassword.length >= 4 : true)
+
+  function handleNextToPin() {
+    if (!mainFieldsOk) return
+    setFormPinStep(true)
+  }
+
   function submitForm() {
-    if (!formNickname.trim()) return
     if (editTarget) {
-      const body: Record<string, string> = { nickname: formNickname, role: formRole }
+      const body: Record<string, unknown> = { nickname: formNickname, role: formRole }
       if (formPhone) body.phone = formPhone
       if (formPassword) body.password = formPassword
+      if (formPin.length === 4) body.pin = formPin
       updateMutation.mutate({ id: editTarget.id, body })
     } else {
-      if (!formPassword) return
-      createMutation.mutate({ nickname: formNickname, phone: formPhone, role: formRole, password: formPassword })
+      const body: Record<string, unknown> = {
+        nickname: formNickname,
+        role: formRole,
+        password: formPassword,
+      }
+      if (formPhone) body.phone = formPhone
+      if (formPin.length === 4) body.pin = formPin
+      createMutation.mutate(body)
     }
   }
 
-  function submitPin() {
-    setPinError('')
-    if (!/^\d{6}$/.test(pinNew)) { setPinError('PIN должен быть 6 цифр'); return }
-    if (pinNew !== pinConfirm) { setPinError('PIN-коды не совпадают'); return }
-    if (pinTarget) resetPinMutation.mutate({ id: pinTarget.id, pin: pinNew })
+  // ── PIN reset helpers ────────────────────────────────────────────────────
+
+  function handlePinInput(v: string) {
+    if (pinStep === 'enter') {
+      setPinValue(v)
+      if (v.length === 4) {
+        // авто-переход к подтверждению
+        setTimeout(() => { setPinStep('confirm') }, 200)
+      }
+    } else {
+      setPinConfirm(v)
+      if (v.length === 4) {
+        // авто-сабмит
+        setTimeout(() => {
+          if (v === pinValue) {
+            resetPinMutation.mutate({ id: pinTarget!.id, pin: pinValue })
+          } else {
+            setPinError(true)
+            setTimeout(() => {
+              setPinValue('')
+              setPinConfirm('')
+              setPinStep('enter')
+              setPinError(false)
+            }, 800)
+          }
+        }, 200)
+      }
+    }
   }
 
-  const overlayStyle: React.CSSProperties = {
-    position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 100,
-    display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
-  }
+  const isPending = createMutation.isPending || updateMutation.isPending
 
-  const sheetStyle: React.CSSProperties = {
-    width: '100%', maxWidth: 480,
-    borderRadius: '24px 24px 0 0',
-    padding: 24, paddingBottom: 40,
-  }
+  // ── Render ────────────────────────────────────────────────────────────────
 
   return (
     <div style={{ padding: '24px 20px', maxWidth: 600, margin: '0 auto' }}>
@@ -219,8 +333,7 @@ export default function StaffPage() {
         <div>
           <h1 style={{ margin: 0, fontSize: 28, fontWeight: 700, color: 'var(--on-surface)' }}>Персонал</h1>
           <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--on-surface-variant)' }}>
-            {staff.length}{' '}
-            {staff.length === 1 ? 'сотрудник' : staff.length >= 2 && staff.length <= 4 ? 'сотрудника' : 'сотрудников'}
+            {staff.length} {staff.length === 1 ? 'сотрудник' : staff.length <= 4 ? 'сотрудника' : 'сотрудников'}
           </p>
         </div>
         <button
@@ -237,11 +350,11 @@ export default function StaffPage() {
         </button>
       </div>
 
-      {/* Staff list */}
+      {/* List */}
       {staff.length === 0 ? (
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', paddingTop: 80, gap: 16, color: 'var(--on-surface-variant)' }}>
-          <span className="material-symbols-outlined" style={{ fontSize: 64, opacity: 0.4 }}>group</span>
-          <p style={{ margin: 0, fontSize: 16 }}>Нет сотрудников</p>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', paddingTop: 80, gap: 12, color: 'var(--on-surface-variant)' }}>
+          <span className="material-symbols-outlined" style={{ fontSize: 64, opacity: 0.3 }}>group</span>
+          <p style={{ margin: 0, fontSize: 15 }}>Нет сотрудников</p>
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -252,7 +365,7 @@ export default function StaffPage() {
                 key={s.id}
                 className="glass-l2"
                 onClick={() => openDetail(s)}
-                style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 16px', borderRadius: 16, cursor: 'pointer' }}
+                style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 16px', borderRadius: 16, cursor: 'pointer', border: '1px solid rgba(255,255,255,0.07)' }}
               >
                 <div style={{
                   width: 44, height: 44, borderRadius: '50%', flexShrink: 0,
@@ -279,12 +392,12 @@ export default function StaffPage() {
         </div>
       )}
 
-      {/* Detail bottom sheet */}
-      {selected && (
-        <div style={overlayStyle} onClick={() => setSelected(null)}>
-          <div className="glass-l1" style={sheetStyle} onClick={e => e.stopPropagation()}>
-            <div style={{ width: 40, height: 4, borderRadius: 2, background: 'rgba(255,255,255,0.2)', margin: '0 auto 20px' }} />
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, marginBottom: 28 }}>
+      {/* ─── Detail Sheet ──────────────────────────────────────────────────── */}
+      <Sheet open={!!selected} onClose={() => setSelected(null)} title={selected?.nickname}>
+        {selected && (
+          <div>
+            {/* Avatar + role */}
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, marginBottom: 24 }}>
               <div style={{
                 width: 72, height: 72, borderRadius: '50%',
                 background: getAvatarColor(selected.nickname),
@@ -293,46 +406,48 @@ export default function StaffPage() {
               }}>
                 {selected.nickname[0]?.toUpperCase()}
               </div>
-              <div style={{ textAlign: 'center' }}>
-                <div style={{ fontWeight: 700, fontSize: 20, color: 'var(--on-surface)' }}>{selected.nickname}</div>
-                <div style={{ fontSize: 13, color: ROLE_LABELS[selected.role]?.color ?? '#8B5CF6', marginTop: 4, fontWeight: 600 }}>
-                  {ROLE_LABELS[selected.role]?.label}
-                </div>
-              </div>
+              <span style={{
+                fontSize: 12, fontWeight: 600, padding: '3px 12px', borderRadius: 999,
+                background: `${(ROLE_LABELS[selected.role]?.color ?? '#8B5CF6')}22`,
+                color: ROLE_LABELS[selected.role]?.color ?? '#8B5CF6',
+              }}>
+                {ROLE_LABELS[selected.role]?.label}
+              </span>
             </div>
-            <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
+
+            {/* Action buttons */}
+            <div style={{ display: 'flex', gap: 10, marginBottom: 20 }}>
               <button
                 onClick={() => openEdit(selected)}
                 style={{
-                  flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                  flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
                   padding: '12px', borderRadius: 14,
-                  border: '1px solid #8B5CF6', background: 'rgba(139,92,246,0.1)',
-                  color: '#8B5CF6', fontWeight: 600, fontSize: 14, cursor: 'pointer',
+                  border: '1px solid rgba(139,92,246,0.4)', background: 'rgba(139,92,246,0.1)',
+                  color: '#A78BFA', fontWeight: 600, fontSize: 14, cursor: 'pointer',
                 }}
               >
                 <span className="material-symbols-outlined" style={{ fontSize: 18 }}>edit</span>
-                Редактировать
+                Изменить
               </button>
               <button
                 onClick={() => openPinReset(selected)}
                 style={{
-                  flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                  flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
                   padding: '12px', borderRadius: 14,
-                  border: '1px solid #4cd7f6', background: 'rgba(76,215,246,0.1)',
+                  border: '1px solid rgba(76,215,246,0.4)', background: 'rgba(76,215,246,0.1)',
                   color: '#4cd7f6', fontWeight: 600, fontSize: 14, cursor: 'pointer',
                 }}
               >
                 <span className="material-symbols-outlined" style={{ fontSize: 18 }}>pin</span>
-                Сменить PIN
+                Задать PIN
               </button>
             </div>
-            {/* Permissions section — only for staff role */}
+
+            {/* Permissions (staff only) */}
             {selected.role === 'staff' && (
-              <div style={{ marginTop: 16, marginBottom: 16 }}>
-                <p style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--on-surface-variant)', fontFamily: "'JetBrains Mono',monospace", margin: '0 0 4px' }}>
-                  ПРАВА ДОСТУПА
-                </p>
-                <div style={{ marginBottom: 10 }}>
+              <div style={{ marginBottom: 20 }}>
+                <p style={{ ...LBL, marginBottom: 6 }}>Права доступа</p>
+                <div style={{ marginBottom: 12 }}>
                   {PERMISSION_LABELS.map(({ key, label, icon }) => (
                     <PermissionRow
                       key={key}
@@ -349,139 +464,178 @@ export default function StaffPage() {
                   style={{
                     width: '100%', padding: '12px', borderRadius: 12, border: 'none', cursor: 'pointer',
                     background: permsSaved ? 'rgba(16,185,129,0.15)' : 'linear-gradient(135deg,#8B5CF6,#4cd7f6)',
-                    color: permsSaved ? '#10B981' : '#fff', fontWeight: 700, fontSize: 14,
-                    transition: 'background 0.3s', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                    color: permsSaved ? '#10B981' : '#fff', fontWeight: 700, fontSize: 14, transition: 'background 0.3s',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
                   }}
                 >
                   {permsSaved
                     ? <><span className="material-symbols-outlined" style={{ fontSize: 16 }}>check_circle</span>Сохранено</>
-                    : updatePermsMutation.isPending ? 'Сохранение...' : 'Сохранить права'
-                  }
+                    : updatePermsMutation.isPending ? 'Сохранение...' : 'Сохранить права'}
                 </button>
               </div>
             )}
+
+            {/* Delete */}
             <button
               onClick={() => deleteMutation.mutate(selected.id)}
               disabled={deleteMutation.isPending}
               style={{
                 width: '100%', padding: '13px', borderRadius: 14,
-                border: '1px solid rgba(239,68,68,0.4)', background: 'rgba(239,68,68,0.1)',
+                border: '1px solid rgba(239,68,68,0.3)', background: 'rgba(239,68,68,0.08)',
                 color: '#EF4444', fontWeight: 600, fontSize: 14, cursor: 'pointer',
               }}
             >
               {deleteMutation.isPending ? 'Удаление...' : 'Удалить сотрудника'}
             </button>
           </div>
-        </div>
-      )}
+        )}
+      </Sheet>
 
-      {/* Edit / Create form bottom sheet */}
-      {showForm && (
-        <div style={{ ...overlayStyle, zIndex: 110 }} onClick={closeForm}>
-          <div className="glass-l1" style={sheetStyle} onClick={e => e.stopPropagation()}>
-            <div style={{ width: 40, height: 4, borderRadius: 2, background: 'rgba(255,255,255,0.2)', margin: '0 auto 20px' }} />
-            <h2 style={{ margin: '0 0 20px', fontSize: 20, fontWeight: 700, color: 'var(--on-surface)' }}>
-              {editTarget ? 'Редактировать' : 'Новый сотрудник'}
-            </h2>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-              <div>
-                <label style={LBL}>Никнейм *</label>
-                <input style={INP} placeholder="Введите никнейм" value={formNickname} onChange={e => setFormNickname(e.target.value)} />
-              </div>
-              <div>
-                <label style={LBL}>Телефон</label>
-                <input style={INP} placeholder="+7 999 000 00 00" value={formPhone} onChange={e => setFormPhone(e.target.value)} />
-              </div>
-              <div>
-                <label style={LBL}>Роль</label>
-                <select style={SEL} value={formRole} onChange={e => setFormRole(e.target.value as 'staff' | 'owner')}>
-                  <option value="staff">Персонал</option>
-                  <option value="owner">Владелец</option>
-                </select>
-              </div>
-              <div>
-                <label style={LBL}>{editTarget ? 'Новый пароль (необязательно)' : 'Пароль *'}</label>
-                <input
-                  style={INP}
-                  type="password"
-                  placeholder={editTarget ? 'Оставьте пустым, чтобы не менять' : 'Введите пароль'}
-                  value={formPassword}
-                  onChange={e => setFormPassword(e.target.value)}
-                />
-              </div>
+      {/* ─── Create / Edit Sheet ────────────────────────────────────────────── */}
+      <Sheet
+        open={showForm}
+        onClose={closeForm}
+        title={formPinStep ? 'PIN сотрудника' : editTarget ? 'Редактировать' : 'Новый сотрудник'}
+      >
+        {!formPinStep ? (
+          // Step 1: main fields
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <div>
+              <label style={LBL}>Никнейм *</label>
+              <input style={INP} placeholder="Например: Алекс" value={formNickname} onChange={e => setFormNickname(e.target.value)} />
+            </div>
+            <div>
+              <label style={LBL}>Телефон</label>
+              <input style={INP} placeholder="+7 999 000 00 00" value={formPhone} onChange={e => setFormPhone(e.target.value)} />
+            </div>
+            <div>
+              <label style={LBL}>Роль</label>
+              <select style={{ ...INP, background: 'rgba(29,26,36,0.8)', cursor: 'pointer' }} value={formRole} onChange={e => setFormRole(e.target.value as 'staff' | 'owner')}>
+                <option value="staff">Персонал</option>
+                <option value="owner">Владелец</option>
+              </select>
+            </div>
+            <div>
+              <label style={LBL}>{editTarget ? 'Новый пароль (необязательно)' : 'Пароль для входа *'}</label>
+              <input
+                style={INP} type="password"
+                placeholder={editTarget ? 'Оставьте пустым, чтобы не менять' : 'Минимум 4 символа'}
+                value={formPassword}
+                onChange={e => setFormPassword(e.target.value)}
+              />
+            </div>
+
+            {/* Hint about PIN step */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 12, background: 'rgba(139,92,246,0.08)', border: '1px solid rgba(139,92,246,0.2)' }}>
+              <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#A78BFA', flexShrink: 0 }}>pin</span>
+              <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: 0 }}>
+                На следующем шаге можно сразу задать 4-значный PIN для быстрого входа
+              </p>
+            </div>
+
+            <button
+              onClick={handleNextToPin}
+              disabled={!mainFieldsOk || isPending}
+              style={{
+                padding: '14px', borderRadius: 14, border: 'none', cursor: mainFieldsOk ? 'pointer' : 'not-allowed',
+                background: mainFieldsOk ? 'linear-gradient(135deg,#8B5CF6,#4cd7f6)' : 'rgba(255,255,255,0.08)',
+                color: mainFieldsOk ? '#fff' : 'var(--on-surface-variant)', fontWeight: 700, fontSize: 15,
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+              }}
+            >
+              Далее — задать PIN
+              <span className="material-symbols-outlined" style={{ fontSize: 18 }}>arrow_forward</span>
+            </button>
+          </div>
+        ) : (
+          // Step 2: PIN keypad (optional)
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+            <p style={{ fontSize: 13, color: 'var(--on-surface-variant)', margin: 0, textAlign: 'center' }}>
+              Введите 4-значный PIN для сотрудника <strong style={{ color: 'var(--on-surface)' }}>{formNickname}</strong>.
+              Это необязательно — без PIN сотрудник войдёт по паролю и установит PIN сам.
+            </p>
+
+            <PinKeypad
+              value={formPin}
+              onChange={setFormPin}
+              label="4-значный PIN (необязательно)"
+            />
+
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button
+                onClick={() => setFormPinStep(false)}
+                style={{
+                  flex: 1, padding: '13px', borderRadius: 14,
+                  border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.05)',
+                  color: 'var(--on-surface-variant)', fontWeight: 600, fontSize: 14, cursor: 'pointer',
+                }}
+              >
+                Назад
+              </button>
               <button
                 onClick={submitForm}
-                disabled={createMutation.isPending || updateMutation.isPending}
+                disabled={isPending || (formPin.length > 0 && formPin.length < 4)}
                 style={{
-                  padding: '13px', borderRadius: 14, border: 'none', cursor: 'pointer',
+                  flex: 2, padding: '13px', borderRadius: 14, border: 'none', cursor: 'pointer',
                   background: 'linear-gradient(135deg,#8B5CF6,#4cd7f6)',
-                  color: '#fff', fontWeight: 700, fontSize: 15, marginTop: 4,
+                  color: '#fff', fontWeight: 700, fontSize: 15,
+                  opacity: (isPending || (formPin.length > 0 && formPin.length < 4)) ? 0.6 : 1,
                 }}
               >
-                {createMutation.isPending || updateMutation.isPending ? 'Сохранение...' : editTarget ? 'Сохранить' : 'Создать'}
+                {isPending ? 'Сохранение...' : editTarget ? 'Сохранить' : 'Создать'}
               </button>
             </div>
-          </div>
-        </div>
-      )}
 
-      {/* PIN reset modal */}
-      {showPin && pinTarget && (
-        <div style={{ ...overlayStyle, zIndex: 120 }} onClick={() => setShowPin(false)}>
-          <div className="glass-l1" style={sheetStyle} onClick={e => e.stopPropagation()}>
-            <div style={{ width: 40, height: 4, borderRadius: 2, background: 'rgba(255,255,255,0.2)', margin: '0 auto 20px' }} />
-            <h2 style={{ margin: '0 0 6px', fontSize: 20, fontWeight: 700, color: 'var(--on-surface)' }}>Сменить PIN</h2>
-            <p style={{ margin: '0 0 20px', fontSize: 13, color: 'var(--on-surface-variant)' }}>{pinTarget.nickname}</p>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-              <div>
-                <label style={LBL}>Новый PIN (6 цифр)</label>
-                <input
-                  style={INP}
-                  type="password"
-                  inputMode="numeric"
-                  maxLength={6}
-                  placeholder="••••••"
-                  value={pinNew}
-                  onChange={e => setPinNew(e.target.value.replace(/\D/g, ''))}
-                />
+            {(createMutation.isError || updateMutation.isError) && (
+              <div style={{ padding: '10px 14px', borderRadius: 10, background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.3)', color: '#EF4444', fontSize: 13 }}>
+                Ошибка сохранения. Проверьте данные.
               </div>
-              <div>
-                <label style={LBL}>Подтвердить PIN</label>
-                <input
-                  style={INP}
-                  type="password"
-                  inputMode="numeric"
-                  maxLength={6}
-                  placeholder="••••••"
-                  value={pinConfirm}
-                  onChange={e => setPinConfirm(e.target.value.replace(/\D/g, ''))}
-                />
-              </div>
-              {pinError && (
-                <div style={{ padding: '10px 14px', borderRadius: 10, background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.3)', color: '#EF4444', fontSize: 13 }}>
-                  {pinError}
-                </div>
-              )}
-              {pinSuccess && (
-                <div style={{ padding: '10px 14px', borderRadius: 10, background: 'rgba(16,185,129,0.15)', border: '1px solid rgba(16,185,129,0.3)', color: '#10B981', fontSize: 13 }}>
-                  {pinSuccess}
-                </div>
-              )}
-              <button
-                onClick={submitPin}
-                disabled={resetPinMutation.isPending}
-                style={{
-                  padding: '13px', borderRadius: 14, border: 'none', cursor: 'pointer',
-                  background: 'linear-gradient(135deg,#4cd7f6,#8B5CF6)',
-                  color: '#fff', fontWeight: 700, fontSize: 15, marginTop: 4,
-                }}
-              >
-                {resetPinMutation.isPending ? 'Сохранение...' : 'Установить PIN'}
-              </button>
-            </div>
+            )}
           </div>
-        </div>
-      )}
+        )}
+      </Sheet>
+
+      {/* ─── PIN Reset Sheet ────────────────────────────────────────────────── */}
+      <Sheet
+        open={showPin}
+        onClose={() => setShowPin(false)}
+        title={pinStep === 'enter' ? `PIN — ${pinTarget?.nickname}` : 'Подтвердите PIN'}
+      >
+        {pinSuccess ? (
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16, padding: '20px 0' }}>
+            <div style={{ width: 72, height: 72, borderRadius: '50%', background: 'rgba(16,185,129,0.15)', border: '2px solid #10B981', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <span className="material-symbols-outlined" style={{ fontSize: 38, color: '#10B981', fontVariationSettings: "'FILL' 1" }}>check_circle</span>
+            </div>
+            <p style={{ fontSize: 16, fontWeight: 700, color: '#10B981', margin: 0 }}>PIN установлен!</p>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+            <p style={{ fontSize: 13, color: 'var(--on-surface-variant)', margin: 0, textAlign: 'center' }}>
+              {pinStep === 'enter'
+                ? 'Введите новый 4-значный PIN'
+                : 'Введите PIN ещё раз для подтверждения'}
+            </p>
+
+            <PinKeypad
+              value={pinStep === 'enter' ? pinValue : pinConfirm}
+              onChange={handlePinInput}
+              error={pinError}
+            />
+
+            {pinError && (
+              <div style={{ padding: '10px 14px', borderRadius: 10, background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.3)', color: '#EF4444', fontSize: 13, textAlign: 'center' }}>
+                PIN-коды не совпадают — попробуйте снова
+              </div>
+            )}
+
+            {resetPinMutation.isError && (
+              <div style={{ padding: '10px 14px', borderRadius: 10, background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.3)', color: '#EF4444', fontSize: 13 }}>
+                Ошибка сохранения PIN
+              </div>
+            )}
+          </div>
+        )}
+      </Sheet>
     </div>
   )
 }
