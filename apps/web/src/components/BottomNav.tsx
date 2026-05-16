@@ -100,7 +100,7 @@ export function BottomNav() {
         className="bottom-nav-root"
         style={{
           position: 'fixed',
-          bottom: 'calc(10px + env(safe-area-inset-bottom))',
+          bottom: 'max(env(safe-area-inset-bottom), 8px)',
           left: 14,
           right: 14,
           zIndex: 40,

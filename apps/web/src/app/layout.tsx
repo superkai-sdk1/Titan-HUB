@@ -91,8 +91,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               max-width: 100vw;
             }
             .layout-content {
-              /* Высота плавающего навбара (≈60px) + выступ FAB (≈14px) + gap (10px) + home indicator */
-              padding-bottom: calc(100px + env(safe-area-inset-bottom));
+              /* nav height (60px) + FAB overhang (14px) + buffer (8px) + home indicator */
+              padding-bottom: calc(82px + max(env(safe-area-inset-bottom), 8px));
               overflow-x: hidden;
               overscroll-behavior: none;
             }
