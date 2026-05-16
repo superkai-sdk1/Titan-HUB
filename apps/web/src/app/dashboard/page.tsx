@@ -600,7 +600,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Content */}
-      <div style={{ padding: '16px 16px 100px', flex: 1, overflowX: 'hidden', width: '100%' }}>
+      <div style={{ padding: '16px 16px 16px', flex: 1, overflowX: 'hidden', width: '100%' }}>
         {activeTab === 'overview'  && <OverviewTab  dash={dash}     revenue={revenue} />}
         {activeTab === 'reports'   && <ReportsTab />}
         {activeTab === 'products'  && <ProductsTab  products={products} />}

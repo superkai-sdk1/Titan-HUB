@@ -303,7 +303,7 @@ export default function MenuPage() {
         </div>
       </div>
 
-      <div style={{ padding: '16px 16px 100px', flex: 1, maxWidth: 680, margin: '0 auto', width: '100%' }}>
+      <div style={{ padding: '16px', flex: 1, maxWidth: 680, margin: '0 auto', width: '100%' }}>
         {activeTab === 'items' && (
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleItemDragEnd}>
             <SortableContext items={filteredItems.map(i => i.id)} strategy={verticalListSortingStrategy}>

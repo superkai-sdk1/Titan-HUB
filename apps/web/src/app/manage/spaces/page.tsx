@@ -42,7 +42,7 @@ export default function SpacesPage() {
         action={{ label: 'Добавить', icon: 'add', onClick: () => open() }}
       />
 
-      <div style={{ padding: '16px 16px 100px', maxWidth: 680, margin: '0 auto', width: '100%' }}>
+      <div style={{ padding: '16px', maxWidth: 680, margin: '0 auto', width: '100%' }}>
         {spaces.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '80px 0' }}>
             <span className="material-symbols-outlined" style={{ fontSize: 56, color: 'rgba(204,195,216,0.2)', display: 'block', marginBottom: 12 }}>table_bar</span>

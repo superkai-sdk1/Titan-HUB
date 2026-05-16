@@ -114,7 +114,7 @@ export default function BonusesPage() {
         </div>
       </div>
 
-      <div style={{ padding: '20px 16px 100px', display: 'flex', flexDirection: 'column', gap: 16, maxWidth: 680, margin: '0 auto', width: '100%' }}>
+      <div style={{ padding: '20px 16px 16px', display: 'flex', flexDirection: 'column', gap: 16, maxWidth: 680, margin: '0 auto', width: '100%' }}>
 
         {/* Hero toggle */}
         <div style={{

@@ -149,7 +149,7 @@ export default function ManagePage() {
       </div>
 
       {/* Sections */}
-      <div style={{ padding: '16px 16px 100px', display: 'flex', flexDirection: 'column', gap: 24, maxWidth: 680, margin: '0 auto', width: '100%' }}>
+      <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: 24, maxWidth: 680, margin: '0 auto', width: '100%' }}>
         {NAV.map(group => {
           const visibleItems = group.items.filter(i => i.roles.includes(role))
           if (visibleItems.length === 0) return null

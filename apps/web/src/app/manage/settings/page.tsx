@@ -149,7 +149,7 @@ export default function SettingsPage() {
         </div>
       </div>
 
-      <div style={{ padding: '20px 16px 100px', display: 'flex', flexDirection: 'column', gap: 16, maxWidth: 680, margin: '0 auto', width: '100%' }}>
+      <div style={{ padding: '20px 16px 16px', display: 'flex', flexDirection: 'column', gap: 16, maxWidth: 680, margin: '0 auto', width: '100%' }}>
         {isLoading ? (
           <div style={{ textAlign: 'center', padding: 60, color: 'var(--on-surface-variant)' }}>
             <span className="material-symbols-outlined" style={{ fontSize: 40, display: 'block', marginBottom: 12, opacity: 0.4 }}>settings</span>

@@ -113,7 +113,7 @@ export default function RevisionPage() {
         </div>
       </div>
 
-      <div style={{ padding: '20px 16px 100px', flex: 1 }}>
+      <div style={{ padding: '20px 16px 16px', flex: 1 }}>
 
         {/* Idle state */}
         {mode === 'idle' && (

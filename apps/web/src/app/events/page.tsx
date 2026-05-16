@@ -72,7 +72,7 @@ export default function EventsPage() {
         </div>
       </div>
 
-      <div style={{ padding: '16px 16px 100px', flex: 1, maxWidth: 680, margin: '0 auto', width: '100%' }}>
+      <div style={{ padding: '16px', flex: 1, maxWidth: 680, margin: '0 auto', width: '100%' }}>
         {events.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '80px 0' }}>
             <span className="material-symbols-outlined" style={{ fontSize: 56, color: 'rgba(204,195,216,0.2)', display: 'block', marginBottom: 12 }}>event</span>
