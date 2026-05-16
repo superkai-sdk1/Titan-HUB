@@ -54,14 +54,13 @@ export async function runMigrations() {
     const content = await readFile(filePath, 'utf-8')
     console.log(`[migrations] Applying ${file}…`)
     try {
-      // Каждый файл — одна транзакция
-      await db.execute(sql.raw(`BEGIN`))
-      await db.execute(sql.raw(content))
-      await db.execute(sql`INSERT INTO _migrations (id) VALUES (${file})`)
-      await db.execute(sql.raw(`COMMIT`))
+      // Транзакция через Drizzle — атомарно применяет SQL + запись о миграции
+      await db.transaction(async (tx) => {
+        await tx.execute(sql.raw(content))
+        await tx.execute(sql`INSERT INTO _migrations (id) VALUES (${file})`)
+      })
       console.log(`[migrations] ✓ ${file}`)
     } catch (err) {
-      await db.execute(sql.raw(`ROLLBACK`)).catch(() => {})
       console.error(`[migrations] ✗ ${file} failed:`, err)
       throw err
     }
