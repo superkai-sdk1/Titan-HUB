@@ -7,9 +7,10 @@ import { requireAuth, requireRole } from '../../middleware/auth.js'
 
 const CategorySchema = z.object({
   name: z.string().min(1),
-  icon: z.string().default('Package'),
-  color: z.string().default('#6366f1'),
+  icon: z.string().default('restaurant_menu'),
+  color: z.string().default('violet'),
   isActive: z.boolean().default(true),
+  isTabletVisible: z.boolean().default(true),
   sortOrder: z.number().int().default(0),
 })
 
@@ -40,7 +41,11 @@ export const menuRouter = new Hono<AppEnv>()
 
 // Categories — no auth required for tablet reads
 menuRouter.get('/categories', async (c) => {
-  const cats = await db.select().from(menuCategories).where(eq(menuCategories.isActive, true)).orderBy(asc(menuCategories.sortOrder))
+  const tabletOnly = c.req.query('tabletOnly') === 'true'
+  const where = tabletOnly
+    ? and(eq(menuCategories.isActive, true), eq(menuCategories.isTabletVisible, true))
+    : eq(menuCategories.isActive, true)
+  const cats = await db.select().from(menuCategories).where(where).orderBy(asc(menuCategories.sortOrder))
   return c.json({ categories: cats })
 })
 

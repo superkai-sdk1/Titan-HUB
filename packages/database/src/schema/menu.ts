@@ -11,9 +11,10 @@ import {
 export const menuCategories = pgTable('menu_categories', {
   id: uuid('id').primaryKey().defaultRandom(),
   name: text('name').notNull(),
-  icon: text('icon').notNull().default('Package'),
-  color: text('color').notNull().default('#6366f1'),
+  icon: text('icon').notNull().default('restaurant_menu'),
+  color: text('color').notNull().default('violet'),
   isActive: boolean('is_active').notNull().default(true),
+  isTabletVisible: boolean('is_tablet_visible').notNull().default(true),
   sortOrder: integer('sort_order').notNull().default(0),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 })

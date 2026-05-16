@@ -1,9 +1,26 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { useAuthStore } from '@/store/auth.store'
+
+const CAT_COLOR_OPTIONS = [
+  { name: 'violet',  hex: '#8B5CF6', light: 'rgba(139,92,246,0.12)',  border: 'rgba(139,92,246,0.25)',  text: '#A78BFA' },
+  { name: 'slate',   hex: '#94A3B8', light: 'rgba(148,163,184,0.12)', border: 'rgba(148,163,184,0.25)', text: '#CBD5E1' },
+  { name: 'orange',  hex: '#F97316', light: 'rgba(249,115,22,0.12)',  border: 'rgba(249,115,22,0.25)',  text: '#FB923C' },
+  { name: 'emerald', hex: '#10B981', light: 'rgba(16,185,129,0.12)',  border: 'rgba(16,185,129,0.25)',  text: '#34D399' },
+  { name: 'rose',    hex: '#F43F5E', light: 'rgba(244,63,94,0.12)',   border: 'rgba(244,63,94,0.25)',   text: '#F87171' },
+  { name: 'amber',   hex: '#F59E0B', light: 'rgba(245,158,11,0.12)', border: 'rgba(245,158,11,0.25)',  text: '#FBBF24' },
+  { name: 'blue',    hex: '#3B82F6', light: 'rgba(59,130,246,0.12)',  border: 'rgba(59,130,246,0.25)',  text: '#60A5FA' },
+  { name: 'indigo',  hex: '#6366F1', light: 'rgba(99,102,241,0.12)', border: 'rgba(99,102,241,0.25)',  text: '#818CF8' },
+  { name: 'pink',    hex: '#EC4899', light: 'rgba(236,72,153,0.12)', border: 'rgba(236,72,153,0.25)',  text: '#F472B6' },
+  { name: 'cyan',    hex: '#06B6D4', light: 'rgba(6,182,212,0.12)',  border: 'rgba(6,182,212,0.25)',   text: '#22D3EE' },
+]
+
+function getCatColorObj(colorName?: string) {
+  return CAT_COLOR_OPTIONS.find(c => c.name === colorName) ?? CAT_COLOR_OPTIONS[0]
+}
 
 interface MenuItem {
   id: string
@@ -15,6 +32,8 @@ interface MenuItem {
   stockQuantity: number
   trackStock: boolean
   searchTags?: string[]
+  categoryIcon?: string
+  categoryColor?: string
 }
 
 interface MenuCategory {
@@ -22,6 +41,7 @@ interface MenuCategory {
   name: string
   icon: string
   color: string
+  isTabletVisible: boolean
 }
 
 interface ProfileData {
@@ -34,10 +54,6 @@ interface ProfileData {
 interface CartItem {
   item: MenuItem
   quantity: number
-}
-
-function getInitials(name: string): string {
-  return name.split(' ').map(p => p[0]).join('').toUpperCase().slice(0, 2)
 }
 
 export default function TabletOrderPage() {
@@ -69,10 +85,10 @@ export default function TabletOrderPage() {
 
   const activeCheckId = checksData?.checks?.[0]?.id
 
-  // Меню категорий
+  // Меню категорий (только видимые на планшете)
   const { data: categoriesData } = useQuery({
-    queryKey: ['menu', 'categories'],
-    queryFn: () => api.get<{ categories: MenuCategory[] }>('/menu/categories'),
+    queryKey: ['menu', 'categories', 'tablet'],
+    queryFn: () => api.get<{ categories: MenuCategory[] }>('/menu/categories?tabletOnly=true'),
   })
 
   // Позиции меню (только tablet_visible)
@@ -81,12 +97,17 @@ export default function TabletOrderPage() {
     queryFn: () => api.get<{ items: MenuItem[] }>('/menu/items?tabletVisible=true'),
   })
 
-  const categories = categoriesData?.categories ?? []
+  const categories = (categoriesData?.categories ?? []).filter(c => c.isTabletVisible !== false)
+
   const allItems = (itemsData?.items ?? []).filter(i => {
     if (!i.isActive || !i.isTabletVisible) return false
     if (i.trackStock && i.stockQuantity <= 0) return false
     return true
-  })
+  }).map(i => ({
+    ...i,
+    categoryIcon: categories.find(c => c.id === i.category)?.icon ?? 'restaurant_menu',
+    categoryColor: categories.find(c => c.id === i.category)?.color ?? 'violet',
+  }))
 
   const filteredItems = allItems.filter(item => {
     const matchCat = !activeCat || item.category === activeCat
@@ -251,20 +272,31 @@ export default function TabletOrderPage() {
         >
           Все
         </button>
-        {categories.map(cat => (
-          <button
-            key={cat.id}
-            onClick={() => setActiveCat(cat.id)}
-            style={{
-              flexShrink: 0, padding: '8px 18px', borderRadius: 9999, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600,
-              background: activeCat === cat.id ? 'linear-gradient(135deg, #8B5CF6, #6D28D9)' : 'rgba(255,255,255,0.05)',
-              color: activeCat === cat.id ? '#fff' : 'var(--on-surface-variant)',
-              boxShadow: activeCat === cat.id ? '0 2px 12px rgba(139,92,246,0.3)' : 'none',
-            }}
-          >
-            {cat.name}
-          </button>
-        ))}
+        {categories.map(cat => {
+          const isActive = activeCat === cat.id
+          const colorObj = getCatColorObj(cat.color)
+          return (
+            <button
+              key={cat.id}
+              onClick={() => setActiveCat(cat.id)}
+              style={{
+                flexShrink: 0, padding: '8px 16px', borderRadius: 9999,
+                border: `1px solid ${isActive ? colorObj.hex : colorObj.border}`,
+                cursor: 'pointer', fontSize: 13, fontWeight: 600,
+                background: isActive ? colorObj.hex : colorObj.light,
+                color: isActive ? '#fff' : colorObj.text,
+                boxShadow: isActive ? `0 2px 12px ${colorObj.border}` : 'none',
+                display: 'flex', alignItems: 'center', gap: 6,
+                transition: 'all 0.2s',
+              }}
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: 16, fontVariationSettings: "'FILL' 1" }}>
+                {cat.icon}
+              </span>
+              {cat.name}
+            </button>
+          )
+        })}
       </div>
 
       {/* Items grid */}
@@ -277,86 +309,105 @@ export default function TabletOrderPage() {
           {filteredItems.map(item => {
             const qty = getCartQty(item.id)
             const outOfStock = item.trackStock && item.stockQuantity === 0
+            const colorObj = getCatColorObj(item.categoryColor)
             return (
               <div
                 key={item.id}
                 className="glass-l2"
                 style={{
                   borderRadius: 20, padding: '20px 16px',
-                  border: qty > 0 ? '1px solid rgba(139,92,246,0.5)' : '1px solid rgba(255,255,255,0.07)',
-                  boxShadow: qty > 0 ? '0 0 20px rgba(139,92,246,0.15)' : 'none',
+                  border: qty > 0 ? `1px solid ${colorObj.border}` : '1px solid rgba(255,255,255,0.07)',
+                  boxShadow: qty > 0 ? `0 0 20px ${colorObj.light}` : 'none',
                   opacity: outOfStock ? 0.4 : 1,
-                  display: 'flex', flexDirection: 'column', gap: 12,
                   transition: 'all 0.2s',
+                  position: 'relative',
+                  overflow: 'hidden',
                 }}
               >
-                {/* Icon */}
-                <div style={{
-                  width: 52, height: 52, borderRadius: 16,
-                  background: 'rgba(139,92,246,0.1)',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                }}>
-                  <span className="material-symbols-outlined" style={{ fontSize: 28, color: '#A78BFA', fontVariationSettings: "'FILL' 1" }}>
-                    restaurant_menu
-                  </span>
+                {/* Decorative icon pattern */}
+                <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', borderRadius: 20, pointerEvents: 'none', zIndex: 0 }}>
+                  <div style={{
+                    display: 'grid', gridTemplateColumns: 'repeat(8, 1fr)', gap: '1px',
+                    transform: 'rotate(-45deg) scale(1.6)',
+                    opacity: 0.07, position: 'absolute', inset: '-30%', color: 'white',
+                  }}>
+                    {Array.from({ length: 64 }).map((_, i) => (
+                      <span key={i} className="material-symbols-outlined" style={{ fontSize: 22, lineHeight: 1 }}>
+                        {item.categoryIcon ?? 'restaurant_menu'}
+                      </span>
+                    ))}
+                  </div>
                 </div>
 
-                {/* Name + price */}
-                <div style={{ flex: 1 }}>
-                  <p style={{ fontSize: 15, fontWeight: 700, margin: '0 0 6px', color: 'var(--on-surface)', lineHeight: 1.3 }}>
-                    {item.name}
-                  </p>
-                  <p style={{ fontSize: 18, fontWeight: 900, fontStyle: 'italic', fontVariantNumeric: 'tabular-nums', margin: 0, color: '#A78BFA' }}>
-                    {parseFloat(item.price).toLocaleString('ru')} ₽
-                  </p>
-                  {item.trackStock && (
-                    <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: '4px 0 0' }}>
-                      {item.stockQuantity} шт.
+                <div style={{ position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  {/* Icon */}
+                  <div style={{
+                    width: 52, height: 52, borderRadius: 16,
+                    background: colorObj.light,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  }}>
+                    <span className="material-symbols-outlined" style={{ fontSize: 28, color: colorObj.hex, fontVariationSettings: "'FILL' 1" }}>
+                      {item.categoryIcon ?? 'restaurant_menu'}
+                    </span>
+                  </div>
+
+                  {/* Name + price */}
+                  <div style={{ flex: 1 }}>
+                    <p style={{ fontSize: 15, fontWeight: 700, margin: '0 0 6px', color: 'var(--on-surface)', lineHeight: 1.3 }}>
+                      {item.name}
                     </p>
-                  )}
-                </div>
+                    <p style={{ fontSize: 18, fontWeight: 900, fontStyle: 'italic', fontVariantNumeric: 'tabular-nums', margin: 0, color: colorObj.text }}>
+                      {parseFloat(item.price).toLocaleString('ru')} ₽
+                    </p>
+                    {item.trackStock && (
+                      <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: '4px 0 0' }}>
+                        {item.stockQuantity} шт.
+                      </p>
+                    )}
+                  </div>
 
-                {/* Add/remove controls */}
-                {outOfStock ? (
-                  <div style={{ textAlign: 'center', fontSize: 12, color: 'var(--danger)', fontWeight: 600 }}>Нет в наличии</div>
-                ) : qty === 0 ? (
-                  <button
-                    onClick={() => addToCart(item)}
-                    style={{
-                      width: '100%', padding: '12px 0', borderRadius: 12, border: 'none', cursor: 'pointer',
-                      background: 'rgba(139,92,246,0.15)', color: '#A78BFA',
-                      fontSize: 13, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-                    }}
-                  >
-                    <span className="material-symbols-outlined" style={{ fontSize: 18 }}>add</span>
-                    Добавить
-                  </button>
-                ) : (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <button
-                      onClick={() => removeFromCart(item.id)}
-                      style={{
-                        width: 40, height: 40, borderRadius: 10, border: 'none', cursor: 'pointer',
-                        background: 'rgba(244,63,94,0.1)', color: 'var(--danger)',
-                        display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-                      }}
-                    >
-                      <span className="material-symbols-outlined" style={{ fontSize: 18 }}>remove</span>
-                    </button>
-                    <span style={{ flex: 1, textAlign: 'center', fontSize: 20, fontWeight: 900, color: '#A78BFA' }}>{qty}</span>
+                  {/* Add/remove controls */}
+                  {outOfStock ? (
+                    <div style={{ textAlign: 'center', fontSize: 12, color: 'var(--danger)', fontWeight: 600 }}>Нет в наличии</div>
+                  ) : qty === 0 ? (
                     <button
                       onClick={() => addToCart(item)}
                       style={{
-                        width: 40, height: 40, borderRadius: 10, border: 'none', cursor: 'pointer',
-                        background: 'rgba(139,92,246,0.2)', color: '#A78BFA',
-                        display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                        width: '100%', padding: '12px 0', borderRadius: 12, border: 'none', cursor: 'pointer',
+                        background: colorObj.light, color: colorObj.text,
+                        fontSize: 13, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
                       }}
                     >
                       <span className="material-symbols-outlined" style={{ fontSize: 18 }}>add</span>
+                      Добавить
                     </button>
-                  </div>
-                )}
+                  ) : (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <button
+                        onClick={() => removeFromCart(item.id)}
+                        style={{
+                          width: 40, height: 40, borderRadius: 10, border: 'none', cursor: 'pointer',
+                          background: 'rgba(244,63,94,0.1)', color: 'var(--danger)',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                        }}
+                      >
+                        <span className="material-symbols-outlined" style={{ fontSize: 18 }}>remove</span>
+                      </button>
+                      <span style={{ flex: 1, textAlign: 'center', fontSize: 20, fontWeight: 900, color: colorObj.text }}>{qty}</span>
+                      <button
+                        onClick={() => addToCart(item)}
+                        style={{
+                          width: 40, height: 40, borderRadius: 10, border: 'none', cursor: 'pointer',
+                          background: colorObj.light, color: colorObj.text,
+                          display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                        }}
+                      >
+                        <span className="material-symbols-outlined" style={{ fontSize: 18 }}>add</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
             )
           })}

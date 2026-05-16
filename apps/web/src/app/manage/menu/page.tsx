@@ -23,16 +23,36 @@ import { PageHeader, Sheet, INP, SEL, LBL } from '@/components/manage/DesignSyst
 
 function parseNum(v: unknown) { return parseFloat(String(v ?? 0)) || 0 }
 
-const BLANK_ITEM = { name: '', price: '0', category: '', isActive: true, isTop: false, trackStock: false, stockQuantity: '0' }
-const BLANK_CAT = { name: '', icon: '' }
+const CAT_COLOR_OPTIONS = [
+  { name: 'violet',  hex: '#8B5CF6', light: 'rgba(139,92,246,0.12)',  border: 'rgba(139,92,246,0.25)',  text: '#A78BFA' },
+  { name: 'slate',   hex: '#94A3B8', light: 'rgba(148,163,184,0.12)', border: 'rgba(148,163,184,0.25)', text: '#CBD5E1' },
+  { name: 'orange',  hex: '#F97316', light: 'rgba(249,115,22,0.12)',  border: 'rgba(249,115,22,0.25)',  text: '#FB923C' },
+  { name: 'emerald', hex: '#10B981', light: 'rgba(16,185,129,0.12)',  border: 'rgba(16,185,129,0.25)',  text: '#34D399' },
+  { name: 'rose',    hex: '#F43F5E', light: 'rgba(244,63,94,0.12)',   border: 'rgba(244,63,94,0.25)',   text: '#F87171' },
+  { name: 'amber',   hex: '#F59E0B', light: 'rgba(245,158,11,0.12)', border: 'rgba(245,158,11,0.25)',  text: '#FBBF24' },
+  { name: 'blue',    hex: '#3B82F6', light: 'rgba(59,130,246,0.12)',  border: 'rgba(59,130,246,0.25)',  text: '#60A5FA' },
+  { name: 'indigo',  hex: '#6366F1', light: 'rgba(99,102,241,0.12)', border: 'rgba(99,102,241,0.25)',  text: '#818CF8' },
+  { name: 'pink',    hex: '#EC4899', light: 'rgba(236,72,153,0.12)', border: 'rgba(236,72,153,0.25)',  text: '#F472B6' },
+  { name: 'cyan',    hex: '#06B6D4', light: 'rgba(6,182,212,0.12)',  border: 'rgba(6,182,212,0.25)',   text: '#22D3EE' },
+]
 
-const CAT_COLORS = ['#8B5CF6', '#4cd7f6', '#10B981', '#F59E0B', '#F43F5E', '#3B82F6', '#F97316']
-
-function getCatColor(name: string): string {
-  let hash = 0
-  for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash)
-  return CAT_COLORS[Math.abs(hash) % CAT_COLORS.length]
+function getCatColorObj(colorName?: string) {
+  return CAT_COLOR_OPTIONS.find(c => c.name === colorName) ?? CAT_COLOR_OPTIONS[0]
 }
+
+const CAT_ICONS = [
+  'restaurant_menu','local_cafe','cookie','sports_esports','confirmation_number',
+  'inventory_2','music_note','auto_awesome','shopping_bag','local_fire_department',
+  'wine_bar','icecream','salad','sports_bar','lunch_dining','fastfood','local_drink',
+  'category','bolt','water_drop','eco','timer','local_pizza','soup_kitchen',
+  'grain','casino','sports','celebration','emoji_food_beverage',
+]
+
+const BLANK_ITEM = {
+  name: '', price: '0', category: '', isActive: true, isTop: false,
+  trackStock: false, stockQuantity: '0', isTabletVisible: false, searchTags: [] as string[],
+}
+const BLANK_CAT = { name: '', icon: 'restaurant_menu', color: 'violet', isTabletVisible: true }
 
 function MiniToggle({ value, onChange }: { value: boolean; onChange: (v: boolean) => void }) {
   return (
@@ -53,7 +73,7 @@ function SortableItem({ item, cats, onEdit, onDelete }: { item: any; cats: any[]
 
   const cat = cats.find((c: any) => c.id === item.category)
   const catName = cat?.name ?? item.category ?? null
-  const catColor = cat ? getCatColor(cat.name) : '#94A3B8'
+  const catColorObj = getCatColorObj(cat?.color)
   const stock = parseNum(item.stockQuantity)
   const stockColor = stock === 0 ? '#F43F5E' : stock <= 5 ? '#F59E0B' : '#10B981'
 
@@ -81,8 +101,9 @@ function SortableItem({ item, cats, onEdit, onDelete }: { item: any; cats: any[]
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' as const }}>
             {catName && (
-              <span style={{ fontSize: 10, fontWeight: 700, fontFamily: "'JetBrains Mono',monospace", padding: '2px 8px', borderRadius: 6, background: `${catColor}22`, color: catColor, letterSpacing: '0.04em' }}>
-                {cat?.icon} {catName}
+              <span style={{ fontSize: 10, fontWeight: 700, fontFamily: "'JetBrains Mono',monospace", padding: '2px 8px', borderRadius: 6, background: catColorObj.light, color: catColorObj.text, letterSpacing: '0.04em', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                <span className="material-symbols-outlined" style={{ fontSize: 11 }}>{cat?.icon}</span>
+                {catName}
               </span>
             )}
             {item.trackStock && (
@@ -118,7 +139,7 @@ function SortableCatCard({ cat, itemCount, onEdit, onDelete }: { cat: any; itemC
     opacity: isDragging ? 0.5 : 1,
     zIndex: isDragging ? 999 : 'auto',
   }
-  const color = getCatColor(cat.name)
+  const colorObj = getCatColorObj(cat.color)
 
   return (
     <div ref={setNodeRef} style={style}>
@@ -132,9 +153,17 @@ function SortableCatCard({ cat, itemCount, onEdit, onDelete }: { cat: any; itemC
         >
           drag_indicator
         </span>
-        <div style={{ fontSize: 32, marginBottom: 10, marginTop: 4 }}>{cat.icon || '📦'}</div>
+        <div style={{
+          width: 48, height: 48, borderRadius: 14, marginBottom: 10, marginTop: 4,
+          background: colorObj.light, border: `1px solid ${colorObj.border}`,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          <span className="material-symbols-outlined" style={{ fontSize: 24, color: colorObj.hex, fontVariationSettings: "'FILL' 1" }}>
+            {cat.icon || 'category'}
+          </span>
+        </div>
         <p style={{ fontSize: 14, fontWeight: 700, margin: '0 0 4px' }}>{cat.name}</p>
-        <p style={{ fontSize: 12, color, margin: 0, fontWeight: 600, fontFamily: "'JetBrains Mono',monospace" }}>{itemCount} позиций</p>
+        <p style={{ fontSize: 12, color: colorObj.text, margin: 0, fontWeight: 600, fontFamily: "'JetBrains Mono',monospace" }}>{itemCount} позиций</p>
         <button
           onClick={e => { e.stopPropagation(); onDelete() }}
           style={{ position: 'absolute', top: 10, right: 10, width: 26, height: 26, borderRadius: 6, border: '1px solid rgba(244,63,94,0.2)', background: 'rgba(244,63,94,0.08)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#F87171' }}
@@ -153,6 +182,7 @@ export default function MenuPage() {
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState<any>(null)
   const [form, setForm] = useState<any>(BLANK_ITEM)
+  const [tagInput, setTagInput] = useState('')
   const [catForm, setCatForm] = useState<any>(BLANK_CAT)
   const [editingCat, setEditingCat] = useState<any>(null)
   const [showCatForm, setShowCatForm] = useState(false)
@@ -232,7 +262,14 @@ export default function MenuPage() {
 
   function openItem(item?: any) {
     setEditing(item ?? null)
-    setForm(item ? { name: item.name, price: String(item.price), category: item.category ?? '', isActive: item.isActive, isTop: item.isTop, trackStock: item.trackStock, stockQuantity: String(item.stockQuantity ?? 0) } : BLANK_ITEM)
+    setForm(item ? {
+      name: item.name, price: String(item.price), category: item.category ?? '',
+      isActive: item.isActive, isTop: item.isTop, trackStock: item.trackStock,
+      stockQuantity: String(item.stockQuantity ?? 0),
+      isTabletVisible: item.isTabletVisible ?? false,
+      searchTags: item.searchTags ?? [],
+    } : BLANK_ITEM)
+    setTagInput('')
     setShowForm(true)
   }
 
@@ -309,7 +346,7 @@ export default function MenuPage() {
                         key={cat.id}
                         cat={cat}
                         itemCount={cnt}
-                        onEdit={() => { setEditingCat(cat); setCatForm({ name: cat.name, icon: cat.icon ?? '' }); setShowCatForm(true) }}
+                        onEdit={() => { setEditingCat(cat); setCatForm({ name: cat.name, icon: cat.icon ?? 'restaurant_menu', color: cat.color ?? 'violet', isTabletVisible: cat.isTabletVisible ?? true }); setShowCatForm(true) }}
                         onDelete={() => delCat.mutate(cat.id)}
                       />
                     )
@@ -326,14 +363,49 @@ export default function MenuPage() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div><label style={LBL}>Название *</label><input value={form.name} onChange={e => setForm((p: any) => ({ ...p, name: e.target.value }))} style={INP} placeholder="Название блюда или услуги" /></div>
           <div><label style={LBL}>Цена (₽)</label><input type="number" value={form.price} onChange={e => setForm((p: any) => ({ ...p, price: e.target.value }))} style={INP} /></div>
+
+          {/* Search tags */}
+          <div>
+            <label style={LBL}>Теги поиска</label>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+              {(form.searchTags as string[]).map((tag: string, i: number) => (
+                <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, padding: '3px 10px', borderRadius: 999, background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.12)', color: 'var(--on-surface)' }}>
+                  {tag}
+                  <button onClick={() => setForm((p: any) => ({ ...p, searchTags: p.searchTags.filter((_: string, j: number) => j !== i) }))} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--on-surface-variant)', padding: 0, fontSize: 14, lineHeight: 1, display: 'flex' }}>×</button>
+                </span>
+              ))}
+            </div>
+            <input
+              value={tagInput}
+              onChange={e => setTagInput(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter' || e.key === ',') {
+                  e.preventDefault()
+                  const t = tagInput.trim().replace(/,$/, '')
+                  if (t && !(form.searchTags as string[]).includes(t)) {
+                    setForm((p: any) => ({ ...p, searchTags: [...p.searchTags, t] }))
+                  }
+                  setTagInput('')
+                }
+              }}
+              placeholder="Введите тег и нажмите Enter"
+              style={INP}
+            />
+          </div>
+
           <div><label style={LBL}>Категория</label>
             <select value={form.category} onChange={e => setForm((p: any) => ({ ...p, category: e.target.value }))} style={SEL}>
               <option value="">Без категории</option>
-              {cats.map((c: any) => <option key={c.id} value={c.id}>{c.icon} {c.name}</option>)}
+              {cats.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {([['isActive', 'Активна', 'Позиция отображается в меню'], ['isTop', 'Хит продаж', 'Выделяется звёздочкой'], ['trackStock', 'Учёт остатков', 'Следить за количеством']] as [string, string, string][]).map(([key, lbl, sub]) => (
+            {([
+              ['isActive', 'Активна', 'Позиция отображается в меню'],
+              ['isTop', 'Хит продаж', 'Выделяется звёздочкой'],
+              ['trackStock', 'Учёт остатков', 'Следить за количеством'],
+              ['isTabletVisible', 'Видно на планшете', 'Показывать гостям в меню планшета'],
+            ] as [string, string, string][]).map(([key, lbl, sub]) => (
               <div key={key} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '12px 14px', borderRadius: 12, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
                 <div>
                   <p style={{ fontSize: 14, fontWeight: 500, margin: 0 }}>{lbl}</p>
@@ -344,7 +416,7 @@ export default function MenuPage() {
             ))}
           </div>
           {form.trackStock && <div><label style={LBL}>Количество на складе</label><input type="number" value={form.stockQuantity} onChange={e => setForm((p: any) => ({ ...p, stockQuantity: e.target.value }))} style={INP} /></div>}
-          <button onClick={() => saveItem.mutate({ ...form, price: Number(form.price), stockQuantity: Number(form.stockQuantity) })} disabled={saveItem.isPending || !form.name} style={{ width: '100%', padding: '14px 0', borderRadius: 14, border: 'none', background: 'linear-gradient(135deg, #8B5CF6, #4cd7f6)', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer', marginTop: 4, opacity: !form.name ? 0.6 : 1 }}>
+          <button onClick={() => saveItem.mutate({ ...form, price: Number(form.price), stockQuantity: Number(form.stockQuantity), isTabletVisible: form.isTabletVisible, searchTags: form.searchTags })} disabled={saveItem.isPending || !form.name} style={{ width: '100%', padding: '14px 0', borderRadius: 14, border: 'none', background: 'linear-gradient(135deg, #8B5CF6, #4cd7f6)', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer', marginTop: 4, opacity: !form.name ? 0.6 : 1 }}>
             {saveItem.isPending ? 'Сохраняем…' : 'Сохранить'}
           </button>
         </div>
@@ -352,9 +424,66 @@ export default function MenuPage() {
 
       {/* Category form sheet */}
       <Sheet open={showCatForm} onClose={() => { setShowCatForm(false); setEditingCat(null); setCatForm(BLANK_CAT) }} title={editingCat ? 'Редактировать категорию' : 'Новая категория'}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          <div><label style={LBL}>Название *</label><input value={catForm.name} onChange={e => setCatForm((p: any) => ({ ...p, name: e.target.value }))} style={INP} /></div>
-          <div><label style={LBL}>Иконка (emoji)</label><input value={catForm.icon} onChange={e => setCatForm((p: any) => ({ ...p, icon: e.target.value }))} placeholder="🍕" style={{ ...INP, fontSize: 28, textAlign: 'center' }} /></div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          {/* Name */}
+          <div>
+            <label style={LBL}>Название *</label>
+            <input value={catForm.name} onChange={e => setCatForm((p: any) => ({ ...p, name: e.target.value }))} style={INP} />
+          </div>
+
+          {/* Icon picker */}
+          <div>
+            <label style={LBL}>Иконка</label>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 6 }}>
+              {CAT_ICONS.map(icon => (
+                <button
+                  key={icon}
+                  onClick={() => setCatForm((p: any) => ({ ...p, icon }))}
+                  style={{
+                    width: '100%', aspectRatio: '1', borderRadius: 12, border: 'none', cursor: 'pointer',
+                    background: catForm.icon === icon ? '#8B5CF6' : 'rgba(255,255,255,0.05)',
+                    color: catForm.icon === icon ? '#fff' : 'rgba(255,255,255,0.35)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    transition: 'all 0.15s',
+                  }}
+                  title={icon}
+                >
+                  <span className="material-symbols-outlined" style={{ fontSize: 22 }}>{icon}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Color picker */}
+          <div>
+            <label style={LBL}>Цвет</label>
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+              {CAT_COLOR_OPTIONS.map(c => (
+                <button
+                  key={c.name}
+                  onClick={() => setCatForm((p: any) => ({ ...p, color: c.name }))}
+                  style={{
+                    width: 28, height: 28, borderRadius: '50%', border: 'none', cursor: 'pointer',
+                    background: c.hex,
+                    outline: catForm.color === c.name ? `3px solid #fff` : '3px solid transparent',
+                    outlineOffset: 2,
+                    transition: 'outline 0.15s',
+                  }}
+                  title={c.name}
+                />
+              ))}
+            </div>
+          </div>
+
+          {/* isTabletVisible toggle */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '12px 14px', borderRadius: 12, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
+            <div>
+              <p style={{ fontSize: 14, fontWeight: 500, margin: 0 }}>Видно на планшете</p>
+              <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: '2px 0 0' }}>Показывать категорию в меню планшета</p>
+            </div>
+            <MiniToggle value={catForm.isTabletVisible ?? true} onChange={v => setCatForm((p: any) => ({ ...p, isTabletVisible: v }))} />
+          </div>
+
           <button onClick={() => saveCat.mutate(catForm)} disabled={saveCat.isPending || !catForm.name} style={{ width: '100%', padding: '14px 0', borderRadius: 14, border: 'none', background: 'linear-gradient(135deg, #8B5CF6, #4cd7f6)', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer', marginTop: 4 }}>
             {saveCat.isPending ? 'Сохраняем…' : 'Сохранить'}
           </button>
