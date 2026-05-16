@@ -326,6 +326,13 @@ function PosPageInner() {
     setShowNewCheck(false)
   }
 
+  // FAB в BottomNav открывает новый чек через CustomEvent
+  useEffect(() => {
+    const handler = () => { if (shift) openNewCheckModal() }
+    window.addEventListener('titan:new-check', handler)
+    return () => window.removeEventListener('titan:new-check', handler)
+  }, [shift])
+
   const checks = checksData?.checks ?? []
   const avgTime = checks.length
     ? Math.round(checks.reduce((acc, c) => acc + differenceInMinutes(now, new Date(c.createdAt)), 0) / checks.length)
@@ -367,14 +374,6 @@ function PosPageInner() {
           {/* Right: action icon buttons — мобильный режим */}
           {shift && (
             <div className="pos-header-actions" style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-              <button
-                onClick={openNewCheckModal}
-                className="glass-l2"
-                title="Новый счёт"
-                style={{ width: 36, height: 36, borderRadius: 10, border: '1px solid rgba(139,92,246,0.4)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
-              >
-                <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#A78BFA' }}>add_circle</span>
-              </button>
               <button
                 className="glass-l2"
                 title="Отчёт смены"
@@ -605,7 +604,7 @@ function PosPageInner() {
                 alignItems: 'center',
                 justifyContent: 'center',
                 gap: 10,
-                minHeight: 160,
+                minHeight: 80,
                 transition: 'all 0.2s',
               }}
               onMouseEnter={e => {
