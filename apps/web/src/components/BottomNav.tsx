@@ -111,7 +111,7 @@ export function BottomNav() {
           borderRadius: '20px 20px 0 0',
           boxShadow: '0 -4px 32px rgba(0,0,0,0.5)',
           display: 'flex',
-          alignItems: 'flex-start',
+          alignItems: 'center',
           paddingTop: 10,
           paddingBottom: 'env(safe-area-inset-bottom)',
           paddingLeft: 8,
@@ -139,8 +139,8 @@ export function BottomNav() {
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            marginTop: -22,
             position: 'relative',
+            top: -16,
             zIndex: 1,
             transition: 'transform 0.15s, box-shadow 0.15s',
           }}
