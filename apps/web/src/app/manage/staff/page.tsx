@@ -4,6 +4,7 @@ import React, { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { Sheet, LBL, INP, SEL } from '@/components/manage/DesignSystem'
+import { useAuthStore } from '@/store/auth.store'
 
 interface StaffMember {
   id: string
@@ -11,6 +12,13 @@ interface StaffMember {
   role: 'owner' | 'staff'
   phone?: string
   permissions?: Record<string, boolean>
+}
+
+interface PasskeyRecord {
+  id: string
+  deviceType: string | null
+  backedUp: boolean
+  createdAt: string
 }
 
 const DEFAULT_PERMISSIONS: Record<string, boolean> = {
@@ -176,12 +184,28 @@ export default function StaffPage() {
   const [perms, setPerms] = useState<Record<string, boolean>>(DEFAULT_PERMISSIONS)
   const [permsSaved, setPermsSaved] = useState(false)
 
+  const currentUser = useAuthStore(s => s.user)
+
   const { data } = useQuery<{ staff: StaffMember[] }>({
     queryKey: ['staff'],
     queryFn: () => api.get('/staff'),
   })
   const staff = data?.staff ?? []
   const invalidate = () => qc.invalidateQueries({ queryKey: ['staff'] })
+
+  // Passkeys for selected staff member
+  const { data: passkeyData, refetch: refetchPasskeys } = useQuery<{ passkeys: PasskeyRecord[] }>({
+    queryKey: ['staff-passkeys', selected?.id],
+    queryFn: () => api.get(`/staff/${selected!.id}/passkeys`),
+    enabled: !!selected,
+  })
+  const staffPasskeys = passkeyData?.passkeys ?? []
+
+  const deletePasskeyMutation = useMutation({
+    mutationFn: ({ staffId, passkeyId }: { staffId: string; passkeyId: string }) =>
+      api.delete(`/staff/${staffId}/passkeys/${passkeyId}`),
+    onSuccess: () => refetchPasskeys(),
+  })
 
   const [formError, setFormError] = useState<string | null>(null)
 
@@ -455,6 +479,52 @@ export default function StaffPage() {
                 <span className="material-symbols-outlined" style={{ fontSize: 18 }}>pin</span>
                 Задать PIN
               </button>
+            </div>
+
+            {/* Passkeys section */}
+            <div style={{ marginBottom: 20 }}>
+              <p style={{ ...LBL, marginBottom: 8 }}>Passkey / биометрия</p>
+              {staffPasskeys.length === 0 ? (
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px',
+                  borderRadius: 12, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)',
+                }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: 18, color: 'var(--on-surface-variant)' }}>fingerprint</span>
+                  <span style={{ fontSize: 13, color: 'var(--on-surface-variant)' }}>Passkey не настроен</span>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {staffPasskeys.map(pk => (
+                    <div key={pk.id} style={{
+                      display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px',
+                      borderRadius: 12, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)',
+                    }}>
+                      <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#A78BFA', fontVariationSettings: "'FILL' 1" }}>fingerprint</span>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--on-surface)' }}>
+                          {pk.deviceType === 'multiDevice' ? 'Синхронизированный ключ' : pk.deviceType === 'singleDevice' ? 'Ключ устройства' : 'Passkey'}
+                          {pk.backedUp && <span style={{ fontSize: 10, marginLeft: 6, color: '#10B981', background: 'rgba(16,185,129,0.1)', padding: '1px 6px', borderRadius: 4 }}>Cloud</span>}
+                        </div>
+                        <div style={{ fontSize: 11, color: 'var(--on-surface-variant)' }}>
+                          {new Date(pk.createdAt).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' })}
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => deletePasskeyMutation.mutate({ staffId: selected.id, passkeyId: pk.id })}
+                        disabled={deletePasskeyMutation.isPending}
+                        style={{
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          width: 32, height: 32, borderRadius: 8,
+                          border: '1px solid rgba(239,68,68,0.3)', background: 'rgba(239,68,68,0.08)',
+                          color: '#EF4444', cursor: 'pointer',
+                        }}
+                      >
+                        <span className="material-symbols-outlined" style={{ fontSize: 16 }}>delete</span>
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* Permissions (staff only) */}

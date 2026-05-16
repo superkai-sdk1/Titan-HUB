@@ -3,6 +3,8 @@ import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import { db, profiles, eq, and, isNull, desc } from '@titan/database'
+// @ts-ignore
+import { passkeys } from '@titan/database'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
 import { hashPassword, hashPin } from '@titan/auth'
 
@@ -146,5 +148,27 @@ staffRouter.post('/:id/reset-pin', zValidator('json', z.object({ pin: z.string()
     .set({ pin: hashedPin })
     .where(eq(profiles.id, c.req.param('id')))
 
+  return c.json({ ok: true })
+})
+
+// GET /staff/:id/passkeys — list passkeys for a staff member (owner only)
+staffRouter.get('/:id/passkeys', async (c) => {
+  const rows = await db
+    .select({
+      id: passkeys.id,
+      deviceType: passkeys.deviceType,
+      backedUp: passkeys.backedUp,
+      createdAt: passkeys.createdAt,
+    })
+    .from(passkeys)
+    .where(eq(passkeys.userId, c.req.param('id')))
+  return c.json({ passkeys: rows })
+})
+
+// DELETE /staff/:id/passkeys/:passkeyId — delete a passkey (owner only)
+staffRouter.delete('/:id/passkeys/:passkeyId', async (c) => {
+  await db
+    .delete(passkeys)
+    .where(and(eq(passkeys.id, c.req.param('passkeyId')), eq(passkeys.userId, c.req.param('id'))))
   return c.json({ ok: true })
 })

@@ -35,11 +35,18 @@ export default function LoginPage() {
   const [webAuthnSupported] = useState(isWebAuthnSupported)
 
   function afterLogin(token: string, user: any, opts?: { needsPinSetup?: boolean; hasPasskey?: boolean }) {
-    setHasPasskey(opts?.hasPasskey ?? false)
+    const hp = opts?.hasPasskey ?? false
+    setHasPasskey(hp)
+    setPendingAuth({ token, user })
+
     if (opts?.needsPinSetup) {
-      setPendingAuth({ token, user })
+      // First login — offer PIN setup, then passkey
       setScreen('pin-setup')
+    } else if (!hp && webAuthnSupported) {
+      // Has PIN but no passkey yet — offer passkey registration
+      setScreen('passkey-setup')
     } else {
+      // Already fully set up — go to app
       setAuth(token, user)
       router.replace(user?.role === 'tablet' ? '/tablet' : '/pos')
     }
