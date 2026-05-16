@@ -5,10 +5,10 @@ import { z } from 'zod'
 import {
   db, checks, checkItems, checkItemModifiers, checkPayments, checkDiscounts,
   inventory, profiles, spaces, certificates, bonusHistory, transactions, modifiers as modifiersTable,
-  appSettings,
+  appSettings, events,
   eq, and, inArray, desc, sql, isNull,
 } from '@titan/database'
-import { requireAuth } from '../../middleware/auth.js'
+import { requireAuth, requireRole } from '../../middleware/auth.js'
 import { getCurrentShift } from '../shifts/shifts.service.js'
 import { Redis } from 'ioredis'
 
@@ -41,6 +41,7 @@ const OpenCheckSchema = z.object({
   playerId: z.string().uuid().optional(),
   guestNames: z.array(z.string()).default([]),
   note: z.string().optional(),
+  linkedEventId: z.string().uuid().optional(),
 })
 
 export const posRouter = new Hono<AppEnv>()
@@ -141,9 +142,14 @@ posRouter.get('/checks', async (c) => {
   const shift = await getCurrentShift()
   if (!shift) return c.json({ checks: [] })
   const spaceId = c.req.query('spaceId')
-  const whereClause = spaceId
-    ? and(eq(checks.shiftId, shift.id), inArray(checks.status, ['open']), eq(checks.spaceId, spaceId))
-    : and(eq(checks.shiftId, shift.id), inArray(checks.status, ['open']))
+  const eventId = c.req.query('eventId')
+  const conditions: any[] = [
+    eq(checks.shiftId, shift.id),
+    inArray(checks.status, ['open']),
+  ]
+  if (spaceId) conditions.push(eq(checks.spaceId, spaceId))
+  if (eventId) conditions.push(eq(checks.linkedEventId, eventId))
+  const whereClause = and(...(conditions as [any, ...any[]]))
   const rows = await db
     .select()
     .from(checks)
@@ -172,11 +178,23 @@ posRouter.get('/checks', async (c) => {
   return c.json({ checks: enriched })
 })
 
-posRouter.post('/checks', zValidator('json', OpenCheckSchema), async (c) => {
+posRouter.post('/checks', requireRole('owner', 'staff'), zValidator('json', OpenCheckSchema), async (c) => {
   const user = c.get('user')
   const body = c.req.valid('json')
   const shift = await getCurrentShift()
   if (!shift) return c.json({ error: 'No open shift' }, 400)
+
+  // Проверка лимита гостей события, если чек привязывается к нему
+  if (body.linkedEventId) {
+    const [ev] = await db.select().from(events).where(eq(events.id, body.linkedEventId))
+    if (!ev) return c.json({ error: 'Linked event not found' }, 404)
+    if (ev.status === 'cancelled' || ev.status === 'completed') {
+      return c.json({ error: 'Невозможно прикрепить чек к завершённому или отменённому событию' }, 400)
+    }
+    if (ev.maxGuests != null && (ev.attendeesCount ?? 0) >= ev.maxGuests) {
+      return c.json({ error: `Превышен лимит гостей мероприятия (${ev.maxGuests})` }, 400)
+    }
+  }
 
   const [check] = await db.insert(checks).values({
     staffId: user.sub,
@@ -186,7 +204,15 @@ posRouter.post('/checks', zValidator('json', OpenCheckSchema), async (c) => {
     // Устанавливаем время начала аренды если передан spaceId
     spaceStartAt: body.spaceId ? new Date() : undefined,
   }).returning()
-  publishEvent('check:created', { checkId: check.id, shiftId: shift.id })
+
+  // Инкрементим attendeesCount события если чек привязан
+  if (body.linkedEventId) {
+    await db.update(events)
+      .set({ attendeesCount: sql`${events.attendeesCount} + 1` })
+      .where(eq(events.id, body.linkedEventId))
+  }
+
+  publishEvent('check:created', { checkId: check!.id, shiftId: shift.id })
   return c.json({ check }, 201)
 })
 
@@ -209,61 +235,93 @@ posRouter.patch('/checks/:id', zValidator('json', z.object({
   return c.json({ check })
 })
 
-posRouter.delete('/checks/:id', async (c) => {
+posRouter.delete('/checks/:id', requireRole('owner', 'staff'), async (c) => {
   const [check] = await db
     .update(checks)
     .set({ status: 'cancelled' })
     .where(and(eq(checks.id, c.req.param('id')), eq(checks.status, 'open')))
     .returning()
   if (!check) return c.json({ error: 'Not found or already closed' }, 400)
+
+  // Декрементим attendeesCount, если чек был привязан к событию
+  if (check.linkedEventId) {
+    await db.update(events)
+      .set({ attendeesCount: sql`GREATEST(${events.attendeesCount} - 1, 0)` })
+      .where(eq(events.id, check.linkedEventId))
+  }
+
   publishEvent('check:deleted', { checkId: check.id })
   return c.json({ ok: true })
 })
 
-posRouter.post('/checks/:id/items', zValidator('json', AddItemSchema), async (c) => {
+posRouter.post('/checks/:id/items', requireRole('owner', 'staff', 'tablet'), zValidator('json', AddItemSchema), async (c) => {
   const { itemId, quantity, modifierIds } = c.req.valid('json')
   const checkId = c.req.param('id')
 
-  const [check] = await db.select().from(checks).where(eq(checks.id, checkId))
-  if (!check || check.status !== 'open') return c.json({ error: 'Check not open' }, 400)
+  // Атомарная транзакция: проверка чека + блокировка stock + списание + insert позиции
+  try {
+    const checkItem = await db.transaction(async (tx) => {
+      const [check] = await tx.select().from(checks).where(eq(checks.id, checkId))
+      if (!check || check.status !== 'open') {
+        throw new Error('CHECK_NOT_OPEN')
+      }
 
-  const [item] = await db.select().from(inventory).where(eq(inventory.id, itemId))
-  if (!item) return c.json({ error: 'Item not found' }, 404)
+      // SELECT ... FOR UPDATE блокирует строку до конца транзакции
+      const itemRows = await tx.execute(
+        sql`SELECT id, price, track_stock as "trackStock", stock_quantity as "stockQuantity"
+            FROM inventory WHERE id = ${itemId} FOR UPDATE`
+      )
+      const item: any = (itemRows as any).rows?.[0] ?? (itemRows as any)[0]
+      if (!item) throw new Error('ITEM_NOT_FOUND')
 
-  // Deduct stock if tracked
-  if (item.trackStock && item.stockQuantity < quantity) {
-    return c.json({ error: 'Insufficient stock' }, 400)
+      // Атомарная проверка стока в условиях блокировки
+      if (item.trackStock && (item.stockQuantity ?? 0) < quantity) {
+        throw new Error('INSUFFICIENT_STOCK')
+      }
+      if (item.trackStock) {
+        await tx.update(inventory)
+          .set({ stockQuantity: sql`${inventory.stockQuantity} - ${quantity}` })
+          .where(eq(inventory.id, itemId))
+      }
+
+      const [insertedItem] = await tx.insert(checkItems).values({
+        checkId,
+        itemId,
+        quantity,
+        priceAtTime: String(item.price),
+      }).returning()
+
+      // Add modifiers within same transaction
+      if (modifierIds.length) {
+        const modRows = await tx.select().from(modifiersTable).where(inArray(modifiersTable.id, modifierIds))
+        if (modRows.length) {
+          await tx.insert(checkItemModifiers).values(modRows.map(m => ({
+            checkItemId: insertedItem!.id,
+            modifierId: m.id,
+            priceAtTime: m.price,
+          })))
+        }
+      }
+
+      return insertedItem
+    })
+
+    if (!checkItem) return c.json({ error: 'Failed to add item' }, 500)
+
+    await recalcCheckTotal(checkId)
+    publishEvent('check:updated', { checkId })
+    const data = await getCheckWithItems(checkId)
+    return c.json({ check: data }, 201)
+  } catch (err: any) {
+    if (err.message === 'CHECK_NOT_OPEN') return c.json({ error: 'Check not open' }, 400)
+    if (err.message === 'ITEM_NOT_FOUND') return c.json({ error: 'Item not found' }, 404)
+    if (err.message === 'INSUFFICIENT_STOCK') return c.json({ error: 'Insufficient stock' }, 400)
+    console.error('POST /checks/:id/items error:', err)
+    return c.json({ error: 'Internal error' }, 500)
   }
-  if (item.trackStock) {
-    await db.update(inventory).set({ stockQuantity: item.stockQuantity - quantity }).where(eq(inventory.id, itemId))
-  }
-
-  const [checkItem] = await db.insert(checkItems).values({
-    checkId,
-    itemId,
-    quantity,
-    priceAtTime: item.price,
-  }).returning()
-
-  // Add modifiers
-  if (modifierIds.length) {
-    const modRows = await db.select().from(modifiersTable).where(inArray(modifiersTable.id, modifierIds))
-    if (modRows.length) {
-      await db.insert(checkItemModifiers).values(modRows.map(m => ({
-        checkItemId: checkItem.id,
-        modifierId: m.id,
-        priceAtTime: m.price,
-      })))
-    }
-  }
-
-  await recalcCheckTotal(checkId)
-  publishEvent('check:updated', { checkId })
-  const data = await getCheckWithItems(checkId)
-  return c.json({ check: data }, 201)
 })
 
-posRouter.patch('/checks/:id/items/:itemId', zValidator('json', z.object({ quantity: z.number().int().min(0) })), async (c) => {
+posRouter.patch('/checks/:id/items/:itemId', requireRole('owner', 'staff', 'tablet'), zValidator('json', z.object({ quantity: z.number().int().min(0) })), async (c) => {
   const checkId = c.req.param('id')
   const itemId = c.req.param('itemId')
   const { quantity } = c.req.valid('json')
@@ -279,7 +337,7 @@ posRouter.patch('/checks/:id/items/:itemId', zValidator('json', z.object({ quant
   return c.json({ check: data })
 })
 
-posRouter.delete('/checks/:id/items/:itemId', async (c) => {
+posRouter.delete('/checks/:id/items/:itemId', requireRole('owner', 'staff'), async (c) => {
   const checkId = c.req.param('id')
   const itemId = c.req.param('itemId')
   await db.delete(checkItems).where(and(eq(checkItems.id, itemId), eq(checkItems.checkId, checkId)))
@@ -288,7 +346,7 @@ posRouter.delete('/checks/:id/items/:itemId', async (c) => {
   return c.json({ check: data })
 })
 
-posRouter.post('/checks/:id/discount', zValidator('json', z.object({
+posRouter.post('/checks/:id/discount', requireRole('owner', 'staff'), zValidator('json', z.object({
   name: z.string(),
   type: z.enum(['percent', 'fixed']),
   value: z.number().positive(),
@@ -301,10 +359,23 @@ posRouter.post('/checks/:id/discount', zValidator('json', z.object({
   const [check] = await db.select().from(checks).where(eq(checks.id, checkId))
   if (!check || check.status !== 'open') return c.json({ error: 'Check not open' }, 400)
 
-  const baseAmount = parseFloat(check.totalAmount) + parseFloat(check.discountTotal ?? '0')
+  // Считаем сумму позиций (без скидок) как базу — иначе процентные скидки
+  // применённые последовательно дают каскадный эффект (10% + 10% != 19%).
+  const items = await db.select().from(checkItems).where(eq(checkItems.checkId, checkId))
+  const itemsSum = items.reduce((s, i) => s + parseFloat(i.priceAtTime) * i.quantity, 0)
+
+  // Для itemDiscount базой служит цена позиции, для check — общая сумма позиций
+  let baseAmount = itemsSum
+  if (body.target === 'item' && body.itemId) {
+    const [targetItem] = items.filter(i => i.id === body.itemId)
+    if (targetItem) {
+      baseAmount = parseFloat(targetItem.priceAtTime) * targetItem.quantity
+    }
+  }
+
   const discountAmount = body.type === 'percent'
     ? baseAmount * (body.value / 100)
-    : body.value
+    : Math.min(body.value, baseAmount)  // fixed скидка не может быть больше базы
 
   await db.insert(checkDiscounts).values({
     checkId,
@@ -321,7 +392,7 @@ posRouter.post('/checks/:id/discount', zValidator('json', z.object({
   return c.json({ check: data })
 })
 
-posRouter.post('/checks/:id/pay', zValidator('json', PaySchema), async (c) => {
+posRouter.post('/checks/:id/pay', requireRole('owner', 'staff'), zValidator('json', PaySchema), async (c) => {
   const checkId = c.req.param('id')
   const user = c.get('user')
   const body = c.req.valid('json')
@@ -335,11 +406,18 @@ posRouter.post('/checks/:id/pay', zValidator('json', PaySchema), async (c) => {
     return c.json({ error: `Underpayment: total ${total}, paid ${paidTotal}` }, 400)
   }
 
-  // Validate bonus payment
-  if (body.bonusAmount && body.bonusAmount > 0 && body.playerId) {
-    const [player] = await db.select().from(profiles).where(eq(profiles.id, body.playerId))
-    if (!player || parseFloat(player.bonusPoints) < body.bonusAmount) {
-      return c.json({ error: 'Insufficient bonus points' }, 400)
+  // Лимит долга клиента: проверка перед списанием при оплате методом 'debt'
+  const debtPayments = body.payments.filter(p => p.method === 'debt')
+  if (debtPayments.length > 0 && body.playerId) {
+    const debtAmount = debtPayments.reduce((s, p) => s + p.amount, 0)
+    const maxDebtRow = await db.select().from(appSettings).where(eq(appSettings.key, 'max_client_debt'))
+    const maxDebt = parseFloat(maxDebtRow[0]?.value ?? '5000')
+    const [player] = await db.select({ balance: profiles.balance }).from(profiles).where(eq(profiles.id, body.playerId))
+    if (player) {
+      const newBalance = parseFloat(player.balance) - debtAmount
+      if (newBalance < -maxDebt) {
+        return c.json({ error: `Превышен лимит долга (${maxDebt}₽). Новый баланс: ${newBalance.toFixed(2)}₽` }, 400)
+      }
     }
   }
 
@@ -353,6 +431,27 @@ posRouter.post('/checks/:id/pay', zValidator('json', PaySchema), async (c) => {
     cert = c2
   }
 
+  // Атомарное списание бонусов через UPDATE с условием — защита от race condition
+  if (body.bonusAmount && body.bonusAmount > 0 && body.playerId) {
+    const result = await db.execute(sql`
+      UPDATE profiles
+      SET bonus_points = bonus_points - ${body.bonusAmount}
+      WHERE id = ${body.playerId} AND bonus_points >= ${body.bonusAmount}
+      RETURNING bonus_points
+    `)
+    const rows = (result as any).rows ?? result
+    if (!rows || rows.length === 0) {
+      return c.json({ error: 'Недостаточно бонусных баллов' }, 400)
+    }
+    const newBonus = parseFloat(String(rows[0].bonus_points ?? rows[0].bonusPoints ?? 0))
+    await db.insert(bonusHistory).values({
+      profileId: body.playerId,
+      amount: String(-body.bonusAmount),
+      balanceAfter: String(newBonus),
+      reason: `Payment for check`,
+    })
+  }
+
   // Insert payments
   await db.insert(checkPayments).values(body.payments.map(p => ({
     checkId,
@@ -360,21 +459,6 @@ posRouter.post('/checks/:id/pay', zValidator('json', PaySchema), async (c) => {
     amount: String(p.amount),
   })))
   publishEvent('check:paid', { checkId })
-
-  // Deduct bonus
-  if (body.bonusAmount && body.bonusAmount > 0 && body.playerId) {
-    const [player] = await db.select().from(profiles).where(eq(profiles.id, body.playerId))
-    if (player) {
-      const newBonus = parseFloat(player.bonusPoints) - body.bonusAmount
-      await db.update(profiles).set({ bonusPoints: String(newBonus) }).where(eq(profiles.id, body.playerId))
-      await db.insert(bonusHistory).values({
-        profileId: body.playerId,
-        amount: String(-body.bonusAmount),
-        balanceAfter: String(newBonus),
-        reason: `Payment for check`,
-      })
-    }
-  }
 
   // Use certificate
   if (cert) {

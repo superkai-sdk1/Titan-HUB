@@ -136,19 +136,40 @@ clientsRouter.get('/:id/transactions', async (c) => {
 
 clientsRouter.post('/:id/balance', requireRole('owner', 'staff'), zValidator('json', z.object({
   amount: z.number(),
-  description: z.string().optional(),
-  reason: z.string().optional(), // alias for description (used by debtors page)
+  description: z.string().min(3, 'Причина обязательна (минимум 3 символа)').optional(),
+  reason: z.string().min(3, 'Причина обязательна (минимум 3 символа)').optional(),
 })), async (c) => {
   const { amount, description, reason } = c.req.valid('json')
   const note = description ?? reason
+  if (!note) {
+    return c.json({ error: 'Необходимо указать причину изменения баланса (description или reason)' }, 400)
+  }
   const user = c.get('user')
   const [client] = await db.select().from(profiles).where(eq(profiles.id, c.req.param('id')))
   if (!client) return c.json({ error: 'Not found' }, 404)
 
+  // Лимит долга из app_settings (max_client_debt)
   const newBalance = parseFloat(client.balance) + amount
-  // Allow negative balance (debt scenario) — no floor check
+  if (amount < 0) {
+    const maxDebtRow = await db.execute(sql`SELECT value FROM app_settings WHERE key = 'max_client_debt'`)
+    const maxDebt = parseFloat(((maxDebtRow as any).rows?.[0]?.value ?? (maxDebtRow as any)[0]?.value) ?? '5000')
+    if (newBalance < -maxDebt) {
+      return c.json({ error: `Превышен лимит долга (${maxDebt}₽). Запрошенный баланс: ${newBalance.toFixed(2)}₽` }, 400)
+    }
+  }
 
-  await db.update(profiles).set({ balance: String(newBalance) }).where(eq(profiles.id, client.id))
+  // Атомарное обновление баланса с условием равенства старого значения (optimistic lock)
+  const updateResult = await db.execute(sql`
+    UPDATE profiles
+    SET balance = ${String(newBalance)}
+    WHERE id = ${client.id} AND balance = ${client.balance}
+    RETURNING balance
+  `)
+  const rows = (updateResult as any).rows ?? updateResult
+  if (!rows || rows.length === 0) {
+    return c.json({ error: 'Баланс был изменён другим запросом. Повторите попытку.' }, 409)
+  }
+
   await db.insert(transactions).values({
     type: amount >= 0 ? 'deposit' : 'withdrawal',
     amount: String(Math.abs(amount)),
@@ -162,21 +183,41 @@ clientsRouter.post('/:id/balance', requireRole('owner', 'staff'), zValidator('js
 
 clientsRouter.post('/:id/bonus', requireRole('owner', 'staff'), zValidator('json', z.object({
   amount: z.number(),
-  reason: z.string().optional(),
+  reason: z.string().min(3, 'Причина обязательна (минимум 3 символа)'),
 })), async (c) => {
   const { amount, reason } = c.req.valid('json')
+  const user = c.get('user')
   const [client] = await db.select().from(profiles).where(eq(profiles.id, c.req.param('id')))
   if (!client) return c.json({ error: 'Not found' }, 404)
 
-  const newBonus = parseFloat(client.bonusPoints) + amount
-  if (newBonus < 0) return c.json({ error: 'Insufficient bonus points' }, 400)
+  // Атомарный апдейт: при списании проверяем достаточность через условие в SQL
+  let updateResult: any
+  if (amount < 0) {
+    updateResult = await db.execute(sql`
+      UPDATE profiles
+      SET bonus_points = bonus_points + ${amount}
+      WHERE id = ${client.id} AND bonus_points >= ${Math.abs(amount)}
+      RETURNING bonus_points
+    `)
+  } else {
+    updateResult = await db.execute(sql`
+      UPDATE profiles
+      SET bonus_points = bonus_points + ${amount}
+      WHERE id = ${client.id}
+      RETURNING bonus_points
+    `)
+  }
+  const rows = updateResult.rows ?? updateResult
+  if (!rows || rows.length === 0) {
+    return c.json({ error: 'Insufficient bonus points' }, 400)
+  }
+  const newBonus = parseFloat(String(rows[0].bonus_points ?? rows[0].bonusPoints ?? 0))
 
-  await db.update(profiles).set({ bonusPoints: String(newBonus) }).where(eq(profiles.id, client.id))
   await db.insert(bonusHistory).values({
     profileId: client.id,
     amount: String(amount),
     balanceAfter: String(newBonus),
-    reason,
+    reason: `[${user.nickname ?? user.sub}] ${reason}`,
   })
 
   return c.json({ bonusPoints: newBonus })

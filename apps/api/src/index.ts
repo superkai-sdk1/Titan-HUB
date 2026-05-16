@@ -1,12 +1,21 @@
 import { serve } from '@hono/node-server'
 import { app } from './app.js'
 import { checkBirthdays } from './cron/birthdays.js'
+import { runMigrations } from './migrations/runner.js'
 
 const port = Number(process.env['API_PORT'] ?? 3001)
 
-serve({ fetch: app.fetch, port }, (info) => {
-  console.log(`🚀 Titan HUB API running on http://localhost:${info.port}`)
-})
+// Запускаем миграции перед стартом сервера
+runMigrations()
+  .then(() => {
+    serve({ fetch: app.fetch, port }, (info) => {
+      console.log(`🚀 Titan HUB API running on http://localhost:${info.port}`)
+    })
+  })
+  .catch((err) => {
+    console.error('[migrations] FATAL — server will not start:', err)
+    process.exit(1)
+  })
 
 // Daily birthday check at 9:00 AM
 function scheduleBirthdayCron() {

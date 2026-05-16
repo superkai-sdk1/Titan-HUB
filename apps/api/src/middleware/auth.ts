@@ -5,12 +5,22 @@ import type { JwtPayload } from '@titan/auth'
 type Variables = { user: JwtPayload }
 
 export const requireAuth = createMiddleware<{ Variables: Variables }>(async (c, next) => {
+  // Bearer-токен в Authorization-заголовке ИЛИ в ?token=... query param
+  // (последнее нужно для EventSource SSE — он не поддерживает кастомные заголовки)
+  let token: string | null = null
   const header = c.req.header('Authorization')
-  if (!header?.startsWith('Bearer ')) {
+  if (header?.startsWith('Bearer ')) {
+    token = header.slice(7)
+  } else {
+    const qToken = c.req.query('token')
+    if (qToken) token = qToken
+  }
+
+  if (!token) {
     return c.json({ error: 'Unauthorized' }, 401)
   }
+
   try {
-    const token = header.slice(7)
     const user = await verifyToken(token)
     c.set('user', user)
     await next()

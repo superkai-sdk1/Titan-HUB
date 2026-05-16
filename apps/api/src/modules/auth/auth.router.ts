@@ -28,48 +28,176 @@ function getRedis() {
 
 export const authRouter = new Hono<AppEnv>()
 
+// Rate limiting для PIN: 5 попыток за 15 минут (по IP+userId)
+const PIN_MAX_ATTEMPTS = 5
+const PIN_WINDOW_SECONDS = 900
+
 authRouter.post('/login/pin', zValidator('json', LoginPinSchema), async (c) => {
   const { pin, userId } = c.req.valid('json')
-  // Find by userId or scan all staff
-  const where = userId
-    ? eq(profiles.id, userId)
-    : isNull(profiles.deletedAt)
-  const all = await db.select().from(profiles).where(where)
-  for (const profile of all) {
-    if (!profile.pin) continue
-    const ok = await verifyPin(pin, profile.pin)
-    if (ok) {
-      const token = await signToken({ sub: profile.id, role: profile.role, nickname: profile.nickname })
-      return c.json({ token, user: { id: profile.id, nickname: profile.nickname, role: profile.role, photoUrl: profile.photoUrl } })
+
+  // Идентификатор для rate-limit: IP + userId (если указан)
+  const ip = c.req.header('x-forwarded-for')?.split(',')[0]?.trim()
+    ?? c.req.header('x-real-ip')
+    ?? 'unknown'
+  const key = `pin:fail:${ip}:${userId ?? 'any'}`
+
+  const redis = getRedis()
+  try {
+    await redis.connect()
+    const failsRaw = await redis.get(key)
+    const fails = parseInt(failsRaw ?? '0')
+    if (fails >= PIN_MAX_ATTEMPTS) {
+      const ttl = await redis.ttl(key)
+      return c.json({
+        error: `Слишком много попыток. Попробуйте через ${Math.ceil(ttl / 60)} мин.`,
+      }, 429)
     }
+
+    // Find by userId or scan all staff
+    const where = userId
+      ? eq(profiles.id, userId)
+      : isNull(profiles.deletedAt)
+    const all = await db.select().from(profiles).where(where)
+    for (const profile of all) {
+      if (!profile.pin) continue
+      const ok = await verifyPin(pin, profile.pin)
+      if (ok) {
+        // Сбрасываем счётчик при успехе
+        await redis.del(key)
+        const token = await signToken({ sub: profile.id, role: profile.role, nickname: profile.nickname })
+        return c.json({ token, user: { id: profile.id, nickname: profile.nickname, role: profile.role, photoUrl: profile.photoUrl } })
+      }
+    }
+
+    // Инкремент счётчика неудач + TTL
+    await redis.incr(key)
+    await redis.expire(key, PIN_WINDOW_SECONDS)
+    const remaining = PIN_MAX_ATTEMPTS - (fails + 1)
+    return c.json({
+      error: remaining > 0
+        ? `Неверный PIN. Осталось попыток: ${remaining}`
+        : 'Неверный PIN. Аккаунт временно заблокирован.',
+    }, 401)
+  } finally {
+    redis.disconnect()
   }
-  return c.json({ error: 'Invalid PIN' }, 401)
 })
 
 authRouter.post('/login/password', zValidator('json', LoginPasswordSchema), async (c) => {
   const { nickname, password } = c.req.valid('json')
-  const [profile] = await db.select().from(profiles).where(eq(profiles.nickname, nickname))
-  if (!profile?.passwordHash) return c.json({ error: 'User not found' }, 404)
 
-  let ok = false
-  if (isPlaintext(profile.passwordHash)) {
-    ok = password === profile.passwordHash
-    if (ok) {
-      const newHash = await hashPassword(password)
-      await db.update(profiles).set({ passwordHash: newHash }).where(eq(profiles.id, profile.id))
+  // Rate limit для пароля: 5 попыток / 15 мин
+  const ip = c.req.header('x-forwarded-for')?.split(',')[0]?.trim()
+    ?? c.req.header('x-real-ip')
+    ?? 'unknown'
+  const key = `pwd:fail:${ip}:${nickname}`
+  const redis = getRedis()
+  await redis.connect()
+  try {
+    const failsRaw = await redis.get(key)
+    const fails = parseInt(failsRaw ?? '0')
+    if (fails >= PIN_MAX_ATTEMPTS) {
+      const ttl = await redis.ttl(key)
+      return c.json({
+        error: `Слишком много попыток. Попробуйте через ${Math.ceil(ttl / 60)} мин.`,
+      }, 429)
     }
-  } else {
-    ok = await verifyPassword(password, profile.passwordHash)
-  }
-  if (!ok) return c.json({ error: 'Invalid password' }, 401)
 
+    const [profile] = await db.select().from(profiles).where(eq(profiles.nickname, nickname))
+    if (!profile?.passwordHash) {
+      await redis.incr(key)
+      await redis.expire(key, PIN_WINDOW_SECONDS)
+      return c.json({ error: 'User not found' }, 404)
+    }
+
+    let ok = false
+    if (isPlaintext(profile.passwordHash)) {
+      ok = password === profile.passwordHash
+      if (ok) {
+        const newHash = await hashPassword(password)
+        await db.update(profiles).set({ passwordHash: newHash }).where(eq(profiles.id, profile.id))
+      }
+    } else {
+      ok = await verifyPassword(password, profile.passwordHash)
+    }
+    if (!ok) {
+      await redis.incr(key)
+      await redis.expire(key, PIN_WINDOW_SECONDS)
+      return c.json({ error: 'Invalid password' }, 401)
+    }
+
+    // Успешный вход — сбрасываем счётчик
+    await redis.del(key)
+    return await continueLoginPassword(c, profile)
+  } finally {
+    redis.disconnect()
+  }
+})
+
+// Хелпер: завершение успешного password-логина
+async function continueLoginPassword(c: any, profile: any) {
   const needsPinSetup = !profile.pin
   // Check if user has any passkeys registered
   const userPasskeys = await db.select({ id: passkeys.id }).from(passkeys).where(eq(passkeys.userId, profile.id))
   const hasPasskey = userPasskeys.length > 0
   const token = await signToken({ sub: profile.id, role: profile.role, nickname: profile.nickname })
   return c.json({ token, needsPinSetup, hasPasskey, user: { id: profile.id, nickname: profile.nickname, role: profile.role, photoUrl: profile.photoUrl } })
-})
+}
+
+// ── POST /auth/tablet-pair — привязка планшета по 6-значному коду ────────
+// Owner генерирует код в /manage/spaces, планшет вводит его на /tablet/pair.
+// Создаёт профиль с ролью 'tablet' и привязкой к пространству.
+authRouter.post(
+  '/tablet-pair',
+  zValidator('json', z.object({
+    code: z.string().regex(/^\d{6}$/, '6-значный код'),
+    deviceName: z.string().max(64).optional(),
+  })),
+  async (c) => {
+    const { code, deviceName } = c.req.valid('json')
+
+    // Получаем spaceId из Redis
+    const redis = getRedis()
+    let spaceId: string | null = null
+    try {
+      await redis.connect()
+      spaceId = await redis.get(`tablet:pair:${code}`)
+      if (spaceId) {
+        await redis.del(`tablet:pair:${code}`)  // one-time use
+      }
+    } finally {
+      redis.disconnect()
+    }
+
+    if (!spaceId) {
+      return c.json({ error: 'Неверный или истёкший код' }, 401)
+    }
+
+    // Создаём профиль планшета
+    const nickname = deviceName ?? `Tablet ${code}`
+    const [profile] = await db.insert(profiles).values({
+      nickname,
+      role: 'tablet',
+      linkedSpaceId: spaceId,
+    } as any).returning()
+
+    // JWT с длинным TTL (30 дней)
+    const token = await signToken(
+      { sub: profile.id, role: profile.role, nickname: profile.nickname },
+      '30d',
+    )
+    return c.json({
+      token,
+      user: {
+        id: profile.id,
+        nickname: profile.nickname,
+        role: profile.role,
+        photoUrl: profile.photoUrl,
+        linkedSpaceId: spaceId,
+      },
+    })
+  },
+)
 
 authRouter.post('/login/telegram', zValidator('json', LoginTelegramSchema), async (c) => {
   const { initData } = c.req.valid('json')

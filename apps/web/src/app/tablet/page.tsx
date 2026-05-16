@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useMutation } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { useAuthStore } from '@/store/auth.store'
 import { differenceInMinutes } from 'date-fns'
@@ -33,6 +33,7 @@ export default function TabletPage() {
   const router = useRouter()
   const { user } = useAuthStore()
   const [spaceRental, setSpaceRental] = useState(0)
+  const [toastMsg, setToastMsg] = useState<string | null>(null)
 
   // Получаем профиль планшета (linkedSpaceId)
   const { data: profileData } = useQuery({
@@ -52,6 +53,41 @@ export default function TabletPage() {
   })
 
   const activeCheck = checksData?.checks?.[0] ?? null
+
+  // Активное событие для пространства
+  const { data: eventData } = useQuery({
+    queryKey: ['tablet', 'event', linkedSpaceId],
+    queryFn: () => api.get<{ event: any }>(`/events/active-for-space/${linkedSpaceId}`),
+    enabled: !!linkedSpaceId,
+    refetchInterval: 60_000,
+  })
+  const activeEvent = eventData?.event ?? null
+
+  // Кнопка «Вызвать персонал»
+  const staffCall = useMutation({
+    mutationFn: () => api.post('/notifications/staff-call', { spaceId: linkedSpaceId }),
+    onSuccess: () => {
+      setToastMsg('Персонал уведомлён')
+      setTimeout(() => setToastMsg(null), 3000)
+    },
+    onError: (err: any) => {
+      setToastMsg(err?.message ?? 'Не удалось вызвать персонал')
+      setTimeout(() => setToastMsg(null), 3000)
+    },
+  })
+
+  // Кнопка «Запросить счёт»
+  const requestBill = useMutation({
+    mutationFn: () => api.post('/notifications/request-bill', { checkId: activeCheck!.id }),
+    onSuccess: () => {
+      setToastMsg('Счёт запрошен')
+      setTimeout(() => setToastMsg(null), 3000)
+    },
+    onError: (err: any) => {
+      setToastMsg(err?.message ?? 'Не удалось запросить счёт')
+      setTimeout(() => setToastMsg(null), 3000)
+    },
+  })
 
   // SSE для realtime обновлений
   const sseRef = useRef<EventSource | null>(null)
@@ -154,23 +190,61 @@ export default function TabletPage() {
           </p>
         </div>
 
-        <button
-          onClick={() => router.push('/tablet/order')}
-          style={{
-            display: 'flex', alignItems: 'center', gap: 10,
-            padding: '14px 24px', borderRadius: 16, border: 'none', cursor: 'pointer',
-            background: 'linear-gradient(135deg, #8B5CF6, #4cd7f6)',
-            color: '#fff', fontSize: 15, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.06em',
-            boxShadow: '0 4px 20px rgba(139,92,246,0.35)',
-          }}
-        >
-          <span className="material-symbols-outlined" style={{ fontSize: 22 }}>add_shopping_cart</span>
-          ЗАКАЗАТЬ
-        </button>
+        <div style={{ display: 'flex', gap: 12 }}>
+          <button
+            onClick={() => staffCall.mutate()}
+            disabled={staffCall.isPending}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 8,
+              padding: '14px 20px', borderRadius: 16, border: '1px solid rgba(245,158,11,0.4)', cursor: 'pointer',
+              background: 'rgba(245,158,11,0.1)',
+              color: '#F59E0B', fontSize: 14, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em',
+            }}
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: 20 }}>support_agent</span>
+            ВЫЗВАТЬ
+          </button>
+          <button
+            onClick={() => router.push('/tablet/order')}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 10,
+              padding: '14px 24px', borderRadius: 16, border: 'none', cursor: 'pointer',
+              background: 'linear-gradient(135deg, #8B5CF6, #4cd7f6)',
+              color: '#fff', fontSize: 15, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.06em',
+              boxShadow: '0 4px 20px rgba(139,92,246,0.35)',
+            }}
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: 22 }}>add_shopping_cart</span>
+            ЗАКАЗАТЬ
+          </button>
+        </div>
       </div>
 
       {/* Content */}
       <div style={{ flex: 1, overflowY: 'auto', padding: '24px 28px' }}>
+
+        {/* Активное событие */}
+        {activeEvent && (
+          <div style={{
+            borderRadius: 20, padding: '20px 24px', marginBottom: 20,
+            background: 'linear-gradient(135deg, rgba(139,92,246,0.15), rgba(76,215,246,0.08))',
+            border: '1px solid rgba(139,92,246,0.3)',
+            display: 'flex', alignItems: 'center', gap: 16,
+          }}>
+            <div style={{ width: 48, height: 48, borderRadius: 14, background: 'rgba(139,92,246,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              <span className="material-symbols-outlined" style={{ fontSize: 26, color: '#A78BFA' }}>event</span>
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <p style={{ fontSize: 11, color: '#A78BFA', margin: '0 0 4px', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 700 }}>Сейчас идёт</p>
+              <p style={{ fontSize: 18, fontWeight: 800, margin: '0 0 4px', color: 'var(--on-surface)' }}>{activeEvent.title || 'Мероприятие'}</p>
+              <p style={{ fontSize: 13, color: 'var(--on-surface-variant)', margin: 0 }}>
+                {activeEvent.startTime}{activeEvent.endTime ? ` — ${activeEvent.endTime}` : ''}
+                {activeEvent.paymentType === 'fixed' && activeEvent.fixedAmount ? ` · ${parseFloat(activeEvent.fixedAmount).toLocaleString('ru')} ₽` : ''}
+                {activeEvent.paymentType === 'per_head' && activeEvent.perHeadAmount ? ` · ${parseFloat(activeEvent.perHeadAmount).toLocaleString('ru')} ₽/чел` : ''}
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* Total + rental */}
         <div className="glass-l1" style={{ borderRadius: 24, padding: '24px 28px', marginBottom: 24 }}>
@@ -242,7 +316,43 @@ export default function TabletPage() {
             ))}
           </div>
         )}
+
+        {/* Кнопка "Запросить счёт" — внизу */}
+        {activeCheck.items.length > 0 && (
+          <div style={{ marginTop: 24, paddingBottom: 24 }}>
+            <button
+              onClick={() => requestBill.mutate()}
+              disabled={requestBill.isPending}
+              style={{
+                width: '100%', padding: '18px 0', borderRadius: 18, border: '1px solid rgba(16,185,129,0.3)', cursor: 'pointer',
+                background: 'rgba(16,185,129,0.08)',
+                color: '#10B981', fontSize: 15, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
+              }}
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: 22 }}>receipt_long</span>
+              {requestBill.isPending ? 'Отправляем…' : 'Запросить счёт'}
+            </button>
+          </div>
+        )}
       </div>
+
+      {/* Toast */}
+      {toastMsg && (
+        <div style={{
+          position: 'fixed', bottom: 32, left: '50%', transform: 'translateX(-50%)',
+          padding: '14px 24px', borderRadius: 16,
+          background: 'rgba(29,26,36,0.95)', backdropFilter: 'blur(20px)',
+          border: '1px solid rgba(139,92,246,0.4)',
+          color: 'var(--on-surface)', fontSize: 14, fontWeight: 600,
+          boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
+          zIndex: 50,
+          display: 'flex', alignItems: 'center', gap: 10,
+        }}>
+          <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#A78BFA' }}>check_circle</span>
+          {toastMsg}
+        </div>
+      )}
     </div>
   )
 }

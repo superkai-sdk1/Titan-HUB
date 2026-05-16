@@ -28,6 +28,28 @@ export default function SpacesPage() {
   const save = useMutation({ mutationFn: (b: any) => editing ? api.patch(`/spaces/${editing.id}`, b) : api.post('/spaces', b), onSuccess: () => { qc.invalidateQueries({ queryKey: ['spaces'] }); setShowForm(false); setEditing(null); setForm(BLANK) } })
   const del = useMutation({ mutationFn: (id: string) => api.delete(`/spaces/${id}`), onSuccess: () => qc.invalidateQueries({ queryKey: ['spaces'] }) })
 
+  const [pairCode, setPairCode] = useState<{ code: string; spaceName: string; expiresIn: number } | null>(null)
+  const [pairCountdown, setPairCountdown] = useState(0)
+
+  const genPair = useMutation({
+    mutationFn: (spaceId: string) => api.post<{ code: string; spaceName: string; expiresIn: number }>(`/spaces/${spaceId}/tablet-link-code`, {}),
+    onSuccess: (data) => {
+      setPairCode(data)
+      setPairCountdown(data.expiresIn)
+    },
+  })
+
+  React.useEffect(() => {
+    if (!pairCode || pairCountdown <= 0) return
+    const t = setInterval(() => {
+      setPairCountdown((s) => {
+        if (s <= 1) { setPairCode(null); return 0 }
+        return s - 1
+      })
+    }, 1000)
+    return () => clearInterval(t)
+  }, [pairCode, pairCountdown])
+
   function open(s?: any) {
     setEditing(s ?? null)
     setForm(s ? { name: s.name, type: s.type, hourlyRate: String(s.hourlyRate ?? 0), isActive: s.isActive ?? true, capacity: String(s.capacity ?? '') } : BLANK)
@@ -106,11 +128,79 @@ export default function SpacesPage() {
             <p style={{ fontSize: 14, fontWeight: 500, margin: 0 }}>Активна</p>
             <Toggle value={form.isActive} onChange={v => setForm((p: any) => ({ ...p, isActive: v }))} />
           </div>
+
+          {/* Привязка планшета (только для существующих) */}
+          {editing && (
+            <button
+              onClick={() => genPair.mutate(editing.id)}
+              disabled={genPair.isPending}
+              style={{
+                width: '100%', padding: '12px 0', borderRadius: 12,
+                border: '1px solid rgba(139,92,246,0.3)', background: 'rgba(139,92,246,0.08)',
+                color: '#a78bfa', fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+              }}
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: 16 }}>tablet_mac</span>
+              {genPair.isPending ? 'Генерируем…' : 'Привязать планшет'}
+            </button>
+          )}
+
           <button onClick={() => save.mutate({ ...form, hourlyRate: Number(form.hourlyRate), capacity: form.capacity ? Number(form.capacity) : undefined })} disabled={save.isPending || !form.name} style={{ width: '100%', padding: '14px 0', borderRadius: 14, border: 'none', background: 'linear-gradient(135deg, #8B5CF6, #4cd7f6)', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer', marginTop: 4 }}>
             {save.isPending ? 'Сохраняем…' : 'Сохранить'}
           </button>
         </div>
       </Sheet>
+
+      {/* Pairing code dialog */}
+      {pairCode && (
+        <div
+          onClick={() => setPairCode(null)}
+          style={{
+            position: 'fixed', inset: 0, zIndex: 100,
+            background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(8px)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="glass-l2"
+            style={{
+              borderRadius: 24, padding: 32, maxWidth: 420, width: '100%',
+              display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 18,
+            }}
+          >
+            <div style={{ width: 64, height: 64, borderRadius: 18, background: 'rgba(139,92,246,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <span className="material-symbols-outlined" style={{ fontSize: 32, color: '#a78bfa' }}>tablet_mac</span>
+            </div>
+            <div style={{ textAlign: 'center' }}>
+              <h3 style={{ fontSize: 18, fontWeight: 800, margin: '0 0 4px' }}>Код привязки</h3>
+              <p style={{ fontSize: 13, color: 'var(--on-surface-variant)', margin: 0 }}>{pairCode.spaceName}</p>
+            </div>
+            <div style={{
+              fontSize: 48, fontWeight: 800, fontFamily: "'JetBrains Mono', monospace", letterSpacing: '0.12em',
+              color: '#a78bfa', padding: '12px 24px', borderRadius: 16,
+              background: 'rgba(139,92,246,0.08)', border: '1px solid rgba(139,92,246,0.3)',
+            }}>
+              {pairCode.code}
+            </div>
+            <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: 0, textAlign: 'center' }}>
+              Откройте на планшете <code style={{ background: 'rgba(255,255,255,0.06)', padding: '2px 6px', borderRadius: 4 }}>titanpos.ru/tablet</code> и введите код.
+              <br />Действителен ещё {Math.floor(pairCountdown / 60)}:{String(pairCountdown % 60).padStart(2, '0')}
+            </p>
+            <button
+              onClick={() => setPairCode(null)}
+              style={{
+                width: '100%', padding: '12px 0', borderRadius: 12,
+                border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.04)',
+                color: 'var(--on-surface)', fontSize: 13, fontWeight: 600, cursor: 'pointer',
+              }}
+            >
+              Закрыть
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

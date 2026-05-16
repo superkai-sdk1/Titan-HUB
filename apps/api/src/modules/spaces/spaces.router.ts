@@ -4,6 +4,7 @@ import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import { db, spaces, eq } from '@titan/database'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
+import { Redis } from 'ioredis'
 
 const SpaceSchema = z.object({
   name: z.string().min(1),
@@ -49,4 +50,28 @@ spacesRouter.patch('/:id', requireRole('owner'), zValidator('json', SpaceSchema.
 spacesRouter.delete('/:id', requireRole('owner'), async (c) => {
   await db.update(spaces).set({ isActive: false }).where(eq(spaces.id, c.req.param('id')))
   return c.json({ ok: true })
+})
+
+// ── POST /:id/tablet-link-code — сгенерировать 6-значный код привязки ───
+// Код хранится в Redis 5 минут. Планшет вводит его на экране /tablet/pair.
+spacesRouter.post('/:id/tablet-link-code', requireRole('owner'), async (c) => {
+  const spaceId = c.req.param('id')
+  const [space] = await db.select().from(spaces).where(eq(spaces.id, spaceId))
+  if (!space) return c.json({ error: 'Space not found' }, 404)
+
+  const code = String(Math.floor(100000 + Math.random() * 900000))
+  const redis = new Redis(process.env['REDIS_URL'] ?? 'redis://redis:6379', { lazyConnect: true })
+  try {
+    await redis.connect()
+    await redis.set(`tablet:pair:${code}`, spaceId, 'EX', 300)  // 5 минут
+  } finally {
+    redis.disconnect()
+  }
+
+  return c.json({
+    code,
+    spaceId,
+    spaceName: space.name,
+    expiresIn: 300,
+  })
 })

@@ -12,11 +12,14 @@ export interface JwtPayload {
   exp?: number
 }
 
-export async function signToken(payload: Omit<JwtPayload, 'iat' | 'exp'>): Promise<string> {
+export async function signToken(
+  payload: Omit<JwtPayload, 'iat' | 'exp'>,
+  expiresIn?: string,
+): Promise<string> {
   return new SignJWT({ ...payload })
     .setProtectedHeader({ alg: 'HS256' })
     .setIssuedAt()
-    .setExpirationTime(process.env['JWT_EXPIRES_IN'] ?? '7d')
+    .setExpirationTime(expiresIn ?? process.env['JWT_EXPIRES_IN'] ?? '7d')
     .sign(secret)
 }
 
