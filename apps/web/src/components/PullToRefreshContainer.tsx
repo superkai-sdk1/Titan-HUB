@@ -140,10 +140,6 @@ export function PullToRefreshContainer({ onRefresh, children, disabled }: PullTo
         @keyframes ptr-spin {
           to { transform: rotate(360deg); }
         }
-        /* На мобильном PTR не является scroll-контейнером — скролл на уровне layout */
-        @media (max-width: 1023px) {
-          .ptr-root { height: auto !important; overflow-y: visible !important; }
-        }
       `}</style>
     </div>
   )
