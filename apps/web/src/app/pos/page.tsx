@@ -351,48 +351,87 @@ function PosPageInner() {
       <div className="pos-left-panel" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
 
       {/* Page header */}
-      <div style={{ padding: '24px 32px 0', flexShrink: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 20 }}>
-          <div>
-            <h2 style={{ fontSize: 24, fontWeight: 800, margin: 0, color: 'var(--on-surface)' }}>Активные Счета</h2>
-            <p style={{ fontSize: 13, color: 'var(--on-surface-variant)', margin: '4px 0 0' }}>
-              {checks.length} открытых счёт{checks.length === 1 ? '' : checks.length < 5 ? 'а' : 'ов'}
-            </p>
+      <div className="pos-header" style={{ flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <h2 className="pos-header-title" style={{ margin: 0, color: 'var(--on-surface)' }}>Касса</h2>
+            {checks.length > 0 && (
+              <div
+                className="glass-l2"
+                style={{ borderRadius: 999, padding: '3px 10px', display: 'flex', alignItems: 'center', gap: 5 }}
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 13, color: 'var(--on-surface-variant)' }}>groups</span>
+                <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--on-surface-variant)' }}>
+                  {checks.length}
+                </span>
+              </div>
+            )}
           </div>
-          {shift && checks.length > 0 && (
-            <div style={{ display: 'flex', gap: 8 }}>
-              <div
-                className="glass-l2"
-                style={{ borderRadius: 999, padding: '6px 14px', display: 'flex', alignItems: 'center', gap: 6 }}
-              >
-                <span className="material-symbols-outlined" style={{ fontSize: 14, color: 'var(--on-surface-variant)' }}>schedule</span>
-                <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--on-surface-variant)' }}>
-                  Среднее время: {avgTime}м
-                </span>
-              </div>
-              <div
-                className="glass-l2"
-                style={{ borderRadius: 999, padding: '6px 14px', display: 'flex', alignItems: 'center', gap: 6 }}
-              >
-                <span className="material-symbols-outlined" style={{ fontSize: 14, color: 'var(--on-surface-variant)' }}>groups</span>
-                <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--on-surface-variant)' }}>
-                  Гостей: {checks.length}
-                </span>
-              </div>
-            </div>
-          )}
         </div>
       </div>
+      <style>{`
+        .pos-header {
+          padding: 12px 16px 0;
+        }
+        .pos-header-title {
+          font-size: 18px;
+          font-weight: 800;
+        }
+        @media (min-width: 1024px) {
+          .pos-header {
+            padding: 24px 32px 0;
+          }
+          .pos-header-title {
+            font-size: 24px;
+          }
+        }
+      `}</style>
 
       {/* Cards grid — scrollable */}
       <PullToRefreshContainer onRefresh={async () => { await refetchChecks() }} disabled={!shift}>
-      <div style={{ flex: 1, padding: '0 32px 16px' }}>
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))',
-          gap: 20,
-          paddingBottom: 24,
-        }}>
+      <div className="pos-cards-wrap" style={{ flex: 1 }}>
+        <div className="pos-cards-grid">
+        <style>{`
+          .pos-cards-wrap { padding: 8px 12px 12px; }
+          .pos-cards-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 8px;
+            padding-bottom: 16px;
+          }
+          .pos-check-card { padding: 10px; }
+          .pos-check-card .card-avatar { width: 28px; height: 28px; font-size: 11px; }
+          .pos-check-card .card-name { font-size: 12px; }
+          .pos-check-card .card-space { font-size: 10px; }
+          .pos-check-card .card-badge { display: none; }
+          .pos-check-card .card-amount { font-size: 20px; margin: 0 0 6px; }
+          .pos-check-card .card-timer-icon { font-size: 12px; }
+          .pos-check-card .card-timer-text { font-size: 11px; }
+          .pos-check-card .card-items { font-size: 10px; }
+          .pos-check-card .card-top { margin-bottom: 8px; gap: 7px; }
+          @media (min-width: 480px) {
+            .pos-cards-grid { gap: 12px; }
+            .pos-check-card { padding: 12px; }
+            .pos-check-card .card-avatar { width: 32px; height: 32px; font-size: 12px; }
+            .pos-check-card .card-amount { font-size: 22px; }
+          }
+          @media (min-width: 1024px) {
+            .pos-cards-wrap { padding: 0 32px 16px; }
+            .pos-cards-grid {
+              grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+              gap: 20px;
+              padding-bottom: 24px;
+            }
+            .pos-check-card { padding: 14px; border-radius: 20px !important; }
+            .pos-check-card .card-avatar { width: 36px; height: 36px; font-size: 13px; }
+            .pos-check-card .card-badge { display: flex; }
+            .pos-check-card .card-amount { font-size: 28px; margin: 0 0 10px; }
+            .pos-check-card .card-timer-icon { font-size: 14px; }
+            .pos-check-card .card-timer-text { font-size: 12px; }
+            .pos-check-card .card-items { font-size: 11px; }
+            .pos-check-card .card-top { margin-bottom: 12px; gap: 10px; }
+          }
+        `}</style>
 
           {/* Skeleton loading */}
           {isLoading && Array.from({ length: 4 }).map((_, i) => (
@@ -408,10 +447,9 @@ function PosPageInner() {
               <button
                 key={check.id}
                 onClick={() => handleCheckClick(check.id)}
-                className={`glass-l2 ti-slide-up stagger-${Math.min(idx, 6)}`}
+                className={`glass-l2 ti-slide-up stagger-${Math.min(idx, 6)} pos-check-card`}
                 style={{
-                  borderRadius: 20,
-                  padding: 14,
+                  borderRadius: 16,
                   textAlign: 'left',
                   cursor: 'pointer',
                   border: isActive ? '1px solid rgba(139,92,246,0.6)' : '1px solid rgba(255,255,255,0.08)',
@@ -437,25 +475,25 @@ function PosPageInner() {
                 }}
               >
                 {/* Top: avatar + info + badge */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
-                  <div style={{
-                    width: 36, height: 36, borderRadius: '50%', flexShrink: 0,
+                <div className="card-top" style={{ display: 'flex', alignItems: 'center' }}>
+                  <div className="card-avatar" style={{
+                    borderRadius: '50%', flexShrink: 0,
                     background: 'linear-gradient(135deg, rgba(139,92,246,0.3), rgba(76,215,246,0.3))',
                     border: '1px solid rgba(139,92,246,0.3)',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontSize: 13, fontWeight: 700, color: '#A78BFA',
+                    fontWeight: 700, color: '#A78BFA',
                   }}>
                     {getInitials(check.guestName)}
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--on-surface)', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    <p className="card-name" style={{ fontWeight: 600, color: 'var(--on-surface)', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {check.guestName || 'Гость'}
                     </p>
                     {check.spaceName && (
-                      <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: 0 }}>{check.spaceName}</p>
+                      <p className="card-space" style={{ color: 'var(--on-surface-variant)', margin: 0 }}>{check.spaceName}</p>
                     )}
                   </div>
-                  <div style={{
+                  <div className="card-badge" style={{
                     padding: '3px 8px',
                     borderRadius: 999,
                     background: 'rgba(139,92,246,0.2)',
@@ -466,19 +504,18 @@ function PosPageInner() {
                     textTransform: 'uppercase',
                     letterSpacing: '0.05em',
                     flexShrink: 0,
+                    alignItems: 'center',
                   }}>
                     Открыт
                   </div>
                 </div>
 
                 {/* Amount */}
-                <p style={{
-                  fontSize: 28,
+                <p className="card-amount" style={{
                   fontWeight: 900,
                   fontStyle: 'italic',
                   fontVariantNumeric: 'tabular-nums',
                   color: 'var(--on-surface)',
-                  margin: '0 0 10px',
                   lineHeight: 1,
                 }}>
                   {parseFloat(check.totalAmount).toLocaleString('ru')} ₽
@@ -488,20 +525,20 @@ function PosPageInner() {
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                     <span
-                      className="material-symbols-outlined"
-                      style={{ fontSize: 14, color: timerColor }}
+                      className="material-symbols-outlined card-timer-icon"
+                      style={{ color: timerColor }}
                     >
                       {warn ? 'warning' : 'schedule'}
                     </span>
-                    <span style={{
-                      fontSize: 12, fontWeight: 600, color: timerColor,
+                    <span className="card-timer-text" style={{
+                      fontWeight: 600, color: timerColor,
                       animation: warn ? 'pulse-dot 2s ease-in-out infinite' : 'none',
                     }}>
                       {formatElapsed(check.createdAt, now)}
                     </span>
                   </div>
                   {check.itemCount > 0 && (
-                    <span style={{
+                    <span className="card-items" style={{
                       padding: '2px 8px',
                       borderRadius: 999,
                       background: 'rgba(255,255,255,0.06)',
@@ -576,22 +613,31 @@ function PosPageInner() {
 
       {/* Bottom action bar */}
       {shift && (
-        <div style={{
+        <div className="pos-action-bar" style={{
           flexShrink: 0,
           background: 'rgba(29,26,36,0.4)',
           backdropFilter: 'blur(20px)',
           WebkitBackdropFilter: 'blur(20px)',
           borderTop: '1px solid rgba(255,255,255,0.05)',
-          padding: '16px 32px',
           display: 'flex',
-          gap: 12,
+          gap: 8,
         }}>
+        <style>{`
+          .pos-action-bar { padding: 10px 12px; }
+          .pos-action-btn { padding: 10px 14px !important; border-radius: 12px !important; }
+          .pos-action-btn .btn-label { display: none; }
+          @media (min-width: 480px) {
+            .pos-action-btn .btn-label { display: inline; }
+          }
+          @media (min-width: 1024px) {
+            .pos-action-bar { padding: 16px 32px; gap: 12px; }
+            .pos-action-btn { padding: 12px 20px !important; border-radius: 14px !important; }
+          }
+        `}</style>
           <button
             onClick={openNewCheckModal}
-            className="glass-l2"
+            className="glass-l2 pos-action-btn"
             style={{
-              padding: '12px 20px',
-              borderRadius: 14,
               border: '1px solid rgba(139,92,246,0.4)',
               cursor: 'pointer',
               display: 'flex',
@@ -606,13 +652,11 @@ function PosPageInner() {
             }}
           >
             <span className="material-symbols-outlined" style={{ fontSize: 18 }}>add_circle</span>
-            НОВЫЙ СЧЁТ
+            <span className="btn-label">НОВЫЙ СЧЁТ</span>
           </button>
           <button
-            className="glass-l2"
+            className="glass-l2 pos-action-btn"
             style={{
-              padding: '12px 20px',
-              borderRadius: 14,
               border: '1px solid rgba(255,255,255,0.1)',
               cursor: 'pointer',
               display: 'flex',
@@ -626,15 +670,13 @@ function PosPageInner() {
             }}
           >
             <span className="material-symbols-outlined" style={{ fontSize: 18 }}>print</span>
-            ОТЧЁТ СМЕНЫ
+            <span className="btn-label">ОТЧЁТ СМЕНЫ</span>
           </button>
           <button
             onClick={() => router.push('/manage/refunds')}
-            className="glass-l2"
+            className="glass-l2 pos-action-btn"
             style={{
               marginLeft: 'auto',
-              padding: '12px 20px',
-              borderRadius: 14,
               border: '1px solid rgba(255,255,255,0.1)',
               cursor: 'pointer',
               display: 'flex',
@@ -648,7 +690,7 @@ function PosPageInner() {
             }}
           >
             <span className="material-symbols-outlined" style={{ fontSize: 18 }}>undo</span>
-            ВОЗВРАТ
+            <span className="btn-label">ВОЗВРАТ</span>
           </button>
         </div>
       )}

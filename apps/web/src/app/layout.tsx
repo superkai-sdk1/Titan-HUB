@@ -78,7 +78,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <style>{`
           @media (max-width: 1023px) {
             .layout-content {
-              padding-bottom: 80px;
+              padding-bottom: calc(80px + env(safe-area-inset-bottom));
+            }
+            .layout-main {
+              padding-top: env(safe-area-inset-top);
+              padding-left: env(safe-area-inset-left);
+              padding-right: env(safe-area-inset-right);
             }
           }
         `}</style>

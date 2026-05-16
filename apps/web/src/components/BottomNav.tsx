@@ -21,7 +21,7 @@ export function BottomNav() {
         className="bottom-nav-root"
         style={{
           position: 'fixed',
-          bottom: 12,
+          bottom: 'calc(12px + env(safe-area-inset-bottom))',
           left: 16,
           right: 16,
           zIndex: 40,
