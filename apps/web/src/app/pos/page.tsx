@@ -648,7 +648,6 @@ function PosPageInner() {
           backdropFilter: 'blur(20px)',
           WebkitBackdropFilter: 'blur(20px)',
           borderTop: '1px solid rgba(255,255,255,0.05)',
-          display: 'flex',
           gap: 8,
         }}>
         <style>{`

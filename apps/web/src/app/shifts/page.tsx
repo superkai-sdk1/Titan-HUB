@@ -145,7 +145,7 @@ function ShiftAnalytics({ shiftId, onClose }: { shiftId: string; onClose: () => 
 
         {/* Content — свайп меняет вкладку */}
         <div
-          style={{ flex: 1, overflowY: 'auto', padding: 24 }}
+          style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: 24 }}
           onTouchStart={onTouchStart}
           onTouchEnd={onTouchEnd}
         >

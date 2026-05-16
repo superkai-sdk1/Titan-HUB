@@ -565,27 +565,42 @@ export default function DashboardPage() {
   ]
 
   return (
-    <div style={{ height: '100%', overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+    <div style={{ height: '100%', overflowY: 'auto', overflowX: 'hidden', display: 'flex', flexDirection: 'column', width: '100%' }}>
       {/* Header */}
-      <div style={{ padding: '20px 20px 0', flexShrink: 0, position: 'sticky', top: 0, zIndex: 10, background: 'rgba(21,18,27,0.92)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)' }}>
-        <div style={{ marginBottom: 16 }}>
-          <h1 style={{ fontSize: 22, fontWeight: 800, margin: 0 }}>Аналитика</h1>
-          <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: '3px 0 0' }}>
+      <div style={{ padding: '16px 16px 0', flexShrink: 0, position: 'sticky', top: 0, zIndex: 10, background: 'rgba(21,18,27,0.92)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)' }}>
+        <div style={{ marginBottom: 12 }}>
+          <h1 style={{ fontSize: 20, fontWeight: 800, margin: 0 }}>Аналитика</h1>
+          <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: '2px 0 0' }}>
             {format(new Date(), 'd MMMM yyyy', { locale: ru })}
           </p>
         </div>
-        <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+        {/* Tabs — горизонтальный скролл только внутри таб-бара, не страницы */}
+        <div style={{
+          display: 'flex', gap: 0,
+          borderBottom: '1px solid rgba(255,255,255,0.06)',
+          overflowX: 'auto', overflowY: 'hidden',
+          scrollbarWidth: 'none', msOverflowStyle: 'none',
+          WebkitOverflowScrolling: 'touch' as any,
+        }}>
           {TABS.map(tab => (
-            <button key={tab.key} onClick={() => setActiveTab(tab.key)} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '9px 14px', border: 'none', background: 'transparent', cursor: 'pointer', borderBottom: activeTab === tab.key ? '2px solid #8B5CF6' : '2px solid transparent', color: activeTab === tab.key ? '#8B5CF6' : 'var(--on-surface-variant)', fontSize: 13, fontWeight: activeTab === tab.key ? 600 : 400, transition: 'all 0.2s', marginBottom: -1, whiteSpace: 'nowrap' }}>
-              <span className="material-symbols-outlined" style={{ fontSize: 16, fontVariationSettings: activeTab === tab.key ? "'FILL' 1" : "'FILL' 0" }}>{tab.icon}</span>
-              {tab.label}
+            <button key={tab.key} onClick={() => setActiveTab(tab.key)} style={{
+              display: 'flex', alignItems: 'center', gap: 5,
+              padding: '9px 12px',
+              border: 'none', background: 'transparent', cursor: 'pointer',
+              borderBottom: activeTab === tab.key ? '2px solid #8B5CF6' : '2px solid transparent',
+              color: activeTab === tab.key ? '#8B5CF6' : 'var(--on-surface-variant)',
+              fontSize: 12, fontWeight: activeTab === tab.key ? 600 : 400,
+              transition: 'all 0.2s', marginBottom: -1, whiteSpace: 'nowrap', flexShrink: 0,
+            }}>
+              <span className="material-symbols-outlined" style={{ fontSize: 15, fontVariationSettings: activeTab === tab.key ? "'FILL' 1" : "'FILL' 0" }}>{tab.icon}</span>
+              <span className="dash-tab-label">{tab.label}</span>
             </button>
           ))}
         </div>
       </div>
 
       {/* Content */}
-      <div style={{ padding: '20px 20px 100px', flex: 1 }}>
+      <div style={{ padding: '16px 16px 100px', flex: 1, overflowX: 'hidden', width: '100%' }}>
         {activeTab === 'overview'  && <OverviewTab  dash={dash}     revenue={revenue} />}
         {activeTab === 'reports'   && <ReportsTab />}
         {activeTab === 'products'  && <ProductsTab  products={products} />}
@@ -594,6 +609,8 @@ export default function DashboardPage() {
 
       <style>{`
         @media (max-width: 768px) { .dash-row { grid-template-columns: 1fr !important; } }
+        /* Скрываем скроллбар у таб-бара */
+        div::-webkit-scrollbar { display: none; }
       `}</style>
     </div>
   )
