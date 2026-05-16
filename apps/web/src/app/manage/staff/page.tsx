@@ -183,14 +183,24 @@ export default function StaffPage() {
   const staff = data?.staff ?? []
   const invalidate = () => qc.invalidateQueries({ queryKey: ['staff'] })
 
+  const [formError, setFormError] = useState<string | null>(null)
+
   const createMutation = useMutation({
     mutationFn: (body: object) => api.post('/staff', body),
     onSuccess: () => { invalidate(); closeForm() },
+    onError: (err: any) => {
+      const msg = err?.message || 'Ошибка сохранения. Проверьте данные.'
+      setFormError(msg)
+    },
   })
 
   const updateMutation = useMutation({
     mutationFn: ({ id, body }: { id: string; body: object }) => api.patch(`/staff/${id}`, body),
     onSuccess: () => { invalidate(); closeForm() },
+    onError: (err: any) => {
+      const msg = err?.message || 'Ошибка сохранения. Проверьте данные.'
+      setFormError(msg)
+    },
   })
 
   const deleteMutation = useMutation({
@@ -227,6 +237,7 @@ export default function StaffPage() {
     setFormPassword('')
     setFormPin('')
     setFormPinStep(false)
+    setFormError(null)
     setShowForm(true)
   }
 
@@ -238,6 +249,7 @@ export default function StaffPage() {
     setFormPassword('')
     setFormPin('')
     setFormPinStep(false)
+    setFormError(null)
     setShowForm(true)
     setSelected(null)
   }
@@ -246,6 +258,7 @@ export default function StaffPage() {
     setShowForm(false)
     setEditTarget(null)
     setFormPinStep(false)
+    setFormError(null)
   }
 
   function openPinReset(s: StaffMember) {
@@ -270,6 +283,7 @@ export default function StaffPage() {
 
   function handleNextToPin() {
     if (!mainFieldsOk) return
+    setFormError(null)
     setFormPinStep(true)
   }
 
@@ -586,9 +600,9 @@ export default function StaffPage() {
               </button>
             </div>
 
-            {(createMutation.isError || updateMutation.isError) && (
+            {formError && (
               <div style={{ padding: '10px 14px', borderRadius: 10, background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.3)', color: '#EF4444', fontSize: 13 }}>
-                Ошибка сохранения. Проверьте данные.
+                {formError}
               </div>
             )}
           </div>

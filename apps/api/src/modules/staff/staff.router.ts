@@ -66,24 +66,31 @@ staffRouter.post('/', zValidator('json', CreateStaffSchema), async (c) => {
   const data = c.req.valid('json')
   const hashedPassword = await hashPassword(data.password)
 
-  const [created] = await db
-    .insert(profiles)
-    .values({
-      nickname: data.nickname,
-      passwordHash: hashedPassword,
-      pin: data.pin ? await hashPin(data.pin) : undefined,
-      phone: data.phone,
-      role: data.role,
-    })
-    .returning({
-      id: profiles.id,
-      nickname: profiles.nickname,
-      phone: profiles.phone,
-      role: profiles.role,
-      createdAt: profiles.createdAt,
-    })
+  try {
+    const [created] = await db
+      .insert(profiles)
+      .values({
+        nickname: data.nickname,
+        passwordHash: hashedPassword,
+        pin: data.pin ? await hashPin(data.pin) : undefined,
+        phone: data.phone,
+        role: data.role,
+      })
+      .returning({
+        id: profiles.id,
+        nickname: profiles.nickname,
+        phone: profiles.phone,
+        role: profiles.role,
+        createdAt: profiles.createdAt,
+      })
 
-  return c.json({ staff: created }, 201)
+    return c.json({ staff: created }, 201)
+  } catch (err: any) {
+    if (err?.code === '23505') {
+      return c.json({ error: 'Сотрудник с таким никнеймом уже существует' }, 409)
+    }
+    throw err
+  }
 })
 
 staffRouter.patch('/:id', zValidator('json', UpdateStaffSchema), async (c) => {
@@ -92,21 +99,29 @@ staffRouter.patch('/:id', zValidator('json', UpdateStaffSchema), async (c) => {
   if (password) {
     setData.passwordHash = await hashPassword(password)
   }
-  const [updated] = await db
-    .update(profiles)
-    .set(setData)
-    .where(eq(profiles.id, c.req.param('id')))
-    .returning({
-      id: profiles.id,
-      nickname: profiles.nickname,
-      phone: profiles.phone,
-      role: profiles.role,
-      permissions: profiles.permissions,
-      createdAt: profiles.createdAt,
-    })
 
-  if (!updated) return c.json({ error: 'Not found' }, 404)
-  return c.json({ staff: updated })
+  try {
+    const [updated] = await db
+      .update(profiles)
+      .set(setData)
+      .where(eq(profiles.id, c.req.param('id')))
+      .returning({
+        id: profiles.id,
+        nickname: profiles.nickname,
+        phone: profiles.phone,
+        role: profiles.role,
+        permissions: profiles.permissions,
+        createdAt: profiles.createdAt,
+      })
+
+    if (!updated) return c.json({ error: 'Not found' }, 404)
+    return c.json({ staff: updated })
+  } catch (err: any) {
+    if (err?.code === '23505') {
+      return c.json({ error: 'Сотрудник с таким никнеймом уже существует' }, 409)
+    }
+    throw err
+  }
 })
 
 staffRouter.delete('/:id', async (c) => {
