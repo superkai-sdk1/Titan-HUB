@@ -60,8 +60,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                   overflowX: 'hidden',
                   display: 'flex',
                   flexDirection: 'column',
-                  // Mobile: bottom nav space
                   paddingBottom: 0,
+                  WebkitOverflowScrolling: 'touch' as any,
                 }}
                 className="layout-content"
               >
@@ -91,8 +91,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               max-width: 100vw;
             }
             .layout-content {
-              /* Пространство под bottom nav (edge-to-edge + FAB выступает вверх) + home indicator */
-              padding-bottom: calc(90px + env(safe-area-inset-bottom));
+              /* Высота плавающего навбара (≈60px) + выступ FAB (≈14px) + gap (10px) + home indicator */
+              padding-bottom: calc(100px + env(safe-area-inset-bottom));
               overflow-x: hidden;
               overscroll-behavior: none;
             }

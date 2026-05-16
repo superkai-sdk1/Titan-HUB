@@ -73,7 +73,7 @@ export function PullToRefreshContainer({ onRefresh, children, disabled }: PullTo
   const showIndicator = pullDistance > 8 || state === 'refreshing'
 
   return (
-    <div ref={containerRef} style={{ position: 'relative', overflowY: 'auto', overflowX: 'hidden', height: '100%', WebkitOverflowScrolling: 'touch', overscrollBehavior: 'contain' }}>
+    <div ref={containerRef} className="ptr-root" style={{ position: 'relative', overflowY: 'auto', overflowX: 'hidden', height: '100%', WebkitOverflowScrolling: 'touch', overscrollBehavior: 'contain' }}>
       {/* Pull indicator */}
       {showIndicator && (
         <div
@@ -139,6 +139,10 @@ export function PullToRefreshContainer({ onRefresh, children, disabled }: PullTo
       <style>{`
         @keyframes ptr-spin {
           to { transform: rotate(360deg); }
+        }
+        /* На мобильном PTR не является scroll-контейнером — скролл на уровне layout */
+        @media (max-width: 1023px) {
+          .ptr-root { height: auto !important; overflow-y: visible !important; }
         }
       `}</style>
     </div>

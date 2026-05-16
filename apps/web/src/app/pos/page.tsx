@@ -353,9 +353,9 @@ function PosPageInner() {
   }
 
   return (
-    <div style={{ height: '100%', display: 'flex', flexDirection: 'row', overflow: 'hidden' }}>
+    <div style={{ minHeight: '100%', display: 'flex', flexDirection: 'row' }}>
       {/* Left panel — список чеков (всегда виден) */}
-      <div className="pos-left-panel" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
+      <div className="pos-left-panel" style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
 
       {/* Page header */}
       <div className="pos-header" style={{ flexShrink: 0 }}>
