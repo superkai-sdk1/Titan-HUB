@@ -248,8 +248,18 @@ export function Sidebar() {
         </div>
       </aside>
 
-      {/* Responsive show on desktop + adjust main layout margin */}
+      {/* Responsive: sidebar для iPad (768-1023) — всегда collapsed (72px), для desktop — нормальный */}
       <style>{`
+        @media (min-width: 768px) and (max-width: 1023px) {
+          .sidebar-root {
+            display: flex !important;
+            width: 72px !important;
+            border-radius: 0 24px 24px 0 !important;
+          }
+          .sidebar-root .sidebar-label { display: none !important; }
+          .layout-main { margin-left: 72px; transition: margin-left 0.25s ease; }
+          .bottom-nav-root { display: none !important; }
+        }
         @media (min-width: 1024px) {
           .sidebar-root { display: flex !important; }
           .layout-main { margin-left: ${w}px; transition: margin-left 0.25s ease; }
