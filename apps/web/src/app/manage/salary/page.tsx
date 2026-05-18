@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { format } from 'date-fns'
 import { ru } from 'date-fns/locale'
+import { Icon } from '@/components/Icon'
 
 const INP: React.CSSProperties = { width: '100%', padding: '12px 16px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.05)', color: 'var(--on-surface)', fontSize: 14, outline: 'none', boxSizing: 'border-box' }
 const SEL: React.CSSProperties = { width: '100%', padding: '12px 16px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(29,26,36,0.8)', color: 'var(--on-surface)', fontSize: 14, outline: 'none', cursor: 'pointer', boxSizing: 'border-box' }
@@ -96,7 +97,7 @@ export default function SalaryPage() {
         style={{ borderRadius: 20, padding: 24, marginBottom: 24 }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20 }}>
-          <span className="material-symbols-outlined" style={{ color: 'var(--primary, #6750A4)', fontSize: 22 }}>calculate</span>
+          <Icon name="calculate" size={22} color="var(--primary, #6750A4)" />
           <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--on-surface)' }}>Калькулятор зарплаты</span>
         </div>
 
@@ -195,7 +196,7 @@ export default function SalaryPage() {
               display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
             }}
           >
-            <span className="material-symbols-outlined" style={{ fontSize: 20 }}>payments</span>
+            <Icon name="payments" size={20} />
             {pay.isPending ? 'Начисление...' : `Начислить зарплату — ${calculated.toLocaleString('ru')} ₽`}
           </button>
         </div>
@@ -209,7 +210,7 @@ export default function SalaryPage() {
 
         {payments.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '48px 20px', color: 'var(--on-surface-variant)' }}>
-            <span className="material-symbols-outlined" style={{ fontSize: 52, display: 'block', marginBottom: 12, opacity: 0.4 }}>payments</span>
+            <Icon name="payments" size={52} style={{ display: 'block', marginBottom: 12, opacity: 0.4 }} />
             <p style={{ margin: 0, fontSize: 15 }}>Выплат нет</p>
           </div>
         ) : (

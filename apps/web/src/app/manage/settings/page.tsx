@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useRouter } from 'next/navigation'
 import { api } from '@/lib/api'
+import { Icon } from '@/components/Icon'
 
 const INP: React.CSSProperties = {
   width: '100%', padding: '14px 16px', borderRadius: 14,
@@ -34,7 +35,7 @@ function SectionCard({ title, icon, color, children }: { title: string; icon: st
     <div className="glass-l2" style={{ borderRadius: 18, padding: 20, display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
         <div style={{ width: 32, height: 32, borderRadius: 10, background: `${color}22`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <span className="material-symbols-outlined" style={{ fontSize: 16, color }}>{icon}</span>
+          <Icon name={icon} size={16} color={color} />
         </div>
         <span style={{ ...LBL, margin: 0, color }}>{title}</span>
       </div>
@@ -47,7 +48,7 @@ function Field({ label, icon, children }: { label: string; icon?: string; childr
   return (
     <div>
       <label style={{ ...LBL, display: 'flex', alignItems: 'center', gap: 6 }}>
-        {icon && <span className="material-symbols-outlined" style={{ fontSize: 12 }}>{icon}</span>}
+        {icon && <Icon name={icon} size={12} />}
         {label}
       </label>
       {children}
@@ -140,7 +141,7 @@ export default function SettingsPage() {
       <div style={{ position: 'sticky', top: 0, zIndex: 20, background: 'rgba(21,18,27,0.95)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)', borderBottom: '1px solid rgba(255,255,255,0.06)', padding: '16px 20px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <button onClick={() => router.back()} style={{ width: 36, height: 36, borderRadius: 10, border: '1px solid rgba(255,255,255,0.08)', background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--on-surface-variant)' }}>
-            <span className="material-symbols-outlined" style={{ fontSize: 18 }}>arrow_back</span>
+            <Icon name="arrow_back" size={18} />
           </button>
           <div style={{ flex: 1 }}>
             <h1 style={{ fontSize: 20, fontWeight: 800, margin: 0 }}>Настройки</h1>
@@ -152,7 +153,7 @@ export default function SettingsPage() {
       <div style={{ padding: '20px 16px 16px', display: 'flex', flexDirection: 'column', gap: 16, maxWidth: 680, margin: '0 auto', width: '100%' }}>
         {isLoading ? (
           <div style={{ textAlign: 'center', padding: 60, color: 'var(--on-surface-variant)' }}>
-            <span className="material-symbols-outlined" style={{ fontSize: 40, display: 'block', marginBottom: 12, opacity: 0.4 }}>settings</span>
+            <Icon name="settings" size={40} style={{ display: 'block', marginBottom: 12, opacity: 0.4 }} />
             Загрузка настроек…
           </div>
         ) : (
@@ -232,10 +233,10 @@ export default function SettingsPage() {
               }}
             >
               {saved
-                ? <><span className="material-symbols-outlined" style={{ fontSize: 18 }}>check_circle</span>Сохранено!</>
+                ? <><Icon name="check_circle" size={18} />Сохранено!</>
                 : save.isPending
-                ? <><span className="material-symbols-outlined" style={{ fontSize: 18, animation: 'spin 1s linear infinite' }}>progress_activity</span>Сохраняем…</>
-                : <><span className="material-symbols-outlined" style={{ fontSize: 18 }}>save</span>Сохранить изменения</>
+                ? <><Icon name="progress_activity" size={18} style={{ animation: 'spin 1s linear infinite' }} />Сохраняем…</>
+                : <><Icon name="save" size={18} />Сохранить изменения</>
               }
             </button>
             <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>

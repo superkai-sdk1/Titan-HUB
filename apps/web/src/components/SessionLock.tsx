@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useAuthStore, INACTIVITY_TIMEOUT_MS } from '@/store/auth.store'
 import { api } from '@/lib/api'
 import { startAuthentication } from '@simplewebauthn/browser'
+import { Icon } from '@/components/Icon'
 
 // ─── SessionLock wrapper (activity tracking + interval check) ─────────────────
 
@@ -139,7 +140,7 @@ function LockOverlay({
           padding: '6px 14px', borderRadius: 99,
           background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)',
         }}>
-          <span className="material-symbols-outlined" style={{ fontSize: 14, color: 'rgba(167,139,250,0.8)', fontVariationSettings: "'FILL' 1" }}>lock</span>
+          <Icon name="lock" size={14} color="rgba(167,139,250,0.8)" />
           <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.45)', fontWeight: 500 }}>Сессия заблокирована · 30 мин</span>
         </div>
 

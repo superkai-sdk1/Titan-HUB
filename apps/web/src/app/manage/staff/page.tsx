@@ -5,6 +5,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { Sheet, LBL, INP, SEL } from '@/components/manage/DesignSystem'
 import { useAuthStore } from '@/store/auth.store'
+import { Icon } from '@/components/Icon'
 
 interface StaffMember {
   id: string
@@ -76,7 +77,7 @@ function MiniToggle({ value, onChange }: { value: boolean; onChange: (v: boolean
 function PermissionRow({ label, icon, value, onChange }: { label: string; icon: string; value: boolean; onChange: (v: boolean) => void }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 0', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-      <span className="material-symbols-outlined" style={{ fontSize: 16, color: 'var(--on-surface-variant)', width: 18, flexShrink: 0 }}>{icon}</span>
+      <Icon name={icon} size={16} color="var(--on-surface-variant)" style={{ width: 18 }} />
       <span style={{ flex: 1, fontSize: 13, color: 'var(--on-surface)', fontWeight: 500 }}>{label}</span>
       <MiniToggle value={value} onChange={onChange} />
     </div>
@@ -383,7 +384,7 @@ export default function StaffPage() {
             color: '#fff', fontWeight: 600, fontSize: 14,
           }}
         >
-          <span className="material-symbols-outlined" style={{ fontSize: 20 }}>person_add</span>
+          <Icon name="person_add" size={20} />
           Добавить
         </button>
       </div>
@@ -391,7 +392,7 @@ export default function StaffPage() {
       {/* List */}
       {staff.length === 0 ? (
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', paddingTop: 80, gap: 12, color: 'var(--on-surface-variant)' }}>
-          <span className="material-symbols-outlined" style={{ fontSize: 64, opacity: 0.3 }}>group</span>
+          <Icon name="group" size={64} style={{ opacity: 0.3 }} />
           <p style={{ margin: 0, fontSize: 15 }}>Нет сотрудников</p>
         </div>
       ) : (
@@ -423,7 +424,7 @@ export default function StaffPage() {
                     {s.phone && <span style={{ fontSize: 12, color: 'var(--on-surface-variant)' }}>{s.phone}</span>}
                   </div>
                 </div>
-                <span className="material-symbols-outlined" style={{ fontSize: 20, color: 'var(--on-surface-variant)' }}>chevron_right</span>
+                <Icon name="chevron_right" size={20} color="var(--on-surface-variant)" />
               </div>
             )
           })}
@@ -464,7 +465,7 @@ export default function StaffPage() {
                   color: '#A78BFA', fontWeight: 600, fontSize: 14, cursor: 'pointer',
                 }}
               >
-                <span className="material-symbols-outlined" style={{ fontSize: 18 }}>edit</span>
+                <Icon name="edit" size={18} />
                 Изменить
               </button>
               <button
@@ -476,7 +477,7 @@ export default function StaffPage() {
                   color: '#4cd7f6', fontWeight: 600, fontSize: 14, cursor: 'pointer',
                 }}
               >
-                <span className="material-symbols-outlined" style={{ fontSize: 18 }}>pin</span>
+                <Icon name="pin" size={18} />
                 Задать PIN
               </button>
             </div>
@@ -489,7 +490,7 @@ export default function StaffPage() {
                   display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px',
                   borderRadius: 12, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)',
                 }}>
-                  <span className="material-symbols-outlined" style={{ fontSize: 18, color: 'var(--on-surface-variant)' }}>fingerprint</span>
+                  <Icon name="fingerprint" size={18} color="var(--on-surface-variant)" />
                   <span style={{ fontSize: 13, color: 'var(--on-surface-variant)' }}>Passkey не настроен</span>
                 </div>
               ) : (
@@ -499,7 +500,7 @@ export default function StaffPage() {
                       display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px',
                       borderRadius: 12, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)',
                     }}>
-                      <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#A78BFA', fontVariationSettings: "'FILL' 1" }}>fingerprint</span>
+                      <Icon name="fingerprint" size={18} color="#A78BFA" />
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--on-surface)' }}>
                           {pk.deviceType === 'multiDevice' ? 'Синхронизированный ключ' : pk.deviceType === 'singleDevice' ? 'Ключ устройства' : 'Passkey'}
@@ -519,7 +520,7 @@ export default function StaffPage() {
                           color: '#EF4444', cursor: 'pointer',
                         }}
                       >
-                        <span className="material-symbols-outlined" style={{ fontSize: 16 }}>delete</span>
+                        <Icon name="delete" size={16} />
                       </button>
                     </div>
                   ))}
@@ -553,7 +554,7 @@ export default function StaffPage() {
                   }}
                 >
                   {permsSaved
-                    ? <><span className="material-symbols-outlined" style={{ fontSize: 16 }}>check_circle</span>Сохранено</>
+                    ? <><Icon name="check_circle" size={16} />Сохранено</>
                     : updatePermsMutation.isPending ? 'Сохранение...' : 'Сохранить права'}
                 </button>
               </div>
@@ -611,7 +612,7 @@ export default function StaffPage() {
 
             {/* Hint about PIN step */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 12, background: 'rgba(139,92,246,0.08)', border: '1px solid rgba(139,92,246,0.2)' }}>
-              <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#A78BFA', flexShrink: 0 }}>pin</span>
+              <Icon name="pin" size={18} color="#A78BFA" />
               <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: 0 }}>
                 На следующем шаге можно сразу задать 4-значный PIN для быстрого входа
               </p>
@@ -628,7 +629,7 @@ export default function StaffPage() {
               }}
             >
               Далее — задать PIN
-              <span className="material-symbols-outlined" style={{ fontSize: 18 }}>arrow_forward</span>
+              <Icon name="arrow_forward" size={18} />
             </button>
           </div>
         ) : (
@@ -688,7 +689,7 @@ export default function StaffPage() {
         {pinSuccess ? (
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16, padding: '20px 0' }}>
             <div style={{ width: 72, height: 72, borderRadius: '50%', background: 'rgba(16,185,129,0.15)', border: '2px solid #10B981', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <span className="material-symbols-outlined" style={{ fontSize: 38, color: '#10B981', fontVariationSettings: "'FILL' 1" }}>check_circle</span>
+              <Icon name="check_circle" size={38} color="#10B981" />
             </div>
             <p style={{ fontSize: 16, fontWeight: 700, color: '#10B981', margin: 0 }}>PIN установлен!</p>
           </div>

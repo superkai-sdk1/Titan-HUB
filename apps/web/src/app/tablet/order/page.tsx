@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { useAuthStore } from '@/store/auth.store'
+import { Icon } from '@/components/Icon'
 
 const CAT_COLOR_OPTIONS = [
   { name: 'violet',  hex: '#8B5CF6', light: 'rgba(139,92,246,0.12)',  border: 'rgba(139,92,246,0.25)',  text: '#A78BFA' },
@@ -180,9 +181,7 @@ export default function TabletOrderPage() {
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           boxShadow: '0 0 40px rgba(52,211,153,0.3)',
         }}>
-          <span className="material-symbols-outlined" style={{ fontSize: 52, color: 'var(--success)', fontVariationSettings: "'FILL' 1" }}>
-            check_circle
-          </span>
+          <Icon name="check_circle" size={52} color="var(--success)" />
         </div>
         <div style={{ textAlign: 'center' }}>
           <h2 style={{ fontSize: 28, fontWeight: 900, fontStyle: 'italic', textTransform: 'uppercase', color: 'var(--success)', margin: '0 0 8px' }}>
@@ -215,7 +214,7 @@ export default function TabletOrderPage() {
             display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
           }}
         >
-          <span className="material-symbols-outlined" style={{ fontSize: 20 }}>arrow_back</span>
+          <Icon name="arrow_back" size={20} />
         </button>
 
         <h1 style={{ fontSize: 20, fontWeight: 900, fontStyle: 'italic', textTransform: 'uppercase', margin: 0, color: 'var(--on-surface)', flex: 1 }}>
@@ -224,9 +223,7 @@ export default function TabletOrderPage() {
 
         {/* Search */}
         <div style={{ position: 'relative', flex: 1, maxWidth: 320 }}>
-          <span className="material-symbols-outlined" style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', fontSize: 18, color: 'var(--on-surface-variant)' }}>
-            search
-          </span>
+          <Icon name="search" size={18} color="var(--on-surface-variant)" style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)' }} />
           <input
             value={search}
             onChange={e => setSearch(e.target.value)}
@@ -253,7 +250,7 @@ export default function TabletOrderPage() {
               flexShrink: 0,
             }}
           >
-            <span className="material-symbols-outlined" style={{ fontSize: 20, fontVariationSettings: "'FILL' 1" }}>shopping_cart</span>
+            <Icon name="shopping_cart" size={20} />
             {cartCount}
           </button>
         )}
@@ -290,9 +287,7 @@ export default function TabletOrderPage() {
                 transition: 'all 0.2s',
               }}
             >
-              <span className="material-symbols-outlined" style={{ fontSize: 16, fontVariationSettings: "'FILL' 1" }}>
-                {cat.icon}
-              </span>
+              <Icon name={cat.icon} size={16} />
               {cat.name}
             </button>
           )
@@ -332,9 +327,7 @@ export default function TabletOrderPage() {
                     opacity: 0.07, position: 'absolute', inset: '-30%', color: 'white',
                   }}>
                     {Array.from({ length: 64 }).map((_, i) => (
-                      <span key={i} className="material-symbols-outlined" style={{ fontSize: 22, lineHeight: 1 }}>
-                        {item.categoryIcon ?? 'restaurant_menu'}
-                      </span>
+                      <Icon key={i} name={item.categoryIcon ?? 'restaurant_menu'} size={22} style={{ lineHeight: 1 }} />
                     ))}
                   </div>
                 </div>
@@ -346,9 +339,7 @@ export default function TabletOrderPage() {
                     background: colorObj.light,
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                   }}>
-                    <span className="material-symbols-outlined" style={{ fontSize: 28, color: colorObj.hex, fontVariationSettings: "'FILL' 1" }}>
-                      {item.categoryIcon ?? 'restaurant_menu'}
-                    </span>
+                    <Icon name={item.categoryIcon ?? 'restaurant_menu'} size={28} color={colorObj.hex} />
                   </div>
 
                   {/* Name + price */}
@@ -379,7 +370,7 @@ export default function TabletOrderPage() {
                         display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
                       }}
                     >
-                      <span className="material-symbols-outlined" style={{ fontSize: 18 }}>add</span>
+                      <Icon name="add" size={18} />
                       Добавить
                     </button>
                   ) : (
@@ -392,7 +383,7 @@ export default function TabletOrderPage() {
                           display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
                         }}
                       >
-                        <span className="material-symbols-outlined" style={{ fontSize: 18 }}>remove</span>
+                        <Icon name="remove" size={18} />
                       </button>
                       <span style={{ flex: 1, textAlign: 'center', fontSize: 20, fontWeight: 900, color: colorObj.text }}>{qty}</span>
                       <button
@@ -403,7 +394,7 @@ export default function TabletOrderPage() {
                           display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
                         }}
                       >
-                        <span className="material-symbols-outlined" style={{ fontSize: 18 }}>add</span>
+                        <Icon name="add" size={18} />
                       </button>
                     </div>
                   )}
@@ -414,9 +405,7 @@ export default function TabletOrderPage() {
 
           {filteredItems.length === 0 && (
             <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '48px 0', color: 'var(--on-surface-variant)' }}>
-              <span className="material-symbols-outlined" style={{ fontSize: 48, display: 'block', marginBottom: 12, opacity: 0.3 }}>
-                search_off
-              </span>
+              <Icon name="search_off" size={48} style={{ display: 'block', marginBottom: 12, opacity: 0.3 }} />
               <p style={{ fontSize: 16, margin: 0 }}>Ничего не найдено</p>
             </div>
           )}
@@ -437,7 +426,7 @@ export default function TabletOrderPage() {
               whiteSpace: 'nowrap',
             }}
           >
-            <span className="material-symbols-outlined" style={{ fontSize: 22, fontVariationSettings: "'FILL' 1" }}>shopping_cart</span>
+            <Icon name="shopping_cart" size={22} />
             {cartCount} позиций · {cartTotal.toLocaleString('ru')} ₽
           </button>
         </div>
@@ -460,7 +449,7 @@ export default function TabletOrderPage() {
                 ВАШ ЗАКАЗ
               </h2>
               <button onClick={() => setShowCart(false)} style={{ width: 36, height: 36, borderRadius: 10, border: 'none', cursor: 'pointer', background: 'rgba(255,255,255,0.06)', color: 'var(--on-surface-variant)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <span className="material-symbols-outlined" style={{ fontSize: 18 }}>close</span>
+                <Icon name="close" size={18} />
               </button>
             </div>
 
@@ -478,11 +467,11 @@ export default function TabletOrderPage() {
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
                     <button onClick={() => removeFromCart(ci.item.id)} style={{ width: 36, height: 36, borderRadius: 9, border: 'none', cursor: 'pointer', background: 'rgba(244,63,94,0.1)', color: 'var(--danger)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                      <span className="material-symbols-outlined" style={{ fontSize: 16 }}>remove</span>
+                      <Icon name="remove" size={16} />
                     </button>
                     <span style={{ width: 28, textAlign: 'center', fontSize: 16, fontWeight: 800, color: 'var(--on-surface)' }}>{ci.quantity}</span>
                     <button onClick={() => addToCart(ci.item)} style={{ width: 36, height: 36, borderRadius: 9, border: 'none', cursor: 'pointer', background: 'rgba(139,92,246,0.2)', color: '#A78BFA', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                      <span className="material-symbols-outlined" style={{ fontSize: 16 }}>add</span>
+                      <Icon name="add" size={16} />
                     </button>
                   </div>
                   <p style={{ fontSize: 16, fontWeight: 900, fontStyle: 'italic', fontVariantNumeric: 'tabular-nums', color: 'var(--on-surface)', margin: 0, width: 72, textAlign: 'right', flexShrink: 0 }}>

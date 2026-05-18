@@ -2,6 +2,7 @@
 import React, { useRef, useCallback, useEffect, useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion, AnimatePresence, useMotionValue, useTransform, animate, PanInfo } from 'framer-motion'
+import { Icon } from '@/components/Icon'
 
 // ─── Style constants ────────────────────────────────────────────────────────
 
@@ -289,7 +290,7 @@ export function Sheet({
                   onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.08)' }}
                   onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.04)' }}
                   >
-                    <span className="material-symbols-outlined" style={{ fontSize: 16 }}>close</span>
+                    <Icon name="close" size={16} />
                   </button>
                 </div>
               )}
@@ -402,7 +403,7 @@ export function Sheet({
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                     color: 'var(--on-surface-variant)',
                   }}>
-                    <span className="material-symbols-outlined" style={{ fontSize: 16 }}>close</span>
+                    <Icon name="close" size={16} />
                   </button>
                 </div>
               )}
@@ -468,7 +469,7 @@ export function PageHeader({
           onClick={onBack ?? (() => router.back())}
           style={{ width: 36, height: 36, borderRadius: 10, border: '1px solid rgba(255,255,255,0.08)', background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--on-surface-variant)', flexShrink: 0 }}
         >
-          <span className="material-symbols-outlined" style={{ fontSize: 18 }}>arrow_back</span>
+          <Icon name="arrow_back" size={18} />
         </button>
         <div style={{ flex: 1, minWidth: 0 }}>
           <h1 style={{ fontSize: 20, fontWeight: 800, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title}</h1>
@@ -479,7 +480,7 @@ export function PageHeader({
             onClick={action.onClick}
             style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 16px', borderRadius: 14, border: 'none', cursor: 'pointer', background: 'linear-gradient(135deg, #8B5CF6, #4cd7f6)', color: '#fff', fontSize: 13, fontWeight: 700, flexShrink: 0, boxShadow: '0 4px 20px rgba(139,92,246,0.3)' }}
           >
-            <span className="material-symbols-outlined" style={{ fontSize: 18 }}>{action.icon}</span>
+            <Icon name={action.icon} size={18} />
             {action.label}
           </button>
         )}
@@ -571,10 +572,10 @@ export function SaveButton({
       }}
     >
       {isSaved
-        ? <><span className="material-symbols-outlined" style={{ fontSize: 18 }}>check_circle</span>Сохранено!</>
+        ? <><Icon name="check_circle" size={18} />Сохранено!</>
         : isPending
         ? 'Сохраняем…'
-        : <><span className="material-symbols-outlined" style={{ fontSize: 18 }}>save</span>{label}</>
+        : <><Icon name="save" size={18} />{label}</>
       }
     </button>
   )

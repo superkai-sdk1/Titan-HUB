@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { format } from 'date-fns'
 import { ru } from 'date-fns/locale'
+import { Icon } from '@/components/Icon'
 
 const INP: React.CSSProperties = { width: '100%', padding: '12px 16px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.05)', color: 'var(--on-surface)', fontSize: 14, outline: 'none', boxSizing: 'border-box' }
 const SEL: React.CSSProperties = { width: '100%', padding: '12px 16px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(29,26,36,0.8)', color: 'var(--on-surface)', fontSize: 14, outline: 'none', cursor: 'pointer', boxSizing: 'border-box' }
@@ -95,7 +96,7 @@ export default function CertificatesPage() {
             color: '#fff', fontWeight: 600, fontSize: 14,
           }}
         >
-          <span className="material-symbols-outlined" style={{ fontSize: 18 }}>add_card</span>
+          <Icon name="add_card" size={18} />
           Создать
         </button>
       </div>
@@ -103,7 +104,7 @@ export default function CertificatesPage() {
       {/* List */}
       {certificates.length === 0 ? (
         <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--on-surface-variant)' }}>
-          <span className="material-symbols-outlined" style={{ fontSize: 56, display: 'block', marginBottom: 12, opacity: 0.4 }}>card_giftcard</span>
+          <Icon name="card_giftcard" size={56} style={{ display: 'block', marginBottom: 12, opacity: 0.4 }} />
           <p style={{ margin: 0, fontSize: 15 }}>Сертификатов нет</p>
         </div>
       ) : (
@@ -142,9 +143,7 @@ export default function CertificatesPage() {
                     onClick={e => copyCode(cert, e)}
                     style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, color: isCopied ? '#10B981' : 'var(--on-surface-variant)', display: 'flex', alignItems: 'center', flexShrink: 0 }}
                   >
-                    <span className="material-symbols-outlined" style={{ fontSize: 18 }}>
-                      {isCopied ? 'check' : 'content_copy'}
-                    </span>
+                    <Icon name={isCopied ? 'check' : 'content_copy'} size={18} />
                   </button>
                 </div>
 
@@ -192,7 +191,7 @@ export default function CertificatesPage() {
                 onClick={() => setSelected(null)}
                 style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--on-surface-variant)', display: 'flex', alignItems: 'center' }}
               >
-                <span className="material-symbols-outlined">close</span>
+                <Icon name="close" />
               </button>
             </div>
 
@@ -267,7 +266,7 @@ export default function CertificatesPage() {
                 onClick={() => setShowCreate(false)}
                 style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--on-surface-variant)', display: 'flex', alignItems: 'center' }}
               >
-                <span className="material-symbols-outlined">close</span>
+                <Icon name="close" />
               </button>
             </div>
 

@@ -5,6 +5,7 @@ import { useQuery, useMutation } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { useAuthStore } from '@/store/auth.store'
 import { differenceInMinutes } from 'date-fns'
+import { Icon } from '@/components/Icon'
 
 interface CheckItem {
   checkItem: { id: string; quantity: number; priceAtTime: string }
@@ -127,9 +128,7 @@ export default function TabletPage() {
           border: '1px solid rgba(139,92,246,0.25)',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
         }}>
-          <span className="material-symbols-outlined" style={{ fontSize: 52, color: '#A78BFA', fontVariationSettings: "'FILL' 0" }}>
-            meeting_room
-          </span>
+          <Icon name="meeting_room" size={52} color="#A78BFA" />
         </div>
         <div style={{ textAlign: 'center' }}>
           <h1 style={{ fontSize: 28, fontWeight: 900, fontStyle: 'italic', textTransform: 'uppercase', color: 'var(--on-surface)', margin: '0 0 12px' }}>
@@ -163,7 +162,7 @@ export default function TabletPage() {
   if (isLoading || !activeCheck) {
     return (
       <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <span className="material-symbols-outlined" style={{ fontSize: 36, color: 'rgba(204,195,216,0.3)', animation: 'spin 1s linear infinite' }}>refresh</span>
+        <Icon name="refresh" size={36} color="rgba(204,195,216,0.3)" style={{ animation: 'spin 1s linear infinite' }} />
         <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
       </div>
     )
@@ -201,7 +200,7 @@ export default function TabletPage() {
               color: '#F59E0B', fontSize: 14, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em',
             }}
           >
-            <span className="material-symbols-outlined" style={{ fontSize: 20 }}>support_agent</span>
+            <Icon name="support_agent" size={20} />
             ВЫЗВАТЬ
           </button>
           <button
@@ -214,7 +213,7 @@ export default function TabletPage() {
               boxShadow: '0 4px 20px rgba(139,92,246,0.35)',
             }}
           >
-            <span className="material-symbols-outlined" style={{ fontSize: 22 }}>add_shopping_cart</span>
+            <Icon name="add_shopping_cart" size={22} />
             ЗАКАЗАТЬ
           </button>
         </div>
@@ -232,7 +231,7 @@ export default function TabletPage() {
             display: 'flex', alignItems: 'center', gap: 16,
           }}>
             <div style={{ width: 48, height: 48, borderRadius: 14, background: 'rgba(139,92,246,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-              <span className="material-symbols-outlined" style={{ fontSize: 26, color: '#A78BFA' }}>event</span>
+              <Icon name="event" size={26} color="#A78BFA" />
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>
               <p style={{ fontSize: 11, color: '#A78BFA', margin: '0 0 4px', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 700 }}>Сейчас идёт</p>
@@ -251,7 +250,7 @@ export default function TabletPage() {
           {spaceRental > 0 && (
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}>
               <span style={{ fontSize: 14, color: 'var(--on-surface-variant)', display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span className="material-symbols-outlined" style={{ fontSize: 16 }}>meeting_room</span>
+                <Icon name="meeting_room" size={16} />
                 Аренда (текущая)
               </span>
               <span style={{ fontSize: 16, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: '#A78BFA' }}>
@@ -278,9 +277,7 @@ export default function TabletPage() {
         {/* Items list */}
         {activeCheck.items.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '48px 0', color: 'var(--on-surface-variant)' }}>
-            <span className="material-symbols-outlined" style={{ fontSize: 48, display: 'block', marginBottom: 16, opacity: 0.3 }}>
-              shopping_cart
-            </span>
+            <Icon name="shopping_cart" size={48} style={{ display: 'block', marginBottom: 16, opacity: 0.3 }} />
             <p style={{ fontSize: 16, margin: 0 }}>Нет позиций в счёте</p>
             <p style={{ fontSize: 14, margin: '8px 0 0', opacity: 0.6 }}>Нажмите «Заказать», чтобы добавить</p>
           </div>
@@ -297,9 +294,7 @@ export default function TabletPage() {
                   background: 'rgba(139,92,246,0.1)',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                 }}>
-                  <span className="material-symbols-outlined" style={{ fontSize: 22, color: '#A78BFA', fontVariationSettings: "'FILL' 1" }}>
-                    restaurant_menu
-                  </span>
+                  <Icon name="restaurant_menu" size={22} color="#A78BFA" />
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <p style={{ fontSize: 16, fontWeight: 700, margin: 0, color: 'var(--on-surface)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -330,7 +325,7 @@ export default function TabletPage() {
                 display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
               }}
             >
-              <span className="material-symbols-outlined" style={{ fontSize: 22 }}>receipt_long</span>
+              <Icon name="receipt_long" size={22} />
               {requestBill.isPending ? 'Отправляем…' : 'Запросить счёт'}
             </button>
           </div>
@@ -349,7 +344,7 @@ export default function TabletPage() {
           zIndex: 50,
           display: 'flex', alignItems: 'center', gap: 10,
         }}>
-          <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#A78BFA' }}>check_circle</span>
+          <Icon name="check_circle" size={18} color="#A78BFA" />
           {toastMsg}
         </div>
       )}

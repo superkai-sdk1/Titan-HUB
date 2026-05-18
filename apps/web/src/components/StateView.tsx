@@ -4,6 +4,7 @@
  * Заменяет разрозненные `<div>Загрузка...</div>` и `<div>Нет данных</div>` по проекту.
  */
 import React from 'react'
+import { Icon } from '@/components/Icon'
 
 interface StateViewProps {
   state: 'loading' | 'empty' | 'error'
@@ -40,16 +41,12 @@ export function StateView({ state, icon, title, description, action }: StateView
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         marginBottom: 18,
       }}>
-        <span
-          className="material-symbols-outlined"
-          style={{
-            fontSize: 40,
-            color: def.color,
-            animation: state === 'loading' ? 'sv-spin 1.2s linear infinite' : 'none',
-          }}
-        >
-          {finalIcon}
-        </span>
+        <Icon
+          name={finalIcon}
+          size={40}
+          color={def.color}
+          style={{ animation: state === 'loading' ? 'sv-spin 1.2s linear infinite' : 'none' }}
+        />
       </div>
       <h3 style={{ fontSize: 16, fontWeight: 700, margin: '0 0 6px', color: 'var(--on-surface)' }}>
         {finalTitle}
@@ -69,7 +66,7 @@ export function StateView({ state, icon, title, description, action }: StateView
             display: 'flex', alignItems: 'center', gap: 8, minHeight: 44,
           }}
         >
-          {action.icon && <span className="material-symbols-outlined" style={{ fontSize: 18 }}>{action.icon}</span>}
+          {action.icon && <Icon name={action.icon} size={18} />}
           {action.label}
         </button>
       )}

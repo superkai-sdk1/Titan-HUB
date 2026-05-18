@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation'
 import { useAuthStore } from '@/store/auth.store'
 import { api, ApiError } from '@/lib/api'
 import { startRegistration, startAuthentication } from '@simplewebauthn/browser'
+import { Icon } from '@/components/Icon'
 
 // ─── Screen types ─────────────────────────────────────────────────────────────
 
@@ -273,7 +274,7 @@ function PasskeyScreen({
         onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.08)' }}
         onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.04)' }}
       >
-        <span className="material-symbols-outlined" style={{ fontSize: 18 }}>dialpad</span>
+        <Icon name="dialpad" size={18} />
         Войти с PIN-кодом
       </button>
 
@@ -483,13 +484,13 @@ function PasswordScreen({
           <button type="button" onClick={() => setShowPass(v => !v)}
             style={{ position: 'absolute', right: 14, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.3)', padding: 4 }}
           >
-            <span className="material-symbols-outlined" style={{ fontSize: 18 }}>{showPass ? 'visibility_off' : 'visibility'}</span>
+            <Icon name={showPass ? 'visibility_off' : 'visibility'} size={18} />
           </button>
         </Field>
 
         {error && (
           <div style={{ padding: '10px 14px', borderRadius: 12, background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.25)', color: '#FCA5A5', fontSize: 13, display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span className="material-symbols-outlined" style={{ fontSize: 16 }}>error</span>{error}
+            <Icon name="error" size={16} />{error}
           </div>
         )}
 
@@ -540,9 +541,7 @@ function Field({ label, icon, children }: { label: string; icon: string; childre
         {label}
       </label>
       <div style={{ position: 'relative' }}>
-        <span className="material-symbols-outlined" style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', fontSize: 18, color: 'rgba(255,255,255,0.3)', pointerEvents: 'none' }}>
-          {icon}
-        </span>
+        <Icon name={icon} size={18} color="rgba(255,255,255,0.3)" style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }} />
         {children}
       </div>
     </div>
@@ -647,7 +646,7 @@ function PasskeySetupScreen({
       {done ? (
         <div style={{ textAlign: 'center', padding: '16px 0' }}>
           <div style={{ width: 64, height: 64, borderRadius: '50%', margin: '0 auto 12px', background: 'rgba(16,185,129,0.15)', border: '2px solid #10B981', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <span className="material-symbols-outlined" style={{ fontSize: 34, color: '#10B981', fontVariationSettings: "'FILL' 1" }}>check_circle</span>
+            <Icon name="check_circle" size={34} color="#10B981" />
           </div>
           <p style={{ fontSize: 16, fontWeight: 700, color: '#10B981', margin: 0 }}>Passkey добавлен!</p>
         </div>
@@ -667,7 +666,7 @@ function PasskeySetupScreen({
               boxShadow: '0 4px 24px rgba(139,92,246,0.35)', opacity: loading ? 0.7 : 1, transition: 'opacity 0.2s',
             }}
           >
-            <span className="material-symbols-outlined" style={{ fontSize: 22 }}>fingerprint</span>
+            <Icon name="fingerprint" size={22} />
             {loading ? 'Регистрация...' : 'Добавить Passkey'}
           </button>
           <SkipBtn label="Пропустить — войти в систему" onClick={onSkip} />
@@ -696,7 +695,7 @@ function SetupLayout({ icon, title, subtitle, step, totalSteps, children }: {
         <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 28, padding: '32px 26px', backdropFilter: 'blur(20px)', boxShadow: '0 24px 64px rgba(0,0,0,0.5)' }}>
           <div style={{ textAlign: 'center', marginBottom: 24 }}>
             <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 52, height: 52, borderRadius: 14, marginBottom: 14, background: 'linear-gradient(135deg, rgba(139,92,246,0.2), rgba(76,215,246,0.1))', border: '1px solid rgba(139,92,246,0.3)' }}>
-              <span className="material-symbols-outlined" style={{ fontSize: 26, color: '#A78BFA', fontVariationSettings: "'FILL' 1" }}>{icon}</span>
+              <Icon name={icon} size={26} color="#A78BFA" />
             </div>
             <h2 style={{ fontSize: 20, fontWeight: 800, color: 'rgba(255,255,255,0.95)', margin: '0 0 6px' }}>{title}</h2>
             <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.4)', margin: 0, lineHeight: 1.5 }}>{subtitle}</p>

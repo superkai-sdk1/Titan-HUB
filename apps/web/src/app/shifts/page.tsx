@@ -1,5 +1,6 @@
 'use client'
 import { useState, useRef } from 'react'
+import { Icon } from '@/components/Icon'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { useCurrentShift, useOpenShift, useCloseShift } from '@/hooks/useShift'
@@ -117,7 +118,7 @@ function ShiftAnalytics({ shiftId, onClose }: { shiftId: string; onClose: () => 
               color: 'var(--on-surface-variant)',
             }}
           >
-            <span className="material-symbols-outlined" style={{ fontSize: 18 }}>close</span>
+            <Icon name="close" size={18} />
           </button>
         </div>
 
@@ -137,7 +138,7 @@ function ShiftAnalytics({ shiftId, onClose }: { shiftId: string; onClose: () => 
                 transition: 'all 0.2s', marginBottom: -1,
               }}
             >
-              <span className="material-symbols-outlined" style={{ fontSize: 15 }}>{t.icon}</span>
+              <Icon name={t.icon} size={15} />
               {t.label}
             </button>
           ))}
@@ -151,7 +152,7 @@ function ShiftAnalytics({ shiftId, onClose }: { shiftId: string; onClose: () => 
         >
           {isLoading ? (
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 200 }}>
-              <span className="material-symbols-outlined" style={{ fontSize: 32, color: 'rgba(204,195,216,0.3)', animation: 'spin 1s linear infinite' }}>refresh</span>
+              <Icon name="refresh" size={32} color="rgba(204,195,216,0.3)" style={{ animation: 'spin 1s linear infinite' }} />
             </div>
           ) : (
             <>
@@ -188,7 +189,7 @@ function OverviewTab({ data }: { data: any }) {
         {stats.map(s => (
           <div key={s.label} className="glass-l2" style={{ borderRadius: 14, padding: '16px 18px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
-              <span className="material-symbols-outlined" style={{ fontSize: 18, color: s.color }}>{s.icon}</span>
+              <Icon name={s.icon} size={18} color={s.color} />
             </div>
             <p style={{ fontSize: 24, fontWeight: 900, fontStyle: 'italic', fontVariantNumeric: 'tabular-nums', margin: '0 0 4px', color: 'var(--on-surface)' }}>{s.value}</p>
             <p style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--on-surface-variant)', margin: 0 }}>{s.label}</p>
@@ -245,7 +246,7 @@ function ChecksTab({ checks }: { checks: any[] }) {
             background: 'rgba(139,92,246,0.1)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
           }}>
-            <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#8B5CF6' }}>receipt</span>
+            <Icon name="receipt" size={18} color="#8B5CF6" />
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
             <p style={{ fontSize: 13, fontWeight: 600, margin: 0, color: 'var(--on-surface)' }}>
@@ -357,7 +358,7 @@ function OpenShiftModal({ onClose }: { onClose: () => void }) {
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
           <h2 style={{ fontSize: 18, fontWeight: 800, margin: 0 }}>Открыть смену</h2>
           <button onClick={onClose} style={{ width: 32, height: 32, borderRadius: 8, border: '1px solid rgba(255,255,255,0.1)', background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--on-surface-variant)' }}>
-            <span className="material-symbols-outlined" style={{ fontSize: 16 }}>close</span>
+            <Icon name="close" size={16} />
           </button>
         </div>
 
@@ -439,7 +440,7 @@ function CloseShiftModal({ onClose, onClosed }: { onClose: () => void; onClosed:
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
           <h2 style={{ fontSize: 18, fontWeight: 800, margin: 0 }}>Закрыть смену</h2>
           <button onClick={onClose} style={{ width: 32, height: 32, borderRadius: 8, border: '1px solid rgba(255,255,255,0.1)', background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--on-surface-variant)' }}>
-            <span className="material-symbols-outlined" style={{ fontSize: 16 }}>close</span>
+            <Icon name="close" size={16} />
           </button>
         </div>
 
@@ -485,9 +486,7 @@ function CloseShiftModal({ onClose, onClosed }: { onClose: () => void; onClosed:
               border: `1px solid ${diff === 0 ? '#10B981' : diff > 0 ? '#F59E0B' : '#F43F5E'}33`,
               display: 'flex', alignItems: 'center', gap: 10,
             }}>
-              <span className="material-symbols-outlined" style={{ fontSize: 18, color: diff === 0 ? '#10B981' : diff > 0 ? '#F59E0B' : '#F43F5E', flexShrink: 0 }}>
-                {diff === 0 ? 'check_circle' : diff > 0 ? 'arrow_circle_up' : 'arrow_circle_down'}
-              </span>
+              <Icon name={diff === 0 ? 'check_circle' : diff > 0 ? 'arrow_circle_up' : 'arrow_circle_down'} size={18} color={diff === 0 ? '#10B981' : diff > 0 ? '#F59E0B' : '#F43F5E'} />
               <div>
                 <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--on-surface)', margin: 0 }}>
                   {diff === 0 ? 'Касса совпадает' : diff > 0 ? 'Излишек' : 'Недостача'}
@@ -563,7 +562,7 @@ export default function ShiftsPage() {
               boxShadow: '0 4px 20px rgba(139,92,246,0.35)',
             }}
           >
-            <span className="material-symbols-outlined" style={{ fontSize: 18 }}>add</span>
+            <Icon name="add" size={18} />
             Открыть смену
           </button>
         )}
@@ -613,7 +612,7 @@ export default function ShiftsPage() {
                   e.currentTarget.style.borderColor = 'rgba(244,63,94,0.3)'
                 }}
               >
-                <span className="material-symbols-outlined" style={{ fontSize: 16 }}>stop_circle</span>
+                <Icon name="stop_circle" size={16} />
                 Закрыть смену
               </button>
             </div>
@@ -639,9 +638,7 @@ export default function ShiftsPage() {
           </div>
         ) : (
           <div className="glass-l2" style={{ borderRadius: 20, padding: 32, textAlign: 'center' }}>
-            <span className="material-symbols-outlined" style={{ fontSize: 48, color: 'rgba(204,195,216,0.2)', display: 'block', marginBottom: 12 }}>
-              schedule
-            </span>
+            <Icon name="schedule" size={48} color="rgba(204,195,216,0.2)" style={{ display: 'block', marginBottom: 12 }} />
             <p style={{ fontSize: 16, fontWeight: 600, color: 'var(--on-surface)', margin: '0 0 6px' }}>Смена не открыта</p>
             <p style={{ fontSize: 13, color: 'var(--on-surface-variant)', margin: '0 0 24px' }}>Откройте смену, чтобы начать принимать чеки</p>
             <button
@@ -692,9 +689,7 @@ export default function ShiftsPage() {
                   background: row.shift.status === 'open' ? 'rgba(16,185,129,0.1)' : 'rgba(139,92,246,0.08)',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                 }}>
-                  <span className="material-symbols-outlined" style={{ fontSize: 20, color: row.shift.status === 'open' ? '#10B981' : 'rgba(204,195,216,0.5)' }}>
-                    {row.shift.status === 'open' ? 'radio_button_checked' : 'check_circle'}
-                  </span>
+                  <Icon name={row.shift.status === 'open' ? 'radio_button_checked' : 'check_circle'} size={20} color={row.shift.status === 'open' ? '#10B981' : 'rgba(204,195,216,0.5)'} />
                 </div>
 
                 <div style={{ flex: 1, minWidth: 0 }}>
@@ -719,9 +714,7 @@ export default function ShiftsPage() {
                 </div>
 
                 {row.shift.status === 'closed' && (
-                  <span className="material-symbols-outlined" style={{ fontSize: 18, color: 'rgba(204,195,216,0.3)', flexShrink: 0 }}>
-                    chevron_right
-                  </span>
+                  <Icon name="chevron_right" size={18} color="rgba(204,195,216,0.3)" />
                 )}
               </div>
             ))}

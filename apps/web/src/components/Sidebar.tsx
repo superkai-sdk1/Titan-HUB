@@ -3,6 +3,7 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { useState } from 'react'
 import { useCurrentShift } from '@/hooks/useShift'
+import { Icon } from '@/components/Icon'
 
 interface NavItem {
   href: string
@@ -118,9 +119,7 @@ export function Sidebar() {
               transition: 'all 0.2s',
             }}
           >
-            <span className="material-symbols-outlined" style={{ fontSize: 18 }}>
-              {collapsed ? 'chevron_right' : 'chevron_left'}
-            </span>
+            <Icon name={collapsed ? 'chevron_right' : 'chevron_left'} size={18} />
           </button>
         </div>
 
@@ -151,18 +150,7 @@ export function Sidebar() {
                   transition: 'all 0.2s',
                 }}
               >
-                <span
-                  className="material-symbols-outlined"
-                  style={{
-                    fontSize: 20,
-                    fontVariationSettings: active
-                      ? "'FILL' 1, 'wght' 500, 'GRAD' 0, 'opsz' 20"
-                      : "'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 20",
-                    flexShrink: 0,
-                  }}
-                >
-                  {icon}
-                </span>
+                <Icon name={icon} size={20} />
                 {!collapsed && (
                   <span style={{ fontSize: 14, fontWeight: active ? 600 : 400, whiteSpace: 'nowrap' }}>{label}</span>
                 )}
@@ -194,9 +182,7 @@ export function Sidebar() {
                   transition: 'all 0.2s',
                 }}
               >
-                <span className="material-symbols-outlined" style={{ fontSize: 20, flexShrink: 0 }}>
-                  {icon}
-                </span>
+                <Icon name={icon} size={20} />
                 {!collapsed && <span style={{ fontSize: 14, whiteSpace: 'nowrap' }}>{label}</span>}
               </Link>
             )
@@ -216,9 +202,7 @@ export function Sidebar() {
                 opacity: shift ? 1 : 0.4,
               }}
             >
-              <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#fff', fontVariationSettings: "'FILL' 1" }}>
-                stop_circle
-              </span>
+              <Icon name="stop_circle" size={18} color="#fff" />
             </button>
           ) : (
             <button

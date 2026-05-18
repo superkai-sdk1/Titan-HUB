@@ -1,6 +1,7 @@
 'use client'
 import { useState, useCallback, createContext, useContext, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
+import { Icon } from '@/components/Icon'
 
 type ToastType = 'success' | 'error' | 'warning' | 'info'
 
@@ -84,7 +85,7 @@ function ToastContainer({ toasts, onDismiss }: { toasts: Toast[]; onDismiss: (id
                 pointerEvents: 'all',
               }}
             >
-              <span className="material-symbols-outlined" style={{ fontSize: 18, color, flexShrink: 0, fontVariationSettings: "'FILL' 1" }}>{icon}</span>
+              <Icon name={icon} size={18} color={color} />
               <span style={{ flex: 1, fontSize: 13, fontWeight: 500, color: 'var(--on-surface)' }}>
                 {toast.message}
               </span>
@@ -92,7 +93,7 @@ function ToastContainer({ toasts, onDismiss }: { toasts: Toast[]; onDismiss: (id
                 onClick={() => onDismiss(toast.id)}
                 style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--on-surface-variant)', display: 'flex', padding: 2, flexShrink: 0 }}
               >
-                <span className="material-symbols-outlined" style={{ fontSize: 14 }}>close</span>
+                <Icon name="close" size={14} />
               </button>
             </motion.div>
           )

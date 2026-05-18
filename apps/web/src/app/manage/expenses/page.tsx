@@ -5,6 +5,7 @@ import { api } from '@/lib/api'
 import { format } from 'date-fns'
 import { ru } from 'date-fns/locale'
 import { PageHeader, Sheet, INP, LBL } from '@/components/manage/DesignSystem'
+import { Icon } from '@/components/Icon'
 
 interface Expense {
   id: string
@@ -129,7 +130,7 @@ export default function ExpensesPage() {
                   <div key={cat}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <span className="material-symbols-outlined" style={{ fontSize: 12, color }}>{icon}</span>
+                        <Icon name={icon} size={12} color={color} />
                         <span style={{ fontSize: 12, color: 'var(--on-surface-variant)' }}>{label}</span>
                       </div>
                       <span style={{ fontSize: 12, fontWeight: 700, color, fontFamily: "'JetBrains Mono',monospace" }}>{formatAmount(amt)}</span>
@@ -146,7 +147,7 @@ export default function ExpensesPage() {
 
         {expenses.length === 0 ? (
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', paddingTop: 60, gap: 16, color: 'var(--on-surface-variant)' }}>
-            <span className="material-symbols-outlined" style={{ fontSize: 56, opacity: 0.4 }}>receipt_long</span>
+            <Icon name="receipt_long" size={56} style={{ opacity: 0.4 }} />
             <p style={{ margin: 0, fontSize: 15 }}>Расходов нет</p>
           </div>
         ) : (
@@ -158,7 +159,7 @@ export default function ExpensesPage() {
               return (
                 <div key={e.id} className="glass-l2" style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 16px', borderRadius: 14 }}>
                   <div style={{ width: 44, height: 44, borderRadius: '50%', flexShrink: 0, background: `${catColor}22`, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: `0 0 12px ${catColor}22` }}>
-                    <span className="material-symbols-outlined" style={{ fontSize: 22, color: catColor }}>{catIcon}</span>
+                    <Icon name={catIcon} size={22} color={catColor} />
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 4 }}>
@@ -171,7 +172,7 @@ export default function ExpensesPage() {
                     </div>
                   </div>
                   <button onClick={() => deleteMutation.mutate(e.id)} disabled={deleteMutation.isPending} style={{ width: 34, height: 34, borderRadius: 10, flexShrink: 0, border: '1px solid rgba(239,68,68,0.2)', background: 'rgba(239,68,68,0.06)', color: '#EF4444', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <span className="material-symbols-outlined" style={{ fontSize: 16 }}>delete</span>
+                    <Icon name="delete" size={16} />
                   </button>
                 </div>
               )
@@ -190,7 +191,7 @@ export default function ExpensesPage() {
             <div style={{ display: 'flex', flexWrap: 'wrap' as const, gap: 8 }}>
               {Object.entries(CATEGORY_MAP).map(([key, [label, icon, color]]) => (
                 <button key={key} onClick={() => setFormCategory(key)} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 10, border: `1px solid ${formCategory === key ? color : 'rgba(255,255,255,0.1)'}`, background: formCategory === key ? `${color}22` : 'rgba(255,255,255,0.04)', color: formCategory === key ? color : 'var(--on-surface-variant)', fontSize: 12, fontWeight: 600, cursor: 'pointer', transition: 'all 0.15s' }}>
-                  <span className="material-symbols-outlined" style={{ fontSize: 14 }}>{icon}</span>{label}
+                  <Icon name={icon} size={14} />{label}
                 </button>
               ))}
             </div>

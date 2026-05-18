@@ -6,6 +6,7 @@ import { format, formatDistanceToNow } from 'date-fns'
 import { ru } from 'date-fns/locale'
 import { PageHeader, Sheet, INP, SEL, LBL } from '@/components/manage/DesignSystem'
 import { PullToRefreshContainer } from '@/components/PullToRefreshContainer'
+import { Icon } from '@/components/Icon'
 
 const TIER_COLORS: Record<string, string> = {
   guest: 'rgba(204,195,216,0.6)', resident: '#8B5CF6', student: '#3B82F6',
@@ -69,7 +70,7 @@ export default function ClientsPage() {
       <div style={{ background: 'rgba(21,18,27,0.95)', backdropFilter: 'blur(16px)', borderBottom: '1px solid rgba(255,255,255,0.06)', padding: '12px 16px' }}>
         <div style={{ maxWidth: 680, margin: '0 auto' }}>
           <div style={{ position: 'relative', marginBottom: 10 }}>
-            <span className="material-symbols-outlined" style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', fontSize: 18, color: 'var(--on-surface-variant)', pointerEvents: 'none' }}>search</span>
+            <Icon name="search" size={18} color="var(--on-surface-variant)" style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }} />
             <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Поиск по нику или телефону…" style={{ ...INP, paddingLeft: 42, borderRadius: 12 }} />
           </div>
           <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 2 }}>
@@ -86,7 +87,7 @@ export default function ClientsPage() {
       <div style={{ padding: '16px', flex: 1, maxWidth: 680, margin: '0 auto', width: '100%' }}>
         {clients.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '60px 0' }}>
-            <span className="material-symbols-outlined" style={{ fontSize: 56, color: 'rgba(204,195,216,0.2)', display: 'block', marginBottom: 12 }}>group</span>
+            <Icon name="group" size={56} color="rgba(204,195,216,0.2)" style={{ display: 'block', marginBottom: 12 }} />
             <p style={{ fontSize: 15, color: 'rgba(204,195,216,0.4)', margin: 0 }}>Клиенты не найдены</p>
           </div>
         ) : (
@@ -112,7 +113,7 @@ export default function ClientsPage() {
                   <div style={{ textAlign: 'right', flexShrink: 0 }}>
                     <p style={{ fontSize: 14, fontWeight: 700, fontStyle: 'italic', color: 'var(--on-surface)', margin: 0, fontFamily: "'JetBrains Mono',monospace" }}>{fmt(parseNum(c.balance))} ₽</p>
                     <p style={{ fontSize: 11, color: '#EAB308', margin: '3px 0 0', display: 'flex', alignItems: 'center', gap: 3, justifyContent: 'flex-end' }}>
-                      <span className="material-symbols-outlined" style={{ fontSize: 12, fontVariationSettings: "'FILL' 1" }}>star</span>{fmt(parseNum(c.bonusPoints))}
+                      <Icon name="star" size={12} />{fmt(parseNum(c.bonusPoints))}
                     </p>
                   </div>
                 </div>
@@ -155,7 +156,7 @@ export default function ClientsPage() {
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8, marginBottom: 16 }}>
                 {[['account_balance_wallet', 'Баланс', `${fmt(parseNum(selected.balance))} ₽`, '#8B5CF6'], ['star', 'Бонусы', fmt(parseNum(selected.bonusPoints)), '#EAB308'], ['calendar_today', 'Рег-ция', selected.createdAt ? format(new Date(selected.createdAt), 'd MMM yy', { locale: ru }) : '—', '#4cd7f6']].map(([icon, lbl, val, color]) => (
                   <div key={lbl as string} style={{ padding: 12, borderRadius: 12, background: 'rgba(255,255,255,0.04)', textAlign: 'center' }}>
-                    <span className="material-symbols-outlined" style={{ fontSize: 18, color: color as string, display: 'block', marginBottom: 4 }}>{icon}</span>
+                    <Icon name={icon as string} size={18} color={color as string} style={{ display: 'block', marginBottom: 4 }} />
                     <p style={{ fontSize: 13, fontWeight: 700, margin: '0 0 2px', fontFamily: "'JetBrains Mono',monospace" }}>{val}</p>
                     <p style={{ fontSize: 9, color: 'var(--on-surface-variant)', margin: 0, textTransform: 'uppercase', letterSpacing: '0.06em', fontFamily: "'JetBrains Mono',monospace" }}>{lbl}</p>
                   </div>
@@ -182,7 +183,7 @@ export default function ClientsPage() {
                     <div style={{ display: 'flex', gap: 8 }}><input type="number" value={bonAmt} onChange={e => setBonAmt(e.target.value)} placeholder="100 или -100" style={{ ...INP, flex: 1 }} /><button onClick={() => adjBon.mutate({ id: selected.id, amount: Number(bonAmt) })} disabled={!bonAmt} style={{ padding: '12px 16px', borderRadius: 12, border: 'none', background: '#EAB308', color: '#000', fontSize: 13, fontWeight: 700, cursor: 'pointer', flexShrink: 0 }}>OK</button></div>
                   </div>
                   <button onClick={() => update.mutate({ id: selected.id, deletedAt: new Date().toISOString() })} style={{ width: '100%', padding: '12px 0', borderRadius: 14, border: '1px solid rgba(244,63,94,0.3)', background: 'rgba(244,63,94,0.08)', color: '#F87171', fontSize: 13, fontWeight: 600, cursor: 'pointer', marginTop: 4 }}>
-                    <span className="material-symbols-outlined" style={{ fontSize: 16, verticalAlign: 'middle', marginRight: 6 }}>block</span>Заблокировать
+                    <Icon name="block" size={16} style={{ verticalAlign: 'middle', marginRight: 6 }} />Заблокировать
                   </button>
                 </div>
               )}

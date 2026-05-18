@@ -5,6 +5,7 @@
  */
 import { useEffect, useState, useRef } from 'react'
 import { useAuthStore } from '@/store/auth.store'
+import { Icon } from '@/components/Icon'
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? '/api'
 
@@ -121,7 +122,7 @@ export function StaffNotifications() {
               width: 36, height: 36, borderRadius: 10, background: `${color}22`,
               display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
             }}>
-              <span className="material-symbols-outlined" style={{ fontSize: 20, color }}>{icon}</span>
+              <Icon name={icon} size={20} color={color} />
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>
               <p style={{ fontSize: 13, fontWeight: 700, margin: '0 0 2px', color: 'var(--on-surface)' }}>{t.title}</p>

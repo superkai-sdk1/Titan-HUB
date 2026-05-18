@@ -1,5 +1,6 @@
 'use client'
 import { useState } from 'react'
+import { Icon } from '@/components/Icon'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { format, subDays, startOfMonth, endOfMonth } from 'date-fns'
@@ -54,7 +55,7 @@ function KpiCard({ label, value, rawValue, suffix = ' ₽', sub, delta, icon, ic
     <div className="glass-l2 ti-slide-up" style={{ borderRadius: 16, padding: 20 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
         <div style={{ width: 40, height: 40, borderRadius: 12, background: iconBg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <span className="material-symbols-outlined" style={{ fontSize: 20, color: iconColor }}>{icon}</span>
+          <Icon name={icon} size={20} color={iconColor} />
         </div>
         {delta !== undefined && <DeltaBadge delta={delta} />}
       </div>
@@ -70,7 +71,7 @@ function DeltaBadge({ delta }: { delta: number }) {
   const up = delta > 0
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 3, background: up ? 'rgba(16,185,129,0.1)' : 'rgba(244,63,94,0.1)', borderRadius: 6, padding: '2px 7px' }}>
-      <span className="material-symbols-outlined" style={{ fontSize: 11, color: up ? '#10B981' : '#F43F5E' }}>{up ? 'trending_up' : 'trending_down'}</span>
+      <Icon name={up ? 'trending_up' : 'trending_down'} size={11} color={up ? '#10B981' : '#F43F5E'} />
       <span style={{ fontSize: 10, fontWeight: 700, color: up ? '#10B981' : '#F43F5E' }}>{up ? '+' : ''}{delta}%</span>
     </div>
   )
@@ -162,13 +163,13 @@ function OverviewTab({ dash, revenue }: { dash: any; revenue: any }) {
             <span style={LBL}>День</span>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <button onClick={() => setDayOffset(d => d + 1)} style={{ width: 28, height: 28, borderRadius: 8, border: '1px solid rgba(255,255,255,0.1)', background: 'transparent', color: 'var(--on-surface-variant)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <span className="material-symbols-outlined" style={{ fontSize: 16 }}>chevron_left</span>
+                <Icon name="chevron_left" size={16} />
               </button>
               <span style={{ fontSize: 12, fontWeight: 600, minWidth: 80, textAlign: 'center' }}>
                 {dayOffset === 0 ? 'Сегодня' : dayOffset === 1 ? 'Вчера' : format(targetDate, 'd MMM', { locale: ru })}
               </span>
               <button onClick={() => setDayOffset(d => Math.max(0, d - 1))} disabled={dayOffset === 0} style={{ width: 28, height: 28, borderRadius: 8, border: '1px solid rgba(255,255,255,0.1)', background: 'transparent', color: dayOffset === 0 ? 'rgba(204,195,216,0.2)' : 'var(--on-surface-variant)', cursor: dayOffset === 0 ? 'default' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <span className="material-symbols-outlined" style={{ fontSize: 16 }}>chevron_right</span>
+                <Icon name="chevron_right" size={16} />
               </button>
             </div>
           </div>
@@ -488,7 +489,7 @@ function PlayersTab({ clients }: { clients: any }) {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
           {segData.map(seg => (
             <div key={seg.label} style={{ padding: 14, borderRadius: 12, background: `${seg.color}10`, border: `1px solid ${seg.color}22` }}>
-              <span className="material-symbols-outlined" style={{ fontSize: 18, color: seg.color }}>{seg.icon}</span>
+              <Icon name={seg.icon} size={18} color={seg.color} />
               <p style={{ fontSize: 24, fontWeight: 900, fontStyle: 'italic', color: 'var(--on-surface)', margin: '8px 0 2px', lineHeight: 1 }}>{seg.value}</p>
               <p style={{ fontSize: 11, color: seg.color, fontWeight: 600, margin: '0 0 2px' }}>{seg.label}</p>
               <p style={{ fontSize: 10, color: 'var(--on-surface-variant)', margin: '0 0 8px' }}>{seg.desc}</p>
@@ -592,7 +593,7 @@ export default function DashboardPage() {
               fontSize: 12, fontWeight: activeTab === tab.key ? 600 : 400,
               transition: 'all 0.2s', marginBottom: -1, whiteSpace: 'nowrap', flexShrink: 0,
             }}>
-              <span className="material-symbols-outlined" style={{ fontSize: 15, fontVariationSettings: activeTab === tab.key ? "'FILL' 1" : "'FILL' 0" }}>{tab.icon}</span>
+              <Icon name={tab.icon} size={15} />
               <span className="dash-tab-label">{tab.label}</span>
             </button>
           ))}

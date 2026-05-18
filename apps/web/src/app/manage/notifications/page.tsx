@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { format } from 'date-fns'
 import { ru } from 'date-fns/locale'
+import { Icon } from '@/components/Icon'
 
 const INP: React.CSSProperties = { width: '100%', padding: '12px 16px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.05)', color: 'var(--on-surface)', fontSize: 14, outline: 'none', boxSizing: 'border-box' }
 const SEL: React.CSSProperties = { width: '100%', padding: '12px 16px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(29,26,36,0.8)', color: 'var(--on-surface)', fontSize: 14, outline: 'none', cursor: 'pointer', boxSizing: 'border-box' }
@@ -123,7 +124,7 @@ export default function NotificationsPage() {
             opacity: unreadCount === 0 ? 0.4 : 1,
           }}
         >
-          <span className="material-symbols-outlined" style={{ fontSize: 16 }}>done_all</span>
+          <Icon name="done_all" size={16} />
           Отметить все
         </button>
       </div>
@@ -132,7 +133,7 @@ export default function NotificationsPage() {
       <div style={{ padding: '0 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
         {notifications.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '64px 20px', color: 'var(--on-surface-variant)' }}>
-            <span className="material-symbols-outlined" style={{ fontSize: 56, display: 'block', marginBottom: 12, opacity: 0.4 }}>notifications_off</span>
+            <Icon name="notifications_off" size={56} style={{ display: 'block', marginBottom: 12, opacity: 0.4 }} />
             <p style={{ margin: 0, fontSize: 15 }}>Нет уведомлений</p>
           </div>
         ) : (
@@ -167,7 +168,7 @@ export default function NotificationsPage() {
                   background: 'rgba(255,255,255,0.08)',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                 }}>
-                  <span className="material-symbols-outlined" style={{ fontSize: 18, color: 'var(--primary)' }}>{icon}</span>
+                  <Icon name={icon} size={18} color="var(--primary)" />
                 </div>
 
                 {/* Content */}
@@ -216,9 +217,7 @@ export default function NotificationsPage() {
               }}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <span className="material-symbols-outlined" style={{ fontSize: 18, color: 'var(--on-surface-variant)' }}>
-                  {TYPE_ICONS[key] ?? 'notifications'}
-                </span>
+                <Icon name={TYPE_ICONS[key] ?? 'notifications'} size={18} color="var(--on-surface-variant)" />
                 <span style={{ fontSize: 14, color: 'var(--on-surface)' }}>{label}</span>
               </div>
               <button

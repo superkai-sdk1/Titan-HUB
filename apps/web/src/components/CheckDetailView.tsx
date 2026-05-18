@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { differenceInMinutes } from 'date-fns'
 import { SwipeableRow } from '@/components/SwipeableRow'
+import { Icon } from '@/components/Icon'
 
 interface InventoryItem {
   id: string
@@ -296,9 +297,7 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             boxShadow: '0 0 32px rgba(52,211,153,0.3)',
           }}>
-            <span className="material-symbols-outlined" style={{ fontSize: 44, color: 'var(--success)', fontVariationSettings: "'FILL' 1" }}>
-              check_circle
-            </span>
+            <Icon name="check_circle" size={44} color="var(--success)" />
           </div>
           <h2 style={{ fontSize: 28, fontWeight: 900, fontStyle: 'italic', textTransform: 'uppercase', color: 'var(--success)', marginBottom: 8 }}>
             ОПЛАЧЕНО!
@@ -329,7 +328,7 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
             display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
           }}
         >
-          <span className="material-symbols-outlined" style={{ fontSize: 18 }}>arrow_back</span>
+          <Icon name="arrow_back" size={18} />
         </button>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 0 }}>
@@ -403,9 +402,7 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
                       display: 'flex', alignItems: 'center', justifyContent: 'center',
                     }}
                   >
-                    <span className="material-symbols-outlined" style={{ fontSize: 14 }}>
-                      {ci.checkItem.quantity === 1 ? 'delete' : 'remove'}
-                    </span>
+                    <Icon name={ci.checkItem.quantity === 1 ? 'delete' : 'remove'} size={14} />
                   </button>
                   <span style={{ width: 22, textAlign: 'center', fontSize: 13, fontWeight: 700, color: 'var(--on-surface)' }}>
                     {ci.checkItem.quantity}
@@ -418,7 +415,7 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
                       display: 'flex', alignItems: 'center', justifyContent: 'center',
                     }}
                   >
-                    <span className="material-symbols-outlined" style={{ fontSize: 14 }}>add</span>
+                    <Icon name="add" size={14} />
                   </button>
                 </div>
                 <p style={{ fontSize: 14, fontStyle: 'italic', fontWeight: 800, fontVariantNumeric: 'tabular-nums', color: 'var(--on-surface)', width: 64, textAlign: 'right', margin: 0 }}>
@@ -430,9 +427,7 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
 
             {check?.items.length === 0 && !isLoading && (
               <div style={{ textAlign: 'center', padding: '48px 0', color: 'var(--on-surface-variant)' }}>
-                <span className="material-symbols-outlined" style={{ fontSize: 40, display: 'block', marginBottom: 12, opacity: 0.4 }}>
-                  shopping_cart
-                </span>
+                <Icon name="shopping_cart" size={40} style={{ display: 'block', marginBottom: 12, opacity: 0.4 }} />
                 <p style={{ fontSize: 13 }}>Добавьте товары из меню →</p>
               </div>
             )}
@@ -443,7 +438,7 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
             {spaceRental > 0 && (
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
                 <span style={{ fontSize: 12, color: 'var(--on-surface-variant)', display: 'flex', alignItems: 'center', gap: 5 }}>
-                  <span className="material-symbols-outlined" style={{ fontSize: 14 }}>meeting_room</span>
+                  <Icon name="meeting_room" size={14} />
                   Аренда (живой счётчик)
                 </span>
                 <span style={{ fontSize: 13, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: '#A78BFA' }}>
@@ -471,7 +466,7 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
                     display: 'flex', alignItems: 'center', gap: 8,
                   }}
                 >
-                  <span className="material-symbols-outlined" style={{ fontSize: 18 }}>add</span>
+                  <Icon name="add" size={18} />
                   Добавить
                 </button>
                 <button
@@ -529,12 +524,12 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
                   onClick={() => setShowMenuDrawer(false)}
                   style={{ width: 32, height: 32, borderRadius: 9, border: '1px solid rgba(255,255,255,0.1)', background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--on-surface-variant)' }}
                 >
-                  <span className="material-symbols-outlined" style={{ fontSize: 16 }}>close</span>
+                  <Icon name="close" size={16} />
                 </button>
               </div>
               {/* Search */}
               <div style={{ position: 'relative', marginBottom: 8 }}>
-                <span className="material-symbols-outlined" style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', fontSize: 16, color: 'var(--on-surface-variant)' }}>search</span>
+                <Icon name="search" size={16} color="var(--on-surface-variant)" style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)' }} />
                 <input
                   value={search}
                   onChange={e => setSearch(e.target.value)}
@@ -605,7 +600,7 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                     boxShadow: '0 4px 20px rgba(139,92,246,0.35)',
                   }}>
-                    <span className="material-symbols-outlined" style={{ fontSize: 28, color: '#fff', fontVariationSettings: "'FILL' 1" }}>payments</span>
+                    <Icon name="payments" size={28} color="#fff" />
                   </div>
                   <div style={{ flex: 1 }}>
                     <h2 style={{ fontSize: 20, fontWeight: 900, fontStyle: 'italic', textTransform: 'uppercase', margin: 0, color: 'var(--on-surface)' }}>ОПЛАТА</h2>
@@ -617,7 +612,7 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
                     onClick={() => setShowPayment(false)}
                     style={{ width: 32, height: 32, borderRadius: 10, border: 'none', cursor: 'pointer', background: 'rgba(255,255,255,0.06)', color: 'var(--on-surface-variant)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
                   >
-                    <span className="material-symbols-outlined" style={{ fontSize: 16 }}>close</span>
+                    <Icon name="close" size={16} />
                   </button>
                 </div>
 
@@ -671,9 +666,7 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
                         onMouseEnter={e => { if (!disabled) { e.currentTarget.style.background = `rgba(${cfg.rgb},0.12)`; e.currentTarget.style.boxShadow = `0 0 20px rgba(${cfg.rgb},0.2), inset 0 0 0 1px rgba(${cfg.rgb},0.35)` } }}
                         onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; e.currentTarget.style.boxShadow = 'inset 0 0 0 1px rgba(255,255,255,0.07)' }}
                       >
-                        <span className="material-symbols-outlined" style={{ fontSize: 22, color: cfg.color, fontVariationSettings: "'FILL' 1, 'wght' 400" }}>
-                          {cfg.icon}
-                        </span>
+                        <Icon name={cfg.icon} size={22} color={cfg.color} />
                         <div>
                           <p style={{ fontSize: 12, fontWeight: 600, color: 'var(--on-surface)', margin: 0 }}>{cfg.label}</p>
                           {id === 'bonus' && player && <p style={{ fontSize: 10, color: 'var(--pay-bonus)', margin: '2px 0 0', fontVariantNumeric: 'tabular-nums' }}>{playerBonus.toLocaleString('ru')} б.</p>}
@@ -691,7 +684,7 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
               <div style={{ padding: '28px 28px 32px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
                   <button onClick={() => setPayScreen('methods')} style={{ width: 36, height: 36, borderRadius: 10, border: 'none', cursor: 'pointer', background: 'rgba(255,255,255,0.06)', color: 'var(--on-surface-variant)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                    <span className="material-symbols-outlined" style={{ fontSize: 18 }}>arrow_back</span>
+                    <Icon name="arrow_back" size={18} />
                   </button>
                   <h2 style={{ fontSize: 18, fontWeight: 900, fontStyle: 'italic', textTransform: 'uppercase', margin: 0, color: 'var(--on-surface)' }}>БОНУСНАЯ ОПЛАТА</h2>
                 </div>
@@ -758,7 +751,7 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
               <div style={{ padding: '28px 28px 32px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
                   <button onClick={() => setPayScreen('methods')} style={{ width: 36, height: 36, borderRadius: 10, border: 'none', cursor: 'pointer', background: 'rgba(255,255,255,0.06)', color: 'var(--on-surface-variant)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                    <span className="material-symbols-outlined" style={{ fontSize: 18 }}>arrow_back</span>
+                    <Icon name="arrow_back" size={18} />
                   </button>
                   <h2 style={{ fontSize: 18, fontWeight: 900, fontStyle: 'italic', textTransform: 'uppercase', margin: 0, color: 'var(--on-surface)' }}>ОПЛАТА ДЕПОЗИТОМ</h2>
                 </div>
@@ -794,7 +787,7 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
               <div style={{ padding: '28px 28px 32px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
                   <button onClick={() => setPayScreen('methods')} style={{ width: 36, height: 36, borderRadius: 10, border: 'none', cursor: 'pointer', background: 'rgba(255,255,255,0.06)', color: 'var(--on-surface-variant)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                    <span className="material-symbols-outlined" style={{ fontSize: 18 }}>arrow_back</span>
+                    <Icon name="arrow_back" size={18} />
                   </button>
                   <h2 style={{ fontSize: 18, fontWeight: 900, fontStyle: 'italic', textTransform: 'uppercase', margin: 0, color: 'var(--on-surface)' }}>СЕРТИФИКАТ</h2>
                 </div>
@@ -825,7 +818,7 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
               <div style={{ padding: '28px 28px 32px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
                   <button onClick={() => setPayScreen('methods')} style={{ width: 36, height: 36, borderRadius: 10, border: 'none', cursor: 'pointer', background: 'rgba(255,255,255,0.06)', color: 'var(--on-surface-variant)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                    <span className="material-symbols-outlined" style={{ fontSize: 18 }}>arrow_back</span>
+                    <Icon name="arrow_back" size={18} />
                   </button>
                   <div>
                     <h2 style={{ fontSize: 18, fontWeight: 900, fontStyle: 'italic', textTransform: 'uppercase', margin: 0, color: 'var(--on-surface)' }}>ПОДТВЕРЖДЕНИЕ</h2>
@@ -852,11 +845,11 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
                   {splitParts.map((part, idx) => (
                     <div key={idx} className="glass-l2" style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.07)' }}>
-                      <span className="material-symbols-outlined" style={{ fontSize: 18, color: methodColor(part.method), fontVariationSettings: "'FILL' 1" }}>{methodIcon(part.method)}</span>
+                      <Icon name={methodIcon(part.method)} size={18} color={methodColor(part.method)} />
                       <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: 'var(--on-surface)' }}>{part.label ?? methodLabel(part.method)}</span>
                       <span style={{ fontSize: 14, fontWeight: 800, fontVariantNumeric: 'tabular-nums', color: methodColor(part.method) }}>{part.amount.toLocaleString('ru')} ₽</span>
                       <button onClick={() => removeSplitPart(idx)} style={{ width: 28, height: 28, borderRadius: 8, border: 'none', cursor: 'pointer', background: 'rgba(244,63,94,0.1)', color: 'var(--danger)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                        <span className="material-symbols-outlined" style={{ fontSize: 14 }}>close</span>
+                        <Icon name="close" size={14} />
                       </button>
                     </div>
                   ))}

@@ -2,6 +2,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuthStore } from '@/store/auth.store'
+import { Icon } from '@/components/Icon'
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? '/api'
 
@@ -78,7 +79,7 @@ export default function TabletPairPage() {
         border: '1px solid rgba(139,92,246,0.25)',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
       }}>
-        <span className="material-symbols-outlined" style={{ fontSize: 52, color: '#A78BFA' }}>tablet_mac</span>
+        <Icon name="tablet_mac" size={52} color="#A78BFA" />
       </div>
       <div style={{ textAlign: 'center', maxWidth: 480 }}>
         <h1 style={{ fontSize: 28, fontWeight: 900, fontStyle: 'italic', textTransform: 'uppercase', margin: '0 0 12px' }}>

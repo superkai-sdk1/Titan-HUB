@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { format } from 'date-fns'
 import { ru } from 'date-fns/locale'
+import { Icon } from '@/components/Icon'
 
 const INP: React.CSSProperties = { width: '100%', padding: '12px 16px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.05)', color: 'var(--on-surface)', fontSize: 14, outline: 'none', boxSizing: 'border-box' }
 const SEL: React.CSSProperties = { width: '100%', padding: '12px 16px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(29,26,36,0.8)', color: 'var(--on-surface)', fontSize: 14, outline: 'none', cursor: 'pointer', boxSizing: 'border-box' }
@@ -139,7 +140,7 @@ export default function SuppliesPage() {
             color: '#fff', flexShrink: 0,
           }}
         >
-          <span className="material-symbols-outlined" style={{ fontSize: 18 }}>add</span>
+          <Icon name="add" size={18} />
           Добавить
         </button>
       </div>
@@ -148,7 +149,7 @@ export default function SuppliesPage() {
       <div style={{ padding: '0 16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
         {supplies.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '64px 20px', color: 'var(--on-surface-variant)' }}>
-            <span className="material-symbols-outlined" style={{ fontSize: 56, display: 'block', marginBottom: 12, opacity: 0.4 }}>inventory_2</span>
+            <Icon name="inventory_2" size={56} style={{ display: 'block', marginBottom: 12, opacity: 0.4 }} />
             <p style={{ margin: 0, fontSize: 15 }}>Закупок нет</p>
           </div>
         ) : (
@@ -185,10 +186,7 @@ export default function SuppliesPage() {
                       {total.toLocaleString('ru')} ₽
                     </p>
                   </div>
-                  <span className="material-symbols-outlined" style={{
-                    fontSize: 20, color: 'var(--on-surface-variant)',
-                    transform: isOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s',
-                  }}>expand_more</span>
+                  <Icon name="expand_more" size={20} color="var(--on-surface-variant)" style={{ transform: isOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
                 </button>
 
                 {isOpen && (
@@ -237,7 +235,7 @@ export default function SuppliesPage() {
                 onClick={() => setShowModal(false)}
                 style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4 }}
               >
-                <span className="material-symbols-outlined" style={{ fontSize: 22, color: 'var(--on-surface-variant)' }}>close</span>
+                <Icon name="close" size={22} color="var(--on-surface-variant)" />
               </button>
             </div>
 
@@ -262,7 +260,7 @@ export default function SuppliesPage() {
                       padding: '4px 10px', cursor: 'pointer', fontSize: 12, color: 'var(--on-surface)',
                     }}
                   >
-                    <span className="material-symbols-outlined" style={{ fontSize: 14 }}>add</span>
+                    <Icon name="add" size={14} />
                     Добавить
                   </button>
                 </div>
@@ -278,7 +276,7 @@ export default function SuppliesPage() {
                             onClick={() => setItems(prev => prev.filter(i => i._key !== item._key))}
                             style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2 }}
                           >
-                            <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#f87171' }}>delete</span>
+                            <Icon name="delete" size={18} color="#f87171" />
                           </button>
                         )}
                       </div>

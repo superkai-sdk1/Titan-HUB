@@ -1,5 +1,6 @@
 'use client'
 import { useState, useEffect, useRef, useCallback, Suspense } from 'react'
+import { Icon } from '@/components/Icon'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
@@ -365,7 +366,7 @@ function PosPageInner() {
             <h2 className="pos-header-title" style={{ margin: 0, color: 'var(--on-surface)', flexShrink: 0 }}>Касса</h2>
             {checks.length > 0 && (
               <div className="glass-l2" style={{ borderRadius: 999, padding: '3px 9px', display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
-                <span className="material-symbols-outlined" style={{ fontSize: 13, color: 'var(--on-surface-variant)' }}>groups</span>
+                <Icon name="groups" size={13} color="var(--on-surface-variant)" />
                 <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--on-surface-variant)' }}>{checks.length}</span>
               </div>
             )}
@@ -379,7 +380,7 @@ function PosPageInner() {
                 title="Отчёт смены"
                 style={{ width: 36, height: 36, borderRadius: 10, border: '1px solid rgba(255,255,255,0.1)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
               >
-                <span className="material-symbols-outlined" style={{ fontSize: 18, color: 'var(--on-surface-variant)' }}>print</span>
+                <Icon name="print" size={18} color="var(--on-surface-variant)" />
               </button>
               <button
                 onClick={() => router.push('/manage/refunds')}
@@ -387,7 +388,7 @@ function PosPageInner() {
                 title="Возврат"
                 style={{ width: 36, height: 36, borderRadius: 10, border: '1px solid rgba(255,255,255,0.1)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
               >
-                <span className="material-symbols-outlined" style={{ fontSize: 18, color: 'var(--on-surface-variant)' }}>undo</span>
+                <Icon name="undo" size={18} color="var(--on-surface-variant)" />
               </button>
             </div>
           )}
@@ -552,12 +553,11 @@ function PosPageInner() {
                 {/* Bottom: timer + items */}
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                    <span
-                      className="material-symbols-outlined card-timer-icon"
-                      style={{ color: timerColor }}
-                    >
-                      {warn ? 'warning' : 'schedule'}
-                    </span>
+                    <Icon
+                      name={warn ? 'warning' : 'schedule'}
+                      color={timerColor}
+                      className="card-timer-icon"
+                    />
                     <span className="card-timer-text" style={{
                       fontWeight: 600, color: timerColor,
                       animation: warn ? 'pulse-dot 2s ease-in-out infinite' : 'none',
@@ -621,7 +621,7 @@ function PosPageInner() {
                 background: 'linear-gradient(135deg, rgba(139,92,246,0.25), rgba(76,215,246,0.25))',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
               }}>
-                <span className="material-symbols-outlined" style={{ fontSize: 22, color: '#A78BFA' }}>add</span>
+                <Icon name="add" size={22} color="#A78BFA" />
               </div>
               <span style={{
                 fontFamily: "'JetBrains Mono', monospace",
@@ -675,7 +675,7 @@ function PosPageInner() {
               transition: 'all 0.2s',
             }}
           >
-            <span className="material-symbols-outlined" style={{ fontSize: 18 }}>add_circle</span>
+            <Icon name="add_circle" size={18} />
             <span className="btn-label">НОВЫЙ СЧЁТ</span>
           </button>
           <button
@@ -693,7 +693,7 @@ function PosPageInner() {
               letterSpacing: '0.06em',
             }}
           >
-            <span className="material-symbols-outlined" style={{ fontSize: 18 }}>print</span>
+            <Icon name="print" size={18} />
             <span className="btn-label">ОТЧЁТ СМЕНЫ</span>
           </button>
           <button
@@ -713,7 +713,7 @@ function PosPageInner() {
               letterSpacing: '0.06em',
             }}
           >
-            <span className="material-symbols-outlined" style={{ fontSize: 18 }}>undo</span>
+            <Icon name="undo" size={18} />
             <span className="btn-label">ВОЗВРАТ</span>
           </button>
         </div>
@@ -737,7 +737,7 @@ function PosPageInner() {
               border: '1px solid rgba(139,92,246,0.3)',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
             }}>
-              <span className="material-symbols-outlined" style={{ fontSize: 30, color: '#A78BFA' }}>schedule</span>
+              <Icon name="schedule" size={30} color="#A78BFA" />
             </div>
             <h2 style={{ fontSize: 20, fontWeight: 900, fontStyle: 'italic', textTransform: 'uppercase', marginBottom: 8, color: 'var(--on-surface)' }}>
               СМЕНА НЕ ОТКРЫТА
@@ -860,7 +860,7 @@ function PosPageInner() {
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                     boxShadow: '0 4px 20px rgba(139,92,246,0.35)',
                   }}>
-                    <span className="material-symbols-outlined" style={{ fontSize: 26, color: '#fff', fontVariationSettings: "'FILL' 1" }}>receipt_long</span>
+                    <Icon name="receipt_long" size={26} color="#fff" />
                   </div>
                   <div style={{ flex: 1 }}>
                     <h2 style={{ fontSize: 20, fontWeight: 900, fontStyle: 'italic', textTransform: 'uppercase', margin: 0, color: 'var(--on-surface)' }}>
@@ -874,13 +874,13 @@ function PosPageInner() {
                     onClick={closeNewCheckModal}
                     style={{ width: 32, height: 32, borderRadius: 10, border: 'none', cursor: 'pointer', background: 'rgba(255,255,255,0.06)', color: 'var(--on-surface-variant)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
                   >
-                    <span className="material-symbols-outlined" style={{ fontSize: 16 }}>close</span>
+                    <Icon name="close" size={16} />
                   </button>
                 </div>
 
                 {/* Search input */}
                 <div style={{ position: 'relative', marginBottom: 16 }}>
-                  <span className="material-symbols-outlined" style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', fontSize: 18, color: 'var(--on-surface-variant)' }}>search</span>
+                  <Icon name="search" size={18} color="var(--on-surface-variant)" style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)' }} />
                   <input
                     autoFocus
                     value={searchQuery}
@@ -961,7 +961,7 @@ function PosPageInner() {
                       display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
                     }}
                   >
-                    <span className="material-symbols-outlined" style={{ fontSize: 16 }}>person_off</span>
+                    <Icon name="person_off" size={16} />
                     БЕЗ КЛИЕНТА
                   </button>
                   <button
@@ -975,7 +975,7 @@ function PosPageInner() {
                       display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
                     }}
                   >
-                    <span className="material-symbols-outlined" style={{ fontSize: 16 }}>person_add</span>
+                    <Icon name="person_add" size={16} />
                     НОВЫЙ КЛИЕНТ
                   </button>
                   <button
@@ -989,7 +989,7 @@ function PosPageInner() {
                       display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
                     }}
                   >
-                    <span className="material-symbols-outlined" style={{ fontSize: 16 }}>meeting_room</span>
+                    <Icon name="meeting_room" size={16} />
                     АРЕНДА
                   </button>
                 </div>
@@ -1004,7 +1004,7 @@ function PosPageInner() {
                     onClick={() => setNewCheckStep('search')}
                     style={{ width: 36, height: 36, borderRadius: 10, border: 'none', cursor: 'pointer', background: 'rgba(255,255,255,0.06)', color: 'var(--on-surface-variant)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
                   >
-                    <span className="material-symbols-outlined" style={{ fontSize: 18 }}>arrow_back</span>
+                    <Icon name="arrow_back" size={18} />
                   </button>
                   <div style={{ flex: 1 }}>
                     <h2 style={{ fontSize: 20, fontWeight: 900, fontStyle: 'italic', textTransform: 'uppercase', margin: 0, color: 'var(--on-surface)' }}>ТАРИФ</h2>
@@ -1064,7 +1064,7 @@ function PosPageInner() {
                             display: 'flex', alignItems: 'center', justifyContent: 'center',
                             transition: 'background 0.18s',
                           }}>
-                            <span className="material-symbols-outlined" style={{ fontSize: 18, color: pal.color, fontVariationSettings: isSelected ? "'FILL' 1" : "'FILL' 0" }}>confirmation_number</span>
+                            <Icon name="confirmation_number" size={18} color={pal.color} />
                           </div>
                           <div>
                             <p style={{ fontSize: 14, fontWeight: 700, margin: 0, color: isSelected ? '#fff' : 'var(--on-surface)' }}>{item.name}</p>
@@ -1094,7 +1094,7 @@ function PosPageInner() {
                           }}
                         >
                           <div style={{ width: 36, height: 36, borderRadius: 10, background: 'rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                            <span className="material-symbols-outlined" style={{ fontSize: 18, color: 'var(--on-surface-variant)' }}>block</span>
+                            <Icon name="block" size={18} color="var(--on-surface-variant)" />
                           </div>
                           <div>
                             <span style={{ fontSize: 14, fontWeight: 600, color: noTariff ? 'var(--on-surface)' : 'var(--on-surface-variant)' }}>Без тарифа</span>
@@ -1134,7 +1134,7 @@ function PosPageInner() {
                     onClick={() => setNewCheckStep('search')}
                     style={{ width: 36, height: 36, borderRadius: 10, border: 'none', cursor: 'pointer', background: 'rgba(255,255,255,0.06)', color: 'var(--on-surface-variant)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
                   >
-                    <span className="material-symbols-outlined" style={{ fontSize: 18 }}>arrow_back</span>
+                    <Icon name="arrow_back" size={18} />
                   </button>
                   <div style={{ flex: 1 }}>
                     <h2 style={{ fontSize: 20, fontWeight: 900, fontStyle: 'italic', textTransform: 'uppercase', margin: 0, color: 'var(--on-surface)' }}>НОВЫЙ КЛИЕНТ</h2>
@@ -1206,7 +1206,7 @@ function PosPageInner() {
                     onClick={() => setNewCheckStep('search')}
                     style={{ width: 36, height: 36, borderRadius: 10, border: 'none', cursor: 'pointer', background: 'rgba(255,255,255,0.06)', color: 'var(--on-surface-variant)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
                   >
-                    <span className="material-symbols-outlined" style={{ fontSize: 18 }}>arrow_back</span>
+                    <Icon name="arrow_back" size={18} />
                   </button>
                   <div style={{ flex: 1 }}>
                     <h2 style={{ fontSize: 20, fontWeight: 900, fontStyle: 'italic', textTransform: 'uppercase', margin: 0, color: 'var(--on-surface)' }}>АРЕНДА</h2>
@@ -1250,7 +1250,7 @@ function PosPageInner() {
                         background: 'rgba(139,92,246,0.15)',
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
                       }}>
-                        <span className="material-symbols-outlined" style={{ fontSize: 22, color: '#A78BFA', fontVariationSettings: "'FILL' 1" }}>meeting_room</span>
+                        <Icon name="meeting_room" size={22} color="#A78BFA" />
                       </div>
                       <div style={{ flex: 1 }}>
                         <p style={{ fontSize: 14, fontWeight: 700, margin: 0, color: 'var(--on-surface)' }}>{space.name}</p>
@@ -1285,7 +1285,7 @@ function PosPageInner() {
                 background: 'rgba(244,63,94,0.15)', border: '1px solid rgba(244,63,94,0.3)',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
               }}>
-                <span className="material-symbols-outlined" style={{ fontSize: 26, color: 'var(--danger)', fontVariationSettings: "'FILL' 1" }}>lock</span>
+                <Icon name="lock" size={26} color="var(--danger)" />
               </div>
               <div>
                 <h2 style={{ fontSize: 20, fontWeight: 900, fontStyle: 'italic', textTransform: 'uppercase', margin: 0, color: 'var(--on-surface)' }}>

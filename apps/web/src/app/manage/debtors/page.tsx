@@ -5,6 +5,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { format } from 'date-fns'
 import { ru } from 'date-fns/locale'
+import { Icon } from '@/components/Icon'
 
 const INP: React.CSSProperties = { width: '100%', padding: '12px 16px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.05)', color: 'var(--on-surface)', fontSize: 14, outline: 'none', boxSizing: 'border-box' }
 const SEL: React.CSSProperties = { width: '100%', padding: '12px 16px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(29,26,36,0.8)', color: 'var(--on-surface)', fontSize: 14, outline: 'none', cursor: 'pointer', boxSizing: 'border-box' }
@@ -101,7 +102,7 @@ export default function DebtorsPage() {
       <div style={{ padding: '16px 32px 80px', flex: 1 }}>
         {debtors.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '60px 0' }}>
-            <span className="material-symbols-outlined" style={{ fontSize: 48, color: '#10B981', opacity: 0.4, display: 'block', marginBottom: 12 }}>check_circle</span>
+            <Icon name="check_circle" size={48} color="#10B981" style={{ opacity: 0.4, display: 'block', marginBottom: 12 }} />
             <p style={{ fontSize: 14, color: 'rgba(204,195,216,0.4)', margin: 0 }}>Должников нет</p>
           </div>
         ) : (

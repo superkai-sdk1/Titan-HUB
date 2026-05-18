@@ -15,6 +15,7 @@
  *   return <>...{dialog}</>
  */
 import { useState, useCallback } from 'react'
+import { Icon } from '@/components/Icon'
 
 interface ConfirmOpts {
   title: string
@@ -68,11 +69,11 @@ export function useConfirm() {
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             flexShrink: 0,
           }}>
-            <span className="material-symbols-outlined" style={{
-              fontSize: 24, color: pending.destructive ? '#F87171' : '#a78bfa',
-            }}>
-              {pending.destructive ? 'warning' : 'help'}
-            </span>
+            <Icon
+              name={pending.destructive ? 'warning' : 'help'}
+              size={24}
+              color={pending.destructive ? '#F87171' : '#a78bfa'}
+            />
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
             <h3 style={{ fontSize: 16, fontWeight: 800, margin: '0 0 6px', color: 'var(--on-surface)' }}>

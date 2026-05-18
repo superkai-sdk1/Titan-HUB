@@ -5,6 +5,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { formatDistanceToNow } from 'date-fns'
 import { ru } from 'date-fns/locale'
+import { Icon } from '@/components/Icon'
 
 const INP: React.CSSProperties = { width: '100%', padding: '12px 16px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.05)', color: 'var(--on-surface)', fontSize: 14, outline: 'none', boxSizing: 'border-box' }
 const SEL: React.CSSProperties = { width: '100%', padding: '12px 16px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(29,26,36,0.8)', color: 'var(--on-surface)', fontSize: 14, outline: 'none', cursor: 'pointer', boxSizing: 'border-box' }
@@ -130,14 +131,14 @@ export default function CashOpsPage() {
             onClick={() => openModal('deposit')}
             style={{ padding: '14px', borderRadius: 14, border: '1px solid rgba(16,185,129,0.3)', background: 'rgba(16,185,129,0.1)', color: '#10B981', fontSize: 14, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
           >
-            <span className="material-symbols-outlined" style={{ fontSize: 20 }}>add_circle</span>
+            <Icon name="add_circle" size={20} />
             Внести
           </button>
           <button
             onClick={() => openModal('withdrawal')}
             style={{ padding: '14px', borderRadius: 14, border: '1px solid rgba(239,68,68,0.3)', background: 'rgba(239,68,68,0.1)', color: '#EF4444', fontSize: 14, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
           >
-            <span className="material-symbols-outlined" style={{ fontSize: 20 }}>remove_circle</span>
+            <Icon name="remove_circle" size={20} />
             Изъять
           </button>
         </div>
@@ -145,7 +146,7 @@ export default function CashOpsPage() {
         {/* Operations list */}
         {operations.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '60px 0' }}>
-            <span className="material-symbols-outlined" style={{ fontSize: 48, color: 'rgba(204,195,216,0.2)', display: 'block', marginBottom: 12 }}>account_balance</span>
+            <Icon name="account_balance" size={48} color="rgba(204,195,216,0.2)" style={{ display: 'block', marginBottom: 12 }} />
             <p style={{ fontSize: 14, color: 'rgba(204,195,216,0.4)', margin: 0 }}>Операций нет</p>
           </div>
         ) : (
@@ -156,7 +157,7 @@ export default function CashOpsPage() {
               return (
                 <div key={op.id} className="glass-l2" style={{ borderRadius: 14, padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 14 }}>
                   <div style={{ width: 40, height: 40, borderRadius: 12, background: `${color}20`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                    <span className="material-symbols-outlined" style={{ fontSize: 22, color }}>{icon}</span>
+                    <Icon name={icon} size={22} color={color} />
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 2 }}>{op.description || (op.type === 'deposit' ? 'Внесение' : op.type === 'withdrawal' ? 'Изъятие' : 'Зарплата')}</div>

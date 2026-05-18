@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { PageHeader, Sheet, INP, LBL } from '@/components/manage/DesignSystem'
 import { PullToRefreshContainer } from '@/components/PullToRefreshContainer'
+import { Icon } from '@/components/Icon'
 
 type FilterTab = 'all' | 'low' | 'untracked'
 
@@ -91,7 +92,7 @@ export default function InventoryPage() {
       <div style={{ background: 'rgba(21,18,27,0.95)', backdropFilter: 'blur(16px)', borderBottom: '1px solid rgba(255,255,255,0.06)', padding: '12px 16px' }}>
         <div style={{ maxWidth: 680, margin: '0 auto' }}>
           <div style={{ position: 'relative', marginBottom: 10 }}>
-            <span className="material-symbols-outlined" style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', fontSize: 18, color: 'var(--on-surface-variant)', pointerEvents: 'none' }}>search</span>
+            <Icon name="search" size={18} color="var(--on-surface-variant)" style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }} />
             <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Поиск по названию…" style={{ ...INP, paddingLeft: 42, borderRadius: 12 }} />
           </div>
           <div style={{ display: 'flex', gap: 6 }}>
@@ -108,7 +109,7 @@ export default function InventoryPage() {
       <div style={{ padding: '16px', flex: 1, maxWidth: 680, margin: '0 auto', width: '100%' }}>
         {filtered.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '60px 0' }}>
-            <span className="material-symbols-outlined" style={{ fontSize: 48, color: 'rgba(204,195,216,0.2)', display: 'block', marginBottom: 12 }}>inventory_2</span>
+            <Icon name="inventory_2" size={48} color="rgba(204,195,216,0.2)" style={{ display: 'block', marginBottom: 12 }} />
             <p style={{ fontSize: 14, color: 'rgba(204,195,216,0.4)', margin: 0 }}>Нет товаров</p>
           </div>
         ) : (

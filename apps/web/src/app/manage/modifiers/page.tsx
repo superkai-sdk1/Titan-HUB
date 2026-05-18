@@ -3,6 +3,7 @@ import React, { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useRouter } from 'next/navigation'
 import { api } from '@/lib/api'
+import { Icon } from '@/components/Icon'
 
 const INP: React.CSSProperties = {
   width: '100%', padding: '12px 16px', borderRadius: 12,
@@ -81,7 +82,7 @@ export default function ModifiersPage() {
             onClick={() => router.back()}
             style={{ width: 36, height: 36, borderRadius: 10, border: '1px solid rgba(255,255,255,0.08)', background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--on-surface-variant)' }}
           >
-            <span className="material-symbols-outlined" style={{ fontSize: 18 }}>arrow_back</span>
+            <Icon name="arrow_back" size={18} />
           </button>
           <div style={{ flex: 1 }}>
             <h1 style={{ fontSize: 20, fontWeight: 800, margin: 0 }}>Модификаторы</h1>
@@ -94,7 +95,7 @@ export default function ModifiersPage() {
               onClick={() => setShowForm(true)}
               style={{ width: 36, height: 36, borderRadius: 12, border: 'none', background: 'linear-gradient(135deg, #8B5CF6, #4cd7f6)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
             >
-              <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#fff' }}>add</span>
+              <Icon name="add" size={18} color="#fff" />
             </button>
           )}
         </div>
@@ -112,7 +113,7 @@ export default function ModifiersPage() {
         }}>
           <div style={{ padding: '12px 12px 8px', position: 'sticky', top: 0, background: 'rgba(21,18,27,0.9)', zIndex: 5 }}>
             <div style={{ position: 'relative' }}>
-              <span className="material-symbols-outlined" style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', fontSize: 16, color: 'var(--on-surface-variant)', pointerEvents: 'none' }}>search</span>
+              <Icon name="search" size={16} color="var(--on-surface-variant)" style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }} />
               <input
                 value={search}
                 onChange={e => setSearch(e.target.value)}
@@ -144,12 +145,12 @@ export default function ModifiersPage() {
         <div style={{ flex: 1, overflowY: 'auto', padding: '16px 16px 80px' }}>
           {!selectedItemId ? (
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '60vh', gap: 12, color: 'var(--on-surface-variant)' }}>
-              <span className="material-symbols-outlined" style={{ fontSize: 48, opacity: 0.3 }}>tune</span>
+              <Icon name="tune" size={48} style={{ opacity: 0.3 }} />
               <p style={{ fontSize: 14, margin: 0 }}>Выберите товар слева</p>
             </div>
           ) : mods.length === 0 ? (
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '50vh', gap: 12, color: 'var(--on-surface-variant)' }}>
-              <span className="material-symbols-outlined" style={{ fontSize: 48, opacity: 0.3 }}>add_circle</span>
+              <Icon name="add_circle" size={48} style={{ opacity: 0.3 }} />
               <p style={{ fontSize: 14, margin: 0 }}>Нет модификаторов</p>
               <button
                 onClick={() => setShowForm(true)}
@@ -164,7 +165,7 @@ export default function ModifiersPage() {
               {mods.map(mod => (
                 <div key={mod.id} className="glass-l2" style={{ borderRadius: 14, padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 12 }}>
                   <div style={{ width: 38, height: 38, borderRadius: 10, background: 'rgba(139,92,246,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                    <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#8B5CF6' }}>tune</span>
+                    <Icon name="tune" size={18} color="#8B5CF6" />
                   </div>
                   <div style={{ flex: 1 }}>
                     <p style={{ fontSize: 14, fontWeight: 600, margin: 0 }}>{mod.name}</p>
@@ -176,7 +177,7 @@ export default function ModifiersPage() {
                     onClick={() => delMod.mutate(mod.id)}
                     style={{ width: 32, height: 32, borderRadius: 8, border: '1px solid rgba(244,63,94,0.2)', background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#F87171' }}
                   >
-                    <span className="material-symbols-outlined" style={{ fontSize: 16 }}>delete</span>
+                    <Icon name="delete" size={16} />
                   </button>
                 </div>
               ))}
@@ -195,7 +196,7 @@ export default function ModifiersPage() {
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
               <h2 style={{ fontSize: 18, fontWeight: 800, margin: 0 }}>Новый модификатор</h2>
               <button onClick={() => setShowForm(false)} style={{ width: 32, height: 32, borderRadius: 8, border: '1px solid rgba(255,255,255,0.1)', background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--on-surface-variant)' }}>
-                <span className="material-symbols-outlined" style={{ fontSize: 16 }}>close</span>
+                <Icon name="close" size={16} />
               </button>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -219,7 +220,7 @@ export default function ModifiersPage() {
                 />
               </div>
               <div style={{ padding: '12px 16px', borderRadius: 12, background: 'rgba(255,255,255,0.04)', display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-                <span className="material-symbols-outlined" style={{ fontSize: 16, color: 'var(--on-surface-variant)', marginTop: 1 }}>info</span>
+                <Icon name="info" size={16} color="var(--on-surface-variant)" style={{ marginTop: 1 }} />
                 <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: 0, lineHeight: 1.5 }}>
                   Товар: <strong style={{ color: 'var(--on-surface)' }}>{selectedItem?.name}</strong>
                 </p>

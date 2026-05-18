@@ -2,6 +2,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { api } from '@/lib/api'
+import { Icon } from '@/components/Icon'
 
 const INP: React.CSSProperties = { width: '100%', padding: '12px 16px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.05)', color: 'var(--on-surface)', fontSize: 14, outline: 'none', boxSizing: 'border-box' }
 const SEL: React.CSSProperties = { width: '100%', padding: '12px 16px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(29,26,36,0.8)', color: 'var(--on-surface)', fontSize: 14, outline: 'none', cursor: 'pointer', boxSizing: 'border-box' }
@@ -186,9 +187,7 @@ export default function AiPage() {
             gap: 12,
             color: 'var(--on-surface-variant)',
           }}>
-            <span className="material-symbols-outlined" style={{ fontSize: 64, opacity: 0.4 }}>
-              psychology
-            </span>
+            <Icon name="psychology" size={64} style={{ opacity: 0.4 }} />
             <p style={{ margin: 0, fontSize: 15, textAlign: 'center', opacity: 0.6 }}>
               Спросите AI о вашем бизнесе
             </p>
@@ -298,7 +297,7 @@ export default function AiPage() {
               transition: 'all 0.18s ease',
             }}
           >
-            <span className="material-symbols-outlined" style={{ fontSize: 20 }}>send</span>
+            <Icon name="send" size={20} />
           </button>
         </div>
       </div>

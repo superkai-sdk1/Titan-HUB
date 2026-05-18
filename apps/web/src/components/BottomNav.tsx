@@ -1,6 +1,7 @@
 'use client'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
+import { Icon } from '@/components/Icon'
 
 const LEFT_ITEMS = [
   { href: '/pos',    icon: 'point_of_sale', label: 'Касса' },
@@ -37,19 +38,12 @@ function NavItem({ href, icon, label, pathname }: { href: string; icon: string; 
         transition: 'all 0.2s',
       }}
     >
-      <span
-        className="material-symbols-outlined"
-        style={{
-          fontSize: 24,
-          color: active ? '#8B5CF6' : 'var(--on-surface-variant)',
-          fontVariationSettings: active
-            ? "'FILL' 1, 'wght' 500, 'GRAD' 0, 'opsz' 24"
-            : "'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24",
-          transition: 'all 0.2s',
-        }}
-      >
-        {icon}
-      </span>
+      <Icon
+        name={icon}
+        size={24}
+        color={active ? '#8B5CF6' : 'var(--on-surface-variant)'}
+        style={{ transition: 'all 0.2s' }}
+      />
       <span
         style={{
           fontSize: 9,
@@ -157,7 +151,7 @@ export function BottomNav() {
             e.currentTarget.style.boxShadow = '0 4px 20px rgba(139,92,246,0.5), 0 0 0 3px rgba(29,26,36,0.8)'
           }}
         >
-          <span className="material-symbols-outlined" style={{ fontSize: 26, color: '#fff', fontVariationSettings: "'FILL' 1, 'wght' 700, 'GRAD' 0, 'opsz' 24" }}>add</span>
+          <Icon name="add" size={26} color="#fff" />
         </button>
 
         {/* RIGHT tabs */}

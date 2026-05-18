@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useRouter } from 'next/navigation'
 import { api } from '@/lib/api'
+import { Icon } from '@/components/Icon'
 
 const INP: React.CSSProperties = {
   width: '100%', padding: '14px 16px', borderRadius: 14,
@@ -105,7 +106,7 @@ export default function BonusesPage() {
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <button onClick={() => router.back()} style={{ width: 36, height: 36, borderRadius: 10, border: '1px solid rgba(255,255,255,0.08)', background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--on-surface-variant)' }}>
-            <span className="material-symbols-outlined" style={{ fontSize: 18 }}>arrow_back</span>
+            <Icon name="arrow_back" size={18} />
           </button>
           <div style={{ flex: 1 }}>
             <h1 style={{ fontSize: 20, fontWeight: 800, margin: 0 }}>Бонусная программа</h1>
@@ -132,7 +133,7 @@ export default function BonusesPage() {
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, position: 'relative' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
               <div style={{ width: 56, height: 56, borderRadius: 16, background: enabled ? 'rgba(234,179,8,0.2)' : 'rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'background 0.3s', boxShadow: enabled ? '0 0 20px rgba(234,179,8,0.3)' : 'none' }}>
-                <span className="material-symbols-outlined" style={{ fontSize: 28, color: enabled ? '#EAB308' : 'var(--on-surface-variant)', fontVariationSettings: "'FILL' 1", transition: 'color 0.3s' }}>star</span>
+                <Icon name="star" size={28} color={enabled ? '#EAB308' : 'var(--on-surface-variant)'} style={{ transition: 'color 0.3s' }} />
               </div>
               <div>
                 <p style={{ fontSize: 17, fontWeight: 800, margin: 0, color: enabled ? 'var(--on-surface)' : 'var(--on-surface-variant)' }}>Программа лояльности</p>
@@ -149,7 +150,7 @@ export default function BonusesPage() {
         <div className="glass-l2" style={{ borderRadius: 18, padding: 20, display: 'flex', flexDirection: 'column', gap: 20, opacity: enabled ? 1 : 0.4, pointerEvents: enabled ? 'auto' : 'none', transition: 'opacity 0.3s' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
             <div style={{ width: 32, height: 32, borderRadius: 10, background: 'rgba(234,179,8,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <span className="material-symbols-outlined" style={{ fontSize: 16, color: '#EAB308' }}>add_circle</span>
+              <Icon name="add_circle" size={16} color="#EAB308" />
             </div>
             <span style={{ ...LBL, margin: 0, color: '#EAB308' }}>Начисление</span>
           </div>
@@ -186,7 +187,7 @@ export default function BonusesPage() {
         <div className="glass-l2" style={{ borderRadius: 18, padding: 20, display: 'flex', flexDirection: 'column', gap: 20, opacity: enabled ? 1 : 0.4, pointerEvents: enabled ? 'auto' : 'none', transition: 'opacity 0.3s' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
             <div style={{ width: 32, height: 32, borderRadius: 10, background: 'rgba(234,179,8,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <span className="material-symbols-outlined" style={{ fontSize: 16, color: '#EAB308' }}>remove_circle</span>
+              <Icon name="remove_circle" size={16} color="#EAB308" />
             </div>
             <span style={{ ...LBL, margin: 0, color: '#EAB308' }}>Списание</span>
           </div>
@@ -214,7 +215,7 @@ export default function BonusesPage() {
         {/* Live preview */}
         <div style={{ padding: 20, borderRadius: 18, background: 'rgba(234,179,8,0.06)', border: '1px solid rgba(234,179,8,0.2)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
-            <span className="material-symbols-outlined" style={{ fontSize: 16, color: '#EAB308' }}>calculate</span>
+            <Icon name="calculate" size={16} color="#EAB308" />
             <span style={{ ...LBL, margin: 0, color: '#EAB308' }}>Пример расчёта · 1 000 ₽</span>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -240,7 +241,7 @@ export default function BonusesPage() {
             ].map(({ label, value, ok, icon }) => (
               <div key={label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', borderRadius: 10, background: 'rgba(255,255,255,0.03)' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span className="material-symbols-outlined" style={{ fontSize: 14, color: 'var(--on-surface-variant)' }}>{icon}</span>
+                  <Icon name={icon} size={14} color="var(--on-surface-variant)" />
                   <span style={{ fontSize: 13, color: 'var(--on-surface-variant)' }}>{label}</span>
                 </div>
                 <span style={{ fontSize: 13, fontWeight: 700, color: ok ? '#EAB308' : '#F43F5E', fontFamily: "'JetBrains Mono',monospace" }}>{value}</span>
@@ -268,10 +269,10 @@ export default function BonusesPage() {
           }}
         >
           {saved
-            ? <><span className="material-symbols-outlined" style={{ fontSize: 18 }}>check_circle</span>Сохранено!</>
+            ? <><Icon name="check_circle" size={18} />Сохранено!</>
             : saveMut.isPending
             ? 'Сохраняем…'
-            : <><span className="material-symbols-outlined" style={{ fontSize: 18 }}>save</span>Сохранить настройки</>
+            : <><Icon name="save" size={18} />Сохранить настройки</>
           }
         </button>
       </div>

@@ -1,5 +1,6 @@
 'use client'
 import React, { useState } from 'react'
+import { Icon } from '@/components/Icon'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { Sheet, INP, LBL } from '@/components/manage/DesignSystem'
@@ -122,7 +123,7 @@ export default function EventsPage() {
               boxShadow: '0 4px 20px rgba(139,92,246,0.3)',
             }}
           >
-            <span className="material-symbols-outlined" style={{ fontSize: 18 }}>add</span>
+            <Icon name="add" size={18} />
             Добавить
           </button>
         </div>
@@ -131,7 +132,7 @@ export default function EventsPage() {
       <div style={{ padding: '16px', flex: 1, maxWidth: 680, margin: '0 auto', width: '100%' }}>
         {events.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '80px 0' }}>
-            <span className="material-symbols-outlined" style={{ fontSize: 56, color: 'rgba(204,195,216,0.2)', display: 'block', marginBottom: 12 }}>event</span>
+            <Icon name="event" size={56} color="rgba(204,195,216,0.2)" style={{ display: 'block', marginBottom: 12 }} />
             <p style={{ fontSize: 15, color: 'rgba(204,195,216,0.4)', margin: 0 }}>Мероприятий нет</p>
           </div>
         ) : (
@@ -157,15 +158,15 @@ export default function EventsPage() {
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' as const, marginBottom: 6 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                        <span className="material-symbols-outlined" style={{ fontSize: 14, color: typeColor }}>{typeIcon}</span>
+                        <Icon name={typeIcon} size={14} color={typeColor} />
                         <span style={{ fontSize: 14, fontWeight: 700 }}>{ev.title || typeLabel}</span>
                       </div>
                       <span style={{ fontSize: 10, fontWeight: 700, fontFamily: "'JetBrains Mono',monospace", padding: '2px 7px', borderRadius: 6, background: `${statusColor}20`, color: statusColor, textTransform: 'uppercase', letterSpacing: '0.06em', display: 'flex', alignItems: 'center', gap: 4 }}>
-                        <span className="material-symbols-outlined" style={{ fontSize: 10 }}>{statusIcon}</span>{statusLabel}
+                        <Icon name={statusIcon} size={10} />{statusLabel}
                       </span>
                       {guestsLabel && (
                         <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 6, background: 'rgba(255,255,255,0.07)', color: 'var(--on-surface-variant)', display: 'flex', alignItems: 'center', gap: 3 }}>
-                          <span className="material-symbols-outlined" style={{ fontSize: 11 }}>groups</span>{guestsLabel}
+                          <Icon name="groups" size={11} />{guestsLabel}
                         </span>
                       )}
                     </div>
@@ -176,7 +177,7 @@ export default function EventsPage() {
                     </p>
                     {ev.comment && <p style={{ fontSize: 12, color: 'rgba(204,195,216,0.5)', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ev.comment}</p>}
                   </div>
-                  <span className="material-symbols-outlined" style={{ fontSize: 18, color: 'rgba(204,195,216,0.3)', flexShrink: 0 }}>chevron_right</span>
+                  <Icon name="chevron_right" size={18} color="rgba(204,195,216,0.3)" />
                 </div>
               )
             })}
@@ -193,7 +194,7 @@ export default function EventsPage() {
               {Object.entries(TYPES).map(([k, [l, icon, c]]) => (
                 <button key={k} onClick={() => setForm((p: any) => ({ ...p, type: k }))}
                   style={{ flex: 1, padding: '12px', borderRadius: 12, border: `1px solid ${form.type === k ? c : 'rgba(255,255,255,0.1)'}`, background: form.type === k ? `${c}22` : 'rgba(255,255,255,0.04)', color: form.type === k ? c : 'var(--on-surface-variant)', fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-                  <span className="material-symbols-outlined" style={{ fontSize: 16 }}>{icon}</span>{l}
+                  <Icon name={icon} size={16} />{l}
                 </button>
               ))}
             </div>
@@ -253,7 +254,7 @@ export default function EventsPage() {
           return (
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, padding: '10px 14px', borderRadius: 12, background: `${statusColor}15`, border: `1px solid ${statusColor}33` }}>
-                <span className="material-symbols-outlined" style={{ fontSize: 18, color: statusColor }}>{statusIcon}</span>
+                <Icon name={statusIcon} size={18} color={statusColor} />
                 <span style={{ fontSize: 13, fontWeight: 600, color: statusColor }}>{STATUS[selected.status]?.[0]}</span>
                 <span style={{ fontSize: 12, color: 'var(--on-surface-variant)', marginLeft: 'auto' }}>{selected.date}</span>
               </div>
@@ -280,7 +281,7 @@ export default function EventsPage() {
               <div style={{ marginBottom: 16 }}>
                 <button onClick={() => setAnalyticsId(selected.id)}
                   style={{ width: '100%', padding: '12px 0', borderRadius: 12, border: '1px solid rgba(139,92,246,0.3)', background: 'rgba(139,92,246,0.08)', color: '#a78bfa', fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-                  <span className="material-symbols-outlined" style={{ fontSize: 16 }}>analytics</span>Аналитика
+                  <Icon name="analytics" size={16} />Аналитика
                 </button>
               </div>
               <div style={{ marginBottom: 16 }}>
@@ -294,7 +295,7 @@ export default function EventsPage() {
               </div>
               <button onClick={() => del.mutate(selected.id)}
                 style={{ width: '100%', padding: '13px 0', borderRadius: 14, border: '1px solid rgba(244,63,94,0.3)', background: 'rgba(244,63,94,0.08)', color: '#F87171', fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-                <span className="material-symbols-outlined" style={{ fontSize: 16 }}>delete</span>Удалить мероприятие
+                <Icon name="delete" size={16} />Удалить мероприятие
               </button>
             </div>
           )

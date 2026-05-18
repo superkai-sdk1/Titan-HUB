@@ -1,6 +1,7 @@
 'use client'
 import Link from 'next/link'
 import { useAuthStore } from '@/store/auth.store'
+import { Icon } from '@/components/Icon'
 
 interface NavItem {
   href: string
@@ -103,7 +104,7 @@ function NavCard({ href, label, icon, color, bg }: { href: string; label: string
         }}
       >
         <div style={{ width: 42, height: 42, borderRadius: 12, background: bg, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-          <span className="material-symbols-outlined" style={{ fontSize: 20, color, fontVariationSettings: "'FILL' 1" }}>{icon}</span>
+          <Icon name={icon} size={20} color={color} />
         </div>
         <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--on-surface)', lineHeight: 1.25 }}>{label}</span>
       </div>
@@ -142,7 +143,7 @@ export default function ManagePage() {
               </div>
             </div>
             <button onClick={logout} style={{ width: 36, height: 36, borderRadius: 10, border: '1px solid rgba(255,255,255,0.08)', background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--on-surface-variant)' }}>
-              <span className="material-symbols-outlined" style={{ fontSize: 18 }}>logout</span>
+              <Icon name="logout" size={18} />
             </button>
           </div>
         </div>
@@ -159,7 +160,7 @@ export default function ManagePage() {
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, padding: '0 4px' }}>
                 <div style={{ flex: 1, height: 1, background: 'rgba(255,255,255,0.06)' }} />
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <span className="material-symbols-outlined" style={{ fontSize: 13, color: 'var(--on-surface-variant)' }}>{group.icon}</span>
+                  <Icon name={group.icon} size={13} color="var(--on-surface-variant)" />
                   <span style={{ fontSize: 11, fontWeight: 700, fontFamily: "'JetBrains Mono',monospace", textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--on-surface-variant)' }}>{group.title}</span>
                 </div>
                 <div style={{ flex: 1, height: 1, background: 'rgba(255,255,255,0.06)' }} />

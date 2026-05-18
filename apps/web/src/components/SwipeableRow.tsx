@@ -1,5 +1,6 @@
 'use client'
 import { useRef, useState } from 'react'
+import { Icon } from '@/components/Icon'
 
 interface SwipeableRowProps {
   onDelete: () => void
@@ -55,16 +56,7 @@ export function SwipeableRow({ onDelete, children }: SwipeableRowProps) {
           transition: offset === 0 ? 'opacity 0.25s ease' : 'none',
         }}
       >
-        <span
-          className="material-symbols-outlined"
-          style={{
-            color: '#fff',
-            fontSize: 22,
-            fontVariationSettings: "'FILL' 1, 'wght' 500, 'GRAD' 0, 'opsz' 24",
-          }}
-        >
-          delete
-        </span>
+        <Icon name="delete" size={22} color="#fff" />
       </div>
 
       {/* Контент со смещением */}

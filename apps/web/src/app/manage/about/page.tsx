@@ -3,6 +3,7 @@ import React, { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { useAuthStore } from '@/store/auth.store'
+import { Icon } from '@/components/Icon'
 
 const LBL: React.CSSProperties = {
   fontFamily: "'JetBrains Mono',monospace",
@@ -177,12 +178,7 @@ export default function AboutPage() {
       {/* Version Card */}
       <div style={{ ...CARD, marginBottom: 16 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
-          <span
-            className="material-symbols-outlined"
-            style={{ fontSize: 20, color: '#8B5CF6' }}
-          >
-            info
-          </span>
+          <Icon name="info" size={20} color="#8B5CF6" />
           <span style={{ fontWeight: 600, fontSize: 15, color: 'var(--on-surface)' }}>
             Версия приложения
           </span>
@@ -273,12 +269,7 @@ export default function AboutPage() {
       {/* Git Info Card */}
       <div style={{ ...CARD, marginBottom: 16 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
-          <span
-            className="material-symbols-outlined"
-            style={{ fontSize: 20, color: '#4cd7f6' }}
-          >
-            commit
-          </span>
+          <Icon name="commit" size={20} color="#4cd7f6" />
           <span style={{ fontWeight: 600, fontSize: 15, color: 'var(--on-surface)' }}>
             Git
           </span>
@@ -314,9 +305,7 @@ export default function AboutPage() {
                   }}
                 >
                   {info.behindCount > 0 && (
-                    <span className="material-symbols-outlined" style={{ fontSize: 14 }}>
-                      arrow_downward
-                    </span>
+                    <Icon name="arrow_downward" size={14} />
                   )}
                   {info.behindCount === 0 ? 'Актуально' : `${info.behindCount} коммитов`}
                 </span>
@@ -364,9 +353,7 @@ export default function AboutPage() {
             transition: 'all 0.2s',
           }}
         >
-          <span className="material-symbols-outlined" style={{ fontSize: 16 }}>
-            refresh
-          </span>
+          <Icon name="refresh" size={16} />
           Проверить обновления
         </button>
 
@@ -394,9 +381,7 @@ export default function AboutPage() {
               transition: 'all 0.2s',
             }}
           >
-            <span className="material-symbols-outlined" style={{ fontSize: 16 }}>
-              {updateRunning ? 'hourglass_top' : 'system_update_alt'}
-            </span>
+            <Icon name={updateRunning ? 'hourglass_top' : 'system_update_alt'} size={16} />
             {updateRunning ? 'Обновление...' : 'Запустить обновление'}
           </button>
         )}
@@ -406,12 +391,7 @@ export default function AboutPage() {
       {updateSteps.length > 0 && (
         <div style={{ ...CARD, marginBottom: 16 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
-            <span
-              className="material-symbols-outlined"
-              style={{ fontSize: 20, color: '#fbbf24' }}
-            >
-              update
-            </span>
+            <Icon name="update" size={20} color="#fbbf24" />
             <span style={{ fontWeight: 600, fontSize: 15, color: 'var(--on-surface)' }}>
               Прогресс обновления
             </span>
@@ -451,37 +431,13 @@ export default function AboutPage() {
                   }}
                 >
                   {status === 'running' ? (
-                    <span
-                      className="material-symbols-outlined"
-                      style={{
-                        fontSize: 16,
-                        color: '#fbbf24',
-                        animation: 'spin 1s linear infinite',
-                      }}
-                    >
-                      progress_activity
-                    </span>
+                    <Icon name="progress_activity" size={16} color="#fbbf24" style={{ animation: 'spin 1s linear infinite' }} />
                   ) : status === 'done' ? (
-                    <span
-                      className="material-symbols-outlined"
-                      style={{ fontSize: 16, color: '#4ade80' }}
-                    >
-                      check_circle
-                    </span>
+                    <Icon name="check_circle" size={16} color="#4ade80" />
                   ) : status === 'error' ? (
-                    <span
-                      className="material-symbols-outlined"
-                      style={{ fontSize: 16, color: '#f87171' }}
-                    >
-                      cancel
-                    </span>
+                    <Icon name="cancel" size={16} color="#f87171" />
                   ) : (
-                    <span
-                      className="material-symbols-outlined"
-                      style={{ fontSize: 16, color: 'rgba(255,255,255,0.2)' }}
-                    >
-                      radio_button_unchecked
-                    </span>
+                    <Icon name="radio_button_unchecked" size={16} color="rgba(255,255,255,0.2)" />
                   )}
 
                   <span
@@ -533,9 +489,7 @@ export default function AboutPage() {
                 fontSize: 13,
               }}
             >
-              <span className="material-symbols-outlined" style={{ fontSize: 18 }}>
-                check_circle
-              </span>
+              <Icon name="check_circle" size={18} />
               Обновление завершено
             </div>
           )}
@@ -556,9 +510,7 @@ export default function AboutPage() {
                 fontSize: 13,
               }}
             >
-              <span className="material-symbols-outlined" style={{ fontSize: 18 }}>
-                error
-              </span>
+              <Icon name="error" size={18} />
               {updateError}
             </div>
           )}
@@ -568,9 +520,7 @@ export default function AboutPage() {
       {/* Документы */}
       <div style={{ ...CARD, marginBottom: 16 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
-          <span className="material-symbols-outlined" style={{ fontSize: 20, color: '#a78bfa' }}>
-            description
-          </span>
+          <Icon name="description" size={20} color="#a78bfa" />
           <span style={{ fontWeight: 600, fontSize: 15, color: 'var(--on-surface)' }}>
             Документы
           </span>
@@ -605,9 +555,7 @@ export default function AboutPage() {
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               flexShrink: 0,
             }}>
-              <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#a78bfa' }}>
-                privacy_tip
-              </span>
+              <Icon name="privacy_tip" size={18} color="#a78bfa" />
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>
               <p style={{ fontSize: 14, fontWeight: 600, margin: 0, color: 'var(--on-surface)' }}>
@@ -617,9 +565,7 @@ export default function AboutPage() {
                 titanpos.ru/privacy
               </p>
             </div>
-            <span className="material-symbols-outlined" style={{ fontSize: 18, color: 'var(--on-surface-variant)', flexShrink: 0 }}>
-              open_in_new
-            </span>
+            <Icon name="open_in_new" size={18} color="var(--on-surface-variant)" />
           </a>
 
           <a
@@ -650,9 +596,7 @@ export default function AboutPage() {
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               flexShrink: 0,
             }}>
-              <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#4cd7f6' }}>
-                gavel
-              </span>
+              <Icon name="gavel" size={18} color="#4cd7f6" />
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>
               <p style={{ fontSize: 14, fontWeight: 600, margin: 0, color: 'var(--on-surface)' }}>
@@ -662,9 +606,7 @@ export default function AboutPage() {
                 titanpos.ru/terms
               </p>
             </div>
-            <span className="material-symbols-outlined" style={{ fontSize: 18, color: 'var(--on-surface-variant)', flexShrink: 0 }}>
-              open_in_new
-            </span>
+            <Icon name="open_in_new" size={18} color="var(--on-surface-variant)" />
           </a>
         </div>
       </div>

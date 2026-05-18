@@ -1,5 +1,6 @@
 'use client'
 import { useRef, useState, useEffect, useCallback } from 'react'
+import { Icon } from '@/components/Icon'
 
 interface PullToRefreshContainerProps {
   onRefresh: () => Promise<void>
@@ -114,11 +115,15 @@ export function PullToRefreshContainer({ onRefresh, children, disabled }: PullTo
               </>
             ) : (
               <>
-                <span className="material-symbols-outlined" style={{
-                  fontSize: 20, color: '#8B5CF6',
-                  transform: progress >= 1 ? 'rotate(180deg)' : 'rotate(0deg)',
-                  transition: 'transform 0.2s ease',
-                }}>arrow_downward</span>
+                <Icon
+                  name="arrow_downward"
+                  size={20}
+                  color="#8B5CF6"
+                  style={{
+                    transform: progress >= 1 ? 'rotate(180deg)' : 'rotate(0deg)',
+                    transition: 'transform 0.2s ease',
+                  }}
+                />
                 <span style={{ fontSize: 11, color: 'var(--on-surface-variant)', fontWeight: 600, fontFamily: "'JetBrains Mono',monospace", letterSpacing: '0.06em' }}>
                   {progress >= 1 ? 'ОТПУСТИТЕ' : 'ПОТЯНИТЕ ВНИЗ'}
                 </span>

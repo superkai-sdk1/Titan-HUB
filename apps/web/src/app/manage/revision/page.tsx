@@ -3,6 +3,7 @@ import React, { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useRouter } from 'next/navigation'
 import { api } from '@/lib/api'
+import { Icon } from '@/components/Icon'
 
 const INP: React.CSSProperties = {
   width: '100%', padding: '12px 16px', borderRadius: 12,
@@ -93,7 +94,7 @@ export default function RevisionPage() {
             onClick={() => router.back()}
             style={{ width: 36, height: 36, borderRadius: 10, border: '1px solid rgba(255,255,255,0.08)', background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--on-surface-variant)' }}
           >
-            <span className="material-symbols-outlined" style={{ fontSize: 18 }}>arrow_back</span>
+            <Icon name="arrow_back" size={18} />
           </button>
           <div style={{ flex: 1 }}>
             <h1 style={{ fontSize: 20, fontWeight: 800, margin: 0 }}>Ревизия</h1>
@@ -122,7 +123,7 @@ export default function RevisionPage() {
             <div className="glass-l2" style={{ borderRadius: 18, padding: 20 }}>
               <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14 }}>
                 <div style={{ width: 48, height: 48, borderRadius: 14, background: 'rgba(245,158,11,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                  <span className="material-symbols-outlined" style={{ fontSize: 24, color: '#F59E0B', fontVariationSettings: "'FILL' 1" }}>fact_check</span>
+                  <Icon name="fact_check" size={24} color="#F59E0B" />
                 </div>
                 <div>
                   <p style={{ fontSize: 15, fontWeight: 700, margin: '0 0 6px' }}>Инвентаризация склада</p>
@@ -140,7 +141,7 @@ export default function RevisionPage() {
                 { label: 'Ниже порога', value: tracked.filter(i => i.stockQuantity <= i.minThreshold).length, color: '#F43F5E', icon: 'warning' },
               ].map(({ label, value, color, icon }) => (
                 <div key={label} className="glass-l2" style={{ borderRadius: 16, padding: '16px 18px' }}>
-                  <span className="material-symbols-outlined" style={{ fontSize: 22, color, fontVariationSettings: "'FILL' 1" }}>{icon}</span>
+                  <Icon name={icon} size={22} color={color} />
                   <p style={{ fontSize: 28, fontWeight: 800, margin: '8px 0 2px', color }}>{value}</p>
                   <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: 0 }}>{label}</p>
                 </div>
@@ -240,7 +241,7 @@ export default function RevisionPage() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             <div style={{ textAlign: 'center', padding: '32px 0 24px' }}>
               <div style={{ width: 64, height: 64, borderRadius: '50%', background: 'rgba(16,185,129,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
-                <span className="material-symbols-outlined" style={{ fontSize: 32, color: '#10B981', fontVariationSettings: "'FILL' 1" }}>check_circle</span>
+                <Icon name="check_circle" size={32} color="#10B981" />
               </div>
               <h2 style={{ fontSize: 20, fontWeight: 800, margin: '0 0 6px' }}>Ревизия завершена</h2>
               <p style={{ fontSize: 13, color: 'var(--on-surface-variant)', margin: 0 }}>Обновлено {results.length} позиций</p>
