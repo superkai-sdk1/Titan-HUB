@@ -371,16 +371,57 @@ function SortableCatCard({ cat, itemCount, onEdit, onDelete }: { cat: any; itemC
 
   return (
     <div ref={setNodeRef} style={style}>
-      <div className="glass-l2" style={{ borderRadius: 16, padding: '16px 14px 14px', cursor: 'pointer', position: 'relative', border: `1px solid ${colorObj.border}` }} onClick={onEdit}>
-        <Icon name="drag_indicator" {...attributes} {...listeners} size={18} color="rgba(204,195,216,0.3)" style={{ position: 'absolute', top: 10, left: 10, cursor: 'grab', touchAction: 'none', userSelect: 'none' }} />
-        <div style={{ width: 52, height: 52, borderRadius: 14, marginBottom: 10, marginTop: 4, background: colorObj.light, border: `1.5px solid ${colorObj.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <CatIconRenderer icon={cat.icon} size={26} color={colorObj.hex} />
+      <div
+        className="glass-l2"
+        style={{
+          borderRadius: 16,
+          border: `1px solid ${colorObj.border}`,
+          overflow: 'hidden',
+          cursor: 'pointer',
+          display: 'flex',
+          flexDirection: 'column',
+        }}
+        onClick={onEdit}
+      >
+        {/* Top: icon area with color gradient */}
+        <div style={{
+          background: colorObj.light,
+          padding: '18px 16px 14px',
+          display: 'flex',
+          alignItems: 'flex-start',
+          justifyContent: 'space-between',
+        }}>
+          <div style={{
+            width: 48, height: 48, borderRadius: 13,
+            background: `rgba(255,255,255,0.08)`,
+            border: `1.5px solid ${colorObj.border}`,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}>
+            <CatIconRenderer icon={cat.icon} size={26} color={colorObj.hex} />
+          </div>
+          <Icon
+            name="drag_indicator"
+            {...(attributes as any)}
+            {...(listeners as any)}
+            size={18}
+            color={`${colorObj.hex}60`}
+            style={{ cursor: 'grab', touchAction: 'none', userSelect: 'none', marginTop: 2 }}
+          />
         </div>
-        <p style={{ fontSize: 13, fontWeight: 700, margin: '0 0 4px', paddingRight: 20 }}>{cat.name}</p>
-        <p style={{ fontSize: 11, color: colorObj.text, margin: 0, fontWeight: 600, fontFamily: "'JetBrains Mono',monospace" }}>{itemCount} поз.</p>
-        <button onClick={e => { e.stopPropagation(); onDelete() }} style={{ position: 'absolute', top: 10, right: 10, width: 28, height: 28, borderRadius: 7, border: '1px solid rgba(244,63,94,0.2)', background: 'rgba(244,63,94,0.08)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#F87171' }}>
-          <Icon name="delete" size={14} />
-        </button>
+
+        {/* Bottom: name + count + actions */}
+        <div style={{ padding: '10px 14px 12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+          <div style={{ minWidth: 0 }}>
+            <p style={{ fontSize: 13, fontWeight: 700, margin: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{cat.name}</p>
+            <p style={{ fontSize: 11, color: colorObj.text, margin: '2px 0 0', fontWeight: 600 }}>{itemCount} позиций</p>
+          </div>
+          <button
+            onClick={e => { e.stopPropagation(); onDelete() }}
+            style={{ width: 30, height: 30, borderRadius: 8, border: '1px solid rgba(244,63,94,0.2)', background: 'rgba(244,63,94,0.08)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#F87171', flexShrink: 0 }}
+          >
+            <Icon name="delete" size={14} />
+          </button>
+        </div>
       </div>
     </div>
   )
@@ -476,8 +517,6 @@ export default function MenuPage() {
     setShowForm(true)
   }
 
-  // Preview of selected preset in cat form
-  const selectedPreset = CAT_PRESETS.find(p => p.id === catForm.icon)
   const previewColorObj = getCatColorObj(catForm.color)
 
   return (
@@ -536,7 +575,7 @@ export default function MenuPage() {
             )}
             <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleCatDragEnd}>
               <SortableContext items={sortedCats.map(c => c.id)} strategy={rectSortingStrategy}>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10 }}>
+                <div className="cat-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10 }}>
                   {sortedCats.map((cat: any) => {
                     const cnt = allItems.filter(i => i.category === cat.id).length
                     return (
@@ -605,28 +644,41 @@ export default function MenuPage() {
 
       {/* ── Category form sheet ──────────────────────────────────── */}
       <Sheet open={showCatForm} onClose={() => { setShowCatForm(false); setEditingCat(null); setCatForm(BLANK_CAT) }} title={editingCat ? 'Редактировать категорию' : 'Новая категория'}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
 
-          {/* Preview + Name */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-            <div style={{ width: 60, height: 60, borderRadius: 16, background: previewColorObj.light, border: `2px solid ${previewColorObj.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transition: 'all 0.2s', boxShadow: `0 0 20px ${previewColorObj.hex}30` }}>
-              <CatIconRenderer icon={catForm.icon} size={30} color={previewColorObj.hex} />
+          {/* Live preview + name input */}
+          <div style={{ display: 'flex', alignItems: 'stretch', gap: 14 }}>
+            {/* Big preview tile */}
+            <div style={{
+              width: 72, flexShrink: 0,
+              borderRadius: 18,
+              background: previewColorObj.light,
+              border: `2px solid ${previewColorObj.border}`,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              boxShadow: `0 0 24px ${previewColorObj.hex}25`,
+              transition: 'all 0.25s',
+            }}>
+              <CatIconRenderer icon={catForm.icon} size={34} color={previewColorObj.hex} />
             </div>
-            <div style={{ flex: 1 }}>
-              <label style={LBL}>Название *</label>
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 6 }}>
+              <label style={LBL}>Название категории *</label>
               <input
                 value={catForm.name}
                 onChange={e => setCatForm((p: any) => ({ ...p, name: e.target.value }))}
-                style={INP}
+                style={{ ...INP, margin: 0 }}
                 placeholder="Например: Горячие напитки"
+                autoFocus
               />
             </div>
           </div>
 
-          {/* Preset grid */}
+          {/* Divider */}
+          <div style={{ height: 1, background: 'rgba(255,255,255,0.07)' }} />
+
+          {/* Preset grid — 4 columns */}
           <div>
-            <label style={{ ...LBL, marginBottom: 10, display: 'block' }}>Шаблон иконки</label>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 7 }}>
+            <p style={{ ...LBL, marginBottom: 12 }}>Иконка и цвет</p>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
               {CAT_PRESETS.map(preset => {
                 const isSelected = catForm.icon === preset.id
                 const r = parseInt(preset.color.slice(1, 3), 16)
@@ -642,37 +694,56 @@ export default function MenuPage() {
                       name: p.name || preset.defaultName,
                     }))}
                     style={{
-                      padding: '10px 4px 8px',
-                      borderRadius: 12,
-                      border: isSelected ? `2px solid ${preset.color}` : '2px solid transparent',
-                      background: isSelected ? `rgba(${r},${g},${b},0.18)` : `rgba(${r},${g},${b},0.07)`,
+                      padding: '12px 6px 10px',
+                      borderRadius: 14,
+                      border: isSelected
+                        ? `2px solid ${preset.color}`
+                        : `2px solid rgba(${r},${g},${b},0.15)`,
+                      background: isSelected
+                        ? `rgba(${r},${g},${b},0.2)`
+                        : `rgba(${r},${g},${b},0.06)`,
                       cursor: 'pointer',
                       display: 'flex',
                       flexDirection: 'column',
                       alignItems: 'center',
-                      gap: 5,
+                      gap: 7,
                       transition: 'all 0.15s',
-                      boxShadow: isSelected ? `0 0 14px rgba(${r},${g},${b},0.35)` : 'none',
+                      boxShadow: isSelected ? `0 0 16px rgba(${r},${g},${b},0.4)` : 'none',
                       position: 'relative',
                     }}
                   >
                     {isSelected && (
-                      <div style={{ position: 'absolute', top: 4, right: 4, width: 12, height: 12, borderRadius: '50%', background: preset.color, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                        <svg width="8" height="8" viewBox="0 0 8 8" fill="none"><path d="M1.5 4l2 2 3-3" stroke="#fff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                      <div style={{
+                        position: 'absolute', top: 5, right: 5,
+                        width: 14, height: 14, borderRadius: '50%',
+                        background: preset.color,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      }}>
+                        <svg width="9" height="9" viewBox="0 0 9 9" fill="none">
+                          <path d="M1.5 4.5l2 2 4-4" stroke="#fff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
                       </div>
                     )}
-                    {preset.svg(preset.color, 24)}
-                    <span style={{ fontSize: 9, fontWeight: 600, color: preset.color, lineHeight: 1.2, textAlign: 'center', letterSpacing: '0.02em' }}>{preset.gridLabel}</span>
+                    {preset.svg(isSelected ? preset.color : `rgba(${r},${g},${b},0.7)`, 28)}
+                    <span style={{
+                      fontSize: 10, fontWeight: 600,
+                      color: isSelected ? preset.color : `rgba(${r},${g},${b},0.8)`,
+                      lineHeight: 1.2, textAlign: 'center',
+                      maxWidth: '100%', overflow: 'hidden',
+                      textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                    }}>
+                      {preset.gridLabel}
+                    </span>
                   </button>
                 )
               })}
             </div>
           </div>
 
-          {/* Color palette */}
+          {/* Color override — 2 rows of 10 */}
           <div>
-            <label style={{ ...LBL, marginBottom: 10, display: 'block' }}>Цвет акцента</label>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(10, 1fr)', gap: 7 }}>
+            <p style={{ ...LBL, marginBottom: 10 }}>Цвет акцента</p>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(10, 1fr)', gap: 8 }}>
               {PALETTE.map((hex, i) => {
                 const isActive = catForm.color === hex
                 return (
@@ -681,17 +752,14 @@ export default function MenuPage() {
                     onClick={() => setCatForm((p: any) => ({ ...p, color: hex }))}
                     title={CAT_PRESETS[i]?.gridLabel}
                     style={{
-                      width: '100%',
-                      aspectRatio: '1',
-                      borderRadius: '50%',
-                      border: 'none',
-                      cursor: 'pointer',
+                      width: '100%', aspectRatio: '1', borderRadius: '50%',
+                      border: 'none', cursor: 'pointer',
                       background: hex,
-                      outline: isActive ? `3px solid #fff` : '3px solid transparent',
-                      outlineOffset: 2,
-                      transition: 'outline 0.15s, transform 0.15s',
-                      transform: isActive ? 'scale(1.2)' : 'scale(1)',
-                      boxShadow: isActive ? `0 0 10px ${hex}80` : 'none',
+                      outline: isActive ? `3px solid #fff` : '2px solid transparent',
+                      outlineOffset: isActive ? 2 : 0,
+                      transition: 'all 0.15s',
+                      transform: isActive ? 'scale(1.25)' : 'scale(1)',
+                      boxShadow: isActive ? `0 0 12px ${hex}90` : 'none',
                     }}
                   />
                 )
@@ -699,11 +767,15 @@ export default function MenuPage() {
             </div>
           </div>
 
-          {/* Tablet visible */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '12px 14px', borderRadius: 12, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
+          {/* Tablet toggle */}
+          <div style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            gap: 12, padding: '13px 16px', borderRadius: 14,
+            background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)',
+          }}>
             <div>
-              <p style={{ fontSize: 14, fontWeight: 500, margin: 0 }}>Видно на планшете</p>
-              <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: '2px 0 0' }}>Показывать категорию в меню планшета</p>
+              <p style={{ fontSize: 14, fontWeight: 600, margin: 0 }}>Видно на планшете</p>
+              <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: '2px 0 0' }}>Показывать категорию гостям</p>
             </div>
             <MiniToggle value={catForm.isTabletVisible ?? true} onChange={v => setCatForm((p: any) => ({ ...p, isTabletVisible: v }))} />
           </div>
@@ -711,12 +783,22 @@ export default function MenuPage() {
           <button
             onClick={() => saveCat.mutate(catForm)}
             disabled={saveCat.isPending || !catForm.name}
-            style={{ width: '100%', padding: '14px 0', borderRadius: 14, border: 'none', background: 'linear-gradient(135deg, #8B5CF6, #4cd7f6)', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer', opacity: !catForm.name ? 0.6 : 1 }}
+            style={{
+              width: '100%', padding: '15px 0', borderRadius: 14, border: 'none',
+              background: 'linear-gradient(135deg, #8B5CF6, #4cd7f6)',
+              color: '#fff', fontSize: 15, fontWeight: 700, cursor: 'pointer',
+              opacity: !catForm.name ? 0.5 : 1, letterSpacing: '0.02em',
+            }}
           >
-            {saveCat.isPending ? 'Сохраняем…' : 'Сохранить'}
+            {saveCat.isPending ? 'Сохраняем…' : editingCat ? 'Сохранить изменения' : 'Создать категорию'}
           </button>
         </div>
       </Sheet>
+
+      <style>{`
+        @media (min-width: 540px) { .cat-grid { grid-template-columns: repeat(3, 1fr) !important; } }
+        @media (min-width: 720px) { .cat-grid { grid-template-columns: repeat(4, 1fr) !important; } }
+      `}</style>
     </div>
   )
 }
