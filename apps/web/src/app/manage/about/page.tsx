@@ -565,6 +565,110 @@ export default function AboutPage() {
         </div>
       )}
 
+      {/* Документы */}
+      <div style={{ ...CARD, marginBottom: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+          <span className="material-symbols-outlined" style={{ fontSize: 20, color: '#a78bfa' }}>
+            description
+          </span>
+          <span style={{ fontWeight: 600, fontSize: 15, color: 'var(--on-surface)' }}>
+            Документы
+          </span>
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <a
+            href="https://titanpos.ru/privacy"
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{
+              ...CARD_INNER,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 12,
+              textDecoration: 'none',
+              cursor: 'pointer',
+              transition: 'background 0.15s, border-color 0.15s',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = 'rgba(139,92,246,0.08)'
+              e.currentTarget.style.borderColor = 'rgba(139,92,246,0.3)'
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'rgba(255,255,255,0.04)'
+              e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)'
+            }}
+          >
+            <div style={{
+              width: 36, height: 36, borderRadius: 10,
+              background: 'rgba(139,92,246,0.15)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              flexShrink: 0,
+            }}>
+              <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#a78bfa' }}>
+                privacy_tip
+              </span>
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <p style={{ fontSize: 14, fontWeight: 600, margin: 0, color: 'var(--on-surface)' }}>
+                Политика конфиденциальности
+              </p>
+              <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: '2px 0 0' }}>
+                titanpos.ru/privacy
+              </p>
+            </div>
+            <span className="material-symbols-outlined" style={{ fontSize: 18, color: 'var(--on-surface-variant)', flexShrink: 0 }}>
+              open_in_new
+            </span>
+          </a>
+
+          <a
+            href="https://titanpos.ru/terms"
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{
+              ...CARD_INNER,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 12,
+              textDecoration: 'none',
+              cursor: 'pointer',
+              transition: 'background 0.15s, border-color 0.15s',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = 'rgba(76,215,246,0.08)'
+              e.currentTarget.style.borderColor = 'rgba(76,215,246,0.3)'
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'rgba(255,255,255,0.04)'
+              e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)'
+            }}
+          >
+            <div style={{
+              width: 36, height: 36, borderRadius: 10,
+              background: 'rgba(76,215,246,0.15)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              flexShrink: 0,
+            }}>
+              <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#4cd7f6' }}>
+                gavel
+              </span>
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <p style={{ fontSize: 14, fontWeight: 600, margin: 0, color: 'var(--on-surface)' }}>
+                Пользовательское соглашение
+              </p>
+              <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: '2px 0 0' }}>
+                titanpos.ru/terms
+              </p>
+            </div>
+            <span className="material-symbols-outlined" style={{ fontSize: 18, color: 'var(--on-surface-variant)', flexShrink: 0 }}>
+              open_in_new
+            </span>
+          </a>
+        </div>
+      </div>
+
       <style>{`
         @keyframes spin {
           from { transform: rotate(0deg); }

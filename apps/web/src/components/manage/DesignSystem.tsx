@@ -65,8 +65,7 @@ export function Toggle({
 //
 // Поведение:
 // • Mobile (<768px): bottom sheet с snap points [initial, full]
-// • Desktop (≥768px): centered modal (max 480px) или anchored popover если
-//   передан anchorRef (привязка к триггер-элементу)
+// • Desktop (≥768px): centered modal с adaptive height по контенту
 // • Drag-to-close работает везде — за handle ИЛИ по контенту, если скролл вверху
 // • Smart scroll: при достижении верха списка drag вверх увеличивает sheet
 // • Snap-points переключаются автоматически в зависимости от скролла
@@ -77,7 +76,7 @@ export interface SheetProps {
   title?: string
   children: React.ReactNode
   /**
-   * Высота на которой sheet открывается изначально (default '60dvh').
+   * Высота на которой sheet открывается изначально на мобильном (default '60dvh').
    * При скролле списка вверх sheet расширяется до maxHeight.
    */
   initialHeight?: string
@@ -86,10 +85,9 @@ export interface SheetProps {
    */
   maxHeight?: string
   /**
-   * Если передан — на desktop sheet появляется рядом с этим элементом (popover).
-   * Без anchorRef — centered modal на desktop / bottom sheet на mobile.
+   * Размер на десктопе (default 'md'). Sm = 420px, md = 520px, lg = 680px.
    */
-  anchorRef?: React.RefObject<HTMLElement | null>
+  desktopSize?: 'sm' | 'md' | 'lg'
 }
 
 function useIsDesktop() {
@@ -105,11 +103,13 @@ function useIsDesktop() {
   return isDesktop
 }
 
+const DESKTOP_WIDTHS = { sm: 420, md: 520, lg: 680 }
+
 export function Sheet({
   open, onClose, title, children,
   initialHeight = '60dvh',
   maxHeight = '90dvh',
-  anchorRef,
+  desktopSize = 'md',
 }: SheetProps) {
   const isDesktop = useIsDesktop()
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -117,30 +117,6 @@ export function Sheet({
   const dragY = useMotionValue(0)
   // Текущий snap-point: 0 = initial, 1 = expanded (max)
   const [snap, setSnap] = useState<0 | 1>(0)
-  // Desktop anchor position
-  const [anchorPos, setAnchorPos] = useState<{ top: number; left: number; width: number } | null>(null)
-
-  // ── Снимаем позицию anchor при открытии (desktop popover режим) ────────
-  useEffect(() => {
-    if (!open || !isDesktop || !anchorRef?.current) {
-      setAnchorPos(null)
-      return
-    }
-    const rect = anchorRef.current.getBoundingClientRect()
-    setAnchorPos({
-      top: rect.bottom + 8,
-      left: rect.left,
-      width: Math.max(rect.width, 280),
-    })
-    const onResize = () => {
-      if (anchorRef.current) {
-        const r = anchorRef.current.getBoundingClientRect()
-        setAnchorPos({ top: r.bottom + 8, left: r.left, width: Math.max(r.width, 280) })
-      }
-    }
-    window.addEventListener('resize', onResize)
-    return () => window.removeEventListener('resize', onResize)
-  }, [open, isDesktop, anchorRef])
 
   useEffect(() => {
     if (open) {
@@ -148,6 +124,14 @@ export function Sheet({
       setSnap(0)
     }
   }, [open, dragY])
+
+  // Блокируем скролл body когда sheet открыт (предотвращаем background scroll)
+  useEffect(() => {
+    if (!open || typeof document === 'undefined') return
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = prev }
+  }, [open])
 
   // ── Mobile: snap-driven height ─────────────────────────────────────────
   // На expanded snap (1) высота = maxHeight, на initial (0) = initialHeight
@@ -242,95 +226,83 @@ export function Sheet({
     }
   }, [dragY, snap])
 
-  // ── Desktop variant: anchor popover ИЛИ centered modal ──────────────────
-  if (isDesktop && open) {
-    const popoverStyle: React.CSSProperties = anchorPos
-      ? {
-          position: 'fixed',
-          top: Math.min(anchorPos.top, window.innerHeight - 100),
-          left: Math.min(anchorPos.left, window.innerWidth - 480),
-          width: Math.min(anchorPos.width, 480),
-          maxHeight: '70vh',
-        }
-      : {
-          position: 'fixed',
-          top: '50%',
-          left: '50%',
-          transform: 'translate(-50%, -50%)',
-          width: 'min(480px, calc(100vw - 48px))',
-          maxHeight: maxHeight,
-        }
-
+  // ── Desktop variant: centered modal с адаптивной высотой ────────────────
+  if (isDesktop) {
+    const width = DESKTOP_WIDTHS[desktopSize]
     return (
       <AnimatePresence>
         {open && (
-          <>
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.18 }}
+            style={{
+              position: 'fixed', inset: 0, zIndex: 100,
+              background: 'rgba(0,0,0,0.6)',
+              backdropFilter: 'blur(8px)',
+              WebkitBackdropFilter: 'blur(8px)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: '24px',
+            }}
+            onClick={onClose}
+          >
             <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.18 }}
-              style={{
-                position: 'fixed', inset: 0, zIndex: 100,
-                background: 'rgba(0,0,0,0.55)',
-                backdropFilter: 'blur(8px)',
-                WebkitBackdropFilter: 'blur(8px)',
-              }}
-              onClick={onClose}
-            />
-            <motion.div
-              initial={{ opacity: 0, scale: 0.96, y: anchorPos ? -8 : 0 }}
+              initial={{ opacity: 0, scale: 0.94, y: 12 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.96 }}
-              transition={{ type: 'spring', damping: 28, stiffness: 380 }}
-              style={{ zIndex: 101, ...popoverStyle }}
+              exit={{ opacity: 0, scale: 0.96, y: 8 }}
+              transition={{ type: 'spring', damping: 28, stiffness: 360 }}
+              style={{
+                width: `min(${width}px, 100%)`,
+                maxHeight: 'min(85vh, 720px)',
+                borderRadius: 20,
+                boxShadow: '0 24px 64px rgba(0,0,0,0.55), 0 0 0 1px rgba(255,255,255,0.08)',
+                display: 'flex',
+                flexDirection: 'column',
+                overflow: 'hidden',
+                background: 'rgba(29, 24, 40, 0.98)',
+                backdropFilter: 'blur(24px)',
+                WebkitBackdropFilter: 'blur(24px)',
+                border: '1px solid rgba(255,255,255,0.06)',
+              }}
               onClick={(e) => e.stopPropagation()}
             >
-              <div
-                className="glass-l2"
-                style={{
-                  borderRadius: 20,
-                  boxShadow: '0 24px 64px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.08)',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  overflow: 'hidden',
-                  maxHeight: '100%',
-                  background: 'rgba(29, 24, 40, 0.96)',
-                  backdropFilter: 'blur(24px)',
-                  WebkitBackdropFilter: 'blur(24px)',
-                }}
-              >
-                {title && (
-                  <div style={{
-                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                    padding: '18px 22px',
-                    borderBottom: '1px solid rgba(255,255,255,0.06)',
-                    flexShrink: 0,
-                  }}>
-                    <h2 style={{ fontSize: 16, fontWeight: 800, margin: 0 }}>{title}</h2>
-                    <button onClick={onClose} style={{
-                      width: 30, height: 30, borderRadius: 8,
-                      border: '1px solid rgba(255,255,255,0.1)',
-                      background: 'rgba(255,255,255,0.04)',
-                      cursor: 'pointer',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      color: 'var(--on-surface-variant)',
-                    }}>
-                      <span className="material-symbols-outlined" style={{ fontSize: 15 }}>close</span>
-                    </button>
-                  </div>
-                )}
-                <div ref={scrollRef} style={{
-                  overflowY: 'auto',
-                  overscrollBehavior: 'contain',
-                  padding: '20px 22px 24px',
-                  flex: 1,
+              {title && (
+                <div style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  padding: '20px 24px',
+                  borderBottom: '1px solid rgba(255,255,255,0.06)',
+                  flexShrink: 0,
                 }}>
-                  {children}
+                  <h2 style={{ fontSize: 17, fontWeight: 800, margin: 0 }}>{title}</h2>
+                  <button onClick={onClose} aria-label="Закрыть" style={{
+                    width: 32, height: 32, borderRadius: 9,
+                    border: '1px solid rgba(255,255,255,0.1)',
+                    background: 'rgba(255,255,255,0.04)',
+                    cursor: 'pointer',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    color: 'var(--on-surface-variant)',
+                    transition: 'background 0.15s',
+                  }}
+                  onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.08)' }}
+                  onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.04)' }}
+                  >
+                    <span className="material-symbols-outlined" style={{ fontSize: 16 }}>close</span>
+                  </button>
                 </div>
+              )}
+              <div ref={scrollRef} style={{
+                overflowY: 'auto',
+                overscrollBehavior: 'contain',
+                padding: '20px 24px 24px',
+                flex: 1,
+              }}>
+                {children}
               </div>
             </motion.div>
-          </>
+          </motion.div>
         )}
       </AnimatePresence>
     )
