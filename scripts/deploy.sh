@@ -13,8 +13,8 @@ git fetch origin main
 git reset --hard origin/main
 
 echo "📦 Установка зависимостей..."
-npm install -g pnpm
-pnpm install --frozen-lockfile
+npm install -g pnpm@11 --quiet
+CI=true pnpm install --frozen-lockfile
 
 echo "🔐 Проверка .env..."
 if [ ! -f .env ]; then
