@@ -410,7 +410,6 @@ posRouter.post('/checks/:id/qr', requireRole('owner', 'staff'), zValidator('json
       paymentDetails: { amount, currency: 'RUB' },
       description: `Titan POS чек ${checkId.slice(0, 8)}`,
       payload: checkId,
-      IsHidePayform: true,
     }),
   })
 
