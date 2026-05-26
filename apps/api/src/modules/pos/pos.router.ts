@@ -420,6 +420,7 @@ posRouter.post('/checks/:id/qr', requireRole('owner', 'staff'), zValidator('json
   }
 
   const createData = await createRes.json() as Record<string, unknown>
+  console.log('Platega createData:', JSON.stringify(createData))
   const transactionId = createData['transactionId'] as string
 
   // Получаем СБП QR-строку через status endpoint
@@ -427,14 +428,15 @@ posRouter.post('/checks/:id/qr', requireRole('owner', 'staff'), zValidator('json
     headers: { 'X-MerchantId': merchantId, 'X-Secret': secret },
   })
   if (!statusRes.ok) {
-    console.error('Platega status error:', statusRes.status)
+    console.error('Platega status error:', statusRes.status, await statusRes.text().catch(() => ''))
     return c.json({ error: 'Ошибка получения QR от Platega' }, 502)
   }
 
   const statusData = await statusRes.json() as Record<string, unknown>
-  const qrString = statusData['qr'] as string | undefined
+  console.log('Platega statusData:', JSON.stringify(statusData))
+  const qrString = (statusData['qr'] ?? statusData['qrCode'] ?? statusData['sbpUrl']) as string | undefined
 
-  if (!qrString) return c.json({ error: 'Platega не вернул QR для СБП' }, 502)
+  if (!qrString) return c.json({ error: 'Platega не вернул QR для СБП', debug: JSON.stringify(statusData) }, 502)
 
   // Рендерим СБП-строку как QR-изображение
   const QRCode = await import('qrcode')
