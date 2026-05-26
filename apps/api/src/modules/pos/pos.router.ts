@@ -422,19 +422,19 @@ posRouter.post('/checks/:id/qr', requireRole('owner', 'staff'), zValidator('json
   const createData = await createRes.json() as Record<string, unknown>
   const transactionId = createData['transactionId'] as string
 
-  // Platega генерирует QR асинхронно — опрашиваем до 10 раз с интервалом 600мс
+  // GET /h2h/{id} — специальный endpoint Platega для получения СБП QR
   let qrString: string | undefined
-  for (let i = 0; i < 10; i++) {
-    await new Promise(r => setTimeout(r, 600))
-    const statusRes = await fetch(`https://app.platega.io/transaction/${transactionId}`, {
+  for (let i = 0; i < 8; i++) {
+    await new Promise(r => setTimeout(r, 700))
+    const h2hRes = await fetch(`https://app.platega.io/h2h/${transactionId}`, {
       headers: { 'X-MerchantId': merchantId, 'X-Secret': secret },
     })
-    if (!statusRes.ok) {
-      console.error('Platega status error:', statusRes.status)
+    if (!h2hRes.ok) {
+      console.error('Platega h2h error:', h2hRes.status, await h2hRes.text().catch(() => ''))
       return c.json({ error: 'Ошибка получения QR от Platega' }, 502)
     }
-    const statusData = await statusRes.json() as Record<string, unknown>
-    qrString = statusData['qr'] as string | undefined
+    const h2hData = await h2hRes.json() as Record<string, unknown>
+    qrString = h2hData['qr'] as string | undefined
     if (qrString) break
   }
 
