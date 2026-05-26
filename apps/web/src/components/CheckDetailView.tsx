@@ -64,7 +64,7 @@ interface SplitPart {
   label?: string
 }
 
-type PayScreen = 'methods' | 'bonus' | 'deposit' | 'certificate' | 'split'
+type PayScreen = 'methods' | 'bonus' | 'deposit' | 'certificate' | 'split' | 'qr'
 
 const METHOD_CONFIGS: Record<string, { label: string; icon: string; color: string; rgb: string }> = {
   cash: { label: 'Наличные', icon: 'payments', color: 'var(--pay-cash)', rgb: '16,185,129' },
@@ -139,6 +139,14 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
   const [certLoading, setCertLoading] = useState(false)
   const [isProcessing, setIsProcessing] = useState(false)
 
+  // QR / Platega state
+  const [qrTransactionId, setQrTransactionId] = useState<string | null>(null)
+  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null)
+  const [qrLoading, setQrLoading] = useState(false)
+  const [qrStatus, setQrStatus] = useState<'pending' | 'confirmed' | 'canceled'>('pending')
+  const [qrError, setQrError] = useState('')
+  const [qrAmount, setQrAmount] = useState(0)
+
   const check = checkData
   const categories = categoriesData?.categories ?? []
   const allItems = (itemsData?.items ?? []).filter(i => i.isActive)
@@ -184,10 +192,59 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
     setCertError('')
     setPayScreen('methods')
     setIsProcessing(false)
+    setQrTransactionId(null)
+    setQrDataUrl(null)
+    setQrStatus('pending')
+    setQrError('')
     setShowPayment(true)
   }
 
+  async function startQrPayment() {
+    const amount = remaining > 0 ? remaining : total
+    setQrAmount(amount)
+    setQrLoading(true)
+    setQrError('')
+    setQrStatus('pending')
+    setQrTransactionId(null)
+    setQrDataUrl(null)
+    setPayScreen('qr')
+    try {
+      const res = await api.post<{ transactionId: string; qrDataUrl: string; expiresIn?: string }>(
+        `/pos/checks/${checkId}/qr`,
+        { amount }
+      )
+      setQrTransactionId(res.transactionId)
+      setQrDataUrl(res.qrDataUrl)
+    } catch (err) {
+      setQrError((err as Error)?.message ?? 'Ошибка создания QR')
+    } finally {
+      setQrLoading(false)
+    }
+  }
+
   const invalidateCheck = useCallback(() => qc.invalidateQueries({ queryKey: ['check', checkId] }), [qc, checkId])
+
+  // Polling Platega статуса каждые 3 секунды пока QR-экран активен
+  useEffect(() => {
+    if (payScreen !== 'qr' || !qrTransactionId || qrStatus !== 'pending' || qrLoading) return
+    const poll = async () => {
+      try {
+        const res = await api.get<{ status: string }>(`/pos/checks/${checkId}/qr/${qrTransactionId}/status`)
+        if (res.status === 'CONFIRMED') {
+          setQrStatus('confirmed')
+          addSplitPart({ method: 'transfer', amount: qrAmount, label: 'СБП / QR (Platega)' })
+          setPayScreen('split')
+        } else if (res.status === 'CANCELED') {
+          setQrStatus('canceled')
+          setQrError('Платёж отменён или истекло время ожидания')
+        }
+      } catch {
+        // игнорируем ошибки поллинга
+      }
+    }
+    const t = setInterval(poll, 3000)
+    return () => clearInterval(t)
+  }, [payScreen, qrTransactionId, qrStatus, qrLoading, checkId, qrAmount])
 
   const addItem = useMutation({
     mutationFn: (itemId: string) => api.post(`/pos/checks/${checkId}/items`, { itemId, quantity: 1 }),
@@ -265,6 +322,8 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
       setPayScreen('deposit')
     } else if (method === 'certificate') {
       setPayScreen('certificate')
+    } else if (method === 'transfer') {
+      startQrPayment()
     } else {
       addSplitPart({ method, amount: remaining > 0 ? remaining : total, label: METHOD_CONFIGS[method]?.label })
       setPayScreen('split')
@@ -813,6 +872,76 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
               </div>
             )}
 
+            {/* ===== SCREEN: QR (Platega SBP) ===== */}
+            {payScreen === 'qr' && (
+              <div style={{ padding: '28px 28px 32px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
+                  <button
+                    onClick={() => { setPayScreen('methods'); setQrTransactionId(null); setQrDataUrl(null); setQrStatus('pending'); setQrError('') }}
+                    style={{ width: 36, height: 36, borderRadius: 10, border: 'none', cursor: 'pointer', background: 'rgba(255,255,255,0.06)', color: 'var(--on-surface-variant)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
+                  >
+                    <Icon name="arrow_back" size={18} />
+                  </button>
+                  <div>
+                    <h2 style={{ fontSize: 18, fontWeight: 900, fontStyle: 'italic', textTransform: 'uppercase', margin: 0, color: 'var(--on-surface)' }}>СБП / QR-ОПЛАТА</h2>
+                    <p style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--on-surface-variant)', margin: '4px 0 0' }}>
+                      {qrAmount.toLocaleString('ru')} ₽
+                    </p>
+                  </div>
+                </div>
+
+                {qrLoading && (
+                  <div style={{ textAlign: 'center', padding: '60px 0' }}>
+                    <div style={{ width: 48, height: 48, borderRadius: '50%', border: '3px solid rgba(139,92,246,0.2)', borderTopColor: '#8B5CF6', animation: 'spin 0.8s linear infinite', margin: '0 auto 16px' }} />
+                    <p style={{ color: 'var(--on-surface-variant)', fontSize: 13 }}>Генерируем QR-код...</p>
+                  </div>
+                )}
+
+                {qrError && (
+                  <div className="glass-l2" style={{ padding: '16px', borderRadius: 14, border: '1px solid rgba(244,63,94,0.25)', marginBottom: 16 }}>
+                    <p style={{ color: 'var(--danger)', fontSize: 13, margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <Icon name="error" size={18} color="var(--danger)" />
+                      {qrError}
+                    </p>
+                    <button
+                      onClick={startQrPayment}
+                      style={{ marginTop: 12, padding: '10px 20px', borderRadius: 10, border: 'none', cursor: 'pointer', background: 'rgba(139,92,246,0.2)', color: '#A78BFA', fontSize: 12, fontWeight: 700 }}
+                    >
+                      Попробовать снова
+                    </button>
+                  </div>
+                )}
+
+                {qrDataUrl && qrStatus === 'pending' && (
+                  <>
+                    <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 20 }}>
+                      <div style={{
+                        padding: 12, borderRadius: 20,
+                        background: '#fff',
+                        boxShadow: '0 8px 32px rgba(0,0,0,0.3)',
+                      }}>
+                        <img src={qrDataUrl} alt="QR для оплаты" style={{ width: 240, height: 240, display: 'block' }} />
+                      </div>
+                    </div>
+
+                    <div className="glass-l2" style={{ padding: '14px 16px', borderRadius: 14, marginBottom: 16, border: '1px solid rgba(139,92,246,0.2)', textAlign: 'center' }}>
+                      <p style={{ fontSize: 13, color: 'var(--on-surface-variant)', margin: '0 0 4px' }}>
+                        Отсканируйте в приложении банка
+                      </p>
+                      <p style={{ fontSize: 24, fontWeight: 900, fontStyle: 'italic', fontVariantNumeric: 'tabular-nums', color: '#A78BFA', margin: 0 }}>
+                        {qrAmount.toLocaleString('ru')} ₽
+                      </p>
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, color: 'var(--on-surface-variant)', fontSize: 13 }}>
+                      <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#8B5CF6', animation: 'pulse 1.5s ease-in-out infinite' }} />
+                      Ожидаем оплату...
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+
             {/* ===== SCREEN: SPLIT ===== */}
             {payScreen === 'split' && (
               <div style={{ padding: '28px 28px 32px' }}>
@@ -888,6 +1017,13 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
       <style>{`
         .check-layout {
           position: relative;
+        }
+        @keyframes spin {
+          to { transform: rotate(360deg); }
+        }
+        @keyframes pulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.3; }
         }
       `}</style>
     </div>

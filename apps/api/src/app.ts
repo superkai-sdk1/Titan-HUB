@@ -27,6 +27,7 @@ import { staffRouter } from './modules/staff/staff.router.js'
 import { cashopsRouter } from './modules/cashops/cashops.router.js'
 import { discountsRouter } from './modules/discounts/discounts.router.js'
 import { inventoryRouter } from './modules/inventory/inventory.router.js'
+import { plategaRouter } from './modules/platega/platega.router.js'
 
 const app = new Hono()
 
@@ -67,6 +68,7 @@ app.route('/api/staff', staffRouter)
 app.route('/api/cashops', cashopsRouter)
 app.route('/api/discounts', discountsRouter)
 app.route('/api/inventory', inventoryRouter)
+app.route('/api/platega', plategaRouter)
 
 app.onError((err, c) => {
   console.error(err)

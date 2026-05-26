@@ -392,6 +392,73 @@ posRouter.post('/checks/:id/discount', requireRole('owner', 'staff'), zValidator
   return c.json({ check: data })
 })
 
+posRouter.post('/checks/:id/qr', requireRole('owner', 'staff'), zValidator('json', z.object({ amount: z.number().positive() })), async (c) => {
+  const checkId = c.req.param('id')
+  const { amount } = c.req.valid('json')
+  const merchantId = process.env['PLATEGA_MERCHANT_ID']
+  const secret = process.env['PLATEGA_SECRET']
+  if (!merchantId || !secret) return c.json({ error: 'Platega не настроен' }, 503)
+
+  const [check] = await db.select().from(checks).where(eq(checks.id, checkId))
+  if (!check || check.status !== 'open') return c.json({ error: 'Check not open' }, 400)
+
+  const createRes = await fetch('https://app.platega.io/transaction/process', {
+    method: 'POST',
+    headers: { 'X-MerchantId': merchantId, 'X-Secret': secret, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      paymentMethod: 2,
+      paymentDetails: { amount, currency: 'RUB' },
+      description: `Titan POS чек ${checkId.slice(0, 8)}`,
+      payload: checkId,
+    }),
+  })
+
+  if (!createRes.ok) {
+    const errText = await createRes.text().catch(() => '')
+    console.error('Platega create error:', createRes.status, errText)
+    return c.json({ error: 'Ошибка создания платежа' }, 502)
+  }
+
+  const createData = await createRes.json() as Record<string, unknown>
+  const transactionId = createData['transactionId'] as string
+
+  // Получаем СБП QR-строку через status endpoint
+  const statusRes = await fetch(`https://app.platega.io/transaction/${transactionId}`, {
+    headers: { 'X-MerchantId': merchantId, 'X-Secret': secret },
+  })
+  if (!statusRes.ok) {
+    console.error('Platega status error:', statusRes.status)
+    return c.json({ error: 'Ошибка получения QR от Platega' }, 502)
+  }
+
+  const statusData = await statusRes.json() as Record<string, unknown>
+  const qrString = statusData['qr'] as string | undefined
+
+  if (!qrString) return c.json({ error: 'Platega не вернул QR для СБП' }, 502)
+
+  // Рендерим СБП-строку как QR-изображение
+  const QRCode = await import('qrcode')
+  const svgString = await QRCode.toString(qrString, { type: 'svg', width: 280, margin: 1 })
+  const qrDataUrl = `data:image/svg+xml;base64,${Buffer.from(svgString).toString('base64')}`
+
+  return c.json({ transactionId, qrDataUrl, expiresIn: createData['expiresIn'] as string | undefined })
+})
+
+posRouter.get('/checks/:id/qr/:transactionId/status', requireRole('owner', 'staff'), async (c) => {
+  const transactionId = c.req.param('transactionId')
+  const merchantId = process.env['PLATEGA_MERCHANT_ID']
+  const secret = process.env['PLATEGA_SECRET']
+  if (!merchantId || !secret) return c.json({ error: 'Platega не настроен' }, 503)
+
+  const res = await fetch(`https://app.platega.io/transaction/${transactionId}`, {
+    headers: { 'X-MerchantId': merchantId, 'X-Secret': secret },
+  })
+  if (!res.ok) return c.json({ error: 'Platega error' }, 502)
+  const data = await res.json() as Record<string, unknown>
+
+  return c.json({ status: data['status'] as string, expiresIn: data['expiresIn'] as string | undefined })
+})
+
 posRouter.post('/checks/:id/pay', requireRole('owner', 'staff'), zValidator('json', PaySchema), async (c) => {
   const checkId = c.req.param('id')
   const user = c.get('user')
