@@ -539,7 +539,7 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
           </div>
 
           {/* Payment footer */}
-          <div className="glass-l1" style={{ padding: 16, borderLeft: 'none', borderRight: 'none', borderBottom: 'none', borderRadius: 0 }}>
+          <div className="glass-l1" style={{ padding: 16, paddingBottom: 'calc(16px + env(safe-area-inset-bottom))', borderLeft: 'none', borderRight: 'none', borderBottom: 'none', borderRadius: 0 }}>
             {spaceRental > 0 && (
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
                 <span style={{ fontSize: 12, color: 'var(--on-surface-variant)', display: 'flex', alignItems: 'center', gap: 5 }}>

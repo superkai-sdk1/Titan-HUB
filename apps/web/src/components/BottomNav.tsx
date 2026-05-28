@@ -80,6 +80,9 @@ export function BottomNav() {
 
   if (pathname === '/login') return null
   if (pathname.startsWith('/tablet')) return null
+  // Карточка чека (/pos/<id>) — свой back-кнопка + прижатая плашка оплаты,
+  // глобальная навигация лишняя и перекрывала бы футер. /pos (список) — оставляем.
+  if (pathname.startsWith('/pos/')) return null
 
   function handleFAB() {
     const onPOS = pathname === '/pos' || pathname.startsWith('/pos/')
