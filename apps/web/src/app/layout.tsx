@@ -92,16 +92,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             min-width: 0;
           }
 
-          /* Резерв высоты под нижнюю навигацию делаем на УРОВНЕ КОНТЕЙНЕРА
-             (.layout-main с box-sizing:border-box), а не на скролл-области.
-             Тогда область контента физически заканчивается выше навигации, и её
-             не перекрывает НИКАКОЙ нижний контент: ни скроллящийся, ни
-             полноэкранные панели с прижатым низом (напр. футер оплаты карточки
-             чека). На десктопе/планшете --bottom-nav-clear = 0 (навигации нет). */
-          .layout-main {
-            padding-bottom: var(--bottom-nav-clear, 0px);
-          }
-
+          /* Нижняя навигация «парит» поверх контента (полупрозрачный остров),
+             поэтому НЕ резервируем под неё место контейнером — контент заполняет
+             всю высоту и проходит под панелью. Отступ кладём только на скролл-
+             область, чтобы последние элементы можно было докрутить выше панели.
+             Для height:100% страниц (карточка чека) этот отступ скролл-области
+             тоже уменьшает доступную высоту → их прижатый низ не перекрывается. */
           @media (max-width: 1023px) {
             .layout-main {
               /* Safe area top — только padding сверху, без боковых (они вызывают сдвиг) */
@@ -110,7 +106,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               max-width: 100vw;
             }
             .layout-content {
-              padding-bottom: 8px;
+              padding-bottom: var(--bottom-nav-clear, 0px);
               overflow-x: hidden;
               overscroll-behavior: none;
             }
