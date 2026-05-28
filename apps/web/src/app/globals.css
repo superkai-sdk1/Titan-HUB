@@ -339,9 +339,10 @@ button, [role="button"] { user-select: none; }
 }
 
 /* ── Bottom-nav clearance (телефон <768: видна нижняя навигация) ─────── */
-/* Высота нав-панели (≈54px) + выступ центральной FAB (14px) + запас + safe-area. */
+/* Нав «парит»: отступ снизу (6px) + высота панели (≈60px) + выступ FAB (14px)
+   + визуальный запас, чтобы последний прокрученный контент не уходил под панель. */
 @media (max-width: 767px) {
-  :root { --bottom-nav-clear: calc(88px + env(safe-area-inset-bottom)); }
+  :root { --bottom-nav-clear: calc(112px + env(safe-area-inset-bottom)); }
 }
 
 /* iOS standalone PWA: «рабочая» область вьюпорта может исключать нижнюю зону

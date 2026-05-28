@@ -8,7 +8,7 @@
  *
  * Версионирование: при изменении CACHE_VERSION пересоздаём кэш.
  */
-const CACHE_VERSION = 'v4'
+const CACHE_VERSION = 'v5'
 const STATIC_CACHE = `titan-static-${CACHE_VERSION}`
 const RUNTIME_CACHE = `titan-runtime-${CACHE_VERSION}`
 
