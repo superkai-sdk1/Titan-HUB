@@ -21,6 +21,14 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({ error: res.statusText }))
+    // Сессия истекла/недействительна: если токен был — выходим и уводим на логин.
+    // На самом логине токена нет, поэтому неверный PIN (401) сюда не попадает.
+    if (res.status === 401 && token) {
+      useAuthStore.getState().logout()
+      if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
+        window.location.href = '/login'
+      }
+    }
     throw new ApiError(res.status, body.error ?? res.statusText, body)
   }
 

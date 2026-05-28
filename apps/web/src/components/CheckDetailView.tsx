@@ -218,12 +218,17 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
       setQrTransactionId(res.transactionId)
       setQrDataUrl(res.qrDataUrl)
     } catch (err) {
-      if (err instanceof ApiError && err.data) {
-        if (err.data.redirectUrl) setQrRedirectUrl(err.data.redirectUrl as string)
-        // Транзакция создана на Platega, polling продолжается чтобы поймать CONFIRMED
-        if (err.data.transactionId) setQrTransactionId(err.data.transactionId as string)
+      const data = err instanceof ApiError ? err.data : undefined
+      const redirect = data?.['redirectUrl'] as string | undefined
+      const txId = data?.['transactionId'] as string | undefined
+      if (redirect) setQrRedirectUrl(redirect)
+      // Транзакция создана на Platega, polling продолжается чтобы поймать CONFIRMED
+      if (txId) setQrTransactionId(txId)
+      // Если есть страница оплаты или транзакция — это не ошибка, а ожидание
+      // подтверждения через redirect (H2H ещё генерит QR). Иначе — реальная ошибка.
+      if (!redirect && !txId) {
+        setQrError((err as Error)?.message ?? 'Ошибка создания QR')
       }
-      setQrError((err as Error)?.message ?? 'Ошибка создания QR')
     } finally {
       setQrLoading(false)
     }
@@ -928,6 +933,27 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
                           Открыть страницу оплаты
                         </a>
                       )}
+                    </div>
+                  </div>
+                )}
+
+                {!qrError && !qrDataUrl && qrRedirectUrl && qrStatus === 'pending' && (
+                  <div className="glass-l2" style={{ padding: '18px 16px', borderRadius: 14, marginBottom: 16, border: '1px solid rgba(139,92,246,0.2)', textAlign: 'center' }}>
+                    <p style={{ fontSize: 13, color: 'var(--on-surface-variant)', margin: '0 0 12px' }}>
+                      QR пока недоступен — откройте страницу оплаты. Подтверждение придёт автоматически.
+                    </p>
+                    <a
+                      href={qrRedirectUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '12px 22px', borderRadius: 12, background: 'linear-gradient(135deg, #8B5CF6, #4cd7f6)', color: '#fff', fontSize: 13, fontWeight: 700, textDecoration: 'none' }}
+                    >
+                      <Icon name="open_in_new" size={16} />
+                      Открыть страницу оплаты
+                    </a>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, color: 'var(--on-surface-variant)', fontSize: 13, marginTop: 16 }}>
+                      <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#8B5CF6', animation: 'pulse 1.5s ease-in-out infinite' }} />
+                      Ожидаем подтверждение оплаты...
                     </div>
                   </div>
                 )}
