@@ -616,6 +616,171 @@ const ICONS: Record<string, React.ReactNode> = {
       <path d="M5.45 5.11L2 12v6a2 2 0 002 2h16a2 2 0 002-2v-6l-3.45-6.89A2 2 0 0016.76 4H7.24a2 2 0 00-1.79 1.11z" />
     </>
   ),
+
+  /* ── Payment methods ────────────────────────────────────── */
+  credit_card: (
+    <>
+      <rect x="2" y="5" width="20" height="14" rx="2.5" />
+      <line x1="2" y1="9.5" x2="22" y2="9.5" />
+      <line x1="5.5" y1="14.5" x2="10" y2="14.5" />
+      <line x1="15.5" y1="14.5" x2="18.5" y2="14.5" />
+    </>
+  ),
+  qr_code_2: (
+    <>
+      <rect x="3" y="3" width="7" height="7" rx="1" />
+      <rect x="14" y="3" width="7" height="7" rx="1" />
+      <rect x="3" y="14" width="7" height="7" rx="1" />
+      <rect x="5.5" y="5.5" width="2" height="2" rx="0.3" fill="currentColor" stroke="none" />
+      <rect x="16.5" y="5.5" width="2" height="2" rx="0.3" fill="currentColor" stroke="none" />
+      <rect x="5.5" y="16.5" width="2" height="2" rx="0.3" fill="currentColor" stroke="none" />
+      <rect x="14" y="14" width="2.5" height="2.5" rx="0.3" fill="currentColor" stroke="none" />
+      <rect x="18.5" y="14" width="2.5" height="2.5" rx="0.3" fill="currentColor" stroke="none" />
+      <rect x="14" y="18.5" width="2.5" height="2.5" rx="0.3" fill="currentColor" stroke="none" />
+      <rect x="18.5" y="18.5" width="2.5" height="2.5" rx="0.3" fill="currentColor" stroke="none" />
+    </>
+  ),
+  stars: (
+    <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+  ),
+  account_balance_wallet: (
+    <>
+      <rect x="3" y="6" width="18" height="14" rx="2.5" />
+      <path d="M21 11h-4a2 2 0 000 4h4" />
+      <circle cx="17.2" cy="13" r="0.9" fill="currentColor" stroke="none" />
+    </>
+  ),
+  person_pin: (
+    <>
+      <path d="M12 22s7-5.5 7-12a7 7 0 10-14 0c0 6.5 7 12 7 12z" />
+      <circle cx="12" cy="9" r="2.3" />
+      <path d="M15.2 16.2v-.4a3.2 3.2 0 00-6.4 0v.4" />
+    </>
+  ),
+  card_membership: (
+    <>
+      <rect x="3" y="4" width="18" height="11" rx="2" />
+      <line x1="3" y1="8.5" x2="21" y2="8.5" />
+      <circle cx="12" cy="18" r="3" />
+      <path d="M10.4 20.4L9.3 23l2.7-1.4L14.7 23l-1.1-2.6" />
+    </>
+  ),
+  call_split: (
+    <>
+      <path d="M12 21v-7" />
+      <path d="M12 14L7.5 9.5" />
+      <polyline points="7.5 13 7.5 9.5 11 9.5" />
+      <path d="M12 14l4.5-4.5" />
+      <polyline points="13 9.5 16.5 9.5 16.5 13" />
+    </>
+  ),
+  refund: (
+    <>
+      <path d="M20 12a8 8 0 1 1-2.3-5.6" strokeLinecap="round" />
+      <polyline points="20 3 20 7 16 7" />
+      <path d="M10.5 16.5V9h2.6a2.2 2.2 0 010 4.4h-2.6" />
+      <line x1="8.8" y1="13.8" x2="13.4" y2="13.8" />
+    </>
+  ),
+
+  /* ── Misc (dashboard / manage / reports) ────────────────── */
+  dashboard: (
+    <>
+      <rect x="3" y="3" width="8" height="9" rx="1.5" />
+      <rect x="13" y="3" width="8" height="5" rx="1.5" />
+      <rect x="13" y="10" width="8" height="11" rx="1.5" />
+      <rect x="3" y="14" width="8" height="7" rx="1.5" />
+    </>
+  ),
+  percent: (
+    <>
+      <line x1="19" y1="5" x2="5" y2="19" />
+      <circle cx="7.5" cy="7.5" r="2.3" />
+      <circle cx="16.5" cy="16.5" r="2.3" />
+    </>
+  ),
+  money_off: (
+    <>
+      <rect x="2" y="6" width="20" height="12" rx="2" />
+      <circle cx="12" cy="12" r="2.5" />
+      <line x1="3" y1="3.5" x2="21" y2="20.5" />
+    </>
+  ),
+  people: (
+    <>
+      <circle cx="9" cy="8" r="3.2" />
+      <path d="M2.5 20v-1a6.5 6.5 0 0113 0v1" />
+      <path d="M16 5a3.2 3.2 0 010 6" />
+      <path d="M17.5 20v-1a6.5 6.5 0 00-2.3-5" />
+    </>
+  ),
+  badge: (
+    <>
+      <rect x="3" y="5" width="18" height="15" rx="2" />
+      <path d="M9.5 5V4a1.5 1.5 0 011.5-1.5h2A1.5 1.5 0 0114.5 4v1" />
+      <circle cx="9" cy="11" r="2" />
+      <path d="M6 16.5a3 3 0 016 0" />
+      <line x1="14.5" y1="10.5" x2="18" y2="10.5" />
+      <line x1="14.5" y1="14" x2="18" y2="14" />
+    </>
+  ),
+  store: (
+    <>
+      <path d="M3 9l1.6-4.4A1 1 0 015.5 4h13a1 1 0 01.9.6L21 9" />
+      <path d="M3 9h18v1.5a2.6 2.6 0 01-5.1 0 2.6 2.6 0 01-5.9 0 2.6 2.6 0 01-5.9 0A2.6 2.6 0 013 10.5V9z" />
+      <path d="M4.5 13v7a1 1 0 001 1h13a1 1 0 001-1v-7" />
+      <rect x="9.5" y="15" width="5" height="6" rx="0.5" />
+    </>
+  ),
+  summarize: (
+    <>
+      <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
+      <polyline points="14 2 14 8 20 8" />
+      <line x1="8" y1="9.5" x2="11" y2="9.5" />
+      <line x1="8" y1="13.5" x2="16" y2="13.5" />
+      <line x1="8" y1="17.5" x2="13" y2="17.5" />
+    </>
+  ),
+  local_shipping: (
+    <>
+      <rect x="1.5" y="6.5" width="12" height="9" rx="1.5" />
+      <path d="M13.5 9.5h4l3 3v3h-7z" />
+      <circle cx="6" cy="17.5" r="1.8" />
+      <circle cx="17" cy="17.5" r="1.8" />
+    </>
+  ),
+  bedtime: (
+    <path d="M20.5 13.2A8 8 0 1 1 10.8 3.5a6.3 6.3 0 0 0 9.7 9.7z" />
+  ),
+  auto_awesome: (
+    <>
+      <path d="M12 3l1.6 4.4L18 9l-4.4 1.6L12 15l-1.6-4.4L6 9l4.4-1.6z" />
+      <path d="M18.5 14l.75 2 2 .75-2 .75-.75 2-.75-2-2-.75 2-.75z" fill="currentColor" stroke="none" />
+    </>
+  ),
+  loyalty: (
+    <>
+      <path d="M20.6 13.4l-7.2 7.2a2 2 0 01-2.8 0L2 12V2h10l8.6 8.6a2 2 0 010 2.8z" />
+      <circle cx="6.5" cy="6.5" r="1.3" fill="currentColor" stroke="none" />
+      <path d="M10.6 9.6a1.4 1.4 0 012.4 1c0 1-1.2 1.8-2.4 2.6-1.2-.8-2.4-1.6-2.4-2.6a1.4 1.4 0 012.4-1z" />
+    </>
+  ),
+  savings: (
+    <>
+      <ellipse cx="11.5" cy="13" rx="7.5" ry="5.5" />
+      <line x1="9.5" y1="8.2" x2="13.5" y2="8.2" />
+      <circle cx="15.5" cy="11.8" r="0.8" fill="currentColor" stroke="none" />
+      <path d="M19 11.8a2 2 0 010 2.4" />
+      <path d="M7 18.2l-.6 1.8M16 18.2l.6 1.8" />
+    </>
+  ),
+  food: (
+    <>
+      <path d="M4.5 10a7.5 7.5 0 0115 0" />
+      <line x1="3.6" y1="13.5" x2="20.4" y2="13.5" />
+      <path d="M5 16.5h14a3 3 0 01-3 3H8a3 3 0 01-3-3z" />
+    </>
+  ),
 }
 
 export function Icon({ name, size = 24, color, style, className }: IconProps) {

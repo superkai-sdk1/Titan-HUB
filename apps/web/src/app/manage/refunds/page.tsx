@@ -105,7 +105,7 @@ export default function RefundsPage() {
       <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
         {filtered.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '64px 20px', color: 'var(--on-surface-variant)' }}>
-            <Icon name="undo" size={56} style={{ display: 'block', marginBottom: 12, opacity: 0.4 }} />
+            <Icon name="refund" size={56} style={{ display: 'block', marginBottom: 12, opacity: 0.4 }} />
             <p style={{ margin: 0, fontSize: 15 }}>Возвратов нет</p>
           </div>
         ) : (
