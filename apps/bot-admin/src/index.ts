@@ -161,5 +161,11 @@ bot.on('message:text', async (ctx) => {
   await ctx.reply('Используйте кнопки меню ниже 👇', { reply_markup: mainKeyboard })
 })
 
+// Глобальный обработчик ошибок: необработанная ошибка в хендлере не должна
+// ронять бота молча — логируем (DB-сбои, сетевые ошибки и т.п.).
+bot.catch((err) => {
+  console.error('[bot-admin] handler error:', err.error)
+})
+
 bot.start()
 console.log('🤖 Admin bot started')

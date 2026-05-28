@@ -100,5 +100,11 @@ bot.callbackQuery('history', async (ctx) => {
   await ctx.reply(`📋 *Последние транзакции*\n\n${text}`, { parse_mode: 'Markdown' })
 })
 
+// Глобальный обработчик ошибок: необработанная ошибка в хендлере не должна
+// ронять бота молча — логируем (DB-сбои, сетевые ошибки и т.п.).
+bot.catch((err) => {
+  console.error('[bot-wallet] handler error:', err.error)
+})
+
 bot.start()
 console.log('💳 Wallet bot started')

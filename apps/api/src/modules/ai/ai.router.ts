@@ -14,6 +14,7 @@ import {
   events,
   certificates,
   transactions,
+  bonusHistory,
   salaryPayments,
   refunds,
   sum,
@@ -21,6 +22,8 @@ import {
   avg,
   desc,
   eq,
+  gt,
+  lt,
   gte,
   lte,
   and,
@@ -390,15 +393,18 @@ async function buildContext(action: string, payload?: Record<string, unknown>, q
 
     case 'bonus_usage': {
       try {
+        // Бонусы пишутся в bonus_history (amount > 0 — начисление, < 0 — списание),
+        // а НЕ в transactions, поэтому считаем по bonus_history.
         const [accruals] = await db
-          .select({ total: sum(transactions.amount), cnt: count() })
-          .from(transactions)
-          .where(and(eq(transactions.type, 'bonus_accrual'), gte(transactions.createdAt, thirtyDays)))
+          .select({ total: sum(bonusHistory.amount), cnt: count() })
+          .from(bonusHistory)
+          .where(and(gt(bonusHistory.amount, '0'), gte(bonusHistory.createdAt, thirtyDays)))
         const [spending] = await db
-          .select({ total: sum(transactions.amount), cnt: count() })
-          .from(transactions)
-          .where(and(eq(transactions.type, 'bonus_spend'), gte(transactions.createdAt, thirtyDays)))
-        return `Бонусная программа за 30 дней:\n- Начислено: ${Number(accruals?.total ?? 0).toFixed(2)} баллов (${accruals?.cnt ?? 0} транзакций)\n- Списано: ${Number(spending?.total ?? 0).toFixed(2)} баллов (${spending?.cnt ?? 0} транзакций)`
+          .select({ total: sum(bonusHistory.amount), cnt: count() })
+          .from(bonusHistory)
+          .where(and(lt(bonusHistory.amount, '0'), gte(bonusHistory.createdAt, thirtyDays)))
+        const spentAbs = Math.abs(Number(spending?.total ?? 0))
+        return `Бонусная программа за 30 дней:\n- Начислено: ${Number(accruals?.total ?? 0).toFixed(2)} баллов (${accruals?.cnt ?? 0} операций)\n- Списано: ${spentAbs.toFixed(2)} баллов (${spending?.cnt ?? 0} операций)`
       } catch (e) {
         return `Не удалось получить данные о бонусах: ${String(e)}`
       }
