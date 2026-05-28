@@ -40,6 +40,12 @@ docker compose up -d --remove-orphans
 echo "⏳ Ожидание готовности сервисов..."
 sleep 10
 
+# Пересозданные контейнеры (api/web/wallet) получают новые IP в docker-сети.
+# nginx кеширует upstream-IP, поэтому после up -d его нужно перезагрузить,
+# иначе прокси будет бить по старому (несуществующему) адресу. reload — zero-downtime.
+echo "🔁 Перезагрузка nginx (обновление upstream-IP)..."
+docker exec titan-nginx nginx -s reload 2>/dev/null || docker compose restart nginx
+
 echo "🏥 Проверка health (через nginx)..."
 # Порт api не публикуется на хост — проверяем публичный endpoint через nginx.
 curl -sf https://titanpos.ru/api/health && echo "✅ API OK" || echo "❌ API не отвечает"
