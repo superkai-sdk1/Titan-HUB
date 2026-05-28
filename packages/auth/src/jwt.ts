@@ -1,8 +1,15 @@
 import { SignJWT, jwtVerify } from 'jose'
 
-const secret = new TextEncoder().encode(
-  process.env['JWT_SECRET'] ?? 'fallback-secret-change-in-production'
-)
+// Никаких небезопасных фолбэков: секрет обязателен и должен быть стойким.
+// Вычисляем лениво, чтобы простой импорт модуля не падал в окружениях,
+// где токены не используются, но при первом sign/verify без секрета — ошибка.
+function getSecret(): Uint8Array {
+  const value = process.env['JWT_SECRET']
+  if (!value || value.length < 32) {
+    throw new Error('JWT_SECRET must be set to a strong value (at least 32 characters)')
+  }
+  return new TextEncoder().encode(value)
+}
 
 export interface JwtPayload {
   sub: string
@@ -20,10 +27,10 @@ export async function signToken(
     .setProtectedHeader({ alg: 'HS256' })
     .setIssuedAt()
     .setExpirationTime(expiresIn ?? process.env['JWT_EXPIRES_IN'] ?? '7d')
-    .sign(secret)
+    .sign(getSecret())
 }
 
 export async function verifyToken(token: string): Promise<JwtPayload> {
-  const { payload } = await jwtVerify(token, secret)
+  const { payload } = await jwtVerify(token, getSecret())
   return payload as unknown as JwtPayload
 }

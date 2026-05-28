@@ -3,7 +3,7 @@ import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import { db, inventory, eq, and, desc } from '@titan/database'
-import { requireAuth } from '../../middleware/auth.js'
+import { requireAuth, requireRole } from '../../middleware/auth.js'
 
 export const inventoryRouter = new Hono<AppEnv>()
 
@@ -18,6 +18,7 @@ inventoryRouter.get('/', async (c) => {
 // PATCH /api/inventory/:id — update stock quantity
 inventoryRouter.patch(
   '/:id',
+  requireRole('owner', 'staff'),
   zValidator('json', z.object({
     stockQuantity: z.number().int().min(0).optional(),
     minThreshold: z.number().int().min(0).optional(),

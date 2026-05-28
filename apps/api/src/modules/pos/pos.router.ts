@@ -222,7 +222,7 @@ posRouter.get('/checks/:id', async (c) => {
   return c.json({ check: data })
 })
 
-posRouter.patch('/checks/:id', zValidator('json', z.object({
+posRouter.patch('/checks/:id', requireRole('owner', 'staff'), zValidator('json', z.object({
   spaceId: z.string().uuid().optional(),
   playerId: z.string().uuid().optional(),
   guestNames: z.array(z.string()).optional(),
@@ -469,138 +469,156 @@ posRouter.post('/checks/:id/pay', requireRole('owner', 'staff'), zValidator('jso
   const user = c.get('user')
   const body = c.req.valid('json')
 
-  const [check] = await db.select().from(checks).where(eq(checks.id, checkId))
-  if (!check || check.status !== 'open') return c.json({ error: 'Check not open' }, 400)
+  try {
+    // Вся денежная мутация — в одной транзакции. Любой throw откатывает всё.
+    // Строки чека / клиента / сертификата блокируются FOR UPDATE против гонок.
+    const closed = await db.transaction(async (tx) => {
+      const [check] = await tx.select().from(checks).where(eq(checks.id, checkId)).for('update')
+      if (!check || check.status !== 'open') throw new Error('CHECK_NOT_OPEN')
 
-  const total = parseFloat(check.totalAmount)
-  const paidTotal = body.payments.reduce((s, p) => s + p.amount, 0)
-  if (paidTotal < total - 0.01) {
-    return c.json({ error: `Underpayment: total ${total}, paid ${paidTotal}` }, 400)
-  }
+      const total = parseFloat(check.totalAmount)
+      const paidTotal = body.payments.reduce((s, p) => s + p.amount, 0)
+      if (paidTotal < total - 0.01) throw new Error('UNDERPAYMENT')
 
-  // Лимит долга клиента: проверка перед списанием при оплате методом 'debt'
-  const debtPayments = body.payments.filter(p => p.method === 'debt')
-  if (debtPayments.length > 0 && body.playerId) {
-    const debtAmount = debtPayments.reduce((s, p) => s + p.amount, 0)
-    const maxDebtRow = await db.select().from(appSettings).where(eq(appSettings.key, 'max_client_debt'))
-    const maxDebt = parseFloat(maxDebtRow[0]?.value ?? '5000')
-    const [player] = await db.select({ balance: profiles.balance }).from(profiles).where(eq(profiles.id, body.playerId))
-    if (player) {
-      const newBalance = parseFloat(player.balance) - debtAmount
-      if (newBalance < -maxDebt) {
-        return c.json({ error: `Превышен лимит долга (${maxDebt}₽). Новый баланс: ${newBalance.toFixed(2)}₽` }, 400)
+      const debtAmount = body.payments
+        .filter(p => p.method === 'debt')
+        .reduce((s, p) => s + p.amount, 0)
+
+      // Validate + lock certificate
+      let cert = null
+      if (body.certificateCode) {
+        const [c2] = await tx.select().from(certificates)
+          .where(eq(certificates.code, body.certificateCode)).for('update')
+        if (!c2 || c2.isUsed || parseFloat(c2.balance) < 0.01) throw new Error('INVALID_CERT')
+        cert = c2
       }
-    }
-  }
 
-  // Validate certificate
-  let cert = null
-  if (body.certificateCode) {
-    const [c2] = await db.select().from(certificates).where(eq(certificates.code, body.certificateCode))
-    if (!c2 || c2.isUsed || parseFloat(c2.balance) < 0.01) {
-      return c.json({ error: 'Invalid or used certificate' }, 400)
-    }
-    cert = c2
-  }
+      // Lock player row once (для долга, списания и начисления бонусов)
+      let player = null
+      if (body.playerId) {
+        const [p] = await tx.select().from(profiles).where(eq(profiles.id, body.playerId)).for('update')
+        player = p ?? null
+      }
 
-  // Атомарное списание бонусов через UPDATE с условием — защита от race condition
-  if (body.bonusAmount && body.bonusAmount > 0 && body.playerId) {
-    const result = await db.execute(sql`
-      UPDATE profiles
-      SET bonus_points = bonus_points - ${body.bonusAmount}
-      WHERE id = ${body.playerId} AND bonus_points >= ${body.bonusAmount}
-      RETURNING bonus_points
-    `)
-    const rows = (result as any).rows ?? result
-    if (!rows || rows.length === 0) {
-      return c.json({ error: 'Недостаточно бонусных баллов' }, 400)
-    }
-    const newBonus = parseFloat(String(rows[0].bonus_points ?? rows[0].bonusPoints ?? 0))
-    await db.insert(bonusHistory).values({
-      profileId: body.playerId,
-      amount: String(-body.bonusAmount),
-      balanceAfter: String(newBonus),
-      reason: `Payment for check`,
-    })
-  }
+      // Оплата в долг: проверка лимита + фактическое списание баланса клиента
+      if (debtAmount > 0) {
+        if (!body.playerId || !player) throw new Error('DEBT_NO_PLAYER')
+        const maxDebtRow = await tx.select().from(appSettings).where(eq(appSettings.key, 'max_client_debt'))
+        const maxDebt = parseFloat(maxDebtRow[0]?.value ?? '5000')
+        const newBalance = parseFloat(player.balance) - debtAmount
+        if (newBalance < -maxDebt) throw new Error('DEBT_LIMIT')
+        await tx.update(profiles).set({ balance: String(newBalance) }).where(eq(profiles.id, body.playerId))
+        await tx.insert(transactions).values({
+          type: 'withdrawal',
+          amount: String(debtAmount),
+          checkId,
+          playerId: body.playerId,
+          createdBy: user.sub,
+          description: 'Долг за чек',
+        })
+        player = { ...player, balance: String(newBalance) }
+      }
 
-  // Insert payments
-  await db.insert(checkPayments).values(body.payments.map(p => ({
-    checkId,
-    method: p.method as any,
-    amount: String(p.amount),
-  })))
-  publishEvent('check:paid', { checkId })
+      // Списание бонусов
+      if (body.bonusAmount && body.bonusAmount > 0 && body.playerId) {
+        if (!player || parseFloat(player.bonusPoints) < body.bonusAmount) throw new Error('INSUFFICIENT_BONUS')
+        const newBonus = parseFloat(player.bonusPoints) - body.bonusAmount
+        await tx.update(profiles).set({ bonusPoints: String(newBonus) }).where(eq(profiles.id, body.playerId))
+        await tx.insert(bonusHistory).values({
+          profileId: body.playerId,
+          amount: String(-body.bonusAmount),
+          balanceAfter: String(newBonus),
+          reason: 'Payment for check',
+        })
+        player = { ...player, bonusPoints: String(newBonus) }
+      }
 
-  // Use certificate
-  if (cert) {
-    const certPay = body.payments.find(p => p.method === 'certificate')
-    const used = certPay?.amount ?? 0
-    const newBalance = parseFloat(cert.balance) - used
-    await db.update(certificates).set({
-      balance: String(Math.max(0, newBalance)),
-      isUsed: newBalance <= 0,
-      usedBy: body.playerId ?? null,
-      usedAt: new Date(),
-    }).where(eq(certificates.id, cert.id))
-  }
+      // Insert payments
+      await tx.insert(checkPayments).values(body.payments.map(p => ({
+        checkId,
+        method: p.method as any,
+        amount: String(p.amount),
+      })))
 
-  // Record transaction
-  await db.insert(transactions).values({
-    type: 'payment',
-    amount: String(total),
-    checkId,
-    playerId: body.playerId ?? null,
-    createdBy: user.sub,
-    description: `Check payment`,
-  })
+      // Use certificate
+      if (cert) {
+        const used = body.payments.find(p => p.method === 'certificate')?.amount ?? 0
+        const newCertBalance = parseFloat(cert.balance) - used
+        await tx.update(certificates).set({
+          balance: String(Math.max(0, newCertBalance)),
+          isUsed: newCertBalance <= 0,
+          usedBy: body.playerId ?? null,
+          usedAt: new Date(),
+        }).where(eq(certificates.id, cert.id))
+      }
 
-  // Close check
-  const primaryMethod = body.payments.reduce((a, b) => a.amount >= b.amount ? a : b)
-  const [closed] = await db.update(checks).set({
-    status: 'closed',
-    paymentMethod: primaryMethod.method as any,
-    bonusUsed: String(body.bonusAmount ?? 0),
-    certificateId: cert?.id ?? null,
-    certificateUsed: cert ? String(body.payments.find(p => p.method === 'certificate')?.amount ?? 0) : '0',
-    playerId: body.playerId ?? null,
-    note: body.note ?? null,
-    closedAt: new Date(),
-  }).where(eq(checks.id, checkId)).returning()
+      // Record payment transaction
+      await tx.insert(transactions).values({
+        type: 'payment',
+        amount: String(total),
+        checkId,
+        playerId: body.playerId ?? null,
+        createdBy: user.sub,
+        description: 'Check payment',
+      })
 
-  publishEvent('check:closed', { checkId })
+      // Close check
+      const primaryMethod = body.payments.reduce((a, b) => a.amount >= b.amount ? a : b)
+      const [closedCheck] = await tx.update(checks).set({
+        status: 'closed',
+        paymentMethod: primaryMethod.method as any,
+        bonusUsed: String(body.bonusAmount ?? 0),
+        certificateId: cert?.id ?? null,
+        certificateUsed: cert ? String(body.payments.find(p => p.method === 'certificate')?.amount ?? 0) : '0',
+        playerId: body.playerId ?? null,
+        note: body.note ?? null,
+        closedAt: new Date(),
+      }).where(eq(checks.id, checkId)).returning()
 
-  // Начисление бонусов с учётом настроек app_settings
-  if (body.playerId) {
-    const settingsRows = await db
-      .select()
-      .from(appSettings)
-      .where(inArray(appSettings.key, ['bonus_enabled', 'bonus_accrual_rate', 'bonus_min_purchase', 'bonus_accrual_on_debt']))
-    const settings = Object.fromEntries(settingsRows.map(r => [r.key, r.value]))
+      // Начисление бонусов с учётом настроек app_settings
+      if (body.playerId && player) {
+        const settingsRows = await tx.select().from(appSettings)
+          .where(inArray(appSettings.key, ['bonus_enabled', 'bonus_accrual_rate', 'bonus_min_purchase', 'bonus_accrual_on_debt']))
+        const settings = Object.fromEntries(settingsRows.map(r => [r.key, r.value]))
 
-    const bonusEnabled = settings['bonus_enabled'] !== 'false'
-    const accrualRate = parseFloat(settings['bonus_accrual_rate'] ?? '5') / 100
-    const minPurchase = parseFloat(settings['bonus_min_purchase'] ?? '0')
-    const accrualOnDebt = settings['bonus_accrual_on_debt'] === 'true'
-    const hasDebtPayment = body.payments.some(p => p.method === 'debt')
+        const bonusEnabled = settings['bonus_enabled'] !== 'false'
+        const accrualRate = parseFloat(settings['bonus_accrual_rate'] ?? '5') / 100
+        const minPurchase = parseFloat(settings['bonus_min_purchase'] ?? '0')
+        const accrualOnDebt = settings['bonus_accrual_on_debt'] === 'true'
 
-    if (bonusEnabled && total >= minPurchase && !(hasDebtPayment && !accrualOnDebt)) {
-      const bonusEarned = Math.floor(total * accrualRate)
-      if (bonusEarned > 0) {
-        const [player] = await db.select().from(profiles).where(eq(profiles.id, body.playerId))
-        if (player) {
-          const newBonus = parseFloat(player.bonusPoints) + bonusEarned
-          await db.update(profiles).set({ bonusPoints: String(newBonus) }).where(eq(profiles.id, body.playerId))
-          await db.insert(bonusHistory).values({
-            profileId: body.playerId,
-            amount: String(bonusEarned),
-            balanceAfter: String(newBonus),
-            reason: `${Math.round(accrualRate * 100)}% начисление за чек`,
-          })
+        if (bonusEnabled && total >= minPurchase && !(debtAmount > 0 && !accrualOnDebt)) {
+          const bonusEarned = Math.floor(total * accrualRate)
+          if (bonusEarned > 0) {
+            const newBonus = parseFloat(player.bonusPoints) + bonusEarned
+            await tx.update(profiles).set({ bonusPoints: String(newBonus) }).where(eq(profiles.id, body.playerId))
+            await tx.insert(bonusHistory).values({
+              profileId: body.playerId,
+              amount: String(bonusEarned),
+              balanceAfter: String(newBonus),
+              reason: `${Math.round(accrualRate * 100)}% начисление за чек`,
+            })
+          }
         }
       }
-    }
-  }
 
-  return c.json({ check: closed })
+      return closedCheck
+    })
+
+    publishEvent('check:paid', { checkId })
+    publishEvent('check:closed', { checkId })
+    return c.json({ check: closed })
+  } catch (err: any) {
+    const map: Record<string, [string, 400]> = {
+      CHECK_NOT_OPEN: ['Check not open', 400],
+      UNDERPAYMENT: ['Недостаточная сумма оплаты', 400],
+      INVALID_CERT: ['Invalid or used certificate', 400],
+      DEBT_NO_PLAYER: ['Для оплаты в долг нужно выбрать клиента', 400],
+      DEBT_LIMIT: ['Превышен лимит долга клиента', 400],
+      INSUFFICIENT_BONUS: ['Недостаточно бонусных баллов', 400],
+    }
+    const mapped = err?.message ? map[err.message] : undefined
+    if (mapped) return c.json({ error: mapped[0] }, mapped[1])
+    console.error('POST /checks/:id/pay error:', err)
+    return c.json({ error: 'Internal error' }, 500)
+  }
 })

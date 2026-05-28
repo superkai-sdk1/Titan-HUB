@@ -5,6 +5,23 @@ import { runMigrations } from './migrations/runner.js'
 
 const port = Number(process.env['API_PORT'] ?? 3001)
 
+// Fail-fast: проверяем обязательные переменные окружения до запуска сервера.
+function assertEnv() {
+  const errors: string[] = []
+  const jwtSecret = process.env['JWT_SECRET']
+  if (!jwtSecret || jwtSecret.length < 32) {
+    errors.push('JWT_SECRET must be set and at least 32 characters long')
+  }
+  if (!process.env['DATABASE_URL']) {
+    errors.push('DATABASE_URL must be set')
+  }
+  if (errors.length > 0) {
+    console.error('[env] FATAL — server will not start:\n - ' + errors.join('\n - '))
+    process.exit(1)
+  }
+}
+assertEnv()
+
 // Запускаем миграции перед стартом сервера
 runMigrations()
   .then(() => {

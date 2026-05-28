@@ -30,7 +30,16 @@ systemRouter.get('/settings', requireAuth, async (c) => {
   return c.json({ settings })
 })
 
-systemRouter.patch('/settings', requireAuth, requireRole('owner'), zValidator('json', z.record(z.string())), async (c) => {
+const SettingsSchema = z
+  .record(
+    z.string().regex(/^[a-z][a-z0-9_]{0,63}$/, 'invalid setting key'),
+    z.string().max(2000),
+  )
+  .refine((obj) => Object.keys(obj).length > 0 && Object.keys(obj).length <= 50, {
+    message: 'expected 1..50 settings keys',
+  })
+
+systemRouter.patch('/settings', requireAuth, requireRole('owner'), zValidator('json', SettingsSchema), async (c) => {
   const body = c.req.valid('json')
   for (const [key, value] of Object.entries(body)) {
     const [existing] = await db.select().from(appSettings).where(eq(appSettings.key, key))

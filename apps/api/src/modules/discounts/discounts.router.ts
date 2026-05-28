@@ -3,7 +3,7 @@ import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import { db, discounts, eq, and, desc } from '@titan/database'
-import { requireAuth } from '../../middleware/auth.js'
+import { requireAuth, requireRole } from '../../middleware/auth.js'
 
 export const discountsRouter = new Hono<AppEnv>()
 
@@ -20,6 +20,7 @@ discountsRouter.get('/', async (c) => {
 // POST /api/discounts
 discountsRouter.post(
   '/',
+  requireRole('owner', 'staff'),
   zValidator('json', z.object({
     name: z.string().min(1),
     type: z.enum(['percent', 'fixed']),
@@ -49,6 +50,7 @@ discountsRouter.post(
 // PATCH /api/discounts/:id
 discountsRouter.patch(
   '/:id',
+  requireRole('owner', 'staff'),
   zValidator('json', z.object({
     name: z.string().min(1).optional(),
     type: z.enum(['percent', 'fixed']).optional(),
@@ -79,7 +81,7 @@ discountsRouter.patch(
 )
 
 // DELETE /api/discounts/:id
-discountsRouter.delete('/:id', async (c) => {
+discountsRouter.delete('/:id', requireRole('owner', 'staff'), async (c) => {
   const id = c.req.param('id')
   await db.delete(discounts).where(eq(discounts.id, id))
   return c.json({ ok: true })
