@@ -5,6 +5,8 @@ import { api, ApiError } from '@/lib/api'
 import { differenceInMinutes } from 'date-fns'
 import { SwipeableRow } from '@/components/SwipeableRow'
 import { Icon } from '@/components/Icon'
+import { useToast } from '@/components/Toast'
+import { ConfirmDialog } from '@/components/manage/DesignSystem'
 
 interface InventoryItem {
   id: string
@@ -102,6 +104,12 @@ interface CheckDetailViewProps {
 
 export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewProps) {
   const qc = useQueryClient()
+  const { show } = useToast()
+  const toastError = useCallback(
+    (e: unknown) => show(e instanceof ApiError ? String((e.data as Record<string, unknown>)?.error ?? 'Ошибка') : 'Ошибка сети', 'error'),
+    [show],
+  )
+  const [confirmCancel, setConfirmCancel] = useState(false)
 
   const { data: checkData, isLoading } = useQuery({
     queryKey: ['check', checkId],
@@ -282,6 +290,7 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
   const addItem = useMutation({
     mutationFn: (itemId: string) => api.post(`/pos/checks/${checkId}/items`, { itemId, quantity: 1 }),
     onSuccess: invalidateCheck,
+    onError: toastError,
   })
 
   const updateQty = useMutation({
@@ -290,6 +299,7 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
         ? api.delete(`/pos/checks/${checkId}/items/${id}`)
         : api.patch(`/pos/checks/${checkId}/items/${id}`, { quantity }),
     onSuccess: invalidateCheck,
+    onError: toastError,
   })
 
   const pay = useMutation({
@@ -309,10 +319,12 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
   const cancelCheck = useMutation({
     mutationFn: () => api.delete(`/pos/checks/${checkId}`),
     onSuccess: () => {
+      setConfirmCancel(false)
       qc.invalidateQueries({ queryKey: ['checks', 'active'] })
       if (onClose) onClose()
       else onBack()
     },
+    onError: (e) => { setConfirmCancel(false); toastError(e) },
   })
 
   async function lookupCertificate() {
@@ -386,6 +398,9 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
         } catch {
           // не удалось свериться — показываем исходную ошибку
         }
+        show(String((err.data as Record<string, unknown>)?.error ?? 'Не удалось провести оплату'), 'error')
+      } else {
+        show('Ошибка сети. Повторите попытку.', 'error')
       }
       setIsProcessing(false)
     }
@@ -457,9 +472,9 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
         </div>
 
         <button
-          onClick={() => cancelCheck.mutate()}
+          onClick={() => setConfirmCancel(true)}
           style={{
-            padding: '6px 12px', borderRadius: 10, border: '1px solid rgba(251,113,133,0.25)',
+            padding: '9px 14px', borderRadius: 10, border: '1px solid rgba(251,113,133,0.25)',
             cursor: 'pointer', background: 'rgba(251,113,133,0.08)',
             color: 'var(--danger)', fontSize: 12, fontWeight: 600, flexShrink: 0,
           }}
@@ -500,27 +515,33 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <button
                     onClick={() => updateQty.mutate({ id: ci.checkItem.id, quantity: ci.checkItem.quantity - 1 })}
+                    disabled={updateQty.isPending}
+                    aria-label={ci.checkItem.quantity === 1 ? 'Удалить позицию' : 'Уменьшить количество'}
                     style={{
-                      width: 30, height: 30, borderRadius: 9, border: '1px solid rgba(255,255,255,0.08)',
-                      cursor: 'pointer', background: 'rgba(255,255,255,0.04)',
+                      width: 36, height: 36, borderRadius: 10, border: '1px solid rgba(255,255,255,0.08)',
+                      cursor: updateQty.isPending ? 'not-allowed' : 'pointer', background: 'rgba(255,255,255,0.04)',
                       color: ci.checkItem.quantity === 1 ? 'var(--danger)' : 'var(--on-surface-variant)',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                      opacity: updateQty.isPending ? 0.5 : 1,
                     }}
                   >
-                    <Icon name={ci.checkItem.quantity === 1 ? 'delete' : 'remove'} size={14} />
+                    <Icon name={ci.checkItem.quantity === 1 ? 'delete' : 'remove'} size={16} />
                   </button>
-                  <span style={{ width: 22, textAlign: 'center', fontSize: 13, fontWeight: 700, color: 'var(--on-surface)' }}>
+                  <span style={{ width: 26, textAlign: 'center', fontSize: 14, fontWeight: 700, color: 'var(--on-surface)' }}>
                     {ci.checkItem.quantity}
                   </span>
                   <button
                     onClick={() => updateQty.mutate({ id: ci.checkItem.id, quantity: ci.checkItem.quantity + 1 })}
+                    disabled={updateQty.isPending}
+                    aria-label="Увеличить количество"
                     style={{
-                      width: 30, height: 30, borderRadius: 9, border: 'none',
-                      cursor: 'pointer', background: 'rgba(139,92,246,0.2)', color: '#A78BFA',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      width: 36, height: 36, borderRadius: 10, border: 'none',
+                      cursor: updateQty.isPending ? 'not-allowed' : 'pointer', background: 'rgba(139,92,246,0.2)', color: '#A78BFA',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                      opacity: updateQty.isPending ? 0.5 : 1,
                     }}
                   >
-                    <Icon name="add" size={14} />
+                    <Icon name="add" size={16} />
                   </button>
                 </div>
                 <p style={{ fontSize: 14, fontStyle: 'italic', fontWeight: 800, fontVariantNumeric: 'tabular-nums', color: 'var(--on-surface)', width: 64, textAlign: 'right', margin: 0 }}>
@@ -1153,6 +1174,18 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
           }
         }
       `}</style>
+
+      <ConfirmDialog
+        open={confirmCancel}
+        onClose={() => setConfirmCancel(false)}
+        onConfirm={() => cancelCheck.mutate()}
+        title="Отменить чек?"
+        message="Чек будет отменён без оплаты. Действие необратимо."
+        confirmLabel="Отменить чек"
+        cancelLabel="Назад"
+        danger
+        loading={cancelCheck.isPending}
+      />
     </div>
   )
 }

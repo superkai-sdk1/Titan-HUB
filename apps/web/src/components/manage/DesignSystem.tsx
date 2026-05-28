@@ -698,3 +698,74 @@ export function IconButton({
     </button>
   )
 }
+
+// ─── ConfirmDialog (подтверждение действий, особенно деструктивных) ───────────
+
+export function ConfirmDialog({
+  open, onClose, onConfirm, title, message,
+  confirmLabel = 'Подтвердить', cancelLabel = 'Отмена', danger, loading,
+}: {
+  open: boolean
+  onClose: () => void
+  onConfirm: () => void
+  title: string
+  message?: string
+  confirmLabel?: string
+  cancelLabel?: string
+  danger?: boolean
+  loading?: boolean
+}) {
+  useEffect(() => {
+    if (!open || typeof document === 'undefined') return
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = prev }
+  }, [open])
+
+  return (
+    <AnimatePresence>
+      {open && (
+        <motion.div
+          initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+          transition={{ duration: 0.16 }}
+          onClick={() => { if (!loading) onClose() }}
+          style={{
+            position: 'fixed', inset: 0, zIndex: 120,
+            background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24,
+          }}
+        >
+          <motion.div
+            onClick={(e) => e.stopPropagation()}
+            initial={{ opacity: 0, scale: 0.94, y: 12 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.96, y: 8 }}
+            transition={{ type: 'spring', damping: 28, stiffness: 360 }}
+            style={{
+              width: 'min(360px, 100%)', borderRadius: 20, padding: 24,
+              background: 'rgba(29, 24, 40, 0.98)',
+              backdropFilter: 'blur(24px)', WebkitBackdropFilter: 'blur(24px)',
+              border: '1px solid rgba(255,255,255,0.08)',
+              boxShadow: '0 24px 64px rgba(0,0,0,0.55), 0 0 0 1px rgba(255,255,255,0.06)',
+            }}
+          >
+            <h2 style={{ fontSize: 17, fontWeight: 800, margin: '0 0 8px' }}>{title}</h2>
+            {message && <p style={{ fontSize: 14, color: 'var(--on-surface-variant)', margin: '0 0 20px', lineHeight: 1.5 }}>{message}</p>}
+            <div style={{ display: 'flex', gap: 10, marginTop: message ? 0 : 16 }}>
+              <Button variant="secondary" fullWidth onClick={onClose} disabled={loading}>{cancelLabel}</Button>
+              <Button
+                variant="primary"
+                fullWidth
+                loading={loading}
+                onClick={onConfirm}
+                style={danger ? { background: 'linear-gradient(135deg, #FB7185, #F43F5E)', boxShadow: '0 4px 20px rgba(251,113,133,0.3)' } : undefined}
+              >
+                {confirmLabel}
+              </Button>
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  )
+}

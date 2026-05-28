@@ -3,11 +3,12 @@ import { useState, useEffect, useRef, useCallback, Suspense } from 'react'
 import { Icon } from '@/components/Icon'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { api } from '@/lib/api'
+import { api, ApiError } from '@/lib/api'
 import { useCurrentShift, useOpenShift, useCloseShift } from '@/hooks/useShift'
 import { differenceInMinutes } from 'date-fns'
 import { CheckDetailView } from '@/components/CheckDetailView'
 import { PullToRefreshContainer } from '@/components/PullToRefreshContainer'
+import { useToast } from '@/components/Toast'
 
 interface CheckCard {
   id: string
@@ -152,6 +153,8 @@ function PosPageInner() {
     enabled: !!shift,
   })
 
+  const { show: showToast } = useToast()
+
   const createCheck = useMutation({
     mutationFn: async (body: { note?: string; playerId?: string; spaceId?: string; tariffItemId?: string }) => {
       const { tariffItemId, ...checkBody } = body
@@ -168,6 +171,7 @@ function PosPageInner() {
       setShowNewCheck(false)
       router.push(`/pos/${res.check.id}`)
     },
+    onError: (e) => showToast(e instanceof ApiError ? String((e.data as Record<string, unknown>)?.error ?? 'Не удалось создать чек') : 'Ошибка сети', 'error'),
   })
 
   const createClient = useMutation({
@@ -375,13 +379,6 @@ function PosPageInner() {
           {/* Right: action icon buttons — мобильный режим */}
           {shift && (
             <div className="pos-header-actions" style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-              <button
-                className="glass-l2"
-                title="Отчёт смены"
-                style={{ width: 36, height: 36, borderRadius: 10, border: '1px solid rgba(255,255,255,0.1)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
-              >
-                <Icon name="print" size={18} color="var(--on-surface-variant)" />
-              </button>
               <button
                 onClick={() => router.push('/manage/refunds')}
                 className="glass-l2"
@@ -677,24 +674,6 @@ function PosPageInner() {
           >
             <Icon name="add_circle" size={18} />
             <span className="btn-label">НОВЫЙ СЧЁТ</span>
-          </button>
-          <button
-            className="glass-l2 pos-action-btn"
-            style={{
-              border: '1px solid rgba(255,255,255,0.1)',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8,
-              color: 'var(--on-surface-variant)',
-              fontSize: 12,
-              fontWeight: 700,
-              textTransform: 'uppercase',
-              letterSpacing: '0.06em',
-            }}
-          >
-            <Icon name="print" size={18} />
-            <span className="btn-label">ОТЧЁТ СМЕНЫ</span>
           </button>
           <button
             onClick={() => router.push('/manage/refunds')}
