@@ -22,29 +22,27 @@ if [ ! -f .env ]; then
   exit 1
 fi
 
-echo "🏗️  Сборка образов..."
-docker compose build --no-cache
-
-echo "🏗️  Запуск базы данных..."
-docker compose up -d postgres
-sleep 5
-
-echo "🗄️  Применение схемы БД..."
-docker compose run --rm \
-  -e DATABASE_URL="postgresql://titan:${POSTGRES_PASSWORD:-changeme}@postgres:5432/titan_hub" \
-  api sh -c "cd /app && node -e \"require('./dist/migrate.js')\"" 2>/dev/null \
-  || (cd /opt/titan-hub && DATABASE_URL="postgresql://titan:${POSTGRES_PASSWORD:-changeme}@localhost:5432/titan_hub" pnpm --filter @titan/database db:push --accept-data-loss) \
-  || echo "⚠️  Примените миграции вручную: pnpm --filter @titan/database db:push"
+echo "🏗️  Сборка образов (с кешем слоёв)..."
+# Без --no-cache: изменённый исходник всё равно инвалидирует COPY-слои и
+# пересобирается, а неизменные сервисы переиспользуют кеш. Полный --no-cache
+# на маленьком VPS перегружает машину (3 параллельные сборки Next.js).
+docker compose build
 
 echo "🚀 Перезапуск сервисов..."
-docker compose down --remove-orphans
-docker compose up -d
+# up -d пересоздаёт только изменившиеся контейнеры (минимум простоя),
+# дожидается healthy-зависимостей по условиям из compose.
+docker compose up -d --remove-orphans
+
+# Миграции БД применяются автоматически при старте API-контейнера
+# (apps/api/src/migrations/runner.ts — идемпотентно, в транзакции,
+# до начала обслуживания запросов). Отдельный шаг не нужен.
 
 echo "⏳ Ожидание готовности сервисов..."
 sleep 10
 
-echo "🏥 Проверка health..."
-curl -sf http://localhost:3001/health && echo "✅ API OK" || echo "❌ API не отвечает"
+echo "🏥 Проверка health (через nginx)..."
+# Порт api не публикуется на хост — проверяем публичный endpoint через nginx.
+curl -sf https://titanpos.ru/api/health && echo "✅ API OK" || echo "❌ API не отвечает"
 
 echo ""
 echo "✅ Деплой завершён!"

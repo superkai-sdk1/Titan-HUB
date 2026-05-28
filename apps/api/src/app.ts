@@ -71,8 +71,10 @@ app.route('/api/inventory', inventoryRouter)
 app.route('/api/platega', plategaRouter)
 
 app.onError((err, c) => {
+  // Полную ошибку логируем только на сервере; наружу — обобщённое сообщение,
+  // чтобы не утекали тексты драйвера БД, имена колонок и stack-трейсы.
   console.error(err)
-  return c.json({ error: err.message }, 500)
+  return c.json({ error: 'Internal error' }, 500)
 })
 
 app.notFound((c) => c.json({ error: 'Not found' }, 404))

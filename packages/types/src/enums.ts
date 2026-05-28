@@ -38,6 +38,7 @@ export type CheckStatus = (typeof CheckStatus)[keyof typeof CheckStatus]
 export const PaymentMethod = {
   CASH: 'cash',
   CARD: 'card',
+  TRANSFER: 'transfer',
   BONUS: 'bonus',
   DEPOSIT: 'deposit',
   DEBT: 'debt',
@@ -74,7 +75,8 @@ export type EventStatus = (typeof EventStatus)[keyof typeof EventStatus]
 
 export const EventPaymentType = {
   FIXED: 'fixed',
-  HOURLY: 'hourly',
+  PER_HEAD: 'per_head',
+  FREE: 'free',
 } as const
 export type EventPaymentType = (typeof EventPaymentType)[keyof typeof EventPaymentType]
 

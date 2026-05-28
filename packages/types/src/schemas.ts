@@ -57,7 +57,7 @@ export const CreateEventSchema = z.object({
   date: z.string(),
   startTime: z.string(),
   endTime: z.string().optional(),
-  paymentType: z.enum(['fixed', 'hourly']),
+  paymentType: z.enum(['fixed', 'per_head', 'free']),
   fixedAmount: z.number().optional(),
   comment: z.string().optional(),
 })
