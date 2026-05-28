@@ -10,6 +10,9 @@
   --surface-l2-border: rgba(255, 255, 255, 0.08);
   --primary-violet: #8B5CF6;
   --primary-violet-rgb: 139, 92, 246;
+  /* Алиас --primary: некоторые страницы используют var(--primary, #6750A4);
+     без определения они рендерят легаси-индиго. Приводим к фирменному фиолетовому. */
+  --primary: #8B5CF6;
   --secondary: #4cd7f6;
   --secondary-rgb: 76, 215, 246;
   --on-surface: #e8dfee;
@@ -322,3 +325,22 @@ button, [role="button"] { user-select: none; }
 /* ── Safe area ──────────────────────────────────────── */
 .safe-top { padding-top: env(safe-area-inset-top); }
 .safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
+
+/* ── Focus visibility (a11y) ────────────────────────── */
+/* Многие инпуты/кнопки задают inline outline:none. !important в таблице
+   стилей перебивает inline (не-important), возвращая видимый фокус только
+   для клавиатурной навигации (:focus-visible), не мешая клику мышью. */
+:focus-visible {
+  outline: 2px solid var(--primary-violet) !important;
+  outline-offset: 2px;
+}
+
+/* ── Reduced motion (a11y) ──────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
