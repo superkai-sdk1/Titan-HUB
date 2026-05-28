@@ -218,8 +218,10 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
       setQrTransactionId(res.transactionId)
       setQrDataUrl(res.qrDataUrl)
     } catch (err) {
-      if (err instanceof ApiError && err.data?.redirectUrl) {
-        setQrRedirectUrl(err.data.redirectUrl as string)
+      if (err instanceof ApiError && err.data) {
+        if (err.data.redirectUrl) setQrRedirectUrl(err.data.redirectUrl as string)
+        // Транзакция создана на Platega, polling продолжается чтобы поймать CONFIRMED
+        if (err.data.transactionId) setQrTransactionId(err.data.transactionId as string)
       }
       setQrError((err as Error)?.message ?? 'Ошибка создания QR')
     } finally {

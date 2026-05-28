@@ -432,14 +432,14 @@ posRouter.post('/checks/:id/qr', requireRole('owner', 'staff'), zValidator('json
     })
     if (!h2hRes.ok) {
       console.error('Platega h2h error:', h2hRes.status, await h2hRes.text().catch(() => ''))
-      return c.json({ error: 'Ошибка получения QR от Platega', redirectUrl }, 502)
+      return c.json({ error: 'Ошибка получения QR от Platega', redirectUrl, transactionId }, 502)
     }
     const h2hData = await h2hRes.json() as Record<string, unknown>
     qrString = h2hData['qr'] as string | undefined
     if (qrString) break
   }
 
-  if (!qrString) return c.json({ error: 'Platega не вернул QR для СБП', redirectUrl }, 502)
+  if (!qrString) return c.json({ error: 'Platega не вернул QR для СБП', redirectUrl, transactionId }, 502)
 
   // Рендерим СБП-строку как QR-изображение
   const QRCode = await import('qrcode')
