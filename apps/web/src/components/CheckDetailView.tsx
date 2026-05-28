@@ -236,6 +236,15 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
 
   const invalidateCheck = useCallback(() => qc.invalidateQueries({ queryKey: ['check', checkId] }), [qc, checkId])
 
+  // Единый путь "успешно оплачено и закрыто": показать успех и закрыть шторку.
+  const markPaidAndClose = useCallback(() => {
+    setIsPaid(true)
+    setShowPayment(false)
+    qc.invalidateQueries({ queryKey: ['checks', 'active'] })
+    qc.invalidateQueries({ queryKey: ['check', checkId] })
+    setTimeout(() => { if (onClose) onClose(); else onBack() }, 1800)
+  }, [qc, checkId, onClose, onBack])
+
   // Polling Platega статуса каждые 3 секунды пока QR-экран активен
   useEffect(() => {
     if (payScreen !== 'qr' || !qrTransactionId || qrStatus !== 'pending' || qrLoading) return
@@ -244,6 +253,18 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
         const res = await api.get<{ status: string }>(`/pos/checks/${checkId}/qr/${qrTransactionId}/status`)
         if (res.status === 'CONFIRMED') {
           setQrStatus('confirmed')
+          // Webhook Platega мог уже закрыть чек на сервере. Сверяемся со статусом,
+          // чтобы не пытаться повторно провести уже закрытый чек ("Check not open").
+          try {
+            const { check: fresh } = await api.get<{ check: { status: string } }>(`/pos/checks/${checkId}`)
+            if (fresh.status === 'closed') {
+              markPaidAndClose()
+              return
+            }
+          } catch {
+            // не смогли свериться — продолжаем обычным путём ниже
+          }
+          // Чек ещё открыт (частичная оплата/сплит или webhook не успел) — обычная финализация.
           addSplitPart({ method: 'transfer', amount: qrAmount, label: 'СБП / QR (Platega)' })
           setPayScreen('split')
         } else if (res.status === 'CANCELED') {
@@ -256,7 +277,7 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
     }
     const t = setInterval(poll, 3000)
     return () => clearInterval(t)
-  }, [payScreen, qrTransactionId, qrStatus, qrLoading, checkId, qrAmount])
+  }, [payScreen, qrTransactionId, qrStatus, qrLoading, checkId, qrAmount, markPaidAndClose])
 
   const addItem = useMutation({
     mutationFn: (itemId: string) => api.post(`/pos/checks/${checkId}/items`, { itemId, quantity: 1 }),
@@ -352,7 +373,20 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
         certificateCode: certInfo?.code,
         playerId: check?.playerId ?? undefined,
       })
-    } catch {
+    } catch (err) {
+      // Гонка с вебхуком Platega: чек мог быть уже закрыт оплатой по QR.
+      // Если чек действительно закрыт — это успех, а не ошибка.
+      if (err instanceof ApiError) {
+        try {
+          const { check: fresh } = await api.get<{ check: { status: string } }>(`/pos/checks/${checkId}`)
+          if (fresh.status === 'closed') {
+            markPaidAndClose()
+            return
+          }
+        } catch {
+          // не удалось свериться — показываем исходную ошибку
+        }
+      }
       setIsProcessing(false)
     }
   }

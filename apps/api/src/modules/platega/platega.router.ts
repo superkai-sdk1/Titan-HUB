@@ -2,7 +2,7 @@ import type { AppEnv } from '../../types.js'
 import { Hono } from 'hono'
 import { Redis } from 'ioredis'
 import { timingSafeEqual } from 'node:crypto'
-import { db, checks, checkPayments, transactions, eq } from '@titan/database'
+import { db, checks, checkPayments, transactions, profiles, bonusHistory, appSettings, eq, inArray } from '@titan/database'
 
 function publishEvent(event: string, data: unknown) {
   const redis = new Redis(process.env['REDIS_URL'] ?? 'redis://redis:6379')
@@ -77,6 +77,33 @@ plategaRouter.post('/webhook', async (c) => {
         paymentMethod: 'transfer',
         closedAt: new Date(),
       }).where(eq(checks.id, checkId))
+
+      // Начисление бонусов за QR/СБП-оплату (зеркально POS /pay; раньше его делал
+      // фронтовый /pay, теперь чек закрывает webhook — иначе бонусы терялись).
+      if (check.playerId) {
+        const settingsRows = await tx.select().from(appSettings)
+          .where(inArray(appSettings.key, ['bonus_enabled', 'bonus_accrual_rate', 'bonus_min_purchase']))
+        const settings = Object.fromEntries(settingsRows.map((r) => [r.key, r.value]))
+        const bonusEnabled = settings['bonus_enabled'] !== 'false'
+        const accrualRate = parseFloat(settings['bonus_accrual_rate'] ?? '5') / 100
+        const minPurchase = parseFloat(settings['bonus_min_purchase'] ?? '0')
+        if (bonusEnabled && total >= minPurchase) {
+          const earned = Math.floor(total * accrualRate)
+          if (earned > 0) {
+            const [p] = await tx.select().from(profiles).where(eq(profiles.id, check.playerId)).for('update')
+            if (p) {
+              const newBonus = parseFloat(p.bonusPoints) + earned
+              await tx.update(profiles).set({ bonusPoints: String(newBonus) }).where(eq(profiles.id, check.playerId))
+              await tx.insert(bonusHistory).values({
+                profileId: check.playerId,
+                amount: String(earned),
+                balanceAfter: String(newBonus),
+                reason: `${Math.round(accrualRate * 100)}% начисление за чек (СБП)`,
+              })
+            }
+          }
+        }
+      }
 
       didClose = true
     })
