@@ -102,11 +102,17 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             .layout-main {
               /* Safe area top — только padding сверху, без боковых (они вызывают сдвиг) */
               padding-top: env(safe-area-inset-top);
+              /* Резерв под плавающую нав-панель кладём на НЕ-скроллящий контейнер.
+                 .layout-content — flex-колонка с overflow:auto, а в ней Safari/iOS
+                 игнорируют padding-bottom при переполнении (известный баг flexbox).
+                 Поэтому укорачиваем сам контейнер: тогда и прижатые футеры
+                 (плашка оплаты в чеке), и низ скролл-страниц (настройки) гарантированно
+                 не уходят под панель. */
+              padding-bottom: var(--bottom-nav-clear, 0px);
               overflow: hidden;
               max-width: 100vw;
             }
             .layout-content {
-              padding-bottom: var(--bottom-nav-clear, 0px);
               overflow-x: hidden;
               overscroll-behavior: none;
             }
