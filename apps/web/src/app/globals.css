@@ -344,6 +344,17 @@ button, [role="button"] { user-select: none; }
   :root { --bottom-nav-clear: calc(76px + env(safe-area-inset-bottom)); }
 }
 
+/* iOS standalone PWA: «рабочая» область вьюпорта может исключать нижнюю зону
+   (как будто нижняя адресная строка Safari ещё зарезервирована), поэтому
+   position:fixed; bottom:0 приземляется выше реального низа экрана. Опускаем
+   панель вниз ровно на разницу большого и малого вьюпорта (= эта зона).
+   Когда разницы нет (100lvh == 100svh) — выражение даёт 0, правка безопасна. */
+@media (display-mode: standalone) {
+  .bottom-nav-root {
+    bottom: calc(-1 * (100lvh - 100svh)) !important;
+  }
+}
+
 /* ── Reduced motion (a11y) ──────────────────────────── */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
