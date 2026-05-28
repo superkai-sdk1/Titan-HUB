@@ -96,22 +96,23 @@ export function BottomNav() {
         className="bottom-nav-root"
         style={{
           position: 'fixed',
-          // bottom: 0 + внутренний padding-bottom учитывает home indicator
-          bottom: 0,
-          left: 0,
-          right: 0,
+          // Плавающий «остров»: отступ снизу = home indicator + небольшой зазор.
+          // В standalone-PWA значение переопределяется в globals.css (учёт
+          // зарезервированной нижней зоны через 100svh - 100lvh).
+          bottom: 'calc(env(safe-area-inset-bottom) + 6px)',
+          left: 14,
+          right: 14,
           zIndex: 40,
-          background: 'rgba(21, 18, 27, 0.88)',
-          backdropFilter: 'blur(28px) saturate(180%)',
-          WebkitBackdropFilter: 'blur(28px) saturate(180%)',
-          borderTop: '1px solid rgba(255,255,255,0.08)',
-          // Внутренний padding-bottom = safe-area-inset (home indicator зона)
-          // Внутренний padding-top = небольшой отступ сверху
+          background: 'rgba(24, 20, 32, 0.7)',
+          backdropFilter: 'blur(24px) saturate(180%)',
+          WebkitBackdropFilter: 'blur(24px) saturate(180%)',
+          border: '1px solid rgba(255,255,255,0.12)',
+          borderRadius: 28,
           paddingTop: 6,
-          paddingBottom: 'env(safe-area-inset-bottom)',
-          paddingLeft: 8,
-          paddingRight: 8,
-          boxShadow: '0 -4px 24px rgba(0,0,0,0.3)',
+          paddingBottom: 6,
+          paddingLeft: 10,
+          paddingRight: 10,
+          boxShadow: '0 10px 30px rgba(0,0,0,0.45), 0 2px 8px rgba(0,0,0,0.25)',
           display: 'flex',
           alignItems: 'center',
           gap: 0,
