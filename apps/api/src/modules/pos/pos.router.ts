@@ -19,6 +19,33 @@ function publishEvent(event: string, data: unknown) {
     .catch(() => {})
 }
 
+const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100
+
+// Единый расчёт суммы чека: позиции + модификаторы − скидки.
+// Скидки пересчитываются от ТЕКУЩИХ позиций (не доверяем сохранённому amount),
+// иначе изменение/удаление позиции оставит «застывшую» скидку.
+function computeTotals(
+  items: { id: string; priceAtTime: string; quantity: number }[],
+  mods: { checkItemId: string; priceAtTime: string }[],
+  discountRows: { type: string; value: string; target: string; itemId: string | null }[],
+) {
+  const qtyByItem = new Map(items.map(i => [i.id, i.quantity]))
+  const itemsTotal = items.reduce((s, i) => s + parseFloat(i.priceAtTime) * i.quantity, 0)
+  const modsTotal = mods.reduce((s, m) => s + parseFloat(m.priceAtTime) * (qtyByItem.get(m.checkItemId) ?? 1), 0)
+  const gross = itemsTotal + modsTotal
+  let discountTotal = 0
+  for (const d of discountRows) {
+    let base = gross
+    if (d.target === 'item' && d.itemId) {
+      const it = items.find(i => i.id === d.itemId)
+      base = it ? parseFloat(it.priceAtTime) * it.quantity : 0
+    }
+    discountTotal += d.type === 'percent' ? base * (parseFloat(d.value) / 100) : Math.min(parseFloat(d.value), base)
+  }
+  discountTotal = Math.min(discountTotal, gross)
+  return { gross: round2(gross), discountTotal: round2(discountTotal), total: round2(Math.max(0, gross - discountTotal)) }
+}
+
 const AddItemSchema = z.object({
   itemId: z.string().uuid(),
   quantity: z.number().int().min(1).default(1),
@@ -58,6 +85,19 @@ async function getCheckWithItems(checkId: string) {
   const payments = await db.select().from(checkPayments).where(eq(checkPayments.checkId, checkId))
   const discountRows = await db.select().from(checkDiscounts).where(eq(checkDiscounts.checkId, checkId))
 
+  // Модификаторы по позициям (для отображения и корректной суммы на фронте)
+  const checkItemIds = items.map(i => i.checkItem.id)
+  const itemMods = checkItemIds.length
+    ? await db.select().from(checkItemModifiers).where(inArray(checkItemModifiers.checkItemId, checkItemIds))
+    : []
+  const modsByItem = new Map<string, typeof itemMods>()
+  for (const m of itemMods) {
+    const arr = modsByItem.get(m.checkItemId) ?? []
+    arr.push(m)
+    modsByItem.set(m.checkItemId, arr)
+  }
+  const itemsWithMods = items.map(i => ({ ...i, modifiers: modsByItem.get(i.checkItem.id) ?? [] }))
+
   // Получаем hourlyRate пространства для live-расчёта аренды на фронте
   let spaceHourlyRate: string | null = null
   if (check.spaceId) {
@@ -65,15 +105,17 @@ async function getCheckWithItems(checkId: string) {
     spaceHourlyRate = space?.hourlyRate ?? null
   }
 
-  return { ...check, items, payments, discounts: discountRows, spaceHourlyRate }
+  return { ...check, items: itemsWithMods, payments, discounts: discountRows, spaceHourlyRate }
 }
 
 async function recalcCheckTotal(checkId: string) {
   const items = await db.select().from(checkItems).where(eq(checkItems.checkId, checkId))
+  const ids = items.map(i => i.id)
+  const mods = ids.length
+    ? await db.select().from(checkItemModifiers).where(inArray(checkItemModifiers.checkItemId, ids))
+    : []
   const discountRows = await db.select().from(checkDiscounts).where(eq(checkDiscounts.checkId, checkId))
-  const itemsTotal = items.reduce((s, i) => s + parseFloat(i.priceAtTime) * i.quantity, 0)
-  const discountTotal = discountRows.reduce((s, d) => s + parseFloat(d.amount), 0)
-  const total = Math.max(0, itemsTotal - discountTotal)
+  const { discountTotal, total } = computeTotals(items, mods, discountRows)
   await db.update(checks).set({
     totalAmount: String(total),
     discountTotal: String(discountTotal),
@@ -476,13 +518,45 @@ posRouter.post('/checks/:id/pay', requireRole('owner', 'staff'), zValidator('jso
       const [check] = await tx.select().from(checks).where(eq(checks.id, checkId)).for('update')
       if (!check || check.status !== 'open') throw new Error('CHECK_NOT_OPEN')
 
-      const total = parseFloat(check.totalAmount)
-      const paidTotal = body.payments.reduce((s, p) => s + p.amount, 0)
-      if (paidTotal < total - 0.01) throw new Error('UNDERPAYMENT')
+      // Авторитетная сумма: пересчитываем из позиций+модификаторов−скидок в транзакции
+      // (не доверяем totalAmount — он мог устареть и не включать модификаторы).
+      const itemRows = await tx.select().from(checkItems).where(eq(checkItems.checkId, checkId))
+      const ciIds = itemRows.map(i => i.id)
+      const modRowsForTotal = ciIds.length
+        ? await tx.select().from(checkItemModifiers).where(inArray(checkItemModifiers.checkItemId, ciIds))
+        : []
+      const discRows = await tx.select().from(checkDiscounts).where(eq(checkDiscounts.checkId, checkId))
+      const { total: itemsTotal } = computeTotals(itemRows, modRowsForTotal, discRows)
 
-      const debtAmount = body.payments
-        .filter(p => p.method === 'debt')
-        .reduce((s, p) => s + p.amount, 0)
+      // Аренда зоны («живой счётчик») считается на сервере на момент оплаты
+      // тем же правилом, что и на фронте: ceil(минуты/60) × ставка.
+      let rental = 0
+      if (check.spaceId && check.spaceStartAt && !check.spaceEndAt) {
+        const [space] = await tx.select({ hourlyRate: spaces.hourlyRate }).from(spaces).where(eq(spaces.id, check.spaceId))
+        if (space?.hourlyRate) {
+          const mins = Math.max(0, (Date.now() - new Date(check.spaceStartAt).getTime()) / 60000)
+          rental = Math.ceil(mins / 60) * parseFloat(space.hourlyRate)
+        }
+      }
+      const total = round2(itemsTotal + rental)
+
+      // Суммы по способам оплаты
+      const sumBy = (m: string) => body.payments.filter(p => p.method === m).reduce((s, p) => s + p.amount, 0)
+      const sentPaid = round2(body.payments.reduce((s, p) => s + p.amount, 0))
+      const depositSent = round2(sumBy('deposit'))
+      const bonusSent = round2(sumBy('bonus'))
+      const certSent = round2(sumBy('certificate'))
+      const debtAmount = round2(sumBy('debt'))
+
+      // Недоплата
+      if (sentPaid < total - 0.01) throw new Error('UNDERPAYMENT')
+      // Безналичные тендеры (всё кроме наличных) не могут превышать сумму чека —
+      // защита от «отрицательной сдачи» и переоплаты бонусом/депозитом/картой.
+      const nonCash = body.payments.filter(p => p.method !== 'cash')
+      const nonCashSum = round2(nonCash.reduce((s, p) => s + p.amount, 0))
+      if (nonCashSum > total + 0.01) throw new Error('OVERPAYMENT')
+      // Бонус-тендер обязан совпадать с bonusAmount (иначе «оплата» бонусом без списания).
+      if (Math.abs((body.bonusAmount ?? 0) - bonusSent) > 0.01) throw new Error('BONUS_MISMATCH')
 
       // Validate + lock certificate
       let cert = null
@@ -490,22 +564,43 @@ posRouter.post('/checks/:id/pay', requireRole('owner', 'staff'), zValidator('jso
         const [c2] = await tx.select().from(certificates)
           .where(eq(certificates.code, body.certificateCode)).for('update')
         if (!c2 || c2.isUsed || parseFloat(c2.balance) < 0.01) throw new Error('INVALID_CERT')
+        if (certSent > parseFloat(c2.balance) + 0.01) throw new Error('CERT_INSUFFICIENT')
         cert = c2
+      } else if (certSent > 0.005) {
+        throw new Error('INVALID_CERT')
       }
 
-      // Lock player row once (для долга, списания и начисления бонусов)
+      // Lock player row once (депозит, долг, списание и начисление бонусов)
       let player = null
       if (body.playerId) {
         const [p] = await tx.select().from(profiles).where(eq(profiles.id, body.playerId)).for('update')
         player = p ?? null
       }
 
-      // Оплата в долг: проверка лимита + фактическое списание баланса клиента
+      // Оплата депозитом: списание предоплаченного баланса клиента (не уходит в минус)
+      if (depositSent > 0.005) {
+        if (!body.playerId || !player) throw new Error('DEPOSIT_NO_PLAYER')
+        const bal = parseFloat(player.balance)
+        if (bal + 0.01 < depositSent) throw new Error('INSUFFICIENT_DEPOSIT')
+        const nb = round2(bal - depositSent)
+        await tx.update(profiles).set({ balance: String(nb) }).where(eq(profiles.id, body.playerId))
+        await tx.insert(transactions).values({
+          type: 'withdrawal',
+          amount: String(depositSent),
+          checkId,
+          playerId: body.playerId,
+          createdBy: user.sub,
+          description: 'Оплата депозитом за чек',
+        })
+        player = { ...player, balance: String(nb) }
+      }
+
+      // Оплата в долг: проверка лимита + списание баланса клиента в минус
       if (debtAmount > 0) {
         if (!body.playerId || !player) throw new Error('DEBT_NO_PLAYER')
         const maxDebtRow = await tx.select().from(appSettings).where(eq(appSettings.key, 'max_client_debt'))
         const maxDebt = parseFloat(maxDebtRow[0]?.value ?? '5000')
-        const newBalance = parseFloat(player.balance) - debtAmount
+        const newBalance = round2(parseFloat(player.balance) - debtAmount)
         if (newBalance < -maxDebt) throw new Error('DEBT_LIMIT')
         await tx.update(profiles).set({ balance: String(newBalance) }).where(eq(profiles.id, body.playerId))
         await tx.insert(transactions).values({
@@ -522,7 +617,7 @@ posRouter.post('/checks/:id/pay', requireRole('owner', 'staff'), zValidator('jso
       // Списание бонусов
       if (body.bonusAmount && body.bonusAmount > 0 && body.playerId) {
         if (!player || parseFloat(player.bonusPoints) < body.bonusAmount) throw new Error('INSUFFICIENT_BONUS')
-        const newBonus = parseFloat(player.bonusPoints) - body.bonusAmount
+        const newBonus = round2(parseFloat(player.bonusPoints) - body.bonusAmount)
         await tx.update(profiles).set({ bonusPoints: String(newBonus) }).where(eq(profiles.id, body.playerId))
         await tx.insert(bonusHistory).values({
           profileId: body.playerId,
@@ -533,26 +628,31 @@ posRouter.post('/checks/:id/pay', requireRole('owner', 'staff'), zValidator('jso
         player = { ...player, bonusPoints: String(newBonus) }
       }
 
-      // Insert payments
-      await tx.insert(checkPayments).values(body.payments.map(p => ({
+      // Нормализуем платежи: записанная сумма == total (наличные = total − безнал),
+      // чтобы переплата/сдача не попадала в выручку и кассу.
+      const cashRequired = round2(Math.max(0, total - nonCashSum))
+      const normalizedPayments: { method: string; amount: number }[] = nonCash.map(p => ({ method: p.method, amount: round2(p.amount) }))
+      if (cashRequired > 0.005) normalizedPayments.push({ method: 'cash', amount: cashRequired })
+      if (normalizedPayments.length === 0) normalizedPayments.push({ method: 'cash', amount: total })
+
+      await tx.insert(checkPayments).values(normalizedPayments.map(p => ({
         checkId,
         method: p.method as any,
         amount: String(p.amount),
       })))
 
-      // Use certificate
+      // Списание сертификата
       if (cert) {
-        const used = body.payments.find(p => p.method === 'certificate')?.amount ?? 0
-        const newCertBalance = parseFloat(cert.balance) - used
+        const newCertBalance = round2(parseFloat(cert.balance) - certSent)
         await tx.update(certificates).set({
           balance: String(Math.max(0, newCertBalance)),
-          isUsed: newCertBalance <= 0,
+          isUsed: newCertBalance <= 0.005,
           usedBy: body.playerId ?? null,
           usedAt: new Date(),
         }).where(eq(certificates.id, cert.id))
       }
 
-      // Record payment transaction
+      // Финансовая проводка оплаты (на полную сумму, включая аренду)
       await tx.insert(transactions).values({
         type: 'payment',
         amount: String(total),
@@ -562,20 +662,22 @@ posRouter.post('/checks/:id/pay', requireRole('owner', 'staff'), zValidator('jso
         description: 'Check payment',
       })
 
-      // Close check
-      const primaryMethod = body.payments.reduce((a, b) => a.amount >= b.amount ? a : b)
+      // Закрытие чека
+      const primaryMethod = normalizedPayments.reduce((a, b) => a.amount >= b.amount ? a : b)
       const [closedCheck] = await tx.update(checks).set({
         status: 'closed',
         paymentMethod: primaryMethod.method as any,
+        totalAmount: String(total),
         bonusUsed: String(body.bonusAmount ?? 0),
         certificateId: cert?.id ?? null,
-        certificateUsed: cert ? String(body.payments.find(p => p.method === 'certificate')?.amount ?? 0) : '0',
+        certificateUsed: cert ? String(certSent) : '0',
         playerId: body.playerId ?? null,
         note: body.note ?? null,
+        spaceEndAt: check.spaceId ? new Date() : undefined,
         closedAt: new Date(),
       }).where(eq(checks.id, checkId)).returning()
 
-      // Начисление бонусов с учётом настроек app_settings
+      // Начисление бонусов с учётом настроек app_settings (на полную сумму, включая аренду)
       if (body.playerId && player) {
         const settingsRows = await tx.select().from(appSettings)
           .where(inArray(appSettings.key, ['bonus_enabled', 'bonus_accrual_rate', 'bonus_min_purchase', 'bonus_accrual_on_debt']))
@@ -589,7 +691,7 @@ posRouter.post('/checks/:id/pay', requireRole('owner', 'staff'), zValidator('jso
         if (bonusEnabled && total >= minPurchase && !(debtAmount > 0 && !accrualOnDebt)) {
           const bonusEarned = Math.floor(total * accrualRate)
           if (bonusEarned > 0) {
-            const newBonus = parseFloat(player.bonusPoints) + bonusEarned
+            const newBonus = round2(parseFloat(player.bonusPoints) + bonusEarned)
             await tx.update(profiles).set({ bonusPoints: String(newBonus) }).where(eq(profiles.id, body.playerId))
             await tx.insert(bonusHistory).values({
               profileId: body.playerId,
@@ -611,10 +713,15 @@ posRouter.post('/checks/:id/pay', requireRole('owner', 'staff'), zValidator('jso
     const map: Record<string, [string, 400]> = {
       CHECK_NOT_OPEN: ['Check not open', 400],
       UNDERPAYMENT: ['Недостаточная сумма оплаты', 400],
+      OVERPAYMENT: ['Сумма безналичной оплаты превышает чек', 400],
       INVALID_CERT: ['Invalid or used certificate', 400],
+      CERT_INSUFFICIENT: ['Недостаточно средств на сертификате', 400],
       DEBT_NO_PLAYER: ['Для оплаты в долг нужно выбрать клиента', 400],
       DEBT_LIMIT: ['Превышен лимит долга клиента', 400],
+      DEPOSIT_NO_PLAYER: ['Для оплаты депозитом нужно выбрать клиента', 400],
+      INSUFFICIENT_DEPOSIT: ['Недостаточно средств на депозите клиента', 400],
       INSUFFICIENT_BONUS: ['Недостаточно бонусных баллов', 400],
+      BONUS_MISMATCH: ['Несовпадение суммы бонусов', 400],
     }
     const mapped = err?.message ? map[err.message] : undefined
     if (mapped) return c.json({ error: mapped[0] }, mapped[1])
