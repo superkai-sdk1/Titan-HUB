@@ -43,19 +43,21 @@ export default function InventoryPage() {
   }, [allItems, filter, search])
 
   const patchMut = useMutation({
-    mutationFn: ({ id, stockQuantity }: { id: string; stockQuantity: number }) => api.patch(`/inventory/${id}`, { stockQuantity }),
+    mutationFn: (body: { id: string; stockQuantity?: number; adjustDelta?: number; reason?: string }) =>
+      api.patch(`/inventory/${body.id}`, { stockQuantity: body.stockQuantity, adjustDelta: body.adjustDelta, reason: body.reason }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['menu-items-inventory'] }),
   })
 
   function adjustInline(item: MenuItem, delta: number) {
-    patchMut.mutate({ id: item.id, stockQuantity: Math.max(0, item.stockQuantity + delta) })
+    if (patchMut.isPending) return // защита от двойного тапа / гонки потерянного обновления
+    patchMut.mutate({ id: item.id, adjustDelta: delta })
   }
 
   function openEdit(item: MenuItem) { setSelected(item); setNewQty(String(item.stockQuantity)); setNote('') }
   function closeSheet() { setSelected(null); setNewQty(''); setNote('') }
   function saveEdit() {
     if (!selected) return
-    patchMut.mutate({ id: selected.id, stockQuantity: parseInt(newQty) || 0 })
+    patchMut.mutate({ id: selected.id, stockQuantity: parseInt(newQty) || 0, reason: note.trim() || undefined })
     closeSheet()
   }
 

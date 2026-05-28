@@ -50,7 +50,7 @@ export default function RevisionPage() {
 
   const patchMut = useMutation({
     mutationFn: ({ id, stockQuantity }: { id: string; stockQuantity: number }) =>
-      api.patch(`/inventory/${id}`, { stockQuantity }),
+      api.patch(`/inventory/${id}`, { stockQuantity, reason: 'Ревизия' }),
   })
 
   function startRevision() {
@@ -63,18 +63,28 @@ export default function RevisionPage() {
   async function finishRevision() {
     setSaving(true)
     const res: typeof results = []
-    for (const item of tracked) {
-      const raw = entries[item.id]
-      if (raw === '' || raw === undefined) continue
-      const actual = parseInt(raw) || 0
-      const diff = actual - item.stockQuantity
-      res.push({ name: item.name, expected: item.stockQuantity, actual, diff })
-      await patchMut.mutateAsync({ id: item.id, stockQuantity: actual })
+    let failed = false
+    try {
+      for (const item of tracked) {
+        const raw = entries[item.id]
+        if (raw === '' || raw === undefined) continue
+        const actual = parseInt(raw) || 0
+        const diff = actual - item.stockQuantity
+        // Пишем в результат только после успешного сохранения позиции.
+        await patchMut.mutateAsync({ id: item.id, stockQuantity: actual })
+        res.push({ name: item.name, expected: item.stockQuantity, actual, diff })
+      }
+    } catch {
+      failed = true
+    } finally {
+      qc.invalidateQueries({ queryKey: ['menu-items-inventory'] })
+      setResults(res)
+      setSaving(false)
+      setMode('done')
     }
-    qc.invalidateQueries({ queryKey: ['menu-items-inventory'] })
-    setResults(res)
-    setSaving(false)
-    setMode('done')
+    if (failed) {
+      alert(`Часть позиций не сохранена (ошибка сети). Применено: ${res.length}. Повторите ревизию для оставшихся.`)
+    }
   }
 
   const filled = Object.values(entries).filter(v => v !== '').length

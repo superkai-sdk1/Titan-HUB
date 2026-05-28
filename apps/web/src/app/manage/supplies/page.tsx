@@ -56,7 +56,6 @@ export default function SuppliesPage() {
   const qc = useQueryClient()
   const [expanded, setExpanded] = useState<string | null>(null)
   const [showModal, setShowModal] = useState(false)
-  const [date, setDate] = useState(new Date().toISOString().split('T')[0])
   const [supplier, setSupplier] = useState('')
   const [items, setItems] = useState<DraftItem[]>([emptyItem()])
 
@@ -92,12 +91,11 @@ export default function SuppliesPage() {
   }
 
   const create = useMutation({
-    mutationFn: (body: { date: string; supplier: string; items: SupplyItem[] }) =>
+    mutationFn: (body: { supplier: string; items: { itemId?: string; name: string; unit: string; quantity: number; costPerUnit: number }[] }) =>
       api.post('/supplies', body),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['supplies'] })
       setShowModal(false)
-      setDate(new Date().toISOString().split('T')[0])
       setSupplier('')
       setItems([emptyItem()])
     },
@@ -115,9 +113,8 @@ export default function SuppliesPage() {
 
   function handleSubmit() {
     create.mutate({
-      date,
       supplier,
-      items: items.map(({ name, quantity, unit, costPerUnit }) => ({ name, quantity, unit, costPerUnit })),
+      items: items.map(({ itemId, name, quantity, unit, costPerUnit }) => ({ itemId, name, quantity, unit, costPerUnit })),
     })
   }
 
@@ -240,10 +237,6 @@ export default function SuppliesPage() {
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-              <div>
-                <label style={LBL}>Дата</label>
-                <input type="date" value={date} onChange={e => setDate(e.target.value)} style={INP} />
-              </div>
               <div>
                 <label style={LBL}>Поставщик</label>
                 <input value={supplier} onChange={e => setSupplier(e.target.value)} placeholder="Название поставщика" style={INP} />

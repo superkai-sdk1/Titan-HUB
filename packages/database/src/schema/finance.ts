@@ -75,6 +75,7 @@ export const bonusHistory = pgTable('bonus_history', {
 export const supplies = pgTable('supplies', {
   id: uuid('id').primaryKey().defaultRandom(),
   note: text('note'),
+  supplier: text('supplier'),
   totalCost: numeric('total_cost', { precision: 12, scale: 2 }).notNull().default('0'),
   paymentMethod: text('payment_method').notNull().default('cash'),
   createdBy: uuid('created_by')
@@ -88,11 +89,25 @@ export const supplyItems = pgTable('supply_items', {
   supplyId: uuid('supply_id')
     .notNull()
     .references(() => supplies.id, { onDelete: 'cascade' }),
+  // Опциональная привязка к карточке товара (для обновления остатка).
+  itemId: uuid('item_id').references(() => inventory.id),
+  name: text('name'),
+  unit: text('unit').notNull().default('шт'),
+  quantity: numeric('quantity', { precision: 10, scale: 2 }).notNull(),
+  costPerUnit: numeric('cost_per_unit', { precision: 10, scale: 2 }).notNull(),
+})
+
+// Журнал движений склада — аудит ручных корректировок остатка.
+export const stockMovements = pgTable('stock_movements', {
+  id: uuid('id').primaryKey().defaultRandom(),
   itemId: uuid('item_id')
     .notNull()
     .references(() => inventory.id),
-  quantity: numeric('quantity', { precision: 10, scale: 2 }).notNull(),
-  costPerUnit: numeric('cost_per_unit', { precision: 10, scale: 2 }).notNull(),
+  delta: integer('delta').notNull(),
+  newQuantity: integer('new_quantity').notNull(),
+  reason: text('reason'),
+  createdBy: uuid('created_by').references(() => profiles.id),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 })
 
 export const expenseCategoryEnum = pgEnum('expense_category', [
