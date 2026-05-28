@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { api } from '@/lib/api'
+import { api, ApiError } from '@/lib/api'
 import { differenceInMinutes } from 'date-fns'
 import { SwipeableRow } from '@/components/SwipeableRow'
 import { Icon } from '@/components/Icon'
@@ -145,6 +145,7 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
   const [qrLoading, setQrLoading] = useState(false)
   const [qrStatus, setQrStatus] = useState<'pending' | 'confirmed' | 'canceled'>('pending')
   const [qrError, setQrError] = useState('')
+  const [qrRedirectUrl, setQrRedirectUrl] = useState<string | null>(null)
   const [qrAmount, setQrAmount] = useState(0)
 
   const check = checkData
@@ -204,6 +205,7 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
     setQrAmount(amount)
     setQrLoading(true)
     setQrError('')
+    setQrRedirectUrl(null)
     setQrStatus('pending')
     setQrTransactionId(null)
     setQrDataUrl(null)
@@ -216,6 +218,9 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
       setQrTransactionId(res.transactionId)
       setQrDataUrl(res.qrDataUrl)
     } catch (err) {
+      if (err instanceof ApiError && err.data?.redirectUrl) {
+        setQrRedirectUrl(err.data.redirectUrl as string)
+      }
       setQrError((err as Error)?.message ?? 'Ошибка создания QR')
     } finally {
       setQrLoading(false)
@@ -903,12 +908,25 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
                       <Icon name="error" size={18} color="var(--danger)" />
                       {qrError}
                     </p>
-                    <button
-                      onClick={startQrPayment}
-                      style={{ marginTop: 12, padding: '10px 20px', borderRadius: 10, border: 'none', cursor: 'pointer', background: 'rgba(139,92,246,0.2)', color: '#A78BFA', fontSize: 12, fontWeight: 700 }}
-                    >
-                      Попробовать снова
-                    </button>
+                    <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
+                      <button
+                        onClick={startQrPayment}
+                        style={{ padding: '10px 20px', borderRadius: 10, border: 'none', cursor: 'pointer', background: 'rgba(139,92,246,0.2)', color: '#A78BFA', fontSize: 12, fontWeight: 700 }}
+                      >
+                        Попробовать снова
+                      </button>
+                      {qrRedirectUrl && (
+                        <a
+                          href={qrRedirectUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{ padding: '10px 20px', borderRadius: 10, border: '1px solid rgba(255,255,255,0.12)', cursor: 'pointer', background: 'transparent', color: 'var(--on-surface-variant)', fontSize: 12, fontWeight: 700, textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 6 }}
+                        >
+                          <Icon name="open_in_new" size={14} />
+                          Открыть страницу оплаты
+                        </a>
+                      )}
+                    </div>
                   </div>
                 )}
 
