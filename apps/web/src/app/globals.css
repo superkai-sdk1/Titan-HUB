@@ -13,6 +13,9 @@
   /* Алиас --primary: некоторые страницы используют var(--primary, #6750A4);
      без определения они рендерят легаси-индиго. Приводим к фирменному фиолетовому. */
   --primary: #8B5CF6;
+  /* Высота, которую нужно зарезервировать снизу под нижнюю навигацию.
+     На десктопе/планшете навигации нет → 0; на телефоне переопределяется ниже. */
+  --bottom-nav-clear: 0px;
   --secondary: #4cd7f6;
   --secondary-rgb: 76, 215, 246;
   --on-surface: #e8dfee;
@@ -333,6 +336,12 @@ button, [role="button"] { user-select: none; }
 :focus-visible {
   outline: 2px solid var(--primary-violet) !important;
   outline-offset: 2px;
+}
+
+/* ── Bottom-nav clearance (телефон <768: видна нижняя навигация) ─────── */
+/* Высота нав-панели (≈54px) + выступ центральной FAB (14px) + запас + safe-area. */
+@media (max-width: 767px) {
+  :root { --bottom-nav-clear: calc(76px + env(safe-area-inset-bottom)); }
 }
 
 /* ── Reduced motion (a11y) ──────────────────────────── */

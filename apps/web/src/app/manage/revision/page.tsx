@@ -217,7 +217,7 @@ export default function RevisionPage() {
             })}
 
             {/* Progress bar */}
-            <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 20, background: 'rgba(21,18,27,0.95)', backdropFilter: 'blur(16px)', padding: '12px 20px 28px', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+            <div style={{ position: 'fixed', bottom: 'var(--bottom-nav-clear, 0px)', left: 0, right: 0, zIndex: 45, background: 'rgba(21,18,27,0.95)', backdropFilter: 'blur(16px)', padding: '12px 20px 28px', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
                 <span style={{ fontSize: 12, color: 'var(--on-surface-variant)' }}>Прогресс: {filled}/{total}</span>
                 <span style={{ fontSize: 12, color: '#8B5CF6', fontWeight: 700 }}>{Math.round(filled / total * 100)}%</span>
