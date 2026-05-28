@@ -32,19 +32,27 @@ export const LBL: React.CSSProperties = {
 // ─── Toggle ─────────────────────────────────────────────────────────────────
 
 export function Toggle({
-  value, onChange, color = '#8B5CF6',
+  value, onChange, color = '#8B5CF6', size = 'md', ariaLabel,
 }: {
   value: boolean
   onChange: (v: boolean) => void
   color?: string
+  size?: 'sm' | 'md'
+  ariaLabel?: string
 }) {
+  const d = size === 'sm'
+    ? { w: 44, h: 24, knob: 18, on: 23 }
+    : { w: 52, h: 28, knob: 22, on: 27 }
   return (
     <div
       role="switch"
       aria-checked={value}
+      aria-label={ariaLabel}
+      tabIndex={0}
       onClick={() => onChange(!value)}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onChange(!value) } }}
       style={{
-        width: 52, height: 28, borderRadius: 14,
+        width: d.w, height: d.h, borderRadius: d.h / 2,
         background: value ? color : 'rgba(255,255,255,0.1)',
         position: 'relative', cursor: 'pointer',
         transition: 'background 0.2s',
@@ -53,8 +61,8 @@ export function Toggle({
       }}
     >
       <div style={{
-        position: 'absolute', top: 3, left: value ? 27 : 3,
-        width: 22, height: 22, borderRadius: '50%',
+        position: 'absolute', top: 3, left: value ? d.on : 3,
+        width: d.knob, height: d.knob, borderRadius: '50%',
         background: '#fff', transition: 'left 0.2s',
         boxShadow: '0 1px 4px rgba(0,0,0,0.3)',
       }} />
@@ -577,6 +585,116 @@ export function SaveButton({
         ? 'Сохраняем…'
         : <><Icon name="save" size={18} />{label}</>
       }
+    </button>
+  )
+}
+
+// ─── Money formatting (единый форматтер по всему проекту) ─────────────────────
+
+export function formatMoney(
+  value: number | string | null | undefined,
+  opts?: { sign?: boolean; kopecks?: boolean; currency?: boolean },
+): string {
+  const n = typeof value === 'number' ? value : parseFloat(String(value ?? '0')) || 0
+  const frac = opts?.kopecks ? 2 : 0
+  const body = Math.abs(n).toLocaleString('ru-RU', { minimumFractionDigits: frac, maximumFractionDigits: frac })
+  const sign = n < 0 ? '−' : (opts?.sign && n > 0 ? '+' : '')
+  const suffix = opts?.currency === false ? '' : ' ₽'
+  return `${sign}${body}${suffix}`
+}
+
+// ─── Button (единая кнопка: варианты + размеры, тач-цель ≥44px) ───────────────
+
+type ButtonVariant = 'primary' | 'secondary' | 'danger' | 'ghost'
+type ButtonSize = 'sm' | 'md' | 'lg'
+
+const BTN_SIZES: Record<ButtonSize, { minHeight: number; padding: string; fontSize: number; radius: number; icon: number }> = {
+  sm: { minHeight: 38, padding: '0 14px', fontSize: 13, radius: 12, icon: 16 },
+  md: { minHeight: 44, padding: '0 18px', fontSize: 14, radius: 14, icon: 18 },
+  lg: { minHeight: 52, padding: '0 22px', fontSize: 15, radius: 16, icon: 20 },
+}
+
+export function Button({
+  children, onClick, variant = 'primary', size = 'md',
+  icon, iconRight, fullWidth, loading, disabled, type = 'button', ariaLabel, style,
+}: {
+  children?: React.ReactNode
+  onClick?: () => void
+  variant?: ButtonVariant
+  size?: ButtonSize
+  icon?: string
+  iconRight?: string
+  fullWidth?: boolean
+  loading?: boolean
+  disabled?: boolean
+  type?: 'button' | 'submit'
+  ariaLabel?: string
+  style?: React.CSSProperties
+}) {
+  const s = BTN_SIZES[size]
+  const isDisabled = disabled || loading
+  const variantStyle: React.CSSProperties =
+    variant === 'primary' ? { background: 'linear-gradient(135deg, #8B5CF6, #4cd7f6)', color: '#fff', border: 'none', boxShadow: '0 4px 20px rgba(139,92,246,0.3)' }
+    : variant === 'danger' ? { background: 'rgba(251,113,133,0.12)', color: 'var(--danger)', border: '1px solid rgba(251,113,133,0.3)' }
+    : variant === 'secondary' ? { background: 'rgba(255,255,255,0.06)', color: 'var(--on-surface)', border: '1px solid rgba(255,255,255,0.1)' }
+    : { background: 'transparent', color: 'var(--on-surface-variant)', border: '1px solid transparent' }
+  return (
+    <button
+      type={type}
+      onClick={onClick}
+      disabled={isDisabled}
+      aria-label={ariaLabel}
+      style={{
+        minHeight: s.minHeight, padding: s.padding, borderRadius: s.radius, fontSize: s.fontSize, fontWeight: 700,
+        cursor: isDisabled ? 'not-allowed' : 'pointer',
+        width: fullWidth ? '100%' : undefined,
+        display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+        opacity: isDisabled ? 0.55 : 1,
+        transition: 'opacity 0.2s, transform 0.1s',
+        ...variantStyle,
+        ...style,
+      }}
+    >
+      {loading
+        ? <Icon name="progress_activity" size={s.icon} style={{ animation: 'spin 1s linear infinite' }} />
+        : icon ? <Icon name={icon} size={s.icon} /> : null}
+      {children}
+      {!loading && iconRight ? <Icon name={iconRight} size={s.icon} /> : null}
+    </button>
+  )
+}
+
+// ─── IconButton (иконочная кнопка с обязательным aria-label) ──────────────────
+
+export function IconButton({
+  icon, onClick, ariaLabel, variant = 'secondary', size = 40, disabled, style,
+}: {
+  icon: string
+  onClick?: () => void
+  ariaLabel: string
+  variant?: 'secondary' | 'ghost' | 'danger'
+  size?: number
+  disabled?: boolean
+  style?: React.CSSProperties
+}) {
+  const bg = variant === 'danger' ? 'rgba(251,113,133,0.1)' : variant === 'ghost' ? 'transparent' : 'rgba(255,255,255,0.05)'
+  const color = variant === 'danger' ? 'var(--danger)' : 'var(--on-surface-variant)'
+  const border = variant === 'ghost' ? '1px solid transparent' : '1px solid rgba(255,255,255,0.08)'
+  return (
+    <button
+      onClick={onClick}
+      aria-label={ariaLabel}
+      disabled={disabled}
+      style={{
+        width: size, height: size, minWidth: size, borderRadius: Math.round(size * 0.28),
+        border, background: bg, color,
+        cursor: disabled ? 'not-allowed' : 'pointer',
+        display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+        opacity: disabled ? 0.5 : 1,
+        ...style,
+      }}
+    >
+      <Icon name={icon} size={Math.round(size * 0.45)} />
     </button>
   )
 }

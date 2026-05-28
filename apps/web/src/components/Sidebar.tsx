@@ -4,23 +4,10 @@ import { usePathname, useRouter } from 'next/navigation'
 import { useState } from 'react'
 import { useCurrentShift } from '@/hooks/useShift'
 import { Icon } from '@/components/Icon'
+import { NAV_PRIMARY, NAV_SHIFTS, isNavActive } from '@/lib/nav'
 
-interface NavItem {
-  href: string
-  icon: string
-  label: string
-}
-
-const NAV_ITEMS: NavItem[] = [
-  { href: '/pos',       icon: 'point_of_sale',   label: 'Касса' },
-  { href: '/events',    icon: 'event',            label: 'События' },
-  { href: '/dashboard', icon: 'bar_chart',        label: 'Аналитика' },
-  { href: '/manage',    icon: 'settings',         label: 'Управление' },
-]
-
-const BOTTOM_NAV: NavItem[] = [
-  { href: '/shifts',    icon: 'schedule',         label: 'Смены' },
-]
+const NAV_ITEMS = NAV_PRIMARY
+const BOTTOM_NAV = [NAV_SHIFTS]
 
 function getInitialCollapsed(): boolean {
   if (typeof window === 'undefined') return false
@@ -129,12 +116,13 @@ export function Sidebar() {
         {/* Nav items */}
         <nav style={{ flex: 1, overflowY: 'auto', padding: collapsed ? '8px 10px' : '8px 12px' }}>
           {NAV_ITEMS.map(({ href, icon, label }) => {
-            const active = pathname === href || (href !== '/pos' && href !== '/manage' && pathname.startsWith(href)) || (href === '/manage' && pathname.startsWith('/manage') && !pathname.startsWith('/manage/events'))
+            const active = isNavActive(href, pathname)
             return (
               <Link
                 key={href}
                 href={href}
                 title={collapsed ? label : undefined}
+                aria-current={active ? 'page' : undefined}
                 style={{
                   display: 'flex',
                   alignItems: 'center',
@@ -162,12 +150,13 @@ export function Sidebar() {
         {/* Bottom section */}
         <div style={{ borderTop: '1px solid rgba(255,255,255,0.05)', padding: collapsed ? '12px 10px 24px' : '12px 12px 24px' }}>
           {BOTTOM_NAV.map(({ href, icon, label }) => {
-            const active = pathname === href
+            const active = isNavActive(href, pathname)
             return (
               <Link
                 key={href}
                 href={href}
                 title={collapsed ? label : undefined}
+                aria-current={active ? 'page' : undefined}
                 style={{
                   display: 'flex',
                   alignItems: 'center',

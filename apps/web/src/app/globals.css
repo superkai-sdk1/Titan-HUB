@@ -22,6 +22,9 @@
   --on-surface-variant: #ccc3d8;
   --outline-variant: #4a4455;
   --surface-container-low: #1d1a24;
+  /* Семантические алиасы — использовались в коде без определения (резолвились в пусто) */
+  --background: #15121b;
+  --surface: #1d1a24;
   --success: #34D399;
   --danger: #FB7185;
   --warning: #FBBF24;
@@ -72,6 +75,9 @@
   --c-smooth: cubic-bezier(0.4, 0, 0.2, 1);
   --c-snappy: cubic-bezier(0.34, 1.56, 0.64, 1);
 }
+
+/* Глобальный спиннер (используется кнопками/состояниями загрузки) */
+@keyframes spin { to { transform: rotate(360deg); } }
 
 /* ── Reset ──────────────────────────────────────────── */
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; max-width: 100%; }

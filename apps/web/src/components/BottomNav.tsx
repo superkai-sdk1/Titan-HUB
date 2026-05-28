@@ -2,27 +2,18 @@
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { Icon } from '@/components/Icon'
+import { NAV_PRIMARY, isNavActive, type NavItem as NavItemType } from '@/lib/nav'
 
-const LEFT_ITEMS = [
-  { href: '/pos',    icon: 'point_of_sale', label: 'Касса' },
-  { href: '/events', icon: 'event',         label: 'События' },
-]
-const RIGHT_ITEMS = [
-  { href: '/dashboard', icon: 'bar_chart', label: 'Отчёты' },
-  { href: '/manage',    icon: 'settings',  label: 'Меню' },
-]
+const LEFT_ITEMS = NAV_PRIMARY.slice(0, 2)
+const RIGHT_ITEMS = NAV_PRIMARY.slice(2)
 
-function NavItem({ href, icon, label, pathname }: { href: string; icon: string; label: string; pathname: string }) {
-  const active =
-    href === '/pos'
-      ? pathname === '/pos' || pathname.startsWith('/pos/')
-      : href === '/manage'
-      ? pathname.startsWith('/manage')
-      : pathname === href || pathname.startsWith(href + '/')
+function NavItem({ href, icon, label, short, pathname }: NavItemType & { pathname: string }) {
+  const active = isNavActive(href, pathname)
 
   return (
     <Link
       href={href}
+      aria-current={active ? 'page' : undefined}
       style={{
         flex: 1,
         display: 'flex',
@@ -46,14 +37,14 @@ function NavItem({ href, icon, label, pathname }: { href: string; icon: string; 
       />
       <span
         style={{
-          fontSize: 9,
+          fontSize: 10,
           fontWeight: 700,
-          letterSpacing: '0.06em',
+          letterSpacing: '0.04em',
           textTransform: 'uppercase',
-          color: active ? '#8B5CF6' : 'rgba(204,195,216,0.5)',
+          color: active ? '#8B5CF6' : 'rgba(204,195,216,0.7)',
         }}
       >
-        {label}
+        {short ?? label}
       </span>
       {active && (
         <div
@@ -129,6 +120,7 @@ export function BottomNav() {
         {/* CENTER FAB */}
         <button
           onClick={handleFAB}
+          aria-label="Новый чек"
           style={{
             width: 52,
             height: 52,
