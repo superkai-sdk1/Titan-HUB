@@ -17,6 +17,12 @@ export const metadata: Metadata = {
     statusBarStyle: 'black-translucent',
     title: 'Titan HUB',
   },
+  other: {
+    // Next 15 эмитит только mobile-web-app-capable, но iOS для корректного
+    // standalone (без резерва под фантомный нижний тулбар Safari, который
+    // поднимает fixed bottom:0) требует legacy-мету. Добавляем явно.
+    'apple-mobile-web-app-capable': 'yes',
+  },
 }
 
 export const viewport: Viewport = {
