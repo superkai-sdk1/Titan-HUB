@@ -4,7 +4,9 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { format } from 'date-fns'
 import { ru } from 'date-fns/locale'
-import { PageHeader, Sheet, INP, LBL } from '@/components/manage/DesignSystem'
+import { PageHeader, Sheet, Button, IconButton, ConfirmDialog, INP, LBL, formatMoney } from '@/components/manage/DesignSystem'
+import { StateView } from '@/components/StateView'
+import { useToast } from '@/components/Toast'
 import { Icon } from '@/components/Icon'
 
 interface Expense {
@@ -26,7 +28,7 @@ const CATEGORY_MAP: Record<string, [string, string, string]> = {
 
 type DateFilter = 'today' | 'week' | 'month' | 'all'
 
-function formatAmount(n: number) { return n.toLocaleString('ru-RU') + ' ₽' }
+function formatAmount(n: number) { return formatMoney(n) }
 
 function isInRange(dateStr: string, range: DateFilter): boolean {
   const d = new Date(dateStr)
@@ -42,7 +44,9 @@ function isInRange(dateStr: string, range: DateFilter): boolean {
 
 export default function ExpensesPage() {
   const qc = useQueryClient()
+  const { show } = useToast()
   const [showForm, setShowForm] = useState(false)
+  const [delId, setDelId] = useState<string | null>(null)
   const [dateFilter, setDateFilter] = useState<DateFilter>('month')
 
   const today = new Date().toISOString().slice(0, 10)
@@ -51,7 +55,7 @@ export default function ExpensesPage() {
   const [formAmount, setFormAmount] = useState('')
   const [formComment, setFormComment] = useState('')
 
-  const { data } = useQuery<{ expenses: Expense[] }>({
+  const { data, isLoading } = useQuery<{ expenses: Expense[] }>({
     queryKey: ['expenses'],
     queryFn: () => api.get('/expenses'),
   })
@@ -73,11 +77,13 @@ export default function ExpensesPage() {
   const createMutation = useMutation({
     mutationFn: (body: object) => api.post('/expenses', body),
     onSuccess: () => { invalidate(); closeForm() },
+    onError: () => show('Не удалось добавить расход', 'error'),
   })
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => api.delete(`/expenses/${id}`),
     onSuccess: () => invalidate(),
+    onError: () => show('Не удалось удалить', 'error'),
   })
 
   function closeForm() { setShowForm(false); setFormDate(today); setFormCategory('other'); setFormAmount(''); setFormComment('') }
@@ -145,11 +151,10 @@ export default function ExpensesPage() {
           )}
         </div>
 
-        {expenses.length === 0 ? (
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', paddingTop: 60, gap: 16, color: 'var(--on-surface-variant)' }}>
-            <Icon name="receipt_long" size={56} style={{ opacity: 0.4 }} />
-            <p style={{ margin: 0, fontSize: 15 }}>Расходов нет</p>
-          </div>
+        {isLoading && !data ? (
+          <StateView state="loading" />
+        ) : expenses.length === 0 ? (
+          <StateView state="empty" icon="receipt_long" title="Расходов нет" />
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {expenses.map(e => {
@@ -171,9 +176,7 @@ export default function ExpensesPage() {
                       {e.comment && <span style={{ fontSize: 11, color: 'var(--on-surface-variant)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>· {e.comment}</span>}
                     </div>
                   </div>
-                  <button onClick={() => deleteMutation.mutate(e.id)} disabled={deleteMutation.isPending} style={{ width: 34, height: 34, borderRadius: 10, flexShrink: 0, border: '1px solid rgba(239,68,68,0.2)', background: 'rgba(239,68,68,0.06)', color: '#EF4444', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <Icon name="delete" size={16} />
-                  </button>
+                  <IconButton icon="delete" ariaLabel="Удалить расход" variant="danger" onClick={() => setDelId(e.id)} />
                 </div>
               )
             })}
@@ -199,11 +202,19 @@ export default function ExpensesPage() {
 
           <div><label style={LBL}>Сумма (₽)</label><input style={INP} type="number" min="0" step="0.01" placeholder="0" value={formAmount} onChange={e => setFormAmount(e.target.value)} /></div>
           <div><label style={LBL}>Комментарий</label><input style={INP} placeholder="Описание расхода" value={formComment} onChange={e => setFormComment(e.target.value)} /></div>
-          <button onClick={submitForm} disabled={createMutation.isPending} style={{ padding: '14px', borderRadius: 14, border: 'none', cursor: 'pointer', background: 'linear-gradient(135deg,#8B5CF6,#4cd7f6)', color: '#fff', fontWeight: 700, fontSize: 15, marginTop: 4 }}>
-            {createMutation.isPending ? 'Создание...' : 'Создать расход'}
-          </button>
+          <Button fullWidth size="lg" loading={createMutation.isPending} onClick={submitForm} style={{ marginTop: 4 }}>Создать расход</Button>
         </div>
       </Sheet>
+
+      <ConfirmDialog
+        open={!!delId}
+        onClose={() => setDelId(null)}
+        onConfirm={() => { if (delId) deleteMutation.mutate(delId); setDelId(null) }}
+        title="Удалить расход?"
+        confirmLabel="Удалить"
+        danger
+        loading={deleteMutation.isPending}
+      />
     </div>
   )
 }

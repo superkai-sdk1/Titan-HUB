@@ -4,8 +4,10 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { format, formatDistanceToNow } from 'date-fns'
 import { ru } from 'date-fns/locale'
-import { PageHeader, Sheet, INP, SEL, LBL } from '@/components/manage/DesignSystem'
+import { PageHeader, Sheet, ConfirmDialog, INP, SEL, LBL } from '@/components/manage/DesignSystem'
 import { PullToRefreshContainer } from '@/components/PullToRefreshContainer'
+import { StateView } from '@/components/StateView'
+import { useToast } from '@/components/Toast'
 import { Icon } from '@/components/Icon'
 
 const TIER_COLORS: Record<string, string> = {
@@ -22,6 +24,8 @@ function fmt(n: number) { return n.toLocaleString('ru', { maximumFractionDigits:
 
 export default function ClientsPage() {
   const qc = useQueryClient()
+  const { show } = useToast()
+  const [confirmBlock, setConfirmBlock] = useState(false)
   const [search, setSearch] = useState('')
   const [dbSearch, setDbSearch] = useState('')
   const [showCreate, setShowCreate] = useState(false)
@@ -39,13 +43,13 @@ export default function ClientsPage() {
     return () => { if (timer.current) clearTimeout(timer.current) }
   }, [search])
 
-  const { data } = useQuery({ queryKey: ['clients', dbSearch], queryFn: () => api.get<any>(`/clients?search=${dbSearch}&page=1`), staleTime: 10000 })
+  const { data, isLoading } = useQuery({ queryKey: ['clients', dbSearch], queryFn: () => api.get<any>(`/clients?search=${dbSearch}&page=1`), staleTime: 10000 })
   const { data: txData } = useQuery({ queryKey: ['clients', selected?.id, 'tx'], queryFn: () => api.get<any>(`/clients/${selected.id}/transactions`), enabled: !!selected?.id && tab === 'tx' })
 
-  const create = useMutation({ mutationFn: (b: any) => api.post('/clients', b), onSuccess: () => { qc.invalidateQueries({ queryKey: ['clients'] }); setShowCreate(false); setForm({ nickname: '', phone: '', birthday: '', clientTier: 'guest', password: '' }) } })
-  const update = useMutation({ mutationFn: ({ id, ...b }: any) => api.patch(`/clients/${id}`, b), onSuccess: () => { qc.invalidateQueries({ queryKey: ['clients'] }); setSelected(null) } })
-  const adjBal = useMutation({ mutationFn: ({ id, amount }: any) => api.post(`/clients/${id}/balance`, { amount }), onSuccess: () => { qc.invalidateQueries({ queryKey: ['clients'] }); setBalAmt('') } })
-  const adjBon = useMutation({ mutationFn: ({ id, amount }: any) => api.post(`/clients/${id}/bonus`, { amount }), onSuccess: () => { qc.invalidateQueries({ queryKey: ['clients'] }); setBonAmt('') } })
+  const create = useMutation({ mutationFn: (b: any) => api.post('/clients', b), onSuccess: () => { qc.invalidateQueries({ queryKey: ['clients'] }); setShowCreate(false); setForm({ nickname: '', phone: '', birthday: '', clientTier: 'guest', password: '' }) }, onError: () => show('Не удалось создать клиента', 'error') })
+  const update = useMutation({ mutationFn: ({ id, ...b }: any) => api.patch(`/clients/${id}`, b), onSuccess: () => { qc.invalidateQueries({ queryKey: ['clients'] }); setSelected(null); setConfirmBlock(false) }, onError: () => show('Не удалось сохранить изменения', 'error') })
+  const adjBal = useMutation({ mutationFn: ({ id, amount }: any) => api.post(`/clients/${id}/balance`, { amount, reason: 'Корректировка баланса' }), onSuccess: () => { qc.invalidateQueries({ queryKey: ['clients'] }); setBalAmt('') }, onError: () => show('Не удалось изменить баланс', 'error') })
+  const adjBon = useMutation({ mutationFn: ({ id, amount }: any) => api.post(`/clients/${id}/bonus`, { amount, reason: 'Корректировка бонусов' }), onSuccess: () => { qc.invalidateQueries({ queryKey: ['clients'] }); setBonAmt('') }, onError: () => show('Не удалось изменить бонусы', 'error') })
 
   const clients: any[] = data?.clients ?? []
 
@@ -86,10 +90,9 @@ export default function ClientsPage() {
       <PullToRefreshContainer onRefresh={async () => { qc.invalidateQueries({ queryKey: ['clients'] }) }}>
       <div style={{ padding: '16px', flex: 1, maxWidth: 680, margin: '0 auto', width: '100%' }}>
         {clients.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '60px 0' }}>
-            <Icon name="group" size={56} color="rgba(204,195,216,0.2)" style={{ display: 'block', marginBottom: 12 }} />
-            <p style={{ fontSize: 15, color: 'rgba(204,195,216,0.4)', margin: 0 }}>Клиенты не найдены</p>
-          </div>
+          isLoading && !data
+            ? <StateView state="loading" />
+            : <StateView state="empty" icon="group" title="Клиенты не найдены" />
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {clients.map((c: any) => {
@@ -182,7 +185,7 @@ export default function ClientsPage() {
                     <p style={{ ...LBL, marginBottom: 10 }}>Изменить бонусы</p>
                     <div style={{ display: 'flex', gap: 8 }}><input type="number" value={bonAmt} onChange={e => setBonAmt(e.target.value)} placeholder="100 или -100" style={{ ...INP, flex: 1 }} /><button onClick={() => adjBon.mutate({ id: selected.id, amount: Number(bonAmt) })} disabled={!bonAmt} style={{ padding: '12px 16px', borderRadius: 12, border: 'none', background: '#EAB308', color: '#000', fontSize: 13, fontWeight: 700, cursor: 'pointer', flexShrink: 0 }}>OK</button></div>
                   </div>
-                  <button onClick={() => update.mutate({ id: selected.id, deletedAt: new Date().toISOString() })} style={{ width: '100%', padding: '12px 0', borderRadius: 14, border: '1px solid rgba(244,63,94,0.3)', background: 'rgba(244,63,94,0.08)', color: '#F87171', fontSize: 13, fontWeight: 600, cursor: 'pointer', marginTop: 4 }}>
+                  <button onClick={() => setConfirmBlock(true)} style={{ width: '100%', padding: '13px 0', borderRadius: 14, border: '1px solid rgba(244,63,94,0.3)', background: 'rgba(244,63,94,0.08)', color: 'var(--danger)', fontSize: 13, fontWeight: 600, cursor: 'pointer', marginTop: 4 }}>
                     <Icon name="block" size={16} style={{ verticalAlign: 'middle', marginRight: 6 }} />Заблокировать
                   </button>
                 </div>
@@ -209,6 +212,17 @@ export default function ClientsPage() {
           )
         })()}
       </Sheet>
+
+      <ConfirmDialog
+        open={confirmBlock}
+        onClose={() => setConfirmBlock(false)}
+        onConfirm={() => selected && update.mutate({ id: selected.id, deletedAt: new Date().toISOString() })}
+        title="Заблокировать клиента?"
+        message={`${selected?.nickname ?? 'Клиент'} будет скрыт из списка. Это можно отменить позже.`}
+        confirmLabel="Заблокировать"
+        danger
+        loading={update.isPending}
+      />
     </div>
   )
 }
