@@ -475,7 +475,7 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
       >
         {/* Left: check items */}
         <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', borderRight: '1px solid rgba(255,255,255,0.07)' }}>
-          <div style={{ flex: 1, overflowY: 'auto', padding: '12px 16px' }}>
+          <div className="check-items" style={{ flex: 1, overflowY: 'auto', padding: '12px 16px' }}>
             {isLoading && Array.from({ length: 3 }).map((_, i) => (
               <div key={i} className="skeleton" style={{ height: 60, borderRadius: 12, marginBottom: 8 }} />
             ))}
@@ -538,10 +538,11 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
             )}
           </div>
 
-          {/* Payment footer */}
-          <div className="glass-l1" style={{ padding: 16, paddingBottom: 'calc(16px + env(safe-area-inset-bottom))', borderLeft: 'none', borderRight: 'none', borderBottom: 'none', borderRadius: 0 }}>
+          {/* Payment footer — на телефоне превращается в плавающий «остров»
+              с точными размерами/позицией нижней навигации (см. <style> ниже). */}
+          <div className="check-pay-bar glass-l1" style={{ padding: 16, paddingBottom: 'calc(16px + env(safe-area-inset-bottom))', borderLeft: 'none', borderRight: 'none', borderBottom: 'none', borderRadius: 0 }}>
             {spaceRental > 0 && (
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+              <div className="check-pay-rental" style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
                 <span style={{ fontSize: 12, color: 'var(--on-surface-variant)', display: 'flex', alignItems: 'center', gap: 5 }}>
                   <Icon name="meeting_room" size={14} />
                   Аренда (живой счётчик)
@@ -551,32 +552,34 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
                 </span>
               </div>
             )}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+            <div className="check-pay-row" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
               <div>
-                <p style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--on-surface-variant)', margin: '0 0 4px' }}>
+                <p className="check-pay-label" style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--on-surface-variant)', margin: '0 0 4px' }}>
                   Итого
                 </p>
-                <p style={{ fontSize: 28, fontWeight: 900, fontStyle: 'italic', fontVariantNumeric: 'tabular-nums', margin: 0, color: 'var(--on-surface)' }}>
+                <p className="check-pay-amount" style={{ fontSize: 28, fontWeight: 900, fontStyle: 'italic', fontVariantNumeric: 'tabular-nums', margin: 0, color: 'var(--on-surface)' }}>
                   {total.toLocaleString('ru')} ₽
                 </p>
               </div>
-              <div style={{ display: 'flex', gap: 10 }}>
+              <div className="check-pay-actions" style={{ display: 'flex', gap: 10 }}>
                 <button
                   onClick={() => setShowMenuDrawer(true)}
+                  className="check-pay-add"
                   style={{
                     padding: '14px 20px', borderRadius: 16, border: '1px solid rgba(139,92,246,0.35)',
                     cursor: 'pointer', background: 'rgba(139,92,246,0.1)',
                     color: '#A78BFA', fontSize: 13, fontWeight: 800,
                     textTransform: 'uppercase', letterSpacing: '0.06em',
-                    display: 'flex', alignItems: 'center', gap: 8,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
                   }}
                 >
                   <Icon name="add" size={18} />
-                  Добавить
+                  <span className="check-pay-add-label">Добавить</span>
                 </button>
                 <button
                   onClick={openPaymentDrawer}
                   disabled={total === 0}
+                  className="check-pay-go"
                   style={{
                     padding: '14px 28px', borderRadius: 16, border: 'none', cursor: 'pointer',
                     background: 'linear-gradient(135deg, #8B5CF6, #4cd7f6)',
@@ -1104,6 +1107,50 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
         @keyframes pulse {
           0%, 100% { opacity: 1; }
           50% { opacity: 0.3; }
+        }
+
+        /* ── Плашка оплаты как плавающий «остров» навигации (телефон/планшет) ──
+           Точные размеры и позиция нижней панели: fixed, left/right 14,
+           bottom = safe + 6 (+ standalone-смещение), радиус 28, то же стекло. */
+        @media (max-width: 1023px) {
+          .check-pay-bar {
+            position: fixed !important;
+            left: 14px !important;
+            right: 14px !important;
+            bottom: calc(env(safe-area-inset-bottom) + 6px) !important;
+            z-index: 30 !important;
+            padding: 7px 12px !important;
+            border: 1px solid rgba(255,255,255,0.12) !important;
+            border-radius: 28px !important;
+            background: rgba(24,20,32,0.6) !important;
+            backdrop-filter: blur(26px) saturate(180%) !important;
+            -webkit-backdrop-filter: blur(24px) saturate(180%) !important;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.45), 0 2px 8px rgba(0,0,0,0.25) !important;
+          }
+          /* Разбивка аренды в компактный остров не помещается — сумма её уже учитывает. */
+          .check-pay-rental { display: none !important; }
+          .check-pay-label { font-size: 9px !important; letter-spacing: 0.06em !important; margin: 0 0 1px !important; }
+          .check-pay-amount { font-size: 18px !important; }
+          .check-pay-actions { gap: 8px !important; }
+          /* «Добавить» → круглая иконка-кнопка (как FAB у навигации). */
+          .check-pay-add {
+            width: 46px !important; height: 46px !important;
+            padding: 0 !important; border-radius: 50% !important; gap: 0 !important; flex-shrink: 0 !important;
+          }
+          .check-pay-add-label { display: none !important; }
+          .check-pay-go {
+            height: 46px !important; padding: 0 20px !important;
+            display: flex !important; align-items: center !important; justify-content: center !important;
+            font-size: 12px !important; border-radius: 16px !important; flex-shrink: 0 !important;
+          }
+          /* Контент чека докручивается выше плавающей плашки. */
+          .check-items { padding-bottom: var(--bottom-nav-clear, 96px) !important; }
+        }
+        /* iOS standalone: опускаем остров ровно как нав-панель (см. globals.css). */
+        @media (display-mode: standalone) and (max-width: 1023px) {
+          .check-pay-bar {
+            bottom: calc(env(safe-area-inset-bottom) + 6px + (100svh - 100lvh)) !important;
+          }
         }
       `}</style>
     </div>
