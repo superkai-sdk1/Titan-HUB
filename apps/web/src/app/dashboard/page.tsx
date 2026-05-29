@@ -567,7 +567,7 @@ export default function DashboardPage() {
   ]
 
   return (
-    <div style={{ minHeight: '100dvh', overflowX: 'hidden', display: 'flex', flexDirection: 'column', width: '100%' }}>
+    <div style={{ minHeight: '100dvh', overflowX: 'hidden', width: '100%' }}>
       {/* Header */}
       <div style={{ padding: '16px 16px 0', flexShrink: 0, position: 'sticky', top: 0, zIndex: 10, background: 'rgba(21,18,27,0.92)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)' }}>
         <div style={{ marginBottom: 12 }}>
@@ -602,7 +602,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Content */}
-      <div style={{ padding: '16px 16px var(--bottom-nav-clear)', flex: 1, overflowX: 'hidden', width: '100%', boxSizing: 'border-box' }}>
+      <div style={{ padding: '16px 16px var(--bottom-nav-clear)', flex: 1, width: '100%', boxSizing: 'border-box' }}>
         {activeTab === 'overview'  && (dash ? <OverviewTab dash={dash} revenue={revenue} /> : dashError ? <StateView state="error" description="Не удалось загрузить аналитику." action={{ label: 'Повторить', onClick: () => refetchDash() }} /> : <StateView state="loading" />)}
         {activeTab === 'reports'   && <ReportsTab />}
         {activeTab === 'products'  && <ProductsTab  products={products} />}
