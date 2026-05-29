@@ -1,5 +1,5 @@
 'use client'
-import React, { useRef, useCallback, useEffect, useState, useMemo } from 'react'
+import React, { useRef, useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion, AnimatePresence, useMotionValue, useTransform, animate, PanInfo } from 'framer-motion'
 import { Icon } from '@/components/Icon'
@@ -190,50 +190,22 @@ export function Sheet({
     animate(dragY, 0, { type: 'spring', damping: 32, stiffness: 350 })
   }, [dragY, onClose, snap])
 
-  // ── Drag условия для контента: разрешён только когда скролл в крайней точке ─
-  const SCROLL_LOCK_SLACK = 4
-  const startScrollTopRef = useRef(0)
-  const dragDirectionRef = useRef<'down' | 'up' | null>(null)
-
-  const onContentDragStart = useCallback(() => {
-    startScrollTopRef.current = scrollRef.current?.scrollTop ?? 0
-    dragDirectionRef.current = null
-  }, [])
-
-  const onContentDrag = useCallback((_: PointerEvent, info: PanInfo) => {
+  // ── Scroll-driven snap: скролл растит панель до полного экрана и сжимает обратно ─
+  // При скролле контента вниз (scrollTop растёт) — раскрываем до maxHeight.
+  // При возврате к самому верху списка — сжимаем до initialHeight.
+  // snapLock гасит повторные scroll-события во время анимации высоты (reflow
+  // может клампить scrollTop и ложно дёргать snap туда-обратно).
+  const EXPAND_SCROLL = 28
+  const snapLockRef = useRef(false)
+  const onContentScroll = useCallback(() => {
+    if (snapLockRef.current) return
     const el = scrollRef.current
     if (!el) return
-    const scrollTop = el.scrollTop
-    const offset = info.offset.y
-
-    // Определяем направление при первом значимом движении
-    if (dragDirectionRef.current === null && Math.abs(offset) > 5) {
-      dragDirectionRef.current = offset > 0 ? 'down' : 'up'
-    }
-
-    if (dragDirectionRef.current === 'down') {
-      // Тянем вниз: разрешено только если скролл уже в самом верху
-      if (scrollTop > SCROLL_LOCK_SLACK) {
-        dragY.set(0)
-        return
-      }
-      // Применяем
-      dragY.set(Math.max(0, offset))
-    } else if (dragDirectionRef.current === 'up') {
-      // Тянем вверх: разрешено только если sheet ещё не expanded И скролл в верху
-      if (snap === 1) {
-        // Sheet уже max — apply elastic resistance
-        dragY.set(offset * 0.05)
-        return
-      }
-      if (scrollTop > SCROLL_LOCK_SLACK) {
-        // Скролл вниз внутри списка — не drag'аем sheet
-        dragY.set(0)
-        return
-      }
-      dragY.set(offset)
-    }
-  }, [dragY, snap])
+    const st = el.scrollTop
+    const lock = () => { snapLockRef.current = true; window.setTimeout(() => { snapLockRef.current = false }, 360) }
+    if (st > EXPAND_SCROLL && snap === 0) { setSnap(1); lock() }
+    else if (st <= 1 && snap === 1) { setSnap(0); lock() }
+  }, [snap])
 
   // ── Desktop variant: centered modal с адаптивной высотой ────────────────
   if (isDesktop) {
@@ -304,9 +276,11 @@ export function Sheet({
               )}
               <div ref={scrollRef} style={{
                 overflowY: 'auto',
+                overflowX: 'hidden',
                 overscrollBehavior: 'contain',
                 padding: '20px 24px 24px',
                 flex: 1,
+                minWidth: 0,
               }}>
                 {children}
               </div>
@@ -416,34 +390,23 @@ export function Sheet({
                 </div>
               )}
 
-              {/* Scrollable content с drag-aware behavior */}
-              <motion.div
-                drag="y"
-                dragConstraints={{ top: 0, bottom: 0 }}
-                dragElastic={0}
-                dragDirectionLock
-                onDragStart={onContentDragStart}
-                onDrag={onContentDrag}
-                onDragEnd={handleDragEnd}
+              {/* Scrollable content — нативный скролл управляет ростом/сжатием панели */}
+              <div
+                ref={scrollRef}
+                onScroll={onContentScroll}
                 style={{
                   flex: 1,
-                  overflow: 'hidden',
+                  minHeight: 0,
+                  overflowY: 'auto',
+                  overflowX: 'hidden',
+                  overscrollBehavior: 'contain',
+                  WebkitOverflowScrolling: 'touch',
                   touchAction: 'pan-y',
+                  padding: '18px 22px calc(24px + env(safe-area-inset-bottom))',
                 }}
               >
-                <div
-                  ref={scrollRef}
-                  style={{
-                    height: '100%',
-                    overflowY: 'auto',
-                    overscrollBehavior: 'contain',
-                    WebkitOverflowScrolling: 'touch',
-                    padding: '18px 22px calc(24px + env(safe-area-inset-bottom))',
-                  }}
-                >
-                  {children}
-                </div>
-              </motion.div>
+                {children}
+              </div>
             </motion.div>
           </motion.div>
         </>

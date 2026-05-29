@@ -13,7 +13,6 @@ import type { DragEndEvent } from '@dnd-kit/core'
 import {
   SortableContext,
   verticalListSortingStrategy,
-  rectSortingStrategy,
   useSortable,
   arrayMove,
 } from '@dnd-kit/sortable'
@@ -318,7 +317,14 @@ function SortableItem({ item, cats, onEdit, onDelete }: { item: any; cats: any[]
   return (
     <div ref={setNodeRef} style={style}>
       <div className="glass-l2" style={{ borderRadius: 14, padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 10 }}>
-        <Icon name="drag_indicator" {...attributes} {...listeners} size={20} color="rgba(204,195,216,0.3)" style={{ cursor: 'grab', touchAction: 'none', userSelect: 'none' }} />
+        <span
+          {...attributes}
+          {...listeners}
+          aria-label="Перетащить для сортировки"
+          style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'grab', touchAction: 'none', userSelect: 'none', flexShrink: 0, padding: 4, margin: -4 }}
+        >
+          <Icon name="drag_indicator" size={20} color="rgba(204,195,216,0.3)" />
+        </span>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
             <p style={{ fontSize: 14, fontWeight: 700, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.name}</p>
@@ -357,73 +363,35 @@ function SortableItem({ item, cats, onEdit, onDelete }: { item: any; cats: any[]
   )
 }
 
-function SortableCatCard({ cat, itemCount, onEdit, onDelete }: { cat: any; itemCount: number; onEdit: () => void; onDelete: () => void }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: cat.id })
-  const style: React.CSSProperties = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.5 : 1, zIndex: isDragging ? 999 : 'auto' }
-  const colorObj = getCatColorObj(cat.color)
-
+/* ─── Category filter chip (rail) ──────────────────────────────── */
+function CatChip({ label, icon, color, count, active, onClick, dashed }: { label: string; icon?: React.ReactNode; color?: string; count?: number; active: boolean; onClick: () => void; dashed?: boolean }) {
+  const c = color || '#8B5CF6'
   return (
-    <div ref={setNodeRef} style={style}>
-      <div
-        className="glass-l2"
-        style={{
-          borderRadius: 16,
-          border: `1px solid ${colorObj.border}`,
-          overflow: 'hidden',
-          cursor: 'pointer',
-          display: 'flex',
-          flexDirection: 'column',
-        }}
-        onClick={onEdit}
-      >
-        {/* Top: icon area with color gradient */}
-        <div style={{
-          background: colorObj.light,
-          padding: '18px 16px 14px',
-          display: 'flex',
-          alignItems: 'flex-start',
-          justifyContent: 'space-between',
-        }}>
-          <div style={{
-            width: 48, height: 48, borderRadius: 13,
-            background: `rgba(255,255,255,0.08)`,
-            border: `1.5px solid ${colorObj.border}`,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-          }}>
-            <CatIconRenderer icon={cat.icon} size={26} color={colorObj.hex} />
-          </div>
-          <Icon
-            name="drag_indicator"
-            {...(attributes as any)}
-            {...(listeners as any)}
-            size={18}
-            color={`${colorObj.hex}60`}
-            style={{ cursor: 'grab', touchAction: 'none', userSelect: 'none', marginTop: 2 }}
-          />
-        </div>
-
-        {/* Bottom: name + count + actions */}
-        <div style={{ padding: '10px 14px 12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-          <div style={{ minWidth: 0 }}>
-            <p style={{ fontSize: 13, fontWeight: 700, margin: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{cat.name}</p>
-            <p style={{ fontSize: 11, color: colorObj.text, margin: '2px 0 0', fontWeight: 600 }}>{itemCount} позиций</p>
-          </div>
-          <button
-            onClick={e => { e.stopPropagation(); onDelete() }}
-            style={{ width: 30, height: 30, borderRadius: 8, border: '1px solid rgba(244,63,94,0.2)', background: 'rgba(244,63,94,0.08)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#F87171', flexShrink: 0 }}
-          >
-            <Icon name="delete" size={14} />
-          </button>
-        </div>
-      </div>
-    </div>
+    <button
+      onClick={onClick}
+      style={{
+        display: 'inline-flex', alignItems: 'center', gap: 7, flexShrink: 0,
+        padding: '8px 13px', borderRadius: 12, cursor: 'pointer',
+        border: dashed ? '1.5px dashed rgba(255,255,255,0.25)' : `1.5px solid ${active ? c : 'rgba(255,255,255,0.1)'}`,
+        background: dashed ? 'transparent' : active ? `${c}22` : 'rgba(255,255,255,0.03)',
+        color: dashed ? 'var(--on-surface-variant)' : active ? c : 'var(--on-surface-variant)',
+        fontSize: 13, fontWeight: active ? 700 : 500, whiteSpace: 'nowrap',
+        transition: 'all 0.15s',
+      }}
+    >
+      {icon}
+      {label}
+      {typeof count === 'number' && (
+        <span style={{ fontSize: 11, fontWeight: 700, fontFamily: "'JetBrains Mono',monospace", opacity: 0.7 }}>{count}</span>
+      )}
+    </button>
   )
 }
 
 export default function MenuPage() {
   const qc = useQueryClient()
-  const [activeTab, setActiveTab] = useState<'items' | 'cats'>('items')
   const [search, setSearch] = useState('')
+  const [activeCat, setActiveCat] = useState<string>('all')
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState<any>(null)
   const [form, setForm] = useState<any>(BLANK_ITEM)
@@ -432,7 +400,6 @@ export default function MenuPage() {
   const [editingCat, setEditingCat] = useState<any>(null)
   const [showCatForm, setShowCatForm] = useState(false)
   const [sortedItems, setSortedItems] = useState<any[]>([])
-  const [sortedCats, setSortedCats] = useState<any[]>([])
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -446,9 +413,17 @@ export default function MenuPage() {
   const allItems: any[] = itemsData?.items ?? []
 
   useEffect(() => { if (allItems.length) setSortedItems([...allItems]) }, [allItems])
-  useEffect(() => { if (cats.length) setSortedCats([...cats]) }, [cats])
 
-  const filteredItems = sortedItems.filter(i => !search || i.name?.toLowerCase().includes(search.toLowerCase()))
+  const catIds = new Set(cats.map((c: any) => c.id))
+  const uncategorizedCount = allItems.filter((i: any) => !i.category || !catIds.has(i.category)).length
+  const activeCatObj = activeCat !== 'all' && activeCat !== 'none' ? cats.find((c: any) => c.id === activeCat) : null
+
+  const filteredItems = sortedItems.filter((i: any) => {
+    if (search && !i.name?.toLowerCase().includes(search.toLowerCase())) return false
+    if (activeCat === 'all') return true
+    if (activeCat === 'none') return !i.category || !catIds.has(i.category)
+    return i.category === activeCat
+  })
 
   const saveItem = useMutation({
     mutationFn: (b: any) => editing ? api.patch(`/menu/items/${editing.id}`, b) : api.post('/menu/items', b),
@@ -474,10 +449,6 @@ export default function MenuPage() {
     mutationFn: (items: { id: string; sortOrder: number }[]) => api.patch('/menu/items/reorder', { items }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['menu', 'items'] })
   })
-  const reorderCats = useMutation({
-    mutationFn: (items: { id: string; sortOrder: number }[]) => api.patch('/menu/categories/reorder', { items }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['menu', 'categories'] })
-  })
 
   function handleItemDragEnd(event: DragEndEvent) {
     const { active, over } = event
@@ -490,18 +461,6 @@ export default function MenuPage() {
       return next
     })
   }
-  function handleCatDragEnd(event: DragEndEvent) {
-    const { active, over } = event
-    if (!over || active.id === over.id) return
-    setSortedCats(prev => {
-      const oldIndex = prev.findIndex(c => c.id === active.id)
-      const newIndex = prev.findIndex(c => c.id === over.id)
-      const next = arrayMove(prev, oldIndex, newIndex)
-      reorderCats.mutate(next.map((cat, idx) => ({ id: cat.id, sortOrder: idx })))
-      return next
-    })
-  }
-
   function openItem(item?: any) {
     setEditing(item ?? null)
     setForm(item ? {
@@ -515,6 +474,13 @@ export default function MenuPage() {
     setShowForm(true)
   }
 
+  function openNewCat() { setEditingCat(null); setCatForm(BLANK_CAT); setShowCatForm(true) }
+  function openEditCat(cat: any) {
+    setEditingCat(cat)
+    setCatForm({ name: cat.name, icon: cat.icon ?? 'food', color: resolveHex(cat.color), isTabletVisible: cat.isTabletVisible ?? true })
+    setShowCatForm(true)
+  }
+
   const previewColorObj = getCatColorObj(catForm.color)
 
   return (
@@ -522,75 +488,71 @@ export default function MenuPage() {
       <PageHeader
         title="Меню"
         subtitle={`${allItems.length} позиций · ${cats.length} категорий`}
-        action={{ label: 'Добавить', icon: 'add', onClick: () => activeTab === 'items' ? openItem() : (() => { setEditingCat(null); setCatForm(BLANK_CAT); setShowCatForm(true) })() }}
+        action={{ label: 'Добавить', icon: 'add', onClick: () => openItem() }}
       />
 
-      {/* Tabs + Search */}
-      <div style={{ background: 'rgba(21,18,27,0.95)', backdropFilter: 'blur(16px)', borderBottom: '1px solid rgba(255,255,255,0.06)', padding: '0 16px' }}>
+      {/* Search + category rail */}
+      <div style={{ background: 'rgba(21,18,27,0.95)', backdropFilter: 'blur(16px)', borderBottom: '1px solid rgba(255,255,255,0.06)', padding: '12px 16px 0' }}>
         <div style={{ maxWidth: 680, margin: '0 auto' }}>
-          {activeTab === 'items' && (
-            <div style={{ position: 'relative', padding: '12px 0 0' }}>
-              <Icon name="search" size={18} color="var(--on-surface-variant)" style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }} />
-              <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Поиск по названию…" style={{ ...INP, paddingLeft: 42, borderRadius: 12 }} />
-            </div>
-          )}
-          <div style={{ display: 'flex', gap: 2, marginTop: 4 }}>
-            {([['items', `Товары (${allItems.length})`, 'restaurant_menu'], ['cats', `Категории (${cats.length})`, 'category']] as [string, string, string][]).map(([k, l, icon]) => (
-              <button key={k} onClick={() => setActiveTab(k as any)} style={{ padding: '10px 16px', border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 13, fontWeight: activeTab === k ? 700 : 400, color: activeTab === k ? '#8B5CF6' : 'var(--on-surface-variant)', borderBottom: activeTab === k ? '2px solid #8B5CF6' : '2px solid transparent', marginBottom: -1, display: 'flex', alignItems: 'center', gap: 6 }}>
-                <Icon name={icon} size={14} />{l}
-              </button>
+          <div style={{ position: 'relative', marginBottom: 12 }}>
+            <Icon name="search" size={18} color="var(--on-surface-variant)" style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }} />
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Поиск по названию…" style={{ ...INP, paddingLeft: 42, borderRadius: 12 }} />
+          </div>
+          <div className="cat-rail" style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 12 }}>
+            <CatChip label="Все" count={allItems.length} active={activeCat === 'all'} onClick={() => setActiveCat('all')} />
+            {cats.map((c: any) => (
+              <CatChip
+                key={c.id}
+                label={c.name}
+                color={resolveHex(c.color)}
+                count={allItems.filter((i: any) => i.category === c.id).length}
+                active={activeCat === c.id}
+                onClick={() => setActiveCat(c.id)}
+                icon={<CatIconRenderer icon={c.icon} size={15} color={activeCat === c.id ? resolveHex(c.color) : 'currentColor'} />}
+              />
             ))}
+            {uncategorizedCount > 0 && (
+              <CatChip label="Без категории" count={uncategorizedCount} active={activeCat === 'none'} onClick={() => setActiveCat('none')} />
+            )}
+            <CatChip label="Категория" active={false} dashed onClick={openNewCat} icon={<Icon name="add" size={15} />} />
           </div>
         </div>
       </div>
 
-      <div style={{ padding: '16px', flex: 1, maxWidth: 680, margin: '0 auto', width: '100%' }}>
-        {activeTab === 'items' && (
-          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleItemDragEnd}>
-            <SortableContext items={filteredItems.map(i => i.id)} strategy={verticalListSortingStrategy}>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {filteredItems.length === 0 && (
-                  <div style={{ textAlign: 'center', padding: '60px 0' }}>
-                    <Icon name="restaurant_menu" size={48} color="rgba(204,195,216,0.2)" style={{ display: 'block', marginBottom: 12 }} />
-                    <p style={{ fontSize: 14, color: 'rgba(204,195,216,0.4)', margin: 0 }}>{search ? 'Ничего не найдено' : 'Позиций нет'}</p>
-                  </div>
-                )}
-                {filteredItems.map((item: any) => (
-                  <SortableItem key={item.id} item={item} cats={cats} onEdit={() => openItem(item)} onDelete={() => delItem.mutate(item.id)} />
-                ))}
-              </div>
-            </SortableContext>
-          </DndContext>
-        )}
-
-        {activeTab === 'cats' && (
-          <div>
-            {sortedCats.length === 0 && (
-              <div style={{ textAlign: 'center', padding: '60px 0' }}>
-                <Icon name="category" size={48} color="rgba(204,195,216,0.2)" style={{ display: 'block', marginBottom: 12 }} />
-                <p style={{ fontSize: 14, color: 'rgba(204,195,216,0.4)', margin: 0 }}>Категорий нет</p>
-              </div>
-            )}
-            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleCatDragEnd}>
-              <SortableContext items={sortedCats.map(c => c.id)} strategy={rectSortingStrategy}>
-                <div className="cat-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10 }}>
-                  {sortedCats.map((cat: any) => {
-                    const cnt = allItems.filter(i => i.category === cat.id).length
-                    return (
-                      <SortableCatCard
-                        key={cat.id}
-                        cat={cat}
-                        itemCount={cnt}
-                        onEdit={() => { setEditingCat(cat); setCatForm({ name: cat.name, icon: cat.icon ?? 'food', color: resolveHex(cat.color), isTabletVisible: cat.isTabletVisible ?? true }); setShowCatForm(true) }}
-                        onDelete={() => delCat.mutate(cat.id)}
-                      />
-                    )
-                  })}
-                </div>
-              </SortableContext>
-            </DndContext>
+      {/* Active category toolbar — редактирование/удаление выбранной категории */}
+      {activeCatObj && (
+        <div style={{ background: 'rgba(21,18,27,0.6)', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+          <div style={{ maxWidth: 680, margin: '0 auto', width: '100%', boxSizing: 'border-box', padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{ width: 30, height: 30, borderRadius: 9, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: `${resolveHex(activeCatObj.color)}1f`, border: `1px solid ${resolveHex(activeCatObj.color)}40` }}>
+              <CatIconRenderer icon={activeCatObj.icon} size={17} color={resolveHex(activeCatObj.color)} />
+            </div>
+            <span style={{ flex: 1, minWidth: 0, fontSize: 14, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{activeCatObj.name}</span>
+            <button onClick={() => openEditCat(activeCatObj)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 12px', borderRadius: 10, border: '1px solid rgba(139,92,246,0.3)', background: 'rgba(139,92,246,0.1)', color: '#a78bfa', fontSize: 12, fontWeight: 700, cursor: 'pointer', flexShrink: 0 }}>
+              <Icon name="edit" size={14} /> Изменить
+            </button>
+            <button onClick={() => { delCat.mutate(activeCatObj.id); setActiveCat('all') }} aria-label="Удалить категорию" style={{ width: 34, height: 34, borderRadius: 10, border: '1px solid rgba(244,63,94,0.2)', background: 'rgba(244,63,94,0.08)', color: '#F87171', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              <Icon name="delete" size={15} />
+            </button>
           </div>
-        )}
+        </div>
+      )}
+
+      <div style={{ padding: '16px 16px var(--bottom-nav-clear, 96px)', flex: 1, maxWidth: 680, margin: '0 auto', width: '100%', boxSizing: 'border-box' }}>
+        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleItemDragEnd}>
+          <SortableContext items={filteredItems.map(i => i.id)} strategy={verticalListSortingStrategy}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {filteredItems.length === 0 && (
+                <div style={{ textAlign: 'center', padding: '60px 0' }}>
+                  <Icon name="restaurant_menu" size={48} color="rgba(204,195,216,0.2)" style={{ display: 'block', marginBottom: 12 }} />
+                  <p style={{ fontSize: 14, color: 'rgba(204,195,216,0.4)', margin: 0 }}>{search ? 'Ничего не найдено' : activeCat === 'all' ? 'Позиций нет' : 'В этой категории нет позиций'}</p>
+                </div>
+              )}
+              {filteredItems.map((item: any) => (
+                <SortableItem key={item.id} item={item} cats={cats} onEdit={() => openItem(item)} onDelete={() => delItem.mutate(item.id)} />
+              ))}
+            </div>
+          </SortableContext>
+        </DndContext>
       </div>
 
       {/* ── Item form sheet ─────────────────────────────────────── */}
@@ -794,8 +756,8 @@ export default function MenuPage() {
       </Sheet>
 
       <style>{`
-        @media (min-width: 540px) { .cat-grid { grid-template-columns: repeat(3, 1fr) !important; } }
-        @media (min-width: 720px) { .cat-grid { grid-template-columns: repeat(4, 1fr) !important; } }
+        .cat-rail { scrollbar-width: none; -ms-overflow-style: none; }
+        .cat-rail::-webkit-scrollbar { display: none; }
       `}</style>
     </div>
   )
