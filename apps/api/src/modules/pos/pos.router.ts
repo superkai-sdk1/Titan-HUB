@@ -307,11 +307,21 @@ posRouter.patch('/checks/:id', requireRole('owner', 'staff'), zValidator('json',
   guestNames: z.array(z.string()).optional(),
   note: z.string().optional(),
   linkedEventId: z.string().uuid().optional(),
+  // Время аренды зоны: ISO-строки. spaceEndAt=null → снова «открытая» аренда
+  // (живой счётчик до момента оплаты).
+  spaceStartAt: z.string().datetime().optional(),
+  spaceEndAt: z.string().datetime().nullable().optional(),
 })), async (c) => {
-  const body = c.req.valid('json')
-  const [check] = await db.update(checks).set(body).where(eq(checks.id, c.req.param('id'))).returning()
-  if (!check) return c.json({ error: 'Not found' }, 404)
-  return c.json({ check })
+  const checkId = c.req.param('id')
+  const { spaceStartAt, spaceEndAt, ...rest } = c.req.valid('json')
+  const update: Record<string, any> = { ...rest }
+  if (spaceStartAt !== undefined) update.spaceStartAt = new Date(spaceStartAt)
+  if (spaceEndAt !== undefined) update.spaceEndAt = spaceEndAt === null ? null : new Date(spaceEndAt)
+  const [updated] = await db.update(checks).set(update).where(eq(checks.id, checkId)).returning()
+  if (!updated) return c.json({ error: 'Not found' }, 404)
+  publishEvent('check:updated', { checkId })
+  const data = await getCheckWithItems(checkId)
+  return c.json({ check: data })
 })
 
 posRouter.delete('/checks/:id', requireRole('owner', 'staff'), async (c) => {
@@ -615,10 +625,12 @@ posRouter.post('/checks/:id/pay', requireRole('owner', 'staff'), zValidator('jso
       // Аренда зоны («живой счётчик») считается на сервере на момент оплаты
       // тем же правилом, что и на фронте: ceil(минуты/60) × ставка.
       let rental = 0
-      if (check.spaceId && check.spaceStartAt && !check.spaceEndAt) {
+      if (check.spaceId && check.spaceStartAt) {
         const [space] = await tx.select({ hourlyRate: spaces.hourlyRate }).from(spaces).where(eq(spaces.id, check.spaceId))
         if (space?.hourlyRate) {
-          const mins = Math.max(0, (Date.now() - new Date(check.spaceStartAt).getTime()) / 60000)
+          // Конец аренды: заданный вручную spaceEndAt либо момент оплаты (живой счётчик).
+          const endMs = check.spaceEndAt ? new Date(check.spaceEndAt).getTime() : Date.now()
+          const mins = Math.max(0, (endMs - new Date(check.spaceStartAt).getTime()) / 60000)
           rental = Math.ceil(mins / 60) * parseFloat(space.hourlyRate)
         }
       }
@@ -760,7 +772,7 @@ posRouter.post('/checks/:id/pay', requireRole('owner', 'staff'), zValidator('jso
         certificateUsed: cert ? String(certSent) : '0',
         playerId: body.playerId ?? null,
         note: body.note ?? null,
-        spaceEndAt: check.spaceId ? new Date() : undefined,
+        spaceEndAt: check.spaceEndAt ?? (check.spaceId ? new Date() : undefined),
         closedAt: new Date(),
       }).where(eq(checks.id, checkId)).returning()
 

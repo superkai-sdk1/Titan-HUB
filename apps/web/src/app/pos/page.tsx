@@ -20,6 +20,9 @@ interface CheckCard {
   guestName?: string
   spaceName?: string
   hasRental?: boolean
+  spaceStartAt?: string | null
+  spaceEndAt?: string | null
+  spaceHourlyRate?: string | null
 }
 
 interface PlayerResult {
@@ -54,6 +57,15 @@ function formatElapsed(createdAt: string, now: number): string {
   const m = mins % 60
   if (h > 0) return `${h}ч ${m}м`
   return `${m}м`
+}
+
+// Аренда зоны: ceil(минуты/60) × ставка. До spaceEndAt (если задан) либо до now
+// (живой счётчик). Тем же правилом считает бэкенд при оплате.
+function computeRental(startAt: string | null | undefined, endAt: string | null | undefined, hourlyRate: string | null | undefined, now: number): number {
+  if (!startAt || !hourlyRate) return 0
+  const end = endAt ? new Date(endAt).getTime() : now
+  const mins = Math.max(0, (end - new Date(startAt).getTime()) / 60000)
+  return Math.ceil(mins / 60) * (parseFloat(hourlyRate) || 0)
 }
 
 function getInitials(name?: string | null): string {
@@ -469,6 +481,9 @@ function PosPageInner() {
             const warn = isWarning(check.createdAt, now)
             const timerColor = getTimerColor(check.createdAt, now)
             const isActive = activeCheckId === check.id
+            // Почасовая аренда: итог на карточке = позиции + живой счётчик аренды.
+            const rental = computeRental(check.spaceStartAt, check.spaceEndAt, check.spaceHourlyRate, now)
+            const displayTotal = parseFloat(check.totalAmount) + rental
             return (
               <button
                 key={check.id}
@@ -544,7 +559,7 @@ function PosPageInner() {
                   color: 'var(--on-surface)',
                   lineHeight: 1,
                 }}>
-                  {parseFloat(check.totalAmount).toLocaleString('ru')} ₽
+                  {displayTotal.toLocaleString('ru')} ₽
                 </p>
 
                 {/* Bottom: timer + items */}

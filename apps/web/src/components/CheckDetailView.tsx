@@ -2,7 +2,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api, ApiError } from '@/lib/api'
-import { differenceInMinutes } from 'date-fns'
 import { SwipeableRow } from '@/components/SwipeableRow'
 import { Icon } from '@/components/Icon'
 import { useToast } from '@/components/Toast'
@@ -40,6 +39,7 @@ interface CheckData {
   playerId?: string | null
   spaceId?: string | null
   spaceStartAt?: string | null
+  spaceEndAt?: string | null
   spaceHourlyRate?: string | null
 }
 
@@ -82,6 +82,14 @@ const METHOD_CONFIGS: Record<string, { label: string; icon: string; color: strin
 function getInitials(name?: string | null): string {
   if (!name) return 'Г'
   return name.split(' ').map(p => p[0]).join('').toUpperCase().slice(0, 2)
+}
+
+// ISO → значение для <input type="datetime-local"> (локальное время, без TZ-суффикса)
+function toLocalInput(iso?: string | null): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (isNaN(d.getTime())) return ''
+  return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16)
 }
 
 function methodColor(m: string): string {
@@ -135,6 +143,10 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
 
   // Space rental live timer
   const [spaceRental, setSpaceRental] = useState(0)
+  // Редактор времени аренды
+  const [showRentalEdit, setShowRentalEdit] = useState(false)
+  const [editStart, setEditStart] = useState('')
+  const [editEnd, setEditEnd] = useState('')
 
   // Payment drawer state
   const [payScreen, setPayScreen] = useState<PayScreen>('methods')
@@ -165,14 +177,19 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
     return matchCat && matchSearch
   })
 
-  // Space rental calc
+  // Space rental calc — та же epoch-логика, что и на бэкенде при оплате:
+  // ceil(минуты/60) × ставка. До spaceEndAt (если задан) либо до now (живой счётчик).
   useEffect(() => {
     if (!check?.spaceId || !check?.spaceStartAt || !check?.spaceHourlyRate) return
+    const startMs = new Date(check.spaceStartAt).getTime()
+    const rate = parseFloat(check.spaceHourlyRate ?? '0')
     const calc = () => {
-      const mins = differenceInMinutes(new Date(), new Date(check.spaceStartAt!))
-      setSpaceRental(Math.ceil(mins / 60) * parseFloat(check.spaceHourlyRate ?? '0'))
+      const endMs = check.spaceEndAt ? new Date(check.spaceEndAt).getTime() : Date.now()
+      const mins = Math.max(0, (endMs - startMs) / 60000)
+      setSpaceRental(Math.ceil(mins / 60) * rate)
     }
     calc()
+    if (check.spaceEndAt) return // фиксированный конец — счётчик не тикает
     const t = setInterval(calc, 15000)
     return () => clearInterval(t)
   }, [check])
@@ -208,6 +225,19 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
     setShowPayment(true)
   }
 
+  function openRentalEdit() {
+    setEditStart(toLocalInput(check?.spaceStartAt))
+    setEditEnd(toLocalInput(check?.spaceEndAt))
+    setShowRentalEdit(true)
+  }
+  function saveRental() {
+    const body: { spaceStartAt?: string; spaceEndAt?: string | null } = {}
+    if (editStart) body.spaceStartAt = new Date(editStart).toISOString()
+    // Пустой конец → null (снова живой счётчик до оплаты)
+    body.spaceEndAt = editEnd ? new Date(editEnd).toISOString() : null
+    updateRental.mutate(body)
+  }
+
   async function startQrPayment() {
     const amount = remaining > 0 ? remaining : total
     setQrAmount(amount)
@@ -241,8 +271,6 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
       setQrLoading(false)
     }
   }
-
-  const invalidateCheck = useCallback(() => qc.invalidateQueries({ queryKey: ['check', checkId] }), [qc, checkId])
 
   // Единый путь "успешно оплачено и закрыто": показать успех и закрыть шторку.
   const markPaidAndClose = useCallback(() => {
@@ -287,18 +315,30 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
     return () => clearInterval(t)
   }, [payScreen, qrTransactionId, qrStatus, qrLoading, checkId, qrAmount, markPaidAndClose])
 
+  // Ответ мутации = свежий чек целиком (getCheckWithItems). Пишем его прямо в кэш
+  // вместо invalidate+refetch — карточка обновляется мгновенно, без сетевой задержки.
+  const writeCheck = useCallback((res: { check: CheckData }) => qc.setQueryData(['check', checkId], res.check), [qc, checkId])
+
   const addItem = useMutation({
-    mutationFn: (itemId: string) => api.post(`/pos/checks/${checkId}/items`, { itemId, quantity: 1 }),
-    onSuccess: invalidateCheck,
+    mutationFn: (itemId: string) => api.post<{ check: CheckData }>(`/pos/checks/${checkId}/items`, { itemId, quantity: 1 }),
+    onSuccess: writeCheck,
     onError: toastError,
   })
 
   const updateQty = useMutation({
     mutationFn: ({ id, quantity }: { id: string; quantity: number }) =>
       quantity === 0
-        ? api.delete(`/pos/checks/${checkId}/items/${id}`)
-        : api.patch(`/pos/checks/${checkId}/items/${id}`, { quantity }),
-    onSuccess: invalidateCheck,
+        ? api.delete<{ check: CheckData }>(`/pos/checks/${checkId}/items/${id}`)
+        : api.patch<{ check: CheckData }>(`/pos/checks/${checkId}/items/${id}`, { quantity }),
+    onSuccess: writeCheck,
+    onError: toastError,
+  })
+
+  // Редактирование времени аренды (начало/конец). spaceEndAt=null → снова живой счётчик.
+  const updateRental = useMutation({
+    mutationFn: (body: { spaceStartAt?: string; spaceEndAt?: string | null }) =>
+      api.patch<{ check: CheckData }>(`/pos/checks/${checkId}`, body),
+    onSuccess: (res) => { writeCheck(res); setShowRentalEdit(false) },
     onError: toastError,
   })
 
@@ -562,16 +602,22 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
           {/* Payment footer — на телефоне превращается в плавающий «остров»
               с точными размерами/позицией нижней навигации (см. <style> ниже). */}
           <div className="check-pay-bar glass-l1" style={{ padding: 16, paddingBottom: 'calc(16px + env(safe-area-inset-bottom))', borderLeft: 'none', borderRight: 'none', borderBottom: 'none', borderRadius: 0 }}>
-            {spaceRental > 0 && (
-              <div className="check-pay-rental" style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+            {check?.spaceId && (
+              <button
+                type="button"
+                onClick={openRentalEdit}
+                className="check-pay-rental"
+                style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}
+              >
                 <span style={{ fontSize: 12, color: 'var(--on-surface-variant)', display: 'flex', alignItems: 'center', gap: 5 }}>
                   <Icon name="meeting_room" size={14} />
-                  Аренда (живой счётчик)
+                  Аренда {check.spaceEndAt ? '(фикс.)' : '(живой счётчик)'}
+                  <Icon name="edit" size={12} />
                 </span>
                 <span style={{ fontSize: 13, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: '#A78BFA' }}>
                   +{spaceRental.toLocaleString('ru')} ₽
                 </span>
-              </div>
+              </button>
             )}
             <div className="check-pay-row" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
               <div>
@@ -696,6 +742,34 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
             </div>
           </div>
         </>
+      )}
+
+      {/* Rental time editor */}
+      {showRentalEdit && (
+        <div
+          onClick={e => { if (e.target === e.currentTarget && !updateRental.isPending) setShowRentalEdit(false) }}
+          style={{ position: 'absolute', inset: 0, zIndex: 60, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(13,21,38,0.8)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)', padding: 16 }}
+        >
+          <div className="glass-l1" style={{ borderRadius: 24, padding: 24, width: 'min(420px,100%)', boxShadow: '0 24px 80px rgba(0,0,0,0.6)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 18 }}>
+              <Icon name="meeting_room" size={22} color="#A78BFA" />
+              <h2 style={{ fontSize: 18, fontWeight: 900, fontStyle: 'italic', textTransform: 'uppercase', margin: 0 }}>Время аренды</h2>
+            </div>
+            <label style={{ display: 'block', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--on-surface-variant)', marginBottom: 6 }}>Начало</label>
+            <input type="datetime-local" value={editStart} onChange={e => setEditStart(e.target.value)} className="glass-l2" style={{ width: '100%', padding: '12px 14px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.08)', color: 'var(--on-surface)', fontSize: 14, background: 'none', marginBottom: 14, boxSizing: 'border-box' }} />
+            <label style={{ display: 'block', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--on-surface-variant)', marginBottom: 6 }}>Конец</label>
+            <input type="datetime-local" value={editEnd} onChange={e => setEditEnd(e.target.value)} className="glass-l2" style={{ width: '100%', padding: '12px 14px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.08)', color: 'var(--on-surface)', fontSize: 14, background: 'none', marginBottom: 8, boxSizing: 'border-box' }} />
+            <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: '0 0 14px' }}>
+              {editEnd
+                ? <button type="button" onClick={() => setEditEnd('')} style={{ background: 'none', border: 'none', color: '#A78BFA', fontSize: 11, cursor: 'pointer', padding: 0, textDecoration: 'underline' }}>Сбросить конец → живой счётчик до оплаты</button>
+                : 'Пусто = живой счётчик до момента оплаты'}
+            </p>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button type="button" onClick={() => setShowRentalEdit(false)} disabled={updateRental.isPending} style={{ flex: 1, padding: '13px 0', borderRadius: 14, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.04)', color: 'var(--on-surface)', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>Отмена</button>
+              <button type="button" onClick={saveRental} disabled={updateRental.isPending || !editStart} style={{ flex: 1, padding: '13px 0', borderRadius: 14, border: 'none', background: 'linear-gradient(135deg, #8B5CF6, #4cd7f6)', color: '#fff', fontSize: 13, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.06em', cursor: 'pointer', opacity: (updateRental.isPending || !editStart) ? 0.5 : 1 }}>{updateRental.isPending ? '...' : 'Сохранить'}</button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Full Payment Drawer */}
