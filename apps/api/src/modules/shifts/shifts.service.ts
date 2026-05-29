@@ -53,9 +53,11 @@ export async function closeShift(shiftId: string, closedBy: string, cashEnd: num
 }
 
 export async function getBirthdaysToday() {
-  const today = new Date()
-  const mm = String(today.getMonth() + 1).padStart(2, '0')
-  const dd = String(today.getDate()).padStart(2, '0')
+  // Дата по Москве (UTC+3). birthday — свободный text: сравниваем MM-DD через
+  // substring (без ::date), чтобы битая строка не уронила запрос.
+  const msk = new Date(Date.now() + 3 * 3600 * 1000)
+  const mm = String(msk.getUTCMonth() + 1).padStart(2, '0')
+  const dd = String(msk.getUTCDate()).padStart(2, '0')
   const rows = await db.select({
     id: profiles.id,
     nickname: profiles.nickname,
@@ -64,7 +66,8 @@ export async function getBirthdaysToday() {
     .where(and(
       eq(profiles.role, 'client'),
       isNull(profiles.deletedAt),
-      sql`to_char(${profiles.birthday}::date, 'MM-DD') = ${mm + '-' + dd}`,
+      sql`${profiles.birthday} ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}'`,
+      sql`substring(${profiles.birthday} from 6 for 5) = ${mm + '-' + dd}`,
     ))
   return rows
 }

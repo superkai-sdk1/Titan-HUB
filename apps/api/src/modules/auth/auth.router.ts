@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
-import { db, profiles, eq, and, isNull, inArray } from '@titan/database'
+import { db, profiles, transactions, eq, and, isNull, inArray, desc } from '@titan/database'
 // @ts-ignore
 import { passkeys } from '@titan/database'
 import { signToken, verifyPin, verifyPassword, hashPassword, hashPin, isPlaintext, verifyTelegramInitData } from '@titan/auth'
@@ -242,6 +242,22 @@ authRouter.get('/me', requireAuth, async (c) => {
   if (!profile) return c.json({ error: 'Not found' }, 404)
   const { pin, passwordHash, ...safe } = profile
   return c.json(safe)
+})
+
+// Свои транзакции (для клиентского кошелька) — строго по своему профилю.
+authRouter.get('/me/transactions', requireAuth, async (c) => {
+  const user = c.get('user')
+  const rows = await db.select({
+    id: transactions.id,
+    type: transactions.type,
+    amount: transactions.amount,
+    description: transactions.description,
+    createdAt: transactions.createdAt,
+  }).from(transactions)
+    .where(eq(transactions.playerId, user.sub))
+    .orderBy(desc(transactions.createdAt))
+    .limit(50)
+  return c.json({ transactions: rows })
 })
 
 // ── Passkey / WebAuthn endpoints ────────────────────────────────────────────

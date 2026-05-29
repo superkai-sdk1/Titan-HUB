@@ -23,12 +23,12 @@ interface UserProfile {
   nickname?: string
   balance: number
   bonusPoints: number
-  tier: 'guest' | 'resident' | 'student'
+  tier: string
 }
 
 interface Transaction {
   id: string
-  type: 'deposit' | 'payment' | 'bonus' | 'spend'
+  type: 'deposit' | 'withdrawal' | 'payment' | 'refund' | 'bonus_accrual' | 'bonus_spend' | string
   description: string
   amount: number
   createdAt: string
@@ -40,12 +40,20 @@ const TIER_COLORS: Record<string, string> = {
   guest: '#94A3B8',
   resident: '#8B5CF6',
   student: '#F59E0B',
+  bronze: '#cd7f32',
+  silver: '#94A3B8',
+  gold: '#F59E0B',
+  platinum: '#E2E8F0',
 }
 
 const TIER_LABELS: Record<string, string> = {
   guest: 'Гость',
   resident: 'Резидент',
   student: 'Студент',
+  bronze: 'Бронза',
+  silver: 'Серебро',
+  gold: 'Золото',
+  platinum: 'Платина',
 }
 
 function formatAmount(amount: number): string {
@@ -70,14 +78,16 @@ function getTransactionEmoji(type: string): string {
   switch (type) {
     case 'deposit': return '💳'
     case 'payment': return '🛒'
-    case 'bonus': return '⭐'
-    case 'spend': return '🔄'
+    case 'refund': return '↩️'
+    case 'withdrawal': return '💸'
+    case 'bonus_accrual': return '⭐'
+    case 'bonus_spend': return '🔄'
     default: return '💰'
   }
 }
 
 function isPositive(type: string): boolean {
-  return type === 'deposit' || type === 'bonus'
+  return type === 'deposit' || type === 'refund' || type === 'bonus_accrual'
 }
 
 export default function WalletPage() {
@@ -121,16 +131,35 @@ export default function WalletPage() {
         const authToken = authData.token
         setToken(authToken)
 
-        // Step 2: fetch client profile + transactions
-        const clientRes = await fetch(`${API_URL}/api/clients/${authData.user.id}`, {
+        // Step 2: свой профиль (self) + свои транзакции (self).
+        // Используем /auth/me — /clients/:id доступен только персоналу.
+        const meRes = await fetch(`${API_URL}/api/auth/me`, {
           headers: { Authorization: `Bearer ${authToken}` },
         })
-        if (!clientRes.ok) {
-          throw new Error(`Profile fetch failed: ${clientRes.status}`)
+        if (!meRes.ok) {
+          throw new Error(`Profile fetch failed: ${meRes.status}`)
         }
-        const clientData = await clientRes.json() as { profile: UserProfile; transactions: Transaction[] }
-        setProfile(clientData.profile)
-        setTransactions(clientData.transactions ?? [])
+        const me = await meRes.json() as Record<string, any>
+        setProfile({
+          id: me.id,
+          name: me.nickname ?? '',
+          nickname: me.nickname ?? undefined,
+          balance: parseFloat(me.balance ?? '0') || 0,
+          bonusPoints: parseFloat(me.bonusPoints ?? '0') || 0,
+          tier: me.clientTier ?? 'guest',
+        })
+
+        const txRes = await fetch(`${API_URL}/api/auth/me/transactions`, {
+          headers: { Authorization: `Bearer ${authToken}` },
+        })
+        const txData = txRes.ok ? (await txRes.json()) as { transactions: any[] } : { transactions: [] }
+        setTransactions((txData.transactions ?? []).map((t) => ({
+          id: t.id,
+          type: t.type,
+          description: t.description ?? t.type,
+          amount: Number(t.amount) || 0,
+          createdAt: t.createdAt,
+        })))
         setAppState('main')
       } catch (err) {
         setErrorMsg(err instanceof Error ? err.message : 'Ошибка авторизации')
@@ -169,8 +198,8 @@ export default function WalletPage() {
   }
 
   // ─── Main ────────────────────────────────────────────────────────────────────
-  const tierColor = TIER_COLORS[profile?.tier ?? 'guest']
-  const tierLabel = TIER_LABELS[profile?.tier ?? 'guest']
+  const tierColor = TIER_COLORS[profile?.tier ?? 'guest'] ?? '#94A3B8'
+  const tierLabel = TIER_LABELS[profile?.tier ?? 'guest'] ?? 'Гость'
 
   return (
     <div style={styles.root}>
