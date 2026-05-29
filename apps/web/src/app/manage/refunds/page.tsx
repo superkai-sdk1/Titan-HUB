@@ -17,6 +17,11 @@ const REASONS = [
 ] as const
 const REASON_LABELS: Record<string, string> = Object.fromEntries(REASONS)
 
+const METHOD_LABELS: Record<string, string> = {
+  cash: 'Наличные', card: 'Карта', transfer: 'Перевод',
+  deposit: 'Депозит', bonus: 'Бонусы', certificate: 'Сертификат', debt: 'Долг',
+}
+
 interface Refund {
   id: string
   checkId: string
@@ -37,11 +42,13 @@ interface ClosedCheck {
 
 interface PrepItem { itemId: string; name: string; quantity: number; priceAtTime: number; trackStock: boolean }
 interface Prep {
-  check: { id: string; totalAmount: string; closedAt: string; status: string }
+  check: { id: string; totalAmount: string; closedAt: string; status: string; playerId?: string | null; certificateId?: string | null }
   items: PrepItem[]
   paidTotal: number
   refundedTotal: number
   maxRefund: number
+  paidByMethod: Record<string, number>
+  availableByMethod: Record<string, number>
 }
 
 function fmtDate(s?: string) {
@@ -60,8 +67,7 @@ export default function RefundsPage() {
   const [prep, setPrep] = useState<Prep | null>(null)
   const [prepLoading, setPrepLoading] = useState(false)
   const [reason, setReason] = useState('return')
-  const [rType, setRType] = useState<'full' | 'partial'>('full')
-  const [amountInput, setAmountInput] = useState('')
+  const [tenderAmounts, setTenderAmounts] = useState<Record<string, string>>({})
   const [note, setNote] = useState('')
   const [restoreStock, setRestoreStock] = useState(true)
 
@@ -87,14 +93,17 @@ export default function RefundsPage() {
   const closedChecks = closedData?.checks ?? []
 
   function openCreate() { setCreating(true); setStep('pick'); setPrep(null) }
-  function closeCreate() { setCreating(false); setStep('pick'); setPrep(null); setAmountInput(''); setNote(''); setReason('return'); setRType('full'); setRestoreStock(true) }
+  function closeCreate() { setCreating(false); setStep('pick'); setPrep(null); setTenderAmounts({}); setNote(''); setReason('return'); setRestoreStock(true) }
 
   async function loadPrepare(id: string) {
     setPrepLoading(true)
     try {
       const p = await api.get<Prep>(`/refunds/prepare/${id}`)
       setPrep(p)
-      setReason('return'); setRType('full'); setAmountInput(String(p.maxRefund)); setNote(''); setRestoreStock(true)
+      // По умолчанию — полный возврат по каждому способу оплаты.
+      const init: Record<string, string> = {}
+      for (const [m, v] of Object.entries(p.availableByMethod ?? {})) if (v > 0) init[m] = String(v)
+      setTenderAmounts(init); setReason('return'); setNote(''); setRestoreStock(true)
       setStep('form')
     } catch {
       show('Не удалось загрузить чек', 'error')
@@ -103,14 +112,27 @@ export default function RefundsPage() {
     }
   }
 
-  const refundAmount = prep ? (rType === 'full' ? prep.maxRefund : Math.min(parseFloat(amountInput) || 0, prep.maxRefund)) : 0
+  // Суммы по тендерам, ограниченные доступным; итог — их сумма.
+  const tenderList = prep
+    ? Object.entries(prep.availableByMethod ?? {})
+        .filter(([, avail]) => avail > 0)
+        .map(([method, avail]) => ({
+          method,
+          avail,
+          amount: Math.min(Math.max(0, parseFloat(tenderAmounts[method] ?? '0') || 0), avail),
+        }))
+    : []
+  const refundAmount = Math.round(tenderList.reduce((s, t) => s + t.amount, 0) * 100) / 100
 
   function submit() {
     if (!prep || refundAmount <= 0) return
+    const tenders = tenderList.filter(t => t.amount > 0).map(t => ({ method: t.method, amount: t.amount }))
+    if (tenders.length === 0) return
+    const isFull = refundAmount >= prep.maxRefund - 0.01
     createRefund.mutate({
       checkId: prep.check.id,
-      totalAmount: refundAmount,
-      refundType: rType,
+      tenders,
+      refundType: isFull ? 'full' : 'partial',
       reason,
       note: note.trim() || undefined,
       itemsToRestore: restoreStock ? prep.items.filter(i => i.trackStock && i.quantity > 0).map(i => ({ itemId: i.itemId, quantity: i.quantity })) : [],
@@ -213,15 +235,26 @@ export default function RefundsPage() {
             </div>
 
             <div>
-              <label style={LBL}>Сумма возврата</label>
-              <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-                {(['full', 'partial'] as const).map(t => (
-                  <button key={t} onClick={() => { setRType(t); if (t === 'full') setAmountInput(String(prep.maxRefund)) }} style={{ flex: 1, padding: '10px 0', borderRadius: 10, border: `1px solid ${rType === t ? 'var(--primary-violet)' : 'rgba(255,255,255,0.1)'}`, background: rType === t ? 'rgba(139,92,246,0.18)' : 'rgba(255,255,255,0.04)', color: rType === t ? 'var(--primary-violet)' : 'var(--on-surface-variant)', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>{t === 'full' ? 'Полный' : 'Частичный'}</button>
+              <label style={LBL}>Возврат по способам оплаты</label>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {Object.entries(prep.availableByMethod).filter(([, a]) => a > 0).map(([method, avail]) => (
+                  <div key={method} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <span style={{ flex: 1, fontSize: 13, color: 'var(--on-surface)' }}>
+                      {METHOD_LABELS[method] ?? method}
+                      <span style={{ fontSize: 11, color: 'var(--on-surface-variant)' }}> · до {formatMoney(avail)}</span>
+                    </span>
+                    <input
+                      style={{ ...INP, width: 130, textAlign: 'right' }}
+                      type="number" min="0" max={avail} inputMode="decimal"
+                      value={tenderAmounts[method] ?? ''}
+                      onChange={e => setTenderAmounts(prev => ({ ...prev, [method]: e.target.value }))}
+                    />
+                  </div>
                 ))}
+                {Object.values(prep.availableByMethod).every(a => a <= 0) && (
+                  <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: 0 }}>Нечего возвращать — всё уже возвращено по этому чеку.</p>
+                )}
               </div>
-              {rType === 'partial' && (
-                <input style={INP} type="number" min="0" max={prep.maxRefund} inputMode="decimal" value={amountInput} onChange={e => setAmountInput(e.target.value)} placeholder={`до ${prep.maxRefund}`} />
-              )}
             </div>
 
             {prep.items.some(i => i.trackStock) && (

@@ -98,37 +98,36 @@ export async function getShiftCashBalance(shiftId: string) {
   const withdrawals = parseFloat(String(opsSum?.withdrawals ?? 0)) || 0
   const salaries = parseFloat(String(opsSum?.salaries ?? 0)) || 0
 
-  // Возвраты наличными: для каждого возврата считаем долю наличных
-  // (сумма возврата × доля наличных в оригинальном чеке)
+  // Возвраты наличными: при возврате по способам оплаты берём «cash»-тендер
+  // напрямую; для старых возвратов (tenders=NULL) — пропорционально наличной
+  // доле оригинального чека.
   const refundRows = await db
     .select({
       refundTotal: refunds.totalAmount,
       checkId: refunds.checkId,
+      tenders: refunds.tenders,
     })
     .from(refunds)
     .innerJoin(checks, eq(checks.id, refunds.checkId))
     .where(eq(checks.shiftId, shiftId))
 
   let cashRefundTotal = 0
-  if (refundRows.length > 0) {
-    for (const r of refundRows) {
-      const checkId = r.checkId
-      const refundAmt = parseFloat(String(r.refundTotal)) || 0
-
-      // Суммы платежей по методам в этом чеке
-      const payments = await db
-        .select({ method: checkPayments.method, total: sum(checkPayments.amount) })
-        .from(checkPayments)
-        .where(eq(checkPayments.checkId, checkId))
-        .groupBy(checkPayments.method)
-
-      const totalPaid = payments.reduce((s, p) => s + (parseFloat(String(p.total)) || 0), 0)
-      const cashPaid = parseFloat(String(payments.find(p => p.method === 'cash')?.total ?? 0)) || 0
-
-      // Доля наличных: пропорционально покрываем возврат
-      const cashShare = totalPaid > 0 ? cashPaid / totalPaid : 0
-      cashRefundTotal += refundAmt * cashShare
+  for (const r of refundRows) {
+    if (r.tenders && Array.isArray(r.tenders)) {
+      cashRefundTotal += (r.tenders as { method: string; amount: number }[])
+        .filter(t => t.method === 'cash')
+        .reduce((s, t) => s + (Number(t.amount) || 0), 0)
+      continue
     }
+    const refundAmt = parseFloat(String(r.refundTotal)) || 0
+    const payments = await db
+      .select({ method: checkPayments.method, total: sum(checkPayments.amount) })
+      .from(checkPayments)
+      .where(eq(checkPayments.checkId, r.checkId))
+      .groupBy(checkPayments.method)
+    const totalPaid = payments.reduce((s, p) => s + (parseFloat(String(p.total)) || 0), 0)
+    const cashPaid = parseFloat(String(payments.find(p => p.method === 'cash')?.total ?? 0)) || 0
+    cashRefundTotal += totalPaid > 0 ? refundAmt * (cashPaid / totalPaid) : 0
   }
 
   const expected = cashStart + cashPayments + deposits - withdrawals - salaries - cashRefundTotal

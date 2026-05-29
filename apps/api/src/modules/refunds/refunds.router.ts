@@ -7,10 +7,16 @@ import { requireAuth, requireRole } from '../../middleware/auth.js'
 
 const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100
 
+const TENDER_METHODS = ['cash', 'card', 'transfer', 'deposit', 'bonus', 'certificate', 'debt'] as const
+
 const RefundSchema = z.object({
   checkId: z.string().uuid(),
-  totalAmount: z.number().positive(),
-  refundType: z.enum(['full', 'partial']).default('full'),
+  // Возврат по способам оплаты: суммы по тендерам.
+  tenders: z.array(z.object({
+    method: z.enum(TENDER_METHODS),
+    amount: z.number().positive(),
+  })).min(1),
+  refundType: z.enum(['full', 'partial']).default('partial'),
   reason: z.enum(['return', 'exchange', 'discount', 'damage']).default('return'),
   note: z.string().optional(),
   itemsToRestore: z.array(z.object({
@@ -18,6 +24,33 @@ const RefundSchema = z.object({
     quantity: z.number().int().positive(),
   })).default([]),
 })
+
+function sumByMethod(rows: { method: string; amount: number | string }[]): Record<string, number> {
+  const m: Record<string, number> = {}
+  for (const r of rows) m[r.method] = (m[r.method] ?? 0) + (parseFloat(String(r.amount)) || 0)
+  return m
+}
+
+// Сколько уже возвращено по каждому методу: новые возвраты — по их tenders,
+// старые (tenders=NULL) — пропорционально составу оплаты чека.
+function refundedByMethod(
+  prev: { totalAmount: string; tenders: { method: string; amount: number }[] | null }[],
+  paidByMethod: Record<string, number>,
+  paidTotal: number,
+): Record<string, number> {
+  const out: Record<string, number> = {}
+  for (const r of prev) {
+    if (r.tenders && Array.isArray(r.tenders)) {
+      for (const t of r.tenders) out[t.method] = (out[t.method] ?? 0) + (Number(t.amount) || 0)
+    } else {
+      const rt = parseFloat(r.totalAmount) || 0
+      for (const [method, paid] of Object.entries(paidByMethod)) {
+        out[method] = (out[method] ?? 0) + (paidTotal > 0 ? rt * (paid / paidTotal) : 0)
+      }
+    }
+  }
+  return out
+}
 
 export const refundsRouter = new Hono<AppEnv>()
 refundsRouter.use('*', requireAuth)
@@ -35,80 +68,83 @@ refundsRouter.post('/', requireRole('owner', 'staff'), zValidator('json', Refund
     const refund = await db.transaction(async (tx) => {
       const [check] = await tx.select().from(checks).where(eq(checks.id, body.checkId)).for('update')
       if (!check) throw new Error('CHECK_NOT_FOUND')
-      // Возврат возможен только по закрытому (оплаченному) чеку.
       if (check.status !== 'closed') throw new Error('CHECK_NOT_CLOSED')
 
-      // Нельзя вернуть больше, чем фактически оплачено (с учётом уже сделанных возвратов).
+      // Что и чем оплачено
       const payments = await tx.select().from(checkPayments).where(eq(checkPayments.checkId, body.checkId))
-      const paidTotal = payments.reduce((s, p) => s + parseFloat(p.amount), 0)
+      const paidByMethod = sumByMethod(payments)
+      const paidTotal = Object.values(paidByMethod).reduce((s, v) => s + v, 0)
       if (paidTotal <= 0) throw new Error('NOTHING_TO_REFUND')
-      const prevRefunds = await tx.select().from(refunds).where(eq(refunds.checkId, body.checkId))
-      const alreadyRefunded = prevRefunds.reduce((s, r) => s + parseFloat(r.totalAmount), 0)
-      if (body.totalAmount > paidTotal - alreadyRefunded + 0.01) {
-        throw new Error('REFUND_EXCEEDS_PAID')
-      }
 
+      // Уже возвращено по методам (с учётом старых возвратов)
+      const prevRefunds = await tx.select().from(refunds).where(eq(refunds.checkId, body.checkId))
+      const alreadyByMethod = refundedByMethod(prevRefunds as any, paidByMethod, paidTotal)
+
+      // Запрошенный возврат по методам и проверка лимитов
+      const reqByMethod = sumByMethod(body.tenders)
+      for (const [method, amt] of Object.entries(reqByMethod)) {
+        const available = (paidByMethod[method] ?? 0) - (alreadyByMethod[method] ?? 0)
+        if (amt > available + 0.01) throw new Error('REFUND_EXCEEDS_PAID')
+      }
+      const refundTotal = round2(body.tenders.reduce((s, t) => s + t.amount, 0))
+      if (refundTotal <= 0) throw new Error('NOTHING_TO_REFUND')
+
+      const normTenders = body.tenders.map(t => ({ method: t.method, amount: round2(t.amount) }))
       const [r] = await tx.insert(refunds).values({
         checkId: body.checkId,
-        totalAmount: String(body.totalAmount),
+        totalAmount: String(refundTotal),
         refundType: body.refundType,
         reason: body.reason,
         note: body.note,
+        tenders: normTenders,
         createdBy: user.sub,
       }).returning()
 
       // Финансовая проводка возврата (видна в аналитике/кассе).
       await tx.insert(transactions).values({
         type: 'refund',
-        amount: String(body.totalAmount),
+        amount: String(refundTotal),
         checkId: body.checkId,
         playerId: check.playerId ?? null,
         createdBy: user.sub,
         description: `Refund: ${body.reason}`,
       })
 
-      // Доля возврата — для пропорционального отката безналичных тендеров
-      // (несколько частичных возвратов в сумме откатят тендер полностью).
-      const fraction = Math.min(1, body.totalAmount / paidTotal)
-      const depositPaid = payments.filter(p => p.method === 'deposit').reduce((s, p) => s + parseFloat(p.amount), 0)
-      const bonusRedeemed = parseFloat(check.bonusUsed ?? '0')
-      const certUsed = parseFloat(check.certificateUsed ?? '0')
-
-      // Возврат депозита и списанных бонусов клиенту
-      if (check.playerId && (depositPaid > 0 || bonusRedeemed > 0)) {
+      // Возврат на баланс клиента (депозит + долг) и бонусов
+      const balanceCredit = round2((reqByMethod['deposit'] ?? 0) + (reqByMethod['debt'] ?? 0))
+      const bonusCredit = Math.round(reqByMethod['bonus'] ?? 0)
+      if (balanceCredit > 0 || bonusCredit > 0) {
+        if (!check.playerId) throw new Error('REFUND_NO_PLAYER')
         const [player] = await tx.select().from(profiles).where(eq(profiles.id, check.playerId)).for('update')
         if (player) {
           let bal = parseFloat(player.balance)
           let bonus = parseFloat(player.bonusPoints)
-          const depBack = round2(depositPaid * fraction)
-          const bonusBack = Math.round(bonusRedeemed * fraction)
-          if (depBack > 0) {
-            bal = round2(bal + depBack)
+          if (balanceCredit > 0) {
+            bal = round2(bal + balanceCredit)
             await tx.insert(transactions).values({
-              type: 'deposit', amount: String(depBack), checkId: body.checkId,
-              playerId: check.playerId, createdBy: user.sub, description: 'Возврат на депозит',
+              type: 'deposit', amount: String(balanceCredit), checkId: body.checkId,
+              playerId: check.playerId, createdBy: user.sub, description: 'Возврат на баланс',
             })
           }
-          if (bonusBack > 0) {
-            bonus = round2(bonus + bonusBack)
+          if (bonusCredit > 0) {
+            bonus = round2(bonus + bonusCredit)
             await tx.insert(bonusHistory).values({
-              profileId: check.playerId, amount: String(bonusBack), balanceAfter: String(bonus),
-              reason: 'Возврат списанных бонусов',
+              profileId: check.playerId, amount: String(bonusCredit), balanceAfter: String(bonus),
+              reason: 'Возврат бонусов',
             })
           }
           await tx.update(profiles).set({ balance: String(bal), bonusPoints: String(bonus) }).where(eq(profiles.id, check.playerId))
         }
       }
 
-      // Возврат средств на сертификат
-      if (check.certificateId && certUsed > 0) {
-        const back = round2(certUsed * fraction)
-        if (back > 0) {
-          const [cert] = await tx.select().from(certificates).where(eq(certificates.id, check.certificateId)).for('update')
-          if (cert) {
-            const nb = round2(parseFloat(cert.balance) + back)
-            await tx.update(certificates).set({ balance: String(nb), isUsed: nb <= 0.005 }).where(eq(certificates.id, cert.id))
-          }
+      // Возврат на сертификат
+      const certCredit = round2(reqByMethod['certificate'] ?? 0)
+      if (certCredit > 0) {
+        if (!check.certificateId) throw new Error('REFUND_NO_CERT')
+        const [cert] = await tx.select().from(certificates).where(eq(certificates.id, check.certificateId)).for('update')
+        if (cert) {
+          const nb = round2(parseFloat(cert.balance) + certCredit)
+          await tx.update(certificates).set({ balance: String(nb), isUsed: nb <= 0.005 }).where(eq(certificates.id, cert.id))
         }
       }
 
@@ -135,8 +171,10 @@ refundsRouter.post('/', requireRole('owner', 'staff'), zValidator('json', Refund
     const map: Record<string, [string, 400 | 404]> = {
       CHECK_NOT_FOUND: ['Check not found', 404],
       CHECK_NOT_CLOSED: ['Возврат возможен только по оплаченному чеку', 400],
-      REFUND_EXCEEDS_PAID: ['Сумма возврата превышает оплаченную', 400],
+      REFUND_EXCEEDS_PAID: ['Сумма возврата по способу оплаты превышает оплаченную', 400],
       NOTHING_TO_REFUND: ['По чеку нет оплат для возврата', 400],
+      REFUND_NO_PLAYER: ['Для возврата на баланс/бонусы нужен клиент чека', 400],
+      REFUND_NO_CERT: ['У чека нет сертификата для возврата', 400],
     }
     const mapped = err?.message ? map[err.message] : undefined
     if (mapped) return c.json({ error: mapped[0] }, mapped[1])
@@ -145,8 +183,8 @@ refundsRouter.post('/', requireRole('owner', 'staff'), zValidator('json', Refund
   }
 })
 
-// Данные для формы возврата по чеку: позиции, оплачено, уже возвращено, лимит.
-// Должен идти ДО /:id.
+// Данные для формы возврата по чеку: позиции, оплата по методам, уже возвращено,
+// доступно по каждому методу. Должен идти ДО /:id.
 refundsRouter.get('/prepare/:checkId', requireRole('owner', 'staff'), async (c) => {
   const checkId = c.req.param('checkId')
   const [check] = await db.select().from(checks).where(eq(checks.id, checkId))
@@ -158,12 +196,19 @@ refundsRouter.get('/prepare/:checkId', requireRole('owner', 'staff'), async (c) 
     .leftJoin(inventory, eq(inventory.id, checkItems.itemId))
     .where(eq(checkItems.checkId, checkId))
   const payments = await db.select().from(checkPayments).where(eq(checkPayments.checkId, checkId))
-  const paidTotal = payments.reduce((s, p) => s + parseFloat(p.amount), 0)
+  const paidByMethod = sumByMethod(payments)
+  const paidTotal = Object.values(paidByMethod).reduce((s, v) => s + v, 0)
   const prev = await db.select().from(refunds).where(eq(refunds.checkId, checkId))
-  const refundedTotal = prev.reduce((s, r) => s + parseFloat(r.totalAmount), 0)
+  const refundedTotal = prev.reduce((s, r) => s + (parseFloat(r.totalAmount) || 0), 0)
+  const alreadyByMethod = refundedByMethod(prev as any, paidByMethod, paidTotal)
+
+  const availableByMethod: Record<string, number> = {}
+  for (const [method, paid] of Object.entries(paidByMethod)) {
+    availableByMethod[method] = round2(Math.max(0, paid - (alreadyByMethod[method] ?? 0)))
+  }
 
   return c.json({
-    check: { id: check.id, status: check.status, totalAmount: check.totalAmount, closedAt: check.closedAt },
+    check: { id: check.id, status: check.status, totalAmount: check.totalAmount, closedAt: check.closedAt, playerId: check.playerId, certificateId: check.certificateId },
     items: items.map(i => ({
       itemId: i.checkItem.itemId,
       name: i.item?.name ?? '—',
@@ -174,6 +219,8 @@ refundsRouter.get('/prepare/:checkId', requireRole('owner', 'staff'), async (c) 
     paidTotal: round2(paidTotal),
     refundedTotal: round2(refundedTotal),
     maxRefund: round2(Math.max(0, paidTotal - refundedTotal)),
+    paidByMethod: Object.fromEntries(Object.entries(paidByMethod).map(([m, v]) => [m, round2(v)])),
+    availableByMethod,
   })
 })
 

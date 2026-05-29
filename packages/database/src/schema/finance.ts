@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, numeric, boolean, integer, timestamp, pgEnum } from 'drizzle-orm/pg-core'
+import { pgTable, uuid, text, numeric, boolean, integer, timestamp, pgEnum, jsonb } from 'drizzle-orm/pg-core'
 import { profiles } from './profiles.js'
 import { inventory } from './menu.js'
 import { checks } from './checks.js'
@@ -145,6 +145,8 @@ export const refunds = pgTable('refunds', {
   refundType: refundTypeEnum('refund_type').notNull().default('full'),
   reason: refundReasonEnum('reason').notNull().default('return'),
   note: text('note'),
+  // Разбивка возврата по способам оплаты: [{ method, amount }]
+  tenders: jsonb('tenders').$type<{ method: string; amount: number }[]>(),
   createdBy: uuid('created_by')
     .notNull()
     .references(() => profiles.id),
