@@ -18,7 +18,7 @@ import {
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { api } from '@/lib/api'
-import { PageHeader, Sheet, Toggle, INP, SEL, LBL } from '@/components/manage/DesignSystem'
+import { PageHeader, Sheet, Toggle, ConfirmDialog, INP, SEL, LBL } from '@/components/manage/DesignSystem'
 import { useToast } from '@/components/Toast'
 import { Icon } from '@/components/Icon'
 
@@ -400,6 +400,8 @@ export default function MenuPage() {
   const [editingCat, setEditingCat] = useState<any>(null)
   const [showCatForm, setShowCatForm] = useState(false)
   const [sortedItems, setSortedItems] = useState<any[]>([])
+  const [confirmDelItem, setConfirmDelItem] = useState<any>(null)
+  const [confirmDelCat, setConfirmDelCat] = useState<any>(null)
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -412,7 +414,10 @@ export default function MenuPage() {
   const cats: any[] = catsData?.categories ?? []
   const allItems: any[] = itemsData?.items ?? []
 
-  useEffect(() => { if (allItems.length) setSortedItems([...allItems]) }, [allItems])
+  // Синхронизируем локальный порядок с сервером. Ключимся на itemsData (стабильная
+  // ссылка), а не на allItems (новый массив каждый рендер). Пустой items → список
+  // очищается (важно при удалении последней позиции).
+  useEffect(() => { if (itemsData?.items) setSortedItems([...itemsData.items]) }, [itemsData])
 
   const catIds = new Set(cats.map((c: any) => c.id))
   const uncategorizedCount = allItems.filter((i: any) => !i.category || !catIds.has(i.category)).length
@@ -432,8 +437,8 @@ export default function MenuPage() {
   })
   const delItem = useMutation({
     mutationFn: (id: string) => api.delete(`/menu/items/${id}`),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['menu', 'items'] }),
-    onError: () => show('Не удалось удалить товар', 'error'),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['menu', 'items'] }); setConfirmDelItem(null) },
+    onError: () => { setConfirmDelItem(null); show('Не удалось удалить товар', 'error') },
   })
   const saveCat = useMutation({
     mutationFn: (b: any) => editingCat ? api.patch(`/menu/categories/${editingCat.id}`, b) : api.post('/menu/categories', b),
@@ -442,8 +447,8 @@ export default function MenuPage() {
   })
   const delCat = useMutation({
     mutationFn: (id: string) => api.delete(`/menu/categories/${id}`),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['menu', 'categories'] }),
-    onError: () => show('Не удалось удалить категорию', 'error'),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['menu', 'categories'] }); setConfirmDelCat(null); setActiveCat('all') },
+    onError: () => { setConfirmDelCat(null); show('Не удалось удалить категорию', 'error') },
   })
   const reorderItems = useMutation({
     mutationFn: (items: { id: string; sortOrder: number }[]) => api.patch('/menu/items/reorder', { items }),
@@ -530,7 +535,7 @@ export default function MenuPage() {
             <button onClick={() => openEditCat(activeCatObj)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 12px', borderRadius: 10, border: '1px solid rgba(139,92,246,0.3)', background: 'rgba(139,92,246,0.1)', color: '#a78bfa', fontSize: 12, fontWeight: 700, cursor: 'pointer', flexShrink: 0 }}>
               <Icon name="edit" size={14} /> Изменить
             </button>
-            <button onClick={() => { delCat.mutate(activeCatObj.id); setActiveCat('all') }} aria-label="Удалить категорию" style={{ width: 34, height: 34, borderRadius: 10, border: '1px solid rgba(244,63,94,0.2)', background: 'rgba(244,63,94,0.08)', color: '#F87171', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <button onClick={() => setConfirmDelCat(activeCatObj)} aria-label="Удалить категорию" style={{ width: 34, height: 34, borderRadius: 10, border: '1px solid rgba(244,63,94,0.2)', background: 'rgba(244,63,94,0.08)', color: '#F87171', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
               <Icon name="delete" size={15} />
             </button>
           </div>
@@ -548,7 +553,7 @@ export default function MenuPage() {
                 </div>
               )}
               {filteredItems.map((item: any) => (
-                <SortableItem key={item.id} item={item} cats={cats} onEdit={() => openItem(item)} onDelete={() => delItem.mutate(item.id)} />
+                <SortableItem key={item.id} item={item} cats={cats} onEdit={() => openItem(item)} onDelete={() => setConfirmDelItem(item)} />
               ))}
             </div>
           </SortableContext>
@@ -754,6 +759,28 @@ export default function MenuPage() {
           </button>
         </div>
       </Sheet>
+
+      <ConfirmDialog
+        open={!!confirmDelItem}
+        onClose={() => setConfirmDelItem(null)}
+        onConfirm={() => confirmDelItem && delItem.mutate(confirmDelItem.id)}
+        title="Удалить позицию?"
+        message={confirmDelItem ? `«${confirmDelItem.name}» будет удалена из меню. История продаж сохранится.` : undefined}
+        confirmLabel="Удалить"
+        danger
+        loading={delItem.isPending}
+      />
+
+      <ConfirmDialog
+        open={!!confirmDelCat}
+        onClose={() => setConfirmDelCat(null)}
+        onConfirm={() => confirmDelCat && delCat.mutate(confirmDelCat.id)}
+        title="Удалить категорию?"
+        message={confirmDelCat ? `Категория «${confirmDelCat.name}» будет удалена. Позиции из неё не удалятся, но останутся без категории.` : undefined}
+        confirmLabel="Удалить"
+        danger
+        loading={delCat.isPending}
+      />
 
       <style>{`
         .cat-rail { scrollbar-width: none; -ms-overflow-style: none; }

@@ -36,6 +36,11 @@ export const inventory = pgTable('inventory', {
   sortOrder: integer('sort_order').notNull().default(0),
   searchTags: text('search_tags').array().default([]),
   linkedSpaceId: uuid('linked_space_id'),
+  // Мягкое удаление: позиция используется в исторических чеках (check_items.item_id
+  // → inventory.id, FK RESTRICT + имя не денормализовано), поэтому жёстко удалять
+  // нельзя. deletedAt отделён от isActive: isActive = скрыта из меню, но в управлении
+  // видна; deletedAt != null = удалена, исключается из всех списков.
+  deletedAt: timestamp('deleted_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 })

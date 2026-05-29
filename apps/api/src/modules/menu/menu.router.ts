@@ -2,7 +2,7 @@ import type { AppEnv } from '../../types.js'
 import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
-import { db, menuCategories, inventory, modifiers, eq, and, asc, desc } from '@titan/database'
+import { db, menuCategories, inventory, modifiers, eq, and, asc, desc, isNull } from '@titan/database'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
 
 const CategorySchema = z.object({
@@ -89,7 +89,7 @@ menuRouter.delete('/categories/:id', requireAuth, requireRole('owner'), async (c
 menuRouter.get('/items', async (c) => {
   const categoryId = c.req.query('categoryId')
   const tabletVisible = c.req.query('tabletVisible') === 'true'
-  const baseFilter = eq(inventory.isActive, true)
+  const baseFilter = and(eq(inventory.isActive, true), isNull(inventory.deletedAt))
   const catFilter = categoryId ? and(baseFilter, eq(inventory.category, categoryId)) : baseFilter
   const where = tabletVisible ? and(catFilter, eq(inventory.isTabletVisible, true)) : catFilter
   const rows = await db
@@ -103,7 +103,11 @@ menuRouter.get('/items', async (c) => {
 })
 
 menuRouter.get('/items/all', requireAuth, async (c) => {
-  const items = await db.select().from(inventory).orderBy(asc(inventory.sortOrder), asc(inventory.name))
+  const items = await db
+    .select()
+    .from(inventory)
+    .where(isNull(inventory.deletedAt))
+    .orderBy(asc(inventory.sortOrder), asc(inventory.name))
   return c.json({ items })
 })
 
@@ -149,7 +153,9 @@ menuRouter.patch('/items/:id', requireAuth, requireRole('owner', 'staff'), zVali
 })
 
 menuRouter.delete('/items/:id', requireAuth, requireRole('owner'), async (c) => {
-  await db.update(inventory).set({ isActive: false }).where(eq(inventory.id, c.req.param('id')))
+  // Мягкое удаление: позиция остаётся в БД ради исторических чеков, но помечается
+  // deletedAt и исчезает из всех списков меню. См. 009_inventory_soft_delete.sql.
+  await db.update(inventory).set({ deletedAt: new Date() }).where(eq(inventory.id, c.req.param('id')))
   return c.json({ ok: true })
 })
 
