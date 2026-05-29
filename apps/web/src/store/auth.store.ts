@@ -33,7 +33,7 @@ interface AuthState {
 
 export const useAuthStore = create<AuthState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       token: null,
       user: null,
       rememberedUserId: null,
@@ -45,6 +45,13 @@ export const useAuthStore = create<AuthState>()(
       setAuth: (token, user, needsPinSetup = false) =>
         set({ token, user, needsPinSetup, isLocked: false, lastActiveAt: Date.now() }),
       logout: () => {
+        const token = get().token
+        if (token) {
+          // Best-effort серверный отзыв токена. Не через api-клиент: у него
+          // перехват 401 → logout(), получился бы цикл.
+          const base = process.env.NEXT_PUBLIC_API_URL ?? '/api'
+          fetch(`${base}/auth/logout`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } }).catch(() => {})
+        }
         if (typeof window !== 'undefined' && window.__clearPOSState) {
           window.__clearPOSState()
         }

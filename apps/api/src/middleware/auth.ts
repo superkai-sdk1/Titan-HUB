@@ -1,8 +1,14 @@
 import { createMiddleware } from 'hono/factory'
+import { createHash } from 'crypto'
 import { verifyToken } from '@titan/auth'
 import type { JwtPayload } from '@titan/auth'
+import { getSharedRedis } from '../lib/redis.js'
 
 type Variables = { user: JwtPayload }
+
+export function tokenHash(token: string): string {
+  return createHash('sha256').update(token).digest('hex')
+}
 
 export const requireAuth = createMiddleware<{ Variables: Variables }>(async (c, next) => {
   // Bearer-токен в Authorization-заголовке ИЛИ в ?token=... query param
@@ -20,13 +26,22 @@ export const requireAuth = createMiddleware<{ Variables: Variables }>(async (c, 
     return c.json({ error: 'Unauthorized' }, 401)
   }
 
+  let user: JwtPayload
   try {
-    const user = await verifyToken(token)
-    c.set('user', user)
-    await next()
+    user = await verifyToken(token)
   } catch {
     return c.json({ error: 'Invalid token' }, 401)
   }
+
+  // Проверка отзыва токена (logout/блокировка). Best-effort: если Redis
+  // недоступен — пропускаем (fail-open), чтобы не ронять авторизацию.
+  try {
+    const revoked = await getSharedRedis().get(`revoked:${tokenHash(token)}`)
+    if (revoked) return c.json({ error: 'Token revoked' }, 401)
+  } catch { /* fail-open */ }
+
+  c.set('user', user)
+  await next()
 })
 
 export const requireRole = (...roles: string[]) =>

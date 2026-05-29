@@ -5,7 +5,8 @@ import { db, profiles, transactions, eq, and, isNull, inArray, desc } from '@tit
 import { passkeys } from '@titan/database'
 import { signToken, verifyPin, verifyPassword, hashPassword, hashPin, isPlaintext, verifyTelegramInitData } from '@titan/auth'
 import { LoginPinSchema, LoginPasswordSchema, LoginTelegramSchema, SetPinSchema } from '@titan/types'
-import { requireAuth } from '../../middleware/auth.js'
+import { requireAuth, tokenHash } from '../../middleware/auth.js'
+import { getSharedRedis } from '../../lib/redis.js'
 import { Redis } from 'ioredis'
 import {
   generateRegistrationOptions,
@@ -269,6 +270,18 @@ authRouter.get('/me/transactions', requireAuth, async (c) => {
     .orderBy(desc(transactions.createdAt))
     .limit(50)
   return c.json({ transactions: rows })
+})
+
+// Серверный logout: отзываем текущий токен (blacklist в Redis до его exp).
+authRouter.post('/logout', requireAuth, async (c) => {
+  const header = c.req.header('Authorization')
+  const token = header?.startsWith('Bearer ') ? header.slice(7) : c.req.query('token')
+  if (token) {
+    const user = c.get('user')
+    const ttl = user?.exp ? Math.max(1, user.exp - Math.floor(Date.now() / 1000)) : 7 * 24 * 3600
+    try { await getSharedRedis().set(`revoked:${tokenHash(token)}`, '1', 'EX', ttl) } catch { /* ignore */ }
+  }
+  return c.json({ ok: true })
 })
 
 // ── Passkey / WebAuthn endpoints ────────────────────────────────────────────
