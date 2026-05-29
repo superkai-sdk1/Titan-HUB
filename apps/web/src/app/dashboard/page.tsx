@@ -6,6 +6,7 @@ import { api } from '@/lib/api'
 import { format, subDays, startOfMonth, endOfMonth } from 'date-fns'
 import { ru } from 'date-fns/locale'
 import { useCountUp } from '@/hooks/useCountUp'
+import { StateView } from '@/components/StateView'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 type MainTab = 'overview' | 'reports' | 'products' | 'players'
@@ -553,7 +554,7 @@ function PlayersTab({ clients }: { clients: any }) {
 export default function DashboardPage() {
   const [activeTab, setActiveTab] = useState<MainTab>('overview')
 
-  const { data: dash } = useQuery({ queryKey: ['analytics', 'dashboard'], queryFn: () => api.get<any>('/analytics/dashboard'), refetchInterval: 60000 })
+  const { data: dash, isError: dashError, refetch: refetchDash } = useQuery({ queryKey: ['analytics', 'dashboard'], queryFn: () => api.get<any>('/analytics/dashboard'), refetchInterval: 60000 })
   const { data: revenue } = useQuery({ queryKey: ['analytics', 'revenue', '30d'], queryFn: () => api.get<any>('/analytics/revenue'), refetchInterval: 300000 })
   const { data: products } = useQuery({ queryKey: ['analytics', 'products'], queryFn: () => api.get<any>('/analytics/products'), refetchInterval: 300000, enabled: activeTab === 'products' })
   const { data: clients } = useQuery({ queryKey: ['analytics', 'clients'], queryFn: () => api.get<any>('/analytics/clients'), refetchInterval: 300000, enabled: activeTab === 'players' })
@@ -602,7 +603,7 @@ export default function DashboardPage() {
 
       {/* Content */}
       <div style={{ padding: '16px 16px 16px', flex: 1, overflowX: 'hidden', width: '100%' }}>
-        {activeTab === 'overview'  && <OverviewTab  dash={dash}     revenue={revenue} />}
+        {activeTab === 'overview'  && (dash ? <OverviewTab dash={dash} revenue={revenue} /> : dashError ? <StateView state="error" description="Не удалось загрузить аналитику." action={{ label: 'Повторить', onClick: () => refetchDash() }} /> : <StateView state="loading" />)}
         {activeTab === 'reports'   && <ReportsTab />}
         {activeTab === 'products'  && <ProductsTab  products={products} />}
         {activeTab === 'players'   && <PlayersTab   clients={clients} />}

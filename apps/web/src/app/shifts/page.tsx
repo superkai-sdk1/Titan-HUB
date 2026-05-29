@@ -4,6 +4,7 @@ import { Icon } from '@/components/Icon'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { useCurrentShift, useOpenShift, useCloseShift } from '@/hooks/useShift'
+import { PageHeader } from '@/components/manage/DesignSystem'
 import { formatDistanceToNow, format } from 'date-fns'
 import { ru } from 'date-fns/locale'
 
@@ -536,39 +537,13 @@ export default function ShiftsPage() {
 
   return (
     <div style={{ height: '100%', overflowY: 'auto' }}>
+      <PageHeader
+        title="Смены"
+        subtitle={format(new Date(), 'd MMMM yyyy', { locale: ru })}
+        action={!shift ? { label: 'Открыть смену', icon: 'add', onClick: () => setShowOpen(true) } : undefined}
+      />
 
-      {/* Header */}
-      <div style={{
-        padding: '24px 32px 20px',
-        borderBottom: '1px solid rgba(255,255,255,0.06)',
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-      }}>
-        <div>
-          <h1 style={{ fontSize: 22, fontWeight: 800, margin: 0, color: 'var(--on-surface)' }}>Смены</h1>
-          <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: '3px 0 0' }}>
-            {format(new Date(), 'd MMMM yyyy', { locale: ru })}
-          </p>
-        </div>
-
-        {!shift && (
-          <button
-            onClick={() => setShowOpen(true)}
-            style={{
-              display: 'flex', alignItems: 'center', gap: 8,
-              padding: '10px 20px', borderRadius: 14,
-              border: 'none', cursor: 'pointer',
-              background: 'linear-gradient(135deg, #8B5CF6, #4cd7f6)',
-              color: '#fff', fontSize: 13, fontWeight: 700,
-              boxShadow: '0 4px 20px rgba(139,92,246,0.35)',
-            }}
-          >
-            <Icon name="add" size={18} />
-            Открыть смену
-          </button>
-        )}
-      </div>
-
-      <div style={{ padding: '24px 32px 80px', display: 'flex', flexDirection: 'column', gap: 24 }}>
+      <div style={{ padding: '20px 16px var(--bottom-nav-clear, 24px)', display: 'flex', flexDirection: 'column', gap: 24, maxWidth: 680, margin: '0 auto', width: '100%' }}>
 
         {/* Current shift card */}
         {shift ? (
