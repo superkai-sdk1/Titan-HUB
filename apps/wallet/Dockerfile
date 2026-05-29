@@ -1,6 +1,10 @@
 FROM node:22-alpine AS base
 ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
+# Устойчивость к флакающему npm-реестру: больше ретраев и таймаутов на загрузку.
+ENV npm_config_fetch_retries=5
+ENV npm_config_fetch_retry_mintimeout=15000
+ENV npm_config_fetch_retry_maxtimeout=180000
 RUN corepack enable
 
 FROM base AS builder

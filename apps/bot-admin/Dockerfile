@@ -1,6 +1,10 @@
 FROM node:22-alpine AS base
 ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
+# Устойчивость к флакающему npm-реестру: больше ретраев и таймаутов на загрузку.
+ENV npm_config_fetch_retries=5
+ENV npm_config_fetch_retry_mintimeout=15000
+ENV npm_config_fetch_retry_maxtimeout=180000
 RUN corepack enable
 
 FROM base AS builder
@@ -24,7 +28,7 @@ COPY apps/bot-admin/ ./apps/bot-admin/
 RUN pnpm --filter @titan/types build
 RUN pnpm --filter @titan/database build
 RUN pnpm --filter @titan/bot-admin build
-RUN pnpm --filter @titan/bot-admin deploy --legacy --prod /deploy/bot-admin
+RUN pnpm --filter @titan/bot-admin deploy --legacy --prod --prefer-offline /deploy/bot-admin
 
 FROM base AS runner
 WORKDIR /app
