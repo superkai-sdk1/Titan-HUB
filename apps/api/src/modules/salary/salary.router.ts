@@ -13,7 +13,7 @@ function calculateSalary(revenue: number): number {
 const PaySalarySchema = z.object({
   profileId: z.string().uuid(),
   amount: z.number().positive(),
-  paymentMethod: z.string().default('cash'),
+  paymentMethod: z.enum(['cash', 'card', 'transfer']).default('cash'),
   note: z.string().optional(),
   idempotencyKey: z.string().max(80).optional(),
 })

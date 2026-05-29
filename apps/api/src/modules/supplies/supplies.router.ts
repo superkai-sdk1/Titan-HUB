@@ -10,7 +10,7 @@ const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100
 const SupplySchema = z.object({
   note: z.string().optional(),
   supplier: z.string().optional(),
-  paymentMethod: z.string().default('cash'),
+  paymentMethod: z.enum(['cash', 'card', 'transfer']).default('cash'),
   items: z.array(z.object({
     // Привязка к карточке товара опциональна: сырьё без карточки можно
     // зафиксировать как затрату (без изменения остатка).

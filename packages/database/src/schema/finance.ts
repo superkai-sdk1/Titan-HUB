@@ -1,12 +1,12 @@
 import { pgTable, uuid, text, numeric, boolean, integer, timestamp, pgEnum, jsonb } from 'drizzle-orm/pg-core'
-import { profiles } from './profiles.js'
+import { profiles, clientTierEnum } from './profiles.js'
 import { inventory } from './menu.js'
-import { checks } from './checks.js'
+import { checks, paymentMethodEnum, discountTypeEnum } from './checks.js'
 
 export const discounts = pgTable('discounts', {
   id: uuid('id').primaryKey().defaultRandom(),
   name: text('name').notNull(),
-  type: text('type').notNull(),
+  type: discountTypeEnum('type').notNull(),
   value: numeric('value', { precision: 10, scale: 2 }).notNull(),
   isActive: boolean('is_active').notNull().default(true),
   isAuto: boolean('is_auto').notNull().default(false),
@@ -20,7 +20,7 @@ export const discounts = pgTable('discounts', {
 export const clientDiscountRules = pgTable('client_discount_rules', {
   id: uuid('id').primaryKey().defaultRandom(),
   name: text('name').notNull(),
-  clientTier: text('client_tier').notNull(),
+  clientTier: clientTierEnum('client_tier').notNull(),
   discountId: uuid('discount_id').references(() => discounts.id),
   isActive: boolean('is_active').notNull().default(true),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -77,7 +77,7 @@ export const supplies = pgTable('supplies', {
   note: text('note'),
   supplier: text('supplier'),
   totalCost: numeric('total_cost', { precision: 12, scale: 2 }).notNull().default('0'),
-  paymentMethod: text('payment_method').notNull().default('cash'),
+  paymentMethod: paymentMethodEnum('payment_method').notNull().default('cash'),
   createdBy: uuid('created_by')
     .notNull()
     .references(() => profiles.id),
@@ -160,7 +160,7 @@ export const salaryPayments = pgTable('salary_payments', {
     .notNull()
     .references(() => profiles.id),
   amount: numeric('amount', { precision: 12, scale: 2 }).notNull(),
-  paymentMethod: text('payment_method').notNull().default('cash'),
+  paymentMethod: paymentMethodEnum('payment_method').notNull().default('cash'),
   note: text('note'),
   createdBy: uuid('created_by')
     .notNull()
