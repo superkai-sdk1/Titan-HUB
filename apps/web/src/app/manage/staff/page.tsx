@@ -3,7 +3,9 @@
 import React, { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
-import { Sheet, LBL, INP, SEL } from '@/components/manage/DesignSystem'
+import { PageHeader, Sheet, Toggle, LBL, INP, SEL } from '@/components/manage/DesignSystem'
+import { StateView } from '@/components/StateView'
+import { useToast } from '@/components/Toast'
 import { useAuthStore } from '@/store/auth.store'
 import { Icon } from '@/components/Icon'
 
@@ -56,30 +58,12 @@ function getAvatarColor(name: string) {
 
 // ─── Mini helpers ──────────────────────────────────────────────────────────
 
-function MiniToggle({ value, onChange }: { value: boolean; onChange: (v: boolean) => void }) {
-  return (
-    <button
-      onClick={() => onChange(!value)}
-      style={{
-        width: 40, height: 22, borderRadius: 11, border: 'none', cursor: 'pointer', flexShrink: 0,
-        background: value ? 'linear-gradient(135deg,#8B5CF6,#4cd7f6)' : 'rgba(255,255,255,0.1)',
-        position: 'relative', transition: 'background 0.2s',
-      }}
-    >
-      <span style={{
-        position: 'absolute', top: 3, left: value ? 21 : 3, width: 16, height: 16, borderRadius: '50%',
-        background: '#fff', transition: 'left 0.2s', boxShadow: '0 1px 4px rgba(0,0,0,0.3)',
-      }} />
-    </button>
-  )
-}
-
 function PermissionRow({ label, icon, value, onChange }: { label: string; icon: string; value: boolean; onChange: (v: boolean) => void }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 0', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
       <Icon name={icon} size={16} color="var(--on-surface-variant)" style={{ width: 18 }} />
       <span style={{ flex: 1, fontSize: 13, color: 'var(--on-surface)', fontWeight: 500 }}>{label}</span>
-      <MiniToggle value={value} onChange={onChange} />
+      <Toggle size="sm" value={value} onChange={onChange} ariaLabel={label} />
     </div>
   )
 }
@@ -186,8 +170,9 @@ export default function StaffPage() {
   const [permsSaved, setPermsSaved] = useState(false)
 
   const currentUser = useAuthStore(s => s.user)
+  const { show } = useToast()
 
-  const { data } = useQuery<{ staff: StaffMember[] }>({
+  const { data, isLoading } = useQuery<{ staff: StaffMember[] }>({
     queryKey: ['staff'],
     queryFn: () => api.get('/staff'),
   })
@@ -231,6 +216,7 @@ export default function StaffPage() {
   const deleteMutation = useMutation({
     mutationFn: (id: string) => api.delete(`/staff/${id}`),
     onSuccess: () => { invalidate(); setSelected(null) },
+    onError: () => show('Не удалось удалить сотрудника', 'error'),
   })
 
   const resetPinMutation = useMutation({
@@ -240,6 +226,7 @@ export default function StaffPage() {
       setPinSuccess(true)
       setTimeout(() => { setShowPin(false); setPinSuccess(false) }, 1500)
     },
+    onError: () => show('Не удалось сменить PIN', 'error'),
   })
 
   const updatePermsMutation = useMutation({
@@ -250,6 +237,7 @@ export default function StaffPage() {
       setPermsSaved(true)
       setTimeout(() => setPermsSaved(false), 1800)
     },
+    onError: () => show('Не удалось сохранить права', 'error'),
   })
 
   // ── Form helpers ─────────────────────────────────────────────────────────
@@ -366,36 +354,19 @@ export default function StaffPage() {
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
-    <div style={{ padding: '24px 20px', maxWidth: 600, margin: '0 auto' }}>
-      {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 24 }}>
-        <div>
-          <h1 style={{ margin: 0, fontSize: 28, fontWeight: 700, color: 'var(--on-surface)' }}>Персонал</h1>
-          <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--on-surface-variant)' }}>
-            {staff.length} {staff.length === 1 ? 'сотрудник' : staff.length <= 4 ? 'сотрудника' : 'сотрудников'}
-          </p>
-        </div>
-        <button
-          onClick={openCreate}
-          style={{
-            display: 'flex', alignItems: 'center', gap: 8,
-            padding: '10px 18px', borderRadius: 14, border: 'none', cursor: 'pointer',
-            background: 'linear-gradient(135deg,#8B5CF6,#4cd7f6)',
-            color: '#fff', fontWeight: 600, fontSize: 14,
-          }}
-        >
-          <Icon name="person_add" size={20} />
-          Добавить
-        </button>
-      </div>
-
-      {/* List */}
-      {staff.length === 0 ? (
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', paddingTop: 80, gap: 12, color: 'var(--on-surface-variant)' }}>
-          <Icon name="group" size={64} style={{ opacity: 0.3 }} />
-          <p style={{ margin: 0, fontSize: 15 }}>Нет сотрудников</p>
-        </div>
-      ) : (
+    <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100dvh' }}>
+      <PageHeader
+        title="Персонал"
+        subtitle={`${staff.length} ${staff.length === 1 ? 'сотрудник' : staff.length <= 4 ? 'сотрудника' : 'сотрудников'}`}
+        action={{ label: 'Добавить', icon: 'person_add', onClick: openCreate }}
+      />
+      <div style={{ padding: '20px 16px var(--bottom-nav-clear, 24px)', maxWidth: 600, margin: '0 auto', width: '100%' }}>
+        {/* List */}
+        {isLoading && !data ? (
+          <StateView state="loading" />
+        ) : staff.length === 0 ? (
+          <StateView state="empty" icon="group" title="Нет сотрудников" />
+        ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {staff.map(s => {
             const roleInfo = ROLE_LABELS[s.role] ?? ROLE_LABELS.staff
@@ -721,6 +692,7 @@ export default function StaffPage() {
           </div>
         )}
       </Sheet>
+      </div>
     </div>
   )
 }
