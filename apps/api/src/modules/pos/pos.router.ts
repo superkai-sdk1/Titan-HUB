@@ -105,7 +105,17 @@ async function getCheckWithItems(checkId: string) {
     spaceHourlyRate = space?.hourlyRate ?? null
   }
 
-  return { ...check, items: itemsWithMods, payments, discounts: discountRows, spaceHourlyRate }
+  // Имя для заголовка чека: ник привязанного клиента либо первый из гостей.
+  // (раньше деталь не отдавала guestName — заголовок всегда показывал «Гость»).
+  let guestName: string | null = null
+  if (check.playerId) {
+    const [player] = await db.select({ nickname: profiles.nickname }).from(profiles).where(eq(profiles.id, check.playerId))
+    guestName = player?.nickname ?? null
+  } else if (check.guestNames && check.guestNames.length > 0) {
+    guestName = check.guestNames[0] ?? null
+  }
+
+  return { ...check, items: itemsWithMods, payments, discounts: discountRows, spaceHourlyRate, guestName }
 }
 
 async function recalcCheckTotal(checkId: string) {

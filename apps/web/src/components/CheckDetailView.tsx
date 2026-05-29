@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api, ApiError } from '@/lib/api'
+import { funnyGuestName } from '@/lib/funnyName'
 import { SwipeableRow } from '@/components/SwipeableRow'
 import { Icon } from '@/components/Icon'
 import { useToast } from '@/components/Toast'
@@ -170,6 +171,8 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
   const [qrAmount, setQrAmount] = useState(0)
 
   const check = checkData
+  // Имя в заголовке: реальное имя клиента/гостя, иначе смешная заглушка (по id чека).
+  const displayName = check ? (check.guestName || funnyGuestName(check.id)) : 'Гость'
   const categories = categoriesData?.categories ?? []
   const allItems = (itemsData?.items ?? []).filter(i => i.isActive)
   const filteredItems = allItems.filter(item => {
@@ -500,11 +503,11 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             fontSize: 13, fontWeight: 700, color: '#A78BFA',
           }}>
-            {getInitials(check?.guestName)}
+            {getInitials(displayName)}
           </div>
           <div style={{ minWidth: 0 }}>
             <p style={{ fontSize: 15, fontWeight: 800, fontStyle: 'italic', margin: 0, color: 'var(--on-surface)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {check?.guestName || 'Гость'}
+              {displayName}
             </p>
             <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: 0 }}>
               {check?.items.length ?? 0} позиций

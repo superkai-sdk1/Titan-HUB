@@ -4,6 +4,7 @@ import { Icon } from '@/components/Icon'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api, ApiError } from '@/lib/api'
+import { funnyGuestName } from '@/lib/funnyName'
 import { useCurrentShift, useOpenShift, useCloseShift } from '@/hooks/useShift'
 import { differenceInMinutes } from 'date-fns'
 import { CheckDetailView } from '@/components/CheckDetailView'
@@ -489,6 +490,7 @@ function PosPageInner() {
             // Почасовая аренда: итог на карточке = позиции + живой счётчик аренды.
             const rental = computeRental(check.spaceStartAt, check.spaceEndAt, check.spaceHourlyRate, now)
             const displayTotal = parseFloat(check.totalAmount) + rental
+            const cardName = check.guestName || funnyGuestName(check.id)
             return (
               <button
                 key={check.id}
@@ -529,11 +531,11 @@ function PosPageInner() {
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                     fontWeight: 700, color: '#A78BFA',
                   }}>
-                    {getInitials(check.guestName)}
+                    {getInitials(cardName)}
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <p className="card-name" style={{ fontWeight: 600, color: 'var(--on-surface)', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {check.guestName || 'Гость'}
+                      {cardName}
                     </p>
                     {check.spaceName && (
                       <p className="card-space" style={{ color: 'var(--on-surface-variant)', margin: 0 }}>{check.spaceName}</p>
