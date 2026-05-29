@@ -39,7 +39,7 @@ export default function TabletPage() {
   // Получаем профиль планшета (linkedSpaceId)
   const { data: profileData } = useQuery({
     queryKey: ['tablet', 'profile'],
-    queryFn: () => api.get<{ profile: ProfileData }>(`/pos/players/${user!.id}`).then(r => r.profile),
+    queryFn: () => api.get<{ player: ProfileData }>(`/pos/players/${user!.id}`).then(r => r.player),
     enabled: !!user?.id,
   })
 

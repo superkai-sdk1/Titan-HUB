@@ -180,7 +180,7 @@ eventsRouter.get('/:id/analytics', requireRole('owner', 'staff'), async (c) => {
   const closedChecks = eventChecks.filter((c) => c.status === 'closed')
   const totalRevenue = closedChecks.reduce((s, c) => s + parseFloat(c.totalAmount), 0)
   const attendeesCount = eventChecks.length
-  const avgCheckAmount = attendeesCount > 0 ? totalRevenue / closedChecks.length : 0
+  const avgCheckAmount = closedChecks.length > 0 ? totalRevenue / closedChecks.length : 0
 
   // Топ-5 позиций
   const topItemsRows = await db.execute(sql`

@@ -74,7 +74,12 @@ menuRouter.patch('/categories/:id', requireAuth, requireRole('owner', 'staff'), 
 })
 
 menuRouter.delete('/categories/:id', requireAuth, requireRole('owner'), async (c) => {
-  await db.delete(menuCategories).where(eq(menuCategories.id, c.req.param('id')))
+  const id = c.req.param('id')
+  await db.transaction(async (tx) => {
+    // Открепляем товары от категории, иначе FK не даст удалить (товары осиротеют).
+    await tx.update(inventory).set({ category: null }).where(eq(inventory.category, id))
+    await tx.delete(menuCategories).where(eq(menuCategories.id, id))
+  })
   return c.json({ ok: true })
 })
 

@@ -87,6 +87,7 @@ notificationsRouter.get('/stream', requireRole('owner', 'staff'), async (c) => {
 // ── POST /staff-call — планшет вызывает персонал ─────────────────────────
 notificationsRouter.post(
   '/staff-call',
+  requireRole('tablet', 'staff', 'owner'),
   zValidator('json', z.object({
     spaceId: z.string().uuid().optional(),
     message: z.string().max(200).optional(),
@@ -121,6 +122,7 @@ notificationsRouter.post(
 // ── POST /request-bill — планшет запрашивает счёт ────────────────────────
 notificationsRouter.post(
   '/request-bill',
+  requireRole('tablet', 'staff', 'owner'),
   zValidator('json', z.object({
     checkId: z.string().uuid(),
   })),

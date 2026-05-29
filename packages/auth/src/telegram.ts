@@ -1,6 +1,6 @@
 import { createHmac } from 'crypto'
 
-export function verifyTelegramInitData(initData: string, botToken: string): boolean {
+export function verifyTelegramInitData(initData: string, botToken: string, maxAgeSeconds = 86400): boolean {
   const params = new URLSearchParams(initData)
   const hash = params.get('hash')
   if (!hash) return false
@@ -15,7 +15,13 @@ export function verifyTelegramInitData(initData: string, botToken: string): bool
   const secretKey = createHmac('sha256', 'WebAppData').update(botToken).digest()
   const expectedHash = createHmac('sha256', secretKey).update(checkString).digest('hex')
 
-  return expectedHash === hash
+  if (expectedHash !== hash) return false
+
+  // Анти-replay: initData не должна быть старше maxAgeSeconds (по auth_date).
+  const authDate = parseInt(params.get('auth_date') ?? '0', 10)
+  if (!authDate || Date.now() / 1000 - authDate > maxAgeSeconds) return false
+
+  return true
 }
 
 export function parseTelegramInitData(initData: string): Record<string, string> {

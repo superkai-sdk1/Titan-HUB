@@ -26,7 +26,7 @@ cashopsRouter.get('/', async (c) => {
     .orderBy(desc(cashOperations.createdAt))
 
   // Balance from shifts service logic
-  let balance = { cashStart: 0, cashPayments: 0, deposits: 0, withdrawals: 0, expected: 0 }
+  let balance = { cashStart: 0, cashPayments: 0, deposits: 0, withdrawals: 0, salaries: 0, expected: 0 }
   if (shift) {
     const [cashSum] = await db.select({ total: sum(checkPayments.amount) })
       .from(checkPayments)
@@ -35,12 +35,14 @@ cashopsRouter.get('/', async (c) => {
     const [ops] = await db.select({
       deposits: sql<string>`coalesce(sum(case when type = 'deposit' then amount::numeric else 0 end), 0)`,
       withdrawals: sql<string>`coalesce(sum(case when type = 'withdrawal' then amount::numeric else 0 end), 0)`,
+      salaries: sql<string>`coalesce(sum(case when type = 'salary' then amount::numeric else 0 end), 0)`,
     }).from(cashOperations).where(eq(cashOperations.shiftId, shift.id))
     const cashStart = parseFloat(String(shift.cashStart ?? 0)) || 0
     const cashPayments = parseFloat(String(cashSum?.total ?? 0)) || 0
     const deposits = parseFloat(String(ops?.deposits ?? 0)) || 0
     const withdrawals = parseFloat(String(ops?.withdrawals ?? 0)) || 0
-    balance = { cashStart, cashPayments, deposits, withdrawals, expected: cashStart + cashPayments + deposits - withdrawals }
+    const salaries = parseFloat(String(ops?.salaries ?? 0)) || 0
+    balance = { cashStart, cashPayments, deposits, withdrawals, salaries, expected: cashStart + cashPayments + deposits - withdrawals - salaries }
   }
 
   return c.json({ operations, balance })

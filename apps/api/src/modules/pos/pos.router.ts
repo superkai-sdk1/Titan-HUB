@@ -215,7 +215,19 @@ posRouter.get('/checks', async (c) => {
       guestName = ch.guestNames[0]
     }
 
-    return { ...ch, itemCount: count, guestName }
+    // Аренда: имя зоны + ставка (нужно планшету для live-таймера и карточкам POS)
+    let spaceName: string | null = null
+    let spaceHourlyRate: string | null = null
+    if (ch.spaceId) {
+      const [sp] = await db
+        .select({ name: spaces.name, hourlyRate: spaces.hourlyRate })
+        .from(spaces)
+        .where(eq(spaces.id, ch.spaceId))
+      spaceName = sp?.name ?? null
+      spaceHourlyRate = sp?.hourlyRate ?? null
+    }
+
+    return { ...ch, itemCount: count, guestName, spaceName, spaceHourlyRate, hasRental: !!ch.spaceId }
   }))
   return c.json({ checks: enriched })
 })
