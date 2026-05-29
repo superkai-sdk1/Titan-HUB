@@ -44,11 +44,15 @@ interface SpaceResult {
 
 type NewCheckStep = 'search' | 'tariff' | 'new_client' | 'space'
 
+// Нормальное время нахождения — 8 часов. До него таймер просто считается
+// (нейтральный), последние 30 мин — мягкое жёлтое предупреждение, после 8ч — красный.
+const NORMAL_STAY_MIN = 8 * 60
+
 function getTimerColor(createdAt: string, now: number): string {
   const mins = differenceInMinutes(now, new Date(createdAt))
-  if (mins < 30) return 'var(--on-surface-variant)'
-  if (mins < 60) return 'var(--warning)'
-  return 'var(--danger)'
+  if (mins >= NORMAL_STAY_MIN) return 'var(--danger)'
+  if (mins >= NORMAL_STAY_MIN - 30) return 'var(--warning)'
+  return 'var(--on-surface-variant)'
 }
 
 function formatElapsed(createdAt: string, now: number): string {
@@ -73,8 +77,9 @@ function getInitials(name?: string | null): string {
   return name.split(' ').map(p => p[0]).join('').toUpperCase().slice(0, 2)
 }
 
+// Красное мигание — только после 8ч (для обычных гостей и почасовой аренды).
 function isWarning(createdAt: string, now: number): boolean {
-  return differenceInMinutes(now, new Date(createdAt)) >= 30
+  return differenceInMinutes(now, new Date(createdAt)) >= NORMAL_STAY_MIN
 }
 
 
