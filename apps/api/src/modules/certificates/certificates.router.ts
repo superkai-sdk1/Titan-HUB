@@ -19,7 +19,16 @@ certificatesRouter.use('*', requireAuth)
 
 certificatesRouter.get('/', requireRole('owner', 'staff'), async (c) => {
   const rows = await db.select().from(certificates).orderBy(desc(certificates.createdAt))
-  return c.json({ certificates: rows })
+  // Нормализуем под фронт: amount(=nominal), числа, производный статус.
+  const out = rows.map(r => ({
+    id: r.id,
+    code: r.code,
+    amount: Number(r.nominal),
+    balance: Number(r.balance),
+    status: (r.isUsed || Number(r.balance) <= 0 ? 'used' : 'active') as 'used' | 'active',
+    createdAt: r.createdAt,
+  }))
+  return c.json({ certificates: out })
 })
 
 certificatesRouter.post('/', requireRole('owner', 'staff'), zValidator('json', CertSchema), async (c) => {

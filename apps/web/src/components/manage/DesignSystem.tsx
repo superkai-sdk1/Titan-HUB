@@ -670,7 +670,7 @@ export function IconButton({
   icon, onClick, ariaLabel, variant = 'secondary', size = 40, disabled, style,
 }: {
   icon: string
-  onClick?: () => void
+  onClick?: (e: React.MouseEvent) => void
   ariaLabel: string
   variant?: 'secondary' | 'ghost' | 'danger'
   size?: number

@@ -5,15 +5,13 @@ import { api } from '@/lib/api'
 import { format } from 'date-fns'
 import { ru } from 'date-fns/locale'
 import { Icon } from '@/components/Icon'
-
-const INP: React.CSSProperties = { width: '100%', padding: '12px 16px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.05)', color: 'var(--on-surface)', fontSize: 14, outline: 'none', boxSizing: 'border-box' }
-const SEL: React.CSSProperties = { width: '100%', padding: '12px 16px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(29,26,36,0.8)', color: 'var(--on-surface)', fontSize: 14, outline: 'none', cursor: 'pointer', boxSizing: 'border-box' }
-const LBL: React.CSSProperties = { fontFamily: "'JetBrains Mono',monospace", fontSize: 10, fontWeight: 700, textTransform: 'uppercase' as const, letterSpacing: '0.08em', color: 'var(--on-surface-variant)', margin: '0 0 6px', display: 'block' }
+import { PageHeader, Sheet, Button, IconButton, ConfirmDialog, INP, LBL, formatMoney } from '@/components/manage/DesignSystem'
+import { StateView } from '@/components/StateView'
+import { useToast } from '@/components/Toast'
 
 const STATUS_MAP: Record<string, [string, string]> = {
-  active: ['Активен', '#10B981'],
-  used: ['Использован', 'rgba(204,195,216,0.4)'],
-  expired: ['Истёк', '#F43F5E'],
+  active: ['Активен', 'var(--success)'],
+  used: ['Использован', 'var(--on-surface-variant)'],
 }
 
 interface Certificate {
@@ -21,40 +19,34 @@ interface Certificate {
   code: string
   amount: number
   balance: number
-  expiryDate?: string
-  comment?: string
-  status: 'active' | 'used' | 'expired'
+  status: 'active' | 'used'
   createdAt: string
 }
 
 export default function CertificatesPage() {
   const qc = useQueryClient()
+  const { show } = useToast()
   const [showCreate, setShowCreate] = useState(false)
   const [selected, setSelected] = useState<Certificate | null>(null)
+  const [confirmDeactivate, setConfirmDeactivate] = useState(false)
   const [copiedId, setCopiedId] = useState<string | null>(null)
-  const [form, setForm] = useState({ amount: '', expiryDate: '', comment: '' })
+  const [amount, setAmount] = useState('')
 
-  const { data } = useQuery<{ certificates: Certificate[] }>({
+  const { data, isLoading } = useQuery<{ certificates: Certificate[] }>({
     queryKey: ['certificates'],
     queryFn: () => api.get('/certificates'),
   })
 
   const create = useMutation({
-    mutationFn: (body: { amount: number; expiryDate?: string; comment?: string }) =>
-      api.post('/certificates', body),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['certificates'] })
-      setShowCreate(false)
-      setForm({ amount: '', expiryDate: '', comment: '' })
-    },
+    mutationFn: (nominal: number) => api.post('/certificates', { nominal }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['certificates'] }); setShowCreate(false); setAmount('') },
+    onError: () => show('Не удалось создать сертификат', 'error'),
   })
 
   const deactivate = useMutation({
     mutationFn: (id: string) => api.put(`/certificates/${id}/deactivate`),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['certificates'] })
-      setSelected(null)
-    },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['certificates'] }); setSelected(null); setConfirmDeactivate(false) },
+    onError: () => { setConfirmDeactivate(false); show('Не удалось деактивировать', 'error') },
   })
 
   const certificates = data?.certificates ?? []
@@ -62,267 +54,102 @@ export default function CertificatesPage() {
 
   const copyCode = (cert: Certificate, e: React.MouseEvent) => {
     e.stopPropagation()
-    navigator.clipboard.writeText(cert.code).then(() => {
+    navigator.clipboard?.writeText(cert.code).then(() => {
       setCopiedId(cert.id)
       setTimeout(() => setCopiedId(null), 1500)
-    })
+    }).catch(() => show('Не удалось скопировать', 'error'))
   }
 
   const formatDate = (dateStr?: string) => {
     if (!dateStr) return '—'
-    try {
-      return format(new Date(dateStr), 'd MMM yyyy', { locale: ru })
-    } catch {
-      return dateStr
-    }
+    try { return format(new Date(dateStr), 'd MMM yyyy', { locale: ru }) } catch { return '—' }
   }
 
   return (
-    <div style={{ padding: '24px 16px', maxWidth: 600, margin: '0 auto' }}>
-      {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
-        <div>
-          <h1 style={{ margin: 0, fontSize: 28, fontWeight: 700, color: 'var(--on-surface)' }}>Сертификаты</h1>
-          <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--on-surface-variant)' }}>
-            Активных: {activeCount}
-          </p>
-        </div>
-        <button
-          onClick={() => setShowCreate(true)}
-          style={{
-            display: 'flex', alignItems: 'center', gap: 6,
-            padding: '10px 18px', borderRadius: 14, border: 'none', cursor: 'pointer',
-            background: 'linear-gradient(135deg, var(--primary, #6750A4), #9C72CF)',
-            color: '#fff', fontWeight: 600, fontSize: 14,
-          }}
-        >
-          <Icon name="add_card" size={18} />
-          Создать
-        </button>
+    <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100dvh' }}>
+      <PageHeader
+        title="Сертификаты"
+        subtitle={`Активных: ${activeCount}`}
+        action={{ label: 'Создать', icon: 'add_card', onClick: () => setShowCreate(true) }}
+      />
+
+      <div style={{ padding: '16px 16px var(--bottom-nav-clear, 24px)', maxWidth: 680, margin: '0 auto', width: '100%' }}>
+        {isLoading && !data ? (
+          <StateView state="loading" />
+        ) : certificates.length === 0 ? (
+          <StateView state="empty" icon="card_giftcard" title="Сертификатов нет" />
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {certificates.map(cert => {
+              const [statusLabel, statusColor] = STATUS_MAP[cert.status] ?? ['—', 'var(--on-surface-variant)']
+              const isCopied = copiedId === cert.id
+              return (
+                <div key={cert.id} className="glass-l2" onClick={() => setSelected(cert)} style={{ borderRadius: 16, padding: 18, cursor: 'pointer', position: 'relative' }}>
+                  <span style={{ position: 'absolute', top: 16, right: 16, padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700, background: `color-mix(in srgb, ${statusColor} 16%, transparent)`, color: statusColor, border: `1px solid ${statusColor}` }}>
+                    {statusLabel}
+                  </span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, paddingRight: 110 }}>
+                    <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 20, fontWeight: 700, color: 'var(--on-surface)', letterSpacing: '0.04em' }}>{cert.code}</span>
+                    <IconButton icon={isCopied ? 'check' : 'content_copy'} ariaLabel="Скопировать код" variant="ghost" size={36} onClick={(e: any) => copyCode(cert, e)} style={{ color: isCopied ? 'var(--success)' : 'var(--on-surface-variant)' }} />
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                    <div>
+                      <span style={LBL}>Номинал</span>
+                      <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--on-surface)', fontVariantNumeric: 'tabular-nums' }}>{formatMoney(cert.amount)}</span>
+                    </div>
+                    <div>
+                      <span style={LBL}>Остаток</span>
+                      <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--on-surface)', fontVariantNumeric: 'tabular-nums' }}>{formatMoney(cert.balance)}</span>
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
       </div>
 
-      {/* List */}
-      {certificates.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--on-surface-variant)' }}>
-          <Icon name="card_giftcard" size={56} style={{ display: 'block', marginBottom: 12, opacity: 0.4 }} />
-          <p style={{ margin: 0, fontSize: 15 }}>Сертификатов нет</p>
-        </div>
-      ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {certificates.map(cert => {
-            const [statusLabel, statusColor] = STATUS_MAP[cert.status] ?? ['Неизвестно', 'rgba(255,255,255,0.3)']
-            const isCopied = copiedId === cert.id
-            return (
-              <div
-                key={cert.id}
-                className="glass-l2"
-                onClick={() => setSelected(cert)}
-                style={{ borderRadius: 16, padding: 20, cursor: 'pointer', position: 'relative' }}
-              >
-                {/* Status badge */}
-                <span style={{
-                  position: 'absolute', top: 16, right: 16,
-                  padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 600,
-                  background: cert.status === 'active'
-                    ? 'rgba(16,185,129,0.15)'
-                    : cert.status === 'expired'
-                      ? 'rgba(244,63,94,0.15)'
-                      : 'rgba(204,195,216,0.1)',
-                  color: statusColor,
-                  border: `1px solid ${statusColor}`,
-                }}>
-                  {statusLabel}
-                </span>
-
-                {/* Code row */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, paddingRight: 110 }}>
-                  <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 20, fontWeight: 700, color: 'var(--on-surface)', letterSpacing: '0.04em' }}>
-                    {cert.code}
-                  </span>
-                  <button
-                    onClick={e => copyCode(cert, e)}
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, color: isCopied ? '#10B981' : 'var(--on-surface-variant)', display: 'flex', alignItems: 'center', flexShrink: 0 }}
-                  >
-                    <Icon name={isCopied ? 'check' : 'content_copy'} size={18} />
-                  </button>
-                </div>
-
-                {/* Details */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
-                  <div>
-                    <span style={LBL}>Номинал</span>
-                    <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--on-surface)' }}>
-                      {cert.amount.toLocaleString('ru')} ₽
-                    </span>
-                  </div>
-                  <div>
-                    <span style={LBL}>Остаток</span>
-                    <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--on-surface)' }}>
-                      {cert.balance.toLocaleString('ru')} ₽
-                    </span>
-                  </div>
-                  <div>
-                    <span style={LBL}>Истекает</span>
-                    <span style={{ fontSize: 14, color: 'var(--on-surface-variant)' }}>
-                      {formatDate(cert.expiryDate)}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            )
-          })}
-        </div>
-      )}
-
-      {/* Detail Sheet */}
-      {selected && (
-        <div
-          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(8px)', zIndex: 50, display: 'flex', alignItems: 'flex-end' }}
-          onClick={() => setSelected(null)}
-        >
-          <div
-            className="glass-l2"
-            style={{ width: '100%', borderRadius: '24px 24px 0 0', padding: 28, boxSizing: 'border-box', maxWidth: 600, margin: '0 auto' }}
-            onClick={e => e.stopPropagation()}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
-              <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: 'var(--on-surface)' }}>Сертификат</h2>
-              <button
-                onClick={() => setSelected(null)}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--on-surface-variant)', display: 'flex', alignItems: 'center' }}
-              >
-                <Icon name="close" />
-              </button>
-            </div>
-
-            <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 26, fontWeight: 700, color: 'var(--on-surface)', marginBottom: 20, letterSpacing: '0.04em' }}>
+      {/* Detail */}
+      <Sheet open={!!selected} onClose={() => setSelected(null)} title="Сертификат" desktopSize="sm">
+        {selected && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 24, fontWeight: 700, color: 'var(--on-surface)', letterSpacing: '0.04em', textAlign: 'center', padding: '12px 0', background: 'rgba(255,255,255,0.04)', borderRadius: 14 }}>
               {selected.code}
             </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 24 }}>
-              <div>
-                <span style={LBL}>Номинал</span>
-                <span style={{ fontSize: 16, fontWeight: 600, color: 'var(--on-surface)' }}>{selected.amount.toLocaleString('ru')} ₽</span>
-              </div>
-              <div>
-                <span style={LBL}>Остаток</span>
-                <span style={{ fontSize: 16, fontWeight: 600, color: 'var(--on-surface)' }}>{selected.balance.toLocaleString('ru')} ₽</span>
-              </div>
-              <div>
-                <span style={LBL}>Статус</span>
-                <span style={{ fontSize: 14, fontWeight: 600, color: STATUS_MAP[selected.status]?.[1] ?? 'var(--on-surface)' }}>
-                  {STATUS_MAP[selected.status]?.[0] ?? '—'}
-                </span>
-              </div>
-              <div>
-                <span style={LBL}>Истекает</span>
-                <span style={{ fontSize: 14, color: 'var(--on-surface-variant)' }}>{formatDate(selected.expiryDate)}</span>
-              </div>
-              <div>
-                <span style={LBL}>Создан</span>
-                <span style={{ fontSize: 14, color: 'var(--on-surface-variant)' }}>{formatDate(selected.createdAt)}</span>
-              </div>
-              {selected.comment && (
-                <div>
-                  <span style={LBL}>Комментарий</span>
-                  <span style={{ fontSize: 14, color: 'var(--on-surface-variant)' }}>{selected.comment}</span>
-                </div>
-              )}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+              <div><span style={LBL}>Номинал</span><span style={{ fontSize: 16, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{formatMoney(selected.amount)}</span></div>
+              <div><span style={LBL}>Остаток</span><span style={{ fontSize: 16, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{formatMoney(selected.balance)}</span></div>
+              <div><span style={LBL}>Статус</span><span style={{ fontSize: 14, fontWeight: 700, color: STATUS_MAP[selected.status]?.[1] }}>{STATUS_MAP[selected.status]?.[0] ?? '—'}</span></div>
+              <div><span style={LBL}>Создан</span><span style={{ fontSize: 14, color: 'var(--on-surface-variant)' }}>{formatDate(selected.createdAt)}</span></div>
             </div>
-
             {selected.status === 'active' && (
-              <button
-                onClick={() => deactivate.mutate(selected.id)}
-                disabled={deactivate.isPending}
-                style={{
-                  width: '100%', padding: '14px', borderRadius: 14, border: '1px solid rgba(244,63,94,0.3)',
-                  background: 'rgba(244,63,94,0.1)', color: '#F43F5E', fontWeight: 600, fontSize: 15,
-                  cursor: deactivate.isPending ? 'not-allowed' : 'pointer',
-                  opacity: deactivate.isPending ? 0.5 : 1,
-                  boxSizing: 'border-box',
-                }}
-              >
-                Деактивировать
-              </button>
+              <Button variant="danger" fullWidth onClick={() => setConfirmDeactivate(true)}>Деактивировать</Button>
             )}
           </div>
-        </div>
-      )}
+        )}
+      </Sheet>
 
-      {/* Create Modal */}
-      {showCreate && (
-        <div
-          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(8px)', zIndex: 50, display: 'flex', alignItems: 'flex-end' }}
-          onClick={() => setShowCreate(false)}
-        >
-          <div
-            className="glass-l2"
-            style={{ width: '100%', borderRadius: '24px 24px 0 0', padding: 28, boxSizing: 'border-box', maxWidth: 600, margin: '0 auto' }}
-            onClick={e => e.stopPropagation()}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
-              <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: 'var(--on-surface)' }}>Новый сертификат</h2>
-              <button
-                onClick={() => setShowCreate(false)}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--on-surface-variant)', display: 'flex', alignItems: 'center' }}
-              >
-                <Icon name="close" />
-              </button>
-            </div>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-              <div>
-                <label style={LBL}>Сумма *</label>
-                <input
-                  type="number"
-                  placeholder="1000"
-                  value={form.amount}
-                  onChange={e => setForm(f => ({ ...f, amount: e.target.value }))}
-                  style={INP}
-                />
-              </div>
-              <div>
-                <label style={LBL}>Срок действия</label>
-                <input
-                  type="date"
-                  value={form.expiryDate}
-                  onChange={e => setForm(f => ({ ...f, expiryDate: e.target.value }))}
-                  style={INP}
-                />
-              </div>
-              <div>
-                <label style={LBL}>Комментарий</label>
-                <input
-                  placeholder="Необязательно"
-                  value={form.comment}
-                  onChange={e => setForm(f => ({ ...f, comment: e.target.value }))}
-                  style={INP}
-                />
-              </div>
-              <button
-                onClick={() =>
-                  create.mutate({
-                    amount: Number(form.amount),
-                    ...(form.expiryDate ? { expiryDate: form.expiryDate } : {}),
-                    ...(form.comment ? { comment: form.comment } : {}),
-                  })
-                }
-                disabled={create.isPending || !form.amount}
-                style={{
-                  width: '100%', padding: '14px', borderRadius: 14, border: 'none',
-                  cursor: create.isPending || !form.amount ? 'not-allowed' : 'pointer',
-                  background: 'linear-gradient(135deg, var(--primary, #6750A4), #9C72CF)',
-                  color: '#fff', fontWeight: 600, fontSize: 15,
-                  opacity: create.isPending || !form.amount ? 0.5 : 1,
-                  boxSizing: 'border-box',
-                }}
-              >
-                {create.isPending ? 'Создание...' : 'Создать'}
-              </button>
-            </div>
+      {/* Create */}
+      <Sheet open={showCreate} onClose={() => setShowCreate(false)} title="Новый сертификат" desktopSize="sm">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div>
+            <label style={LBL}>Номинал (₽)</label>
+            <input type="number" min="0" inputMode="decimal" placeholder="1000" value={amount} onChange={e => setAmount(e.target.value)} style={INP} autoFocus />
           </div>
+          <Button fullWidth size="lg" loading={create.isPending} disabled={!parseFloat(amount)} onClick={() => create.mutate(Number(amount))}>Создать сертификат</Button>
         </div>
-      )}
+      </Sheet>
+
+      <ConfirmDialog
+        open={confirmDeactivate}
+        onClose={() => setConfirmDeactivate(false)}
+        onConfirm={() => selected && deactivate.mutate(selected.id)}
+        title="Деактивировать сертификат?"
+        message="Сертификат больше нельзя будет использовать для оплаты."
+        confirmLabel="Деактивировать"
+        danger
+        loading={deactivate.isPending}
+      />
     </div>
   )
 }
