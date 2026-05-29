@@ -567,7 +567,7 @@ export default function DashboardPage() {
   ]
 
   return (
-    <div style={{ height: '100%', overflowY: 'auto', overflowX: 'hidden', display: 'flex', flexDirection: 'column', width: '100%' }}>
+    <div style={{ minHeight: '100%', overflowX: 'hidden', display: 'flex', flexDirection: 'column', width: '100%' }}>
       {/* Header */}
       <div style={{ padding: '16px 16px 0', flexShrink: 0, position: 'sticky', top: 0, zIndex: 10, background: 'rgba(21,18,27,0.92)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)' }}>
         <div style={{ marginBottom: 12 }}>

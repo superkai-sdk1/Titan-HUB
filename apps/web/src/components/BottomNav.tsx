@@ -90,10 +90,10 @@ export function BottomNav() {
         className="bottom-nav-root"
         style={{
           position: 'fixed',
-          // Плавающий «остров»: отступ снизу = home indicator + небольшой зазор.
-          // В standalone-PWA значение переопределяется в globals.css (учёт
-          // зарезервированной нижней зоны через 100svh - 100lvh).
-          bottom: 'calc(env(safe-area-inset-bottom) + 6px)',
+          // Плавающий «остров»: отступ снизу = home indicator + прозрачный зазор
+          // (эффект парения над экраном). В standalone-PWA значение
+          // переопределяется в globals.css (учёт нижней зоны через 100svh-100lvh).
+          bottom: 'calc(env(safe-area-inset-bottom) + 16px)',
           left: 14,
           right: 14,
           zIndex: 40,
