@@ -5,7 +5,6 @@ import { api } from '@/lib/api'
 import { format, formatDistanceToNow } from 'date-fns'
 import { ru } from 'date-fns/locale'
 import { PageHeader, Sheet, ConfirmDialog, INP, SEL, LBL } from '@/components/manage/DesignSystem'
-import { PullToRefreshContainer } from '@/components/PullToRefreshContainer'
 import { StateView } from '@/components/StateView'
 import { useToast } from '@/components/Toast'
 import { Icon } from '@/components/Icon'
@@ -87,8 +86,7 @@ export default function ClientsPage() {
         </div>
       </div>
 
-      <PullToRefreshContainer onRefresh={async () => { qc.invalidateQueries({ queryKey: ['clients'] }) }}>
-      <div style={{ padding: '16px', flex: 1, maxWidth: 680, margin: '0 auto', width: '100%' }}>
+      <div style={{ padding: '16px 16px var(--bottom-nav-clear)', flex: 1, maxWidth: 680, margin: '0 auto', width: '100%', boxSizing: 'border-box' }}>
         {clients.length === 0 ? (
           isLoading && !data
             ? <StateView state="loading" />
@@ -125,7 +123,6 @@ export default function ClientsPage() {
           </div>
         )}
       </div>
-      </PullToRefreshContainer>
 
       {/* Create sheet */}
       <Sheet open={showCreate} onClose={() => setShowCreate(false)} title="Новый клиент">
