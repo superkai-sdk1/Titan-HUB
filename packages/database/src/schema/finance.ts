@@ -72,6 +72,22 @@ export const bonusHistory = pgTable('bonus_history', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 })
 
+// Лоты начислений бонусов — параллельный учёт для сгорания бонусов по сроку.
+// profiles.bonusPoints остаётся источником истины для баланса; лоты лишь
+// отслеживают, какие начисления когда сгорают (FIFO по сроку). Лот с
+// expiresAt = NULL не сгорает никогда. remaining уменьшается при списании.
+export const bonusLots = pgTable('bonus_lots', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  profileId: uuid('profile_id')
+    .notNull()
+    .references(() => profiles.id),
+  amount: numeric('amount', { precision: 12, scale: 2 }).notNull(),
+  remaining: numeric('remaining', { precision: 12, scale: 2 }).notNull(),
+  // NULL = бессрочно (сгорание выключено на момент начисления).
+  expiresAt: timestamp('expires_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+})
+
 export const supplies = pgTable('supplies', {
   id: uuid('id').primaryKey().defaultRandom(),
   idempotencyKey: text('idempotency_key'),
@@ -188,6 +204,8 @@ export const cashOperations = pgTable('cash_operations', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 })
 
+export type BonusLot = typeof bonusLots.$inferSelect
+export type NewBonusLot = typeof bonusLots.$inferInsert
 export type Discount = typeof discounts.$inferSelect
 export type Certificate = typeof certificates.$inferSelect
 export type Transaction = typeof transactions.$inferSelect

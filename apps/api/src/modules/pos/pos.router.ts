@@ -5,11 +5,12 @@ import { z } from 'zod'
 import {
   db, checks, checkItems, checkItemModifiers, checkPayments, checkDiscounts,
   inventory, profiles, spaces, certificates, bonusHistory, transactions, modifiers as modifiersTable,
-  appSettings, events, discounts,
+  appSettings, events, discounts, clientDiscountRules,
   eq, and, inArray, desc, sql, isNull,
 } from '@titan/database'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
 import { getCurrentShift } from '../shifts/shifts.service.js'
+import { accrueBonusLot, spendBonusLots, getBonusExpiryDays } from '../../lib/bonusLots.js'
 import { Redis } from 'ioredis'
 
 function publishEvent(event: string, data: unknown) {
@@ -144,15 +145,14 @@ async function applyAutoDiscounts(exec: DbOrTx, checkId: string) {
     and(eq(checkDiscounts.checkId, checkId), sql`${checkDiscounts.discountId} IS NOT NULL`),
   )
 
-  const autoRows = await exec.select().from(discounts)
-    .where(and(eq(discounts.isActive, true), eq(discounts.isAuto, true)))
-  if (!autoRows.length) return
-
   const toInsert: (typeof checkDiscounts.$inferInsert)[] = []
-  for (const d of autoRows) {
+  const applied = new Set<string>() // дедуп по id скидки (auto + tier не задвоить)
+
+  function pushDiscount(d: typeof discounts.$inferSelect) {
+    if (applied.has(d.id)) return
+    applied.add(d.id)
     if (d.itemId) {
-      // Скидка на конкретную позицию: применяем к каждой строке этого товара,
-      // прошедшей порог minQuantity.
+      // Скидка на конкретную позицию: к каждой строке этого товара, прошедшей minQuantity.
       const minQty = d.minQuantity ?? 1
       for (const it of items.filter(i => i.itemId === d.itemId && i.quantity >= minQty)) {
         const base = parseFloat(it.priceAtTime) * it.quantity
@@ -167,13 +167,11 @@ async function applyAutoDiscounts(exec: DbOrTx, checkId: string) {
         })
       }
     } else {
-      // Общая скидка на чек. С clientId — только для совпадающего клиента.
-      if (d.clientId && d.clientId !== check.playerId) continue
       const base = itemsSum
       const amount = d.type === 'percent'
         ? base * (parseFloat(d.value) / 100)
         : Math.min(parseFloat(d.value), base)
-      if (amount <= 0) continue
+      if (amount <= 0) return
       toInsert.push({
         checkId, discountId: d.id, name: d.name, type: d.type,
         value: String(d.value), amount: String(round2(amount)),
@@ -181,6 +179,32 @@ async function applyAutoDiscounts(exec: DbOrTx, checkId: string) {
       })
     }
   }
+
+  // 1. Авто-скидки (isAuto). Общая скидка с clientId — только для совпадающего клиента.
+  const autoRows = await exec.select().from(discounts)
+    .where(and(eq(discounts.isActive, true), eq(discounts.isAuto, true)))
+  for (const d of autoRows) {
+    if (!d.itemId && d.clientId && d.clientId !== check.playerId) continue
+    pushDiscount(d)
+  }
+
+  // 2. Скидки по тиру: активное правило для тира клиента → связанная активная скидка
+  //    (применяется в силу правила, независимо от флага isAuto самой скидки).
+  if (check.playerId) {
+    const [player] = await exec.select({ tier: profiles.clientTier }).from(profiles).where(eq(profiles.id, check.playerId))
+    if (player?.tier) {
+      const tierRows = await exec.select({ d: discounts })
+        .from(clientDiscountRules)
+        .innerJoin(discounts, eq(discounts.id, clientDiscountRules.discountId))
+        .where(and(
+          eq(clientDiscountRules.isActive, true),
+          eq(clientDiscountRules.clientTier, player.tier),
+          eq(discounts.isActive, true),
+        ))
+      for (const row of tierRows) pushDiscount(row.d)
+    }
+  }
+
   if (toInsert.length) await exec.insert(checkDiscounts).values(toInsert)
 }
 
@@ -815,6 +839,8 @@ posRouter.post('/checks/:id/pay', requireRole('owner', 'staff'), zValidator('jso
           balanceAfter: String(newBonus),
           reason: 'Payment for check',
         })
+        // Списываем из лотов (FIFO по сроку сгорания) — параллельный учёт для expiry.
+        await spendBonusLots(tx, body.playerId, body.bonusAmount)
         player = { ...player, bonusPoints: String(newBonus) }
       }
 
@@ -891,6 +917,9 @@ posRouter.post('/checks/:id/pay', requireRole('owner', 'staff'), zValidator('jso
               balanceAfter: String(newBonus),
               reason: `${Math.round(accrualRate * 100)}% начисление за чек`,
             })
+            // Лот для сгорания бонусов: expiresAt = now + bonus_expiry_days (либо null).
+            const expiryDays = await getBonusExpiryDays(tx)
+            await accrueBonusLot(tx, body.playerId, bonusEarned, expiryDays)
           }
         }
       }

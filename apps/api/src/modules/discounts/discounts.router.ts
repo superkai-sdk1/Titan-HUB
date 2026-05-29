@@ -2,7 +2,7 @@ import type { AppEnv } from '../../types.js'
 import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
-import { db, discounts, eq, and, desc } from '@titan/database'
+import { db, discounts, clientDiscountRules, eq, desc } from '@titan/database'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
 
 export const discountsRouter = new Hono<AppEnv>()
@@ -50,6 +50,122 @@ discountsRouter.post(
     return c.json({ discount: row }, 201)
   }
 )
+
+// ───────────────────────── Скидки по тиру клиента ─────────────────────────
+// Правила маппинга «тир клиента → скидка». Связанная скидка применяется на
+// кассе по факту наличия активного правила для тира клиента — НЕЗАВИСИМО от
+// флага isAuto самой скидки. Семантика для кассы: clientDiscountRules.isActive
+// → ищем по clientTier клиента → берём discountId → применяем эту скидку.
+//
+// ВАЖНО: эти роуты объявлены ДО `/:id` PATCH/DELETE ниже, иначе путь
+// `tier-rules` был бы перехвачен параметром `:id`.
+
+const RU_TIER_LABEL: Record<'guest' | 'resident' | 'student', string> = {
+  guest: 'Гость',
+  resident: 'Резидент',
+  student: 'Студент',
+}
+
+// GET /api/discounts/tier-rules — список правил (активные и нет) с привязанной скидкой.
+discountsRouter.get('/tier-rules', requireRole('owner', 'staff'), async (c) => {
+  const rows = await db
+    .select({
+      id: clientDiscountRules.id,
+      name: clientDiscountRules.name,
+      clientTier: clientDiscountRules.clientTier,
+      discountId: clientDiscountRules.discountId,
+      isActive: clientDiscountRules.isActive,
+      createdAt: clientDiscountRules.createdAt,
+      discountName: discounts.name,
+      discountType: discounts.type,
+      discountValue: discounts.value,
+    })
+    .from(clientDiscountRules)
+    .leftJoin(discounts, eq(clientDiscountRules.discountId, discounts.id))
+    .orderBy(desc(clientDiscountRules.createdAt))
+
+  const rules = rows.map((r) => ({
+    id: r.id,
+    name: r.name,
+    clientTier: r.clientTier,
+    discountId: r.discountId,
+    isActive: r.isActive,
+    discount: r.discountId
+      ? { name: r.discountName, type: r.discountType, value: r.discountValue }
+      : null,
+  }))
+  return c.json({ rules })
+})
+
+// POST /api/discounts/tier-rules — создать правило.
+discountsRouter.post(
+  '/tier-rules',
+  requireRole('owner', 'staff'),
+  zValidator('json', z.object({
+    name: z.string().min(1).optional(),
+    clientTier: z.enum(['guest', 'resident', 'student']),
+    discountId: z.string().uuid(),
+    isActive: z.boolean().optional().default(true),
+  })),
+  async (c) => {
+    const body = c.req.valid('json')
+
+    // Привязываемая скидка должна существовать (discountId — FK).
+    const [linked] = await db.select({ name: discounts.name }).from(discounts).where(eq(discounts.id, body.discountId))
+    if (!linked) return c.json({ error: 'Скидка не найдена' }, 400)
+
+    // Имя необязательно: по умолчанию — название скидки, иначе метка тира.
+    const name = body.name?.trim() || linked.name || RU_TIER_LABEL[body.clientTier]
+
+    const [row] = await db.insert(clientDiscountRules).values({
+      name,
+      clientTier: body.clientTier,
+      discountId: body.discountId,
+      isActive: body.isActive,
+    }).returning()
+    return c.json({ rule: row }, 201)
+  }
+)
+
+// PATCH /api/discounts/tier-rules/:id — частичное обновление.
+discountsRouter.patch(
+  '/tier-rules/:id',
+  requireRole('owner', 'staff'),
+  zValidator('json', z.object({
+    name: z.string().min(1).optional(),
+    clientTier: z.enum(['guest', 'resident', 'student']).optional(),
+    discountId: z.string().uuid().optional(),
+    isActive: z.boolean().optional(),
+  })),
+  async (c) => {
+    const id = c.req.param('id')
+    const body = c.req.valid('json')
+
+    if (body.discountId !== undefined) {
+      const [linked] = await db.select({ id: discounts.id }).from(discounts).where(eq(discounts.id, body.discountId))
+      if (!linked) return c.json({ error: 'Скидка не найдена' }, 400)
+    }
+
+    const update: Record<string, unknown> = {}
+    if (body.name !== undefined) update.name = body.name
+    if (body.clientTier !== undefined) update.clientTier = body.clientTier
+    if (body.discountId !== undefined) update.discountId = body.discountId
+    if (body.isActive !== undefined) update.isActive = body.isActive
+
+    const [row] = await db.update(clientDiscountRules).set(update).where(eq(clientDiscountRules.id, id)).returning()
+    if (!row) return c.json({ error: 'Not found' }, 404)
+    return c.json({ rule: row })
+  }
+)
+
+// DELETE /api/discounts/tier-rules/:id — удалить правило.
+discountsRouter.delete('/tier-rules/:id', requireRole('owner', 'staff'), async (c) => {
+  const id = c.req.param('id')
+  await db.delete(clientDiscountRules).where(eq(clientDiscountRules.id, id))
+  return c.json({ ok: true })
+})
+
+// ──────────────────────────────────────────────────────────────────────────
 
 // PATCH /api/discounts/:id
 discountsRouter.patch(

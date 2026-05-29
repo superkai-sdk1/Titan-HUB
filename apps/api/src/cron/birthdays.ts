@@ -1,7 +1,17 @@
 import { db, profiles, notifications, appSettings, bonusHistory } from '@titan/database'
 import { eq, and, isNull, inArray, sql } from 'drizzle-orm'
+import { accrueBonusLot, expireBonuses, getBonusExpiryDays } from '../lib/bonusLots.js'
 
 export async function checkBirthdays() {
+  // Ежедневный проход сгорания бонусов: список дней рождения мог быть пустым,
+  // но сгорание должно отрабатывать каждый запуск. Изолируем от остального крона.
+  try {
+    const expiredCount = await expireBonuses(db)
+    if (expiredCount > 0) console.log(`[bonus-expiry] burned bonuses for ${expiredCount} client(s)`)
+  } catch (e) {
+    console.error('[bonus-expiry] pass failed', e)
+  }
+
   // Дата по Москве (UTC+3) — независимо от TZ контейнера и времени запуска.
   const msk = new Date(Date.now() + 3 * 3600 * 1000)
   const mm = String(msk.getUTCMonth() + 1).padStart(2, '0')
@@ -38,6 +48,8 @@ export async function checkBirthdays() {
   // Начисляем бонус каждому имениннику — идемпотентно (один раз в день).
   const credited = new Set<string>()
   if (bonusEnabled && bonusAmount > 0) {
+    // Срок сгорания на момент начисления (null = бессрочно).
+    const expiryDays = await getBonusExpiryDays(db)
     for (const client of birthdayClients) {
       try {
         const done = await db.transaction(async (tx) => {
@@ -59,6 +71,8 @@ export async function checkBirthdays() {
             balanceAfter: String(newBonus),
             reason: 'Бонус ко дню рождения',
           })
+          // Параллельный лот, чтобы бонус ко дню рождения умел сгорать по сроку.
+          await accrueBonusLot(tx, client.id, bonusAmount, expiryDays)
           return true
         })
         if (done) credited.add(client.id)
