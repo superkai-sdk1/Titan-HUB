@@ -3,6 +3,7 @@ import React, { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { PageHeader, Sheet, INP, LBL } from '@/components/manage/DesignSystem'
+import { PullToRefreshContainer } from '@/components/PullToRefreshContainer'
 import { StateView } from '@/components/StateView'
 import { useToast } from '@/components/Toast'
 import { Icon } from '@/components/Icon'
@@ -109,7 +110,8 @@ export default function InventoryPage() {
         </div>
       </div>
 
-      <div style={{ padding: '16px 16px var(--bottom-nav-clear)', flex: 1, maxWidth: 680, margin: '0 auto', width: '100%', boxSizing: 'border-box' }}>
+      <PullToRefreshContainer onRefresh={async () => { qc.invalidateQueries({ queryKey: ['menu', 'items'] }) }}>
+      <div style={{ padding: '16px', flex: 1, maxWidth: 680, margin: '0 auto', width: '100%' }}>
         {isLoading && !data ? (
           <StateView state="loading" />
         ) : filtered.length === 0 ? (
@@ -164,6 +166,7 @@ export default function InventoryPage() {
           </div>
         )}
       </div>
+      </PullToRefreshContainer>
 
       <Sheet open={!!selected} onClose={closeSheet} title={selected?.name}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
