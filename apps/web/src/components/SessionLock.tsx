@@ -193,6 +193,7 @@ function LockOverlay({
                 key={idx}
                 onClick={() => isDel ? setPin(p => p.slice(0, -1)) : append(k)}
                 disabled={pinLoading}
+                aria-label={isDel ? 'Стереть' : k}
                 style={{
                   width: 72, height: 72, borderRadius: '50%',
                   border: '1px solid rgba(255,255,255,0.1)',

@@ -79,6 +79,15 @@
 /* Глобальный спиннер (используется кнопками/состояниями загрузки) */
 @keyframes spin { to { transform: rotate(360deg); } }
 
+/* Тряска при неверном PIN (login / session lock) */
+@keyframes pin-shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-8px); }
+  40% { transform: translateX(8px); }
+  60% { transform: translateX(-5px); }
+  80% { transform: translateX(5px); }
+}
+
 /* ── Reset ──────────────────────────────────────────── */
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; max-width: 100%; }
 html {

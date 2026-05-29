@@ -116,6 +116,7 @@ function PinKeypad({
             <button
               key={idx}
               onClick={() => press(key)}
+              aria-label={isDel ? 'Стереть' : key}
               className="glass-l2"
               style={{
                 padding: '14px 0', borderRadius: 14,

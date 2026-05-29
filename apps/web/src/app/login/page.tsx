@@ -328,15 +328,6 @@ function PinScreen({
     }
   }
 
-  function append(d: string) {
-    if (loading || pin.length >= 4) return
-    const next = pin + d
-    setPin(next)
-    if (next.length === 4) setTimeout(() => handlePin(next), 80)
-  }
-
-  const keys = ['1','2','3','4','5','6','7','8','9','','0','⌫']
-
   return (
     <div>
       <p style={{ fontSize: 17, fontWeight: 700, color: 'rgba(255,255,255,0.9)', margin: '0 0 6px', textAlign: 'center' }}>
@@ -346,47 +337,10 @@ function PinScreen({
         Введите ваш 4-значный PIN
       </p>
 
-      {/* Dots */}
-      <div style={{ display: 'flex', justifyContent: 'center', gap: 18, marginBottom: 24, animation: error ? 'pin-shake 0.35s ease' : 'none' }}>
-        {[0,1,2,3].map(i => {
-          const f = i < pin.length
-          return (
-            <div key={i} style={{
-              width: 16, height: 16, borderRadius: '50%',
-              background: f ? (error ? '#EF4444' : '#8B5CF6') : 'transparent',
-              border: `2px solid ${f ? (error ? '#EF4444' : '#8B5CF6') : 'rgba(255,255,255,0.2)'}`,
-              boxShadow: f && !error ? '0 0 14px rgba(139,92,246,0.7)' : 'none',
-              transform: f ? 'scale(1.2)' : 'scale(1)', transition: 'all 0.15s',
-            }} />
-          )
-        })}
-      </div>
+      <PinDots value={pin} error={error} />
+      <PinPad value={pin} loading={loading} onChange={(next) => { setPin(next); if (next.length === 4) setTimeout(() => handlePin(next), 80) }} />
 
-      {/* Keypad */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginBottom: 16 }}>
-        {keys.map((k, i) => {
-          if (k === '') return <div key={i} />
-          const isDel = k === '⌫'
-          return (
-            <button key={i} onClick={() => isDel ? setPin(p => p.slice(0,-1)) : append(k)} disabled={loading}
-              style={{
-                aspectRatio: '1/1', borderRadius: 16, border: '1px solid rgba(255,255,255,0.08)',
-                background: isDel ? 'transparent' : 'rgba(255,255,255,0.05)',
-                color: 'rgba(255,255,255,0.9)', fontSize: isDel ? 20 : 24, fontWeight: 600,
-                cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                transition: 'all 0.1s', opacity: loading ? 0.5 : 1,
-              }}
-              onMouseDown={e => { e.currentTarget.style.background = 'rgba(139,92,246,0.2)'; e.currentTarget.style.transform = 'scale(0.92)' }}
-              onMouseUp={e => { e.currentTarget.style.background = isDel ? 'transparent' : 'rgba(255,255,255,0.05)'; e.currentTarget.style.transform = 'scale(1)' }}
-              onMouseLeave={e => { e.currentTarget.style.background = isDel ? 'transparent' : 'rgba(255,255,255,0.05)'; e.currentTarget.style.transform = 'scale(1)' }}
-            >
-              {k}
-            </button>
-          )
-        })}
-      </div>
-
-      {errMsg && <p style={{ color: '#FCA5A5', textAlign: 'center', fontSize: 13, margin: '0 0 8px' }}>{errMsg}</p>}
+      {errMsg && <p style={{ color: '#FCA5A5', textAlign: 'center', fontSize: 13, margin: '12px 0 8px' }}>{errMsg}</p>}
 
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, marginTop: 8 }}>
         {onPasskey && (
@@ -709,7 +663,7 @@ function SetupLayout({ icon, title, subtitle, step, totalSteps, children }: {
 
 function PinDots({ value, error }: { value: string; error: boolean }) {
   return (
-    <div style={{ display: 'flex', justifyContent: 'center', gap: 18, marginBottom: 24 }}>
+    <div style={{ display: 'flex', justifyContent: 'center', gap: 18, marginBottom: 24, animation: error ? 'pin-shake 0.35s ease' : 'none' }}>
       {[0,1,2,3].map(i => {
         const f = i < value.length
         return <div key={i} style={{ width: 16, height: 16, borderRadius: '50%', background: f ? (error ? '#EF4444' : '#8B5CF6') : 'transparent', border: `2px solid ${f ? (error ? '#EF4444' : '#8B5CF6') : 'rgba(255,255,255,0.2)'}`, boxShadow: f && !error ? '0 0 14px rgba(139,92,246,0.7)' : 'none', transform: f ? 'scale(1.2)' : 'scale(1)', transition: 'all 0.15s' }} />
@@ -732,7 +686,7 @@ function PinPad({ onChange, value, loading }: { onChange: (v: string) => void; v
         if (k === '') return <div key={i} />
         const isDel = k === '⌫'
         return (
-          <button key={i} onClick={() => press(k)} disabled={!!loading}
+          <button key={i} onClick={() => press(k)} disabled={!!loading} aria-label={isDel ? 'Стереть' : k}
             style={{ aspectRatio: '1/1', borderRadius: 16, border: '1px solid rgba(255,255,255,0.08)', background: isDel ? 'transparent' : 'rgba(255,255,255,0.05)', color: 'rgba(255,255,255,0.9)', fontSize: isDel ? 20 : 24, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.1s', opacity: loading ? 0.5 : 1 }}
             onMouseDown={e => { e.currentTarget.style.background = 'rgba(139,92,246,0.2)'; e.currentTarget.style.transform = 'scale(0.92)' }}
             onMouseUp={e => { e.currentTarget.style.background = isDel ? 'transparent' : 'rgba(255,255,255,0.05)'; e.currentTarget.style.transform = 'scale(1)' }}
