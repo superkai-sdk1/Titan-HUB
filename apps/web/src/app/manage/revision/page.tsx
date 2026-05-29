@@ -1,20 +1,11 @@
 'use client'
 import React, { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { useRouter } from 'next/navigation'
 import { api } from '@/lib/api'
 import { Icon } from '@/components/Icon'
-
-const INP: React.CSSProperties = {
-  width: '100%', padding: '12px 16px', borderRadius: 12,
-  border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.05)',
-  color: 'var(--on-surface)', fontSize: 14, outline: 'none', boxSizing: 'border-box',
-}
-const LBL: React.CSSProperties = {
-  fontFamily: "'JetBrains Mono',monospace", fontSize: 10, fontWeight: 700,
-  textTransform: 'uppercase' as const, letterSpacing: '0.08em',
-  color: 'var(--on-surface-variant)', margin: '0 0 6px', display: 'block',
-}
+import { PageHeader, Button, INP, LBL } from '@/components/manage/DesignSystem'
+import { StateView } from '@/components/StateView'
+import { useToast } from '@/components/Toast'
 
 interface StockItem {
   id: string
@@ -31,14 +22,14 @@ interface RevisionEntry {
 }
 
 export default function RevisionPage() {
-  const router = useRouter()
   const qc = useQueryClient()
+  const { show } = useToast()
   const [mode, setMode] = useState<'idle' | 'active' | 'done'>('idle')
   const [entries, setEntries] = useState<Record<string, string>>({})
   const [saving, setSaving] = useState(false)
   const [results, setResults] = useState<{ name: string; expected: number; actual: number; diff: number }[]>([])
 
-  const { data } = useQuery<{ items: StockItem[] }>({
+  const { data, isLoading } = useQuery<{ items: StockItem[] }>({
     queryKey: ['menu-items-inventory'],
     queryFn: () => api.get('/menu/items'),
   })
@@ -83,7 +74,7 @@ export default function RevisionPage() {
       setMode('done')
     }
     if (failed) {
-      alert(`Часть позиций не сохранена (ошибка сети). Применено: ${res.length}. Повторите ревизию для оставшихся.`)
+      show(`Часть позиций не сохранена. Применено: ${res.length}. Повторите для оставшихся.`, 'error')
     }
   }
 
@@ -91,43 +82,18 @@ export default function RevisionPage() {
   const total = tracked.length
 
   return (
-    <div style={{ minHeight: '100dvh', background: 'var(--background)', display: 'flex', flexDirection: 'column' }}>
-      {/* Header */}
-      <div style={{
-        position: 'sticky', top: 0, zIndex: 20,
-        background: 'rgba(21,18,27,0.95)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
-        borderBottom: '1px solid rgba(255,255,255,0.06)',
-        padding: '16px 20px',
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <button
-            onClick={() => router.back()}
-            style={{ width: 36, height: 36, borderRadius: 10, border: '1px solid rgba(255,255,255,0.08)', background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--on-surface-variant)' }}
-          >
-            <Icon name="arrow_back" size={18} />
-          </button>
-          <div style={{ flex: 1 }}>
-            <h1 style={{ fontSize: 20, fontWeight: 800, margin: 0 }}>Ревизия</h1>
-            <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: '2px 0 0' }}>
-              {mode === 'idle' ? `${total} товаров с учётом склада` : mode === 'active' ? `Заполнено ${filled} из ${total}` : `Ревизия завершена`}
-            </p>
-          </div>
-          {mode === 'active' && (
-            <button
-              onClick={finishRevision}
-              disabled={saving || filled === 0}
-              style={{ padding: '10px 18px', borderRadius: 14, border: 'none', cursor: saving || filled === 0 ? 'not-allowed' : 'pointer', background: 'linear-gradient(135deg, #8B5CF6, #4cd7f6)', color: '#fff', fontSize: 13, fontWeight: 700, opacity: filled === 0 ? 0.5 : 1 }}
-            >
-              {saving ? 'Сохраняем…' : 'Завершить'}
-            </button>
-          )}
-        </div>
-      </div>
+    <div style={{ minHeight: '100dvh', display: 'flex', flexDirection: 'column' }}>
+      <PageHeader
+        title="Ревизия"
+        subtitle={mode === 'idle' ? `${total} товаров с учётом склада` : mode === 'active' ? `Заполнено ${filled} из ${total}` : 'Ревизия завершена'}
+      />
 
-      <div style={{ padding: '20px 16px 16px', flex: 1 }}>
+      <div style={{ padding: '20px 16px var(--bottom-nav-clear, 16px)', flex: 1 }}>
+
+        {isLoading && !data && <StateView state="loading" />}
 
         {/* Idle state */}
-        {mode === 'idle' && (
+        {mode === 'idle' && data && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
             {/* Info card */}
             <div className="glass-l2" style={{ borderRadius: 18, padding: 20 }}>

@@ -4,6 +4,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { PageHeader, Sheet, INP, LBL } from '@/components/manage/DesignSystem'
 import { PullToRefreshContainer } from '@/components/PullToRefreshContainer'
+import { StateView } from '@/components/StateView'
+import { useToast } from '@/components/Toast'
 import { Icon } from '@/components/Icon'
 
 type FilterTab = 'all' | 'low' | 'untracked'
@@ -19,13 +21,14 @@ interface MenuItem {
 
 export default function InventoryPage() {
   const qc = useQueryClient()
+  const { show } = useToast()
   const [filter, setFilter] = useState<FilterTab>('all')
   const [search, setSearch] = useState('')
   const [selected, setSelected] = useState<MenuItem | null>(null)
   const [newQty, setNewQty] = useState('')
   const [note, setNote] = useState('')
 
-  const { data } = useQuery<{ items: MenuItem[] }>({
+  const { data, isLoading } = useQuery<{ items: MenuItem[] }>({
     queryKey: ['menu-items-inventory'],
     queryFn: () => api.get('/menu/items'),
   })
@@ -46,6 +49,7 @@ export default function InventoryPage() {
     mutationFn: (body: { id: string; stockQuantity?: number; adjustDelta?: number; reason?: string }) =>
       api.patch(`/inventory/${body.id}`, { stockQuantity: body.stockQuantity, adjustDelta: body.adjustDelta, reason: body.reason }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['menu-items-inventory'] }),
+    onError: () => show('Не удалось обновить остаток', 'error'),
   })
 
   function adjustInline(item: MenuItem, delta: number) {
@@ -63,10 +67,9 @@ export default function InventoryPage() {
 
   function stockColor(item: MenuItem) {
     if (!item.trackStock) return 'var(--on-surface-variant)'
-    if (item.stockQuantity === 0) return '#EF4444'
-    if (item.stockQuantity <= item.minThreshold) return '#EF4444'
-    if (item.stockQuantity <= item.minThreshold * 2) return '#F59E0B'
-    return '#10B981'
+    if (item.stockQuantity <= item.minThreshold) return 'var(--danger)'
+    if (item.stockQuantity <= item.minThreshold * 2) return 'var(--warning)'
+    return 'var(--success)'
   }
 
   function stockLabel(item: MenuItem) {
@@ -109,11 +112,10 @@ export default function InventoryPage() {
 
       <PullToRefreshContainer onRefresh={async () => { qc.invalidateQueries({ queryKey: ['menu', 'items'] }) }}>
       <div style={{ padding: '16px', flex: 1, maxWidth: 680, margin: '0 auto', width: '100%' }}>
-        {filtered.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '60px 0' }}>
-            <Icon name="inventory_2" size={48} color="rgba(204,195,216,0.2)" style={{ display: 'block', marginBottom: 12 }} />
-            <p style={{ fontSize: 14, color: 'rgba(204,195,216,0.4)', margin: 0 }}>Нет товаров</p>
-          </div>
+        {isLoading && !data ? (
+          <StateView state="loading" />
+        ) : filtered.length === 0 ? (
+          <StateView state="empty" icon="inventory_2" title="Нет товаров" />
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {filtered.map(item => {
