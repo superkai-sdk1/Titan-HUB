@@ -19,7 +19,8 @@ import {
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { api } from '@/lib/api'
-import { PageHeader, Sheet, INP, SEL, LBL } from '@/components/manage/DesignSystem'
+import { PageHeader, Sheet, Toggle, INP, SEL, LBL } from '@/components/manage/DesignSystem'
+import { useToast } from '@/components/Toast'
 import { Icon } from '@/components/Icon'
 
 function parseNum(v: unknown) { return parseFloat(String(v ?? 0)) || 0 }
@@ -303,14 +304,6 @@ const BLANK_ITEM = {
 }
 const BLANK_CAT = { name: '', icon: 'food', color: '#10B981', isTabletVisible: true }
 
-function MiniToggle({ value, onChange }: { value: boolean; onChange: (v: boolean) => void }) {
-  return (
-    <div onClick={() => onChange(!value)} style={{ width: 44, height: 24, borderRadius: 12, background: value ? '#8B5CF6' : 'rgba(255,255,255,0.1)', position: 'relative', cursor: 'pointer', transition: 'background 0.2s', flexShrink: 0 }}>
-      <div style={{ position: 'absolute', top: 2, left: value ? 22 : 2, width: 20, height: 20, borderRadius: '50%', background: '#fff', transition: 'left 0.2s' }} />
-    </div>
-  )
-}
-
 function SortableItem({ item, cats, onEdit, onDelete }: { item: any; cats: any[]; onEdit: () => void; onDelete: () => void }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: item.id })
   const style: React.CSSProperties = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.5 : item.isActive ? 1 : 0.5, zIndex: isDragging ? 999 : 'auto' }
@@ -446,6 +439,7 @@ export default function MenuPage() {
     useSensor(TouchSensor, { activationConstraint: { distance: 8 } })
   )
 
+  const { show } = useToast()
   const { data: catsData } = useQuery({ queryKey: ['menu', 'categories'], queryFn: () => api.get<any>('/menu/categories') })
   const { data: itemsData } = useQuery({ queryKey: ['menu', 'items', 'all'], queryFn: () => api.get<any>('/menu/items/all') })
   const cats: any[] = catsData?.categories ?? []
@@ -458,19 +452,23 @@ export default function MenuPage() {
 
   const saveItem = useMutation({
     mutationFn: (b: any) => editing ? api.patch(`/menu/items/${editing.id}`, b) : api.post('/menu/items', b),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['menu', 'items'] }); setShowForm(false); setEditing(null); setForm(BLANK_ITEM) }
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['menu', 'items'] }); setShowForm(false); setEditing(null); setForm(BLANK_ITEM) },
+    onError: () => show('Не удалось сохранить товар', 'error'),
   })
   const delItem = useMutation({
     mutationFn: (id: string) => api.delete(`/menu/items/${id}`),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['menu', 'items'] })
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['menu', 'items'] }),
+    onError: () => show('Не удалось удалить товар', 'error'),
   })
   const saveCat = useMutation({
     mutationFn: (b: any) => editingCat ? api.patch(`/menu/categories/${editingCat.id}`, b) : api.post('/menu/categories', b),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['menu', 'categories'] }); setShowCatForm(false); setEditingCat(null); setCatForm(BLANK_CAT) }
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['menu', 'categories'] }); setShowCatForm(false); setEditingCat(null); setCatForm(BLANK_CAT) },
+    onError: () => show('Не удалось сохранить категорию', 'error'),
   })
   const delCat = useMutation({
     mutationFn: (id: string) => api.delete(`/menu/categories/${id}`),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['menu', 'categories'] })
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['menu', 'categories'] }),
+    onError: () => show('Не удалось удалить категорию', 'error'),
   })
   const reorderItems = useMutation({
     mutationFn: (items: { id: string; sortOrder: number }[]) => api.patch('/menu/items/reorder', { items }),
@@ -520,7 +518,7 @@ export default function MenuPage() {
   const previewColorObj = getCatColorObj(catForm.color)
 
   return (
-    <div style={{ minHeight: '100dvh', background: 'var(--background)', display: 'flex', flexDirection: 'column' }}>
+    <div style={{ minHeight: '100dvh', display: 'flex', flexDirection: 'column' }}>
       <PageHeader
         title="Меню"
         subtitle={`${allItems.length} позиций · ${cats.length} категорий`}
@@ -532,7 +530,7 @@ export default function MenuPage() {
         <div style={{ maxWidth: 680, margin: '0 auto' }}>
           {activeTab === 'items' && (
             <div style={{ position: 'relative', padding: '12px 0 0' }}>
-              <Icon name="search" size={18} color="var(--on-surface-variant)" style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-30%)', pointerEvents: 'none' }} />
+              <Icon name="search" size={18} color="var(--on-surface-variant)" style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }} />
               <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Поиск по названию…" style={{ ...INP, paddingLeft: 42, borderRadius: 12 }} />
             </div>
           )}
@@ -631,7 +629,7 @@ export default function MenuPage() {
                   <p style={{ fontSize: 14, fontWeight: 500, margin: 0 }}>{lbl}</p>
                   <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: '2px 0 0' }}>{sub}</p>
                 </div>
-                <MiniToggle value={form[key]} onChange={v => setForm((p: any) => ({ ...p, [key]: v }))} />
+                <Toggle size="sm" value={form[key]} onChange={v => setForm((p: any) => ({ ...p, [key]: v }))} />
               </div>
             ))}
           </div>
@@ -777,7 +775,7 @@ export default function MenuPage() {
               <p style={{ fontSize: 14, fontWeight: 600, margin: 0 }}>Видно на планшете</p>
               <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: '2px 0 0' }}>Показывать категорию гостям</p>
             </div>
-            <MiniToggle value={catForm.isTabletVisible ?? true} onChange={v => setCatForm((p: any) => ({ ...p, isTabletVisible: v }))} />
+            <Toggle size="sm" value={catForm.isTabletVisible ?? true} onChange={v => setCatForm((p: any) => ({ ...p, isTabletVisible: v }))} />
           </div>
 
           <button
