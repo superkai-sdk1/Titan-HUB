@@ -2,7 +2,9 @@
 import React, { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
-import { PageHeader, Sheet, INP, LBL, Toggle } from '@/components/manage/DesignSystem'
+import { PageHeader, Sheet, Button, ConfirmDialog, INP, LBL, Toggle } from '@/components/manage/DesignSystem'
+import { StateView } from '@/components/StateView'
+import { useToast } from '@/components/Toast'
 import { Icon } from '@/components/Icon'
 
 const TYPE_MAP: Record<string, [string, string, string]> = {
@@ -19,15 +21,17 @@ const BLANK = { name: '', type: 'table', hourlyRate: '0', isActive: true, capaci
 
 export default function SpacesPage() {
   const qc = useQueryClient()
+  const { show } = useToast()
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState<any>(null)
   const [form, setForm] = useState<any>(BLANK)
+  const [confirmDelId, setConfirmDelId] = useState<string | null>(null)
 
-  const { data } = useQuery({ queryKey: ['spaces', 'all'], queryFn: () => api.get<any>('/spaces/all') })
+  const { data, isLoading } = useQuery({ queryKey: ['spaces', 'all'], queryFn: () => api.get<any>('/spaces/all') })
   const spaces: any[] = data?.spaces ?? []
 
-  const save = useMutation({ mutationFn: (b: any) => editing ? api.patch(`/spaces/${editing.id}`, b) : api.post('/spaces', b), onSuccess: () => { qc.invalidateQueries({ queryKey: ['spaces'] }); setShowForm(false); setEditing(null); setForm(BLANK) } })
-  const del = useMutation({ mutationFn: (id: string) => api.delete(`/spaces/${id}`), onSuccess: () => qc.invalidateQueries({ queryKey: ['spaces'] }) })
+  const save = useMutation({ mutationFn: (b: any) => editing ? api.patch(`/spaces/${editing.id}`, b) : api.post('/spaces', b), onSuccess: () => { qc.invalidateQueries({ queryKey: ['spaces'] }); setShowForm(false); setEditing(null); setForm(BLANK) }, onError: () => show('Не удалось сохранить', 'error') })
+  const del = useMutation({ mutationFn: (id: string) => api.delete(`/spaces/${id}`), onSuccess: () => { qc.invalidateQueries({ queryKey: ['spaces'] }); setConfirmDelId(null) }, onError: () => { setConfirmDelId(null); show('Не удалось удалить', 'error') } })
 
   const [pairCode, setPairCode] = useState<{ code: string; spaceName: string; expiresIn: number } | null>(null)
   const [pairCountdown, setPairCountdown] = useState(0)
@@ -38,6 +42,7 @@ export default function SpacesPage() {
       setPairCode(data)
       setPairCountdown(data.expiresIn)
     },
+    onError: () => show('Не удалось сгенерировать код', 'error'),
   })
 
   React.useEffect(() => {
@@ -66,12 +71,10 @@ export default function SpacesPage() {
       />
 
       <div style={{ padding: '16px', maxWidth: 680, margin: '0 auto', width: '100%' }}>
-        {spaces.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '80px 0' }}>
-            <Icon name="table_bar" size={56} color="rgba(204,195,216,0.2)" style={{ display: 'block', marginBottom: 12 }} />
-            <p style={{ fontSize: 15, color: 'rgba(204,195,216,0.4)', margin: 0 }}>Нет пространств</p>
-            <p style={{ fontSize: 12, color: 'rgba(204,195,216,0.3)', margin: '6px 0 0' }}>Добавьте зоны, столы, кабинки</p>
-          </div>
+        {isLoading && !data ? (
+          <StateView state="loading" />
+        ) : spaces.length === 0 ? (
+          <StateView state="empty" icon="table_bar" title="Нет пространств" description="Добавьте зоны, столы, кабинки" />
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 12 }}>
             {spaces.map((s: any) => {
@@ -97,8 +100,8 @@ export default function SpacesPage() {
                     </span>
                     {s.capacity && <span style={{ fontSize: 11, color: 'var(--on-surface-variant)' }}>{s.capacity} чел.</span>}
                   </div>
-                  <button onClick={e => { e.stopPropagation(); del.mutate(s.id) }} style={{ position: 'absolute', top: 10, right: 10, width: 26, height: 26, borderRadius: 6, border: '1px solid rgba(244,63,94,0.2)', background: 'rgba(244,63,94,0.08)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#F87171' }}>
-                    <Icon name="delete" size={14} />
+                  <button onClick={e => { e.stopPropagation(); setConfirmDelId(s.id) }} aria-label="Удалить пространство" style={{ position: 'absolute', top: 10, right: 10, width: 30, height: 30, borderRadius: 8, border: '1px solid rgba(251,113,133,0.25)', background: 'rgba(251,113,133,0.1)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--danger)' }}>
+                    <Icon name="delete" size={15} />
                   </button>
                 </div>
               )
@@ -147,11 +150,19 @@ export default function SpacesPage() {
             </button>
           )}
 
-          <button onClick={() => save.mutate({ ...form, hourlyRate: Number(form.hourlyRate), capacity: form.capacity ? Number(form.capacity) : undefined })} disabled={save.isPending || !form.name} style={{ width: '100%', padding: '14px 0', borderRadius: 14, border: 'none', background: 'linear-gradient(135deg, #8B5CF6, #4cd7f6)', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer', marginTop: 4 }}>
-            {save.isPending ? 'Сохраняем…' : 'Сохранить'}
-          </button>
+          <Button fullWidth size="lg" loading={save.isPending} disabled={!form.name} onClick={() => save.mutate({ ...form, hourlyRate: Number(form.hourlyRate), capacity: form.capacity ? Number(form.capacity) : undefined })} style={{ marginTop: 4 }}>Сохранить</Button>
         </div>
       </Sheet>
+
+      <ConfirmDialog
+        open={!!confirmDelId}
+        onClose={() => setConfirmDelId(null)}
+        onConfirm={() => confirmDelId && del.mutate(confirmDelId)}
+        title="Удалить пространство?"
+        confirmLabel="Удалить"
+        danger
+        loading={del.isPending}
+      />
 
       {/* Pairing code dialog */}
       {pairCode && (
