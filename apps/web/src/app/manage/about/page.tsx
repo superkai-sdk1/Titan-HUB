@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { useAuthStore } from '@/store/auth.store'
 import { Icon } from '@/components/Icon'
+import { PageHeader } from '@/components/manage/DesignSystem'
 
 const LBL: React.CSSProperties = {
   fontFamily: "'JetBrains Mono',monospace",
@@ -156,24 +157,9 @@ export default function AboutPage() {
   const info = data
 
   return (
-    <div style={{ padding: '24px 20px', maxWidth: 720, margin: '0 auto' }}>
-      {/* Header */}
-      <div style={{ marginBottom: 28 }}>
-        <h1
-          style={{
-            fontSize: 28,
-            fontWeight: 700,
-            color: 'var(--on-surface)',
-            margin: 0,
-            letterSpacing: '-0.02em',
-          }}
-        >
-          О системе
-        </h1>
-        <p style={{ color: 'var(--on-surface-variant)', fontSize: 14, margin: '6px 0 0' }}>
-          Информация о версии и состоянии системы
-        </p>
-      </div>
+    <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100dvh' }}>
+      <PageHeader title="О системе" subtitle="Информация о версии и состоянии системы" />
+      <div style={{ padding: '20px 16px var(--bottom-nav-clear, 24px)', maxWidth: 720, margin: '0 auto', width: '100%' }}>
 
       {/* Version Card */}
       <div style={{ ...CARD, marginBottom: 16 }}>
@@ -611,12 +597,7 @@ export default function AboutPage() {
         </div>
       </div>
 
-      <style>{`
-        @keyframes spin {
-          from { transform: rotate(0deg); }
-          to { transform: rotate(360deg); }
-        }
-      `}</style>
+      </div>
     </div>
   )
 }
