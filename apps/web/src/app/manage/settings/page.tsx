@@ -1,34 +1,11 @@
 'use client'
 import React, { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { useRouter } from 'next/navigation'
 import { api } from '@/lib/api'
 import { Icon } from '@/components/Icon'
-
-const INP: React.CSSProperties = {
-  width: '100%', padding: '14px 16px', borderRadius: 14,
-  border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.05)',
-  color: 'var(--on-surface)', fontSize: 14, outline: 'none', boxSizing: 'border-box',
-  transition: 'border-color 0.2s',
-}
-const SEL: React.CSSProperties = {
-  width: '100%', padding: '14px 16px', borderRadius: 14,
-  border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(29,26,36,0.8)',
-  color: 'var(--on-surface)', fontSize: 14, outline: 'none', cursor: 'pointer', boxSizing: 'border-box',
-}
-const LBL: React.CSSProperties = {
-  fontFamily: "'JetBrains Mono',monospace", fontSize: 10, fontWeight: 700,
-  textTransform: 'uppercase' as const, letterSpacing: '0.08em',
-  color: 'var(--on-surface-variant)', margin: '0 0 8px', display: 'block',
-}
-
-function Toggle({ value, onChange }: { value: boolean; onChange: (v: boolean) => void }) {
-  return (
-    <div onClick={() => onChange(!value)} style={{ width: 52, height: 28, borderRadius: 14, background: value ? '#8B5CF6' : 'rgba(255,255,255,0.1)', position: 'relative', cursor: 'pointer', transition: 'background 0.2s', flexShrink: 0, boxShadow: value ? '0 0 12px rgba(139,92,246,0.4)' : 'none' }}>
-      <div style={{ position: 'absolute', top: 3, left: value ? 27 : 3, width: 22, height: 22, borderRadius: '50%', background: '#fff', transition: 'left 0.2s', boxShadow: '0 1px 4px rgba(0,0,0,0.3)' }} />
-    </div>
-  )
-}
+import { PageHeader, SaveButton, ToggleRow, INP, SEL, LBL } from '@/components/manage/DesignSystem'
+import { StateView } from '@/components/StateView'
+import { useToast } from '@/components/Toast'
 
 function SectionCard({ title, icon, color, children }: { title: string; icon: string; color: string; children: React.ReactNode }) {
   return (
@@ -56,18 +33,6 @@ function Field({ label, icon, children }: { label: string; icon?: string; childr
   )
 }
 
-function ToggleRow({ label, subtitle, value, onChange }: { label: string; subtitle?: string; value: boolean; onChange: (v: boolean) => void }) {
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '12px 14px', borderRadius: 12, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
-      <div>
-        <span style={{ fontSize: 14, color: 'var(--on-surface)', fontWeight: 500 }}>{label}</span>
-        {subtitle && <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: '2px 0 0' }}>{subtitle}</p>}
-      </div>
-      <Toggle value={value} onChange={onChange} />
-    </div>
-  )
-}
-
 interface FormData {
   venue_name: string
   venue_address: string
@@ -82,7 +47,7 @@ interface FormData {
 
 export default function SettingsPage() {
   const qc = useQueryClient()
-  const router = useRouter()
+  const { show } = useToast()
   const [saved, setSaved] = useState(false)
   const [form, setForm] = useState<FormData>({
     venue_name: '', venue_address: '', hours_open: '', hours_close: '',
@@ -129,6 +94,7 @@ export default function SettingsPage() {
       setSaved(true)
       setTimeout(() => setSaved(false), 2500)
     },
+    onError: () => show('Не удалось сохранить настройки', 'error'),
   })
 
   function set<K extends keyof FormData>(key: K, value: FormData[K]) {
@@ -136,26 +102,12 @@ export default function SettingsPage() {
   }
 
   return (
-    <div style={{ minHeight: '100dvh', background: 'var(--background)', display: 'flex', flexDirection: 'column' }}>
-      {/* Header */}
-      <div style={{ position: 'sticky', top: 0, zIndex: 20, background: 'rgba(21,18,27,0.95)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)', borderBottom: '1px solid rgba(255,255,255,0.06)', padding: '16px 20px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <button onClick={() => router.back()} style={{ width: 36, height: 36, borderRadius: 10, border: '1px solid rgba(255,255,255,0.08)', background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--on-surface-variant)' }}>
-            <Icon name="arrow_back" size={18} />
-          </button>
-          <div style={{ flex: 1 }}>
-            <h1 style={{ fontSize: 20, fontWeight: 800, margin: 0 }}>Настройки</h1>
-            <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: '2px 0 0' }}>Параметры заведения и системы</p>
-          </div>
-        </div>
-      </div>
+    <div style={{ minHeight: '100dvh', display: 'flex', flexDirection: 'column' }}>
+      <PageHeader title="Настройки" subtitle="Параметры заведения и системы" />
 
-      <div style={{ padding: '20px 16px 16px', display: 'flex', flexDirection: 'column', gap: 16, maxWidth: 680, margin: '0 auto', width: '100%' }}>
-        {isLoading ? (
-          <div style={{ textAlign: 'center', padding: 60, color: 'var(--on-surface-variant)' }}>
-            <Icon name="settings" size={40} style={{ display: 'block', marginBottom: 12, opacity: 0.4 }} />
-            Загрузка настроек…
-          </div>
+      <div style={{ padding: '20px 16px var(--bottom-nav-clear, 24px)', display: 'flex', flexDirection: 'column', gap: 16, maxWidth: 680, margin: '0 auto', width: '100%' }}>
+        {isLoading && !data ? (
+          <StateView state="loading" />
         ) : (
           <>
             {/* Venue */}
@@ -219,27 +171,7 @@ export default function SettingsPage() {
             </SectionCard>
 
             {/* Save */}
-            <button
-              onClick={() => save.mutate()}
-              disabled={save.isPending}
-              style={{
-                width: '100%', padding: '16px', borderRadius: 16, border: 'none',
-                background: saved ? 'rgba(16,185,129,0.8)' : save.isPending ? 'rgba(255,255,255,0.08)' : 'linear-gradient(135deg, #7c3aed, #2563eb)',
-                color: save.isPending ? 'var(--on-surface-variant)' : '#fff',
-                fontSize: 15, fontWeight: 800, cursor: save.isPending ? 'not-allowed' : 'pointer',
-                transition: 'all 0.3s',
-                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-                boxShadow: saved ? '0 4px 20px rgba(16,185,129,0.3)' : '0 4px 20px rgba(124,58,237,0.3)',
-              }}
-            >
-              {saved
-                ? <><Icon name="check_circle" size={18} />Сохранено!</>
-                : save.isPending
-                ? <><Icon name="progress_activity" size={18} style={{ animation: 'spin 1s linear infinite' }} />Сохраняем…</>
-                : <><Icon name="save" size={18} />Сохранить изменения</>
-              }
-            </button>
-            <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
+            <SaveButton onClick={() => save.mutate()} isPending={save.isPending} isSaved={saved} label="Сохранить изменения" />
           </>
         )}
       </div>

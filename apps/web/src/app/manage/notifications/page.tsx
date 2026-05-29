@@ -5,10 +5,9 @@ import { api } from '@/lib/api'
 import { format } from 'date-fns'
 import { ru } from 'date-fns/locale'
 import { Icon } from '@/components/Icon'
-
-const INP: React.CSSProperties = { width: '100%', padding: '12px 16px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.05)', color: 'var(--on-surface)', fontSize: 14, outline: 'none', boxSizing: 'border-box' }
-const SEL: React.CSSProperties = { width: '100%', padding: '12px 16px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(29,26,36,0.8)', color: 'var(--on-surface)', fontSize: 14, outline: 'none', cursor: 'pointer', boxSizing: 'border-box' }
-const LBL: React.CSSProperties = { fontFamily: "'JetBrains Mono',monospace", fontSize: 10, fontWeight: 700, textTransform: 'uppercase' as const, letterSpacing: '0.08em', color: 'var(--on-surface-variant)', margin: '0 0 6px', display: 'block' }
+import { PageHeader, Toggle } from '@/components/manage/DesignSystem'
+import { StateView } from '@/components/StateView'
+import { useToast } from '@/components/Toast'
 
 type NotifType = 'payment' | 'shift' | 'alert' | 'system' | 'bonus' | 'refund' | string
 
@@ -57,9 +56,10 @@ function relativeTime(dateStr: string): string {
 
 export default function NotificationsPage() {
   const qc = useQueryClient()
+  const { show } = useToast()
   const [expanded, setExpanded] = useState<string | null>(null)
 
-  const { data: notifData } = useQuery({
+  const { data: notifData, isLoading } = useQuery({
     queryKey: ['notifications'],
     queryFn: () => api.get<{ notifications: Notification[] }>('/notifications'),
   })
@@ -77,11 +77,13 @@ export default function NotificationsPage() {
   const readAll = useMutation({
     mutationFn: () => api.put('/notifications/read-all'),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['notifications'] }),
+    onError: () => show('Не удалось отметить', 'error'),
   })
 
   const saveSettings = useMutation({
     mutationFn: (settings: NotifSettings) => api.put('/notifications/settings', { settings }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['notifications', 'settings'] }),
+    onError: () => show('Не удалось сохранить настройку', 'error'),
   })
 
   const notifications: Notification[] = notifData?.notifications ?? []
@@ -99,43 +101,19 @@ export default function NotificationsPage() {
   }
 
   return (
-    <div style={{ minHeight: '100vh', background: 'var(--background)', paddingBottom: 40 }}>
-      {/* Header */}
-      <div style={{ padding: '24px 20px 16px', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <h1 style={{ margin: 0, fontSize: 28, fontWeight: 700, color: 'var(--on-surface)' }}>Уведомления</h1>
-          {unreadCount > 0 && (
-            <span style={{
-              fontSize: 12, fontWeight: 700, padding: '2px 8px', borderRadius: 20,
-              background: 'var(--primary)', color: '#fff', lineHeight: 1.5,
-            }}>
-              {unreadCount}
-            </span>
-          )}
-        </div>
-        <button
-          onClick={() => readAll.mutate()}
-          disabled={readAll.isPending || unreadCount === 0}
-          style={{
-            display: 'flex', alignItems: 'center', gap: 6,
-            background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)',
-            borderRadius: 10, padding: '8px 14px', cursor: 'pointer', fontSize: 12, fontWeight: 500,
-            color: 'var(--on-surface-variant)', flexShrink: 0,
-            opacity: unreadCount === 0 ? 0.4 : 1,
-          }}
-        >
-          <Icon name="done_all" size={16} />
-          Отметить все
-        </button>
-      </div>
+    <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100dvh' }}>
+      <PageHeader
+        title="Уведомления"
+        subtitle={unreadCount > 0 ? `${unreadCount} непрочитанных` : 'Все прочитаны'}
+        action={unreadCount > 0 ? { label: 'Прочитать все', icon: 'done_all', onClick: () => readAll.mutate() } : undefined}
+      />
 
       {/* List */}
-      <div style={{ padding: '0 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {notifications.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '64px 20px', color: 'var(--on-surface-variant)' }}>
-            <Icon name="notifications_off" size={56} style={{ display: 'block', marginBottom: 12, opacity: 0.4 }} />
-            <p style={{ margin: 0, fontSize: 15 }}>Нет уведомлений</p>
-          </div>
+      <div style={{ padding: '16px 16px 0', display: 'flex', flexDirection: 'column', gap: 8, maxWidth: 680, margin: '0 auto', width: '100%' }}>
+        {isLoading && !notifData ? (
+          <StateView state="loading" />
+        ) : notifications.length === 0 ? (
+          <StateView state="empty" icon="notifications_off" title="Нет уведомлений" />
         ) : (
           notifications.map(n => {
             const icon = TYPE_ICONS[n.type] ?? 'notifications'
@@ -202,7 +180,7 @@ export default function NotificationsPage() {
       </div>
 
       {/* Settings section */}
-      <div style={{ padding: '32px 16px 0' }}>
+      <div style={{ padding: '32px 16px var(--bottom-nav-clear, 24px)', maxWidth: 680, margin: '0 auto', width: '100%' }}>
         <h2 style={{ margin: '0 0 16px', fontSize: 16, fontWeight: 700, color: 'var(--on-surface)', padding: '0 4px' }}>
           Настройки уведомлений
         </h2>
@@ -220,21 +198,7 @@ export default function NotificationsPage() {
                 <Icon name={TYPE_ICONS[key] ?? 'notifications'} size={18} color="var(--on-surface-variant)" />
                 <span style={{ fontSize: 14, color: 'var(--on-surface)' }}>{label}</span>
               </div>
-              <button
-                onClick={() => toggleSetting(key)}
-                style={{
-                  width: 44, height: 24, borderRadius: 12, border: 'none', cursor: 'pointer',
-                  position: 'relative', transition: 'background 0.2s',
-                  background: settings[key] !== false ? 'var(--primary)' : 'rgba(255,255,255,0.15)',
-                  flexShrink: 0,
-                }}
-              >
-                <span style={{
-                  position: 'absolute', top: 2, left: settings[key] !== false ? 22 : 2,
-                  width: 20, height: 20, borderRadius: '50%', background: '#fff',
-                  transition: 'left 0.2s',
-                }} />
-              </button>
+              <Toggle size="sm" value={settings[key] !== false} onChange={() => toggleSetting(key)} ariaLabel={label} />
             </div>
           ))}
         </div>
