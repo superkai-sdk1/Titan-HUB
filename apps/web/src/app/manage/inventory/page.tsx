@@ -87,7 +87,7 @@ export default function InventoryPage() {
   ]
 
   return (
-    <div style={{ minHeight: '100dvh', background: 'var(--background)', display: 'flex', flexDirection: 'column' }}>
+    <div style={{ minHeight: '100dvh', display: 'flex', flexDirection: 'column' }}>
       <PageHeader
         title="Остатки"
         subtitle={lowStockCount > 0 ? `${lowStockCount} товаров ниже порога` : 'Все товары в норме'}

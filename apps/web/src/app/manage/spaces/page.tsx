@@ -63,7 +63,7 @@ export default function SpacesPage() {
   }
 
   return (
-    <div style={{ minHeight: '100dvh', background: 'var(--background)', display: 'flex', flexDirection: 'column' }}>
+    <div style={{ minHeight: '100dvh', display: 'flex', flexDirection: 'column' }}>
       <PageHeader
         title="Пространства"
         subtitle={`${spaces.length} зон`}

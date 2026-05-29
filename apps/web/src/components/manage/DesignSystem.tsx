@@ -73,11 +73,11 @@ export function Toggle({
 // ─── Sheet (унифицированный модальный компонент) ────────────────────────────
 //
 // Поведение:
-// • Mobile (<768px): bottom sheet с snap points [initial, full]
+// • Mobile (<768px): bottom sheet с интерактивной высотой 1:1 с пальцем
 // • Desktop (≥768px): centered modal с adaptive height по контенту
-// • Drag-to-close работает везде — за handle ИЛИ по контенту, если скролл вверху
-// • Smart scroll: при достижении верха списка drag вверх увеличивает sheet
-// • Snap-points переключаются автоматически в зависимости от скролла
+// • У самого верха списка тяга вверх растит панель до maxHeight (ровно за
+//   пальцем, без снапа), дальше — нативный скролл; тяга вниз сжимает до базы
+// • Тяга вниз у базовой высоты (или за ручку) — закрытие
 
 export interface SheetProps {
   open: boolean
@@ -122,17 +122,36 @@ export function Sheet({
 }: SheetProps) {
   const isDesktop = useIsDesktop()
   const scrollRef = useRef<HTMLDivElement>(null)
-  // Y offset от изначальной позиции (drag down = +, drag up = -)
+  // Высота панели в px — управляется жестом 1:1 с пальцем (motion value, без
+  // CSS-transition, чтобы рост/сжатие шли ровно за пальцем).
+  const sheetH = useMotionValue(typeof window !== 'undefined' ? window.innerHeight * 0.6 : 480)
+  // Смещение вниз при свайпе-закрытии.
   const dragY = useMotionValue(0)
-  // Текущий snap-point: 0 = initial, 1 = expanded (max)
-  const [snap, setSnap] = useState<0 | 1>(0)
+
+  // Пиксельные границы высоты из initialHeight/maxHeight (поддержка dvh/vh/px).
+  const dimsRef = useRef({ initial: 0, max: 0 })
+  const computeDims = useCallback(() => {
+    const vh = typeof window !== 'undefined' ? window.innerHeight : 800
+    const toPx = (s: string) => {
+      const n = parseFloat(s) || 0
+      return s.includes('px') ? n : (vh * n) / 100
+    }
+    dimsRef.current = { initial: toPx(initialHeight), max: toPx(maxHeight) }
+  }, [initialHeight, maxHeight])
 
   useEffect(() => {
-    if (open) {
-      animate(dragY, 0, { duration: 0 })
-      setSnap(0)
+    if (!open) return
+    computeDims()
+    sheetH.set(dimsRef.current.initial)
+    dragY.set(0)
+    const onResize = () => {
+      computeDims()
+      const { initial, max } = dimsRef.current
+      sheetH.set(Math.min(Math.max(sheetH.get(), initial), max))
     }
-  }, [open, dragY])
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [open, computeDims, sheetH, dragY])
 
   // Блокируем скролл body когда sheet открыт (предотвращаем background scroll)
   useEffect(() => {
@@ -142,70 +161,83 @@ export function Sheet({
     return () => { document.body.style.overflow = prev }
   }, [open])
 
-  // ── Mobile: snap-driven height ─────────────────────────────────────────
-  // На expanded snap (1) высота = maxHeight, на initial (0) = initialHeight
-  const sheetHeight = snap === 1 ? maxHeight : initialHeight
-
-  const DISMISS_THRESHOLD = 120
-  const EXPAND_THRESHOLD = -80
+  const DISMISS_THRESHOLD = 110
   const DISMISS_VELOCITY = 600
-
-  // Overlay прозрачность затухает при drag-down (только когда снизу)
+  // Overlay затухает при свайпе-закрытии.
   const overlayOpacity = useTransform(dragY, [0, 280], [1, 0])
 
-  const handleDragEnd = useCallback((_: PointerEvent, info: PanInfo) => {
-    const offset = info.offset.y
-    const velocity = info.velocity.y
+  const close = useCallback(() => {
+    animate(dragY, dimsRef.current.max + 240, { duration: 0.25, ease: [0.32, 0.72, 0, 1] }).then(onClose)
+  }, [dragY, onClose])
 
-    // Быстрый свайп вниз закрывает
-    if (velocity > DISMISS_VELOCITY) {
-      animate(dragY, 600, { duration: 0.25, ease: [0.32, 0.72, 0, 1] }).then(onClose)
-      return
-    }
-    // Быстрый свайп вверх expand'ит (если ещё не expanded)
-    if (velocity < -DISMISS_VELOCITY && snap === 0) {
-      setSnap(1)
-      animate(dragY, 0, { type: 'spring', damping: 32, stiffness: 320 })
-      return
-    }
+  // ── Жест по контенту (touch): у самого верха тянем — растим/сжимаем панель
+  //    1:1 с пальцем; дальше — нативный скролл. Палец вниз у верха на базовой
+  //    высоте — закрытие.
+  const gRef = useRef<{ y0: number; st0: number; h0: number; mode: 'none' | 'grow' | 'shrink' | 'dismiss' | 'scroll' } | null>(null)
 
-    // Расстояние
-    if (offset > DISMISS_THRESHOLD) {
-      if (snap === 1) {
-        // Из expanded → схлопываем до initial
-        setSnap(0)
-        animate(dragY, 0, { type: 'spring', damping: 32, stiffness: 320 })
-      } else {
-        // Из initial → закрываем
-        animate(dragY, 600, { duration: 0.25, ease: [0.32, 0.72, 0, 1] }).then(onClose)
-      }
-      return
-    }
-    if (offset < EXPAND_THRESHOLD && snap === 0) {
-      setSnap(1)
-      animate(dragY, 0, { type: 'spring', damping: 32, stiffness: 320 })
-      return
-    }
-    // Иначе spring обратно в исходное
-    animate(dragY, 0, { type: 'spring', damping: 32, stiffness: 350 })
-  }, [dragY, onClose, snap])
-
-  // ── Scroll-driven snap: скролл растит панель до полного экрана и сжимает обратно ─
-  // При скролле контента вниз (scrollTop растёт) — раскрываем до maxHeight.
-  // При возврате к самому верху списка — сжимаем до initialHeight.
-  // snapLock гасит повторные scroll-события во время анимации высоты (reflow
-  // может клампить scrollTop и ложно дёргать snap туда-обратно).
-  const EXPAND_SCROLL = 28
-  const snapLockRef = useRef(false)
-  const onContentScroll = useCallback(() => {
-    if (snapLockRef.current) return
+  const onTouchStart = useCallback((e: TouchEvent) => {
     const el = scrollRef.current
-    if (!el) return
-    const st = el.scrollTop
-    const lock = () => { snapLockRef.current = true; window.setTimeout(() => { snapLockRef.current = false }, 360) }
-    if (st > EXPAND_SCROLL && snap === 0) { setSnap(1); lock() }
-    else if (st <= 1 && snap === 1) { setSnap(0); lock() }
-  }, [snap])
+    gRef.current = { y0: e.touches[0].clientY, st0: el?.scrollTop ?? 0, h0: sheetH.get(), mode: 'none' }
+  }, [sheetH])
+
+  const onTouchMove = useCallback((e: TouchEvent) => {
+    const g = gRef.current
+    if (!g) return
+    const dy = e.touches[0].clientY - g.y0
+    const { initial, max } = dimsRef.current
+    if (g.mode === 'none') {
+      if (Math.abs(dy) < 4) return
+      const atTop = g.st0 <= 0
+      if (dy < 0) g.mode = atTop && g.h0 < max - 1 ? 'grow' : 'scroll'
+      else g.mode = atTop ? (g.h0 > initial + 1 ? 'shrink' : 'dismiss') : 'scroll'
+    }
+    if (g.mode === 'scroll') return
+    if (e.cancelable) e.preventDefault()
+    if (g.mode === 'grow' || g.mode === 'shrink') {
+      sheetH.set(Math.min(max, Math.max(initial, g.h0 - dy)))
+    } else if (g.mode === 'dismiss') {
+      dragY.set(Math.max(0, dy))
+    }
+  }, [sheetH, dragY])
+
+  const onTouchEnd = useCallback(() => {
+    const g = gRef.current
+    gRef.current = null
+    if (g && g.mode === 'dismiss') {
+      if (dragY.get() > DISMISS_THRESHOLD) close()
+      else animate(dragY, 0, { type: 'spring', damping: 34, stiffness: 360 })
+    }
+  }, [dragY, close])
+
+  // touchmove навешиваем non-passive — иначе preventDefault не отменит нативный скролл.
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el || isDesktop || !open) return
+    el.addEventListener('touchstart', onTouchStart, { passive: true })
+    el.addEventListener('touchmove', onTouchMove, { passive: false })
+    el.addEventListener('touchend', onTouchEnd, { passive: true })
+    el.addEventListener('touchcancel', onTouchEnd, { passive: true })
+    return () => {
+      el.removeEventListener('touchstart', onTouchStart)
+      el.removeEventListener('touchmove', onTouchMove)
+      el.removeEventListener('touchend', onTouchEnd)
+      el.removeEventListener('touchcancel', onTouchEnd)
+    }
+  }, [isDesktop, open, onTouchStart, onTouchMove, onTouchEnd])
+
+  // ── Жест по «ручке» (onPan — работает и мышью): резайз + закрытие 1:1.
+  const handleH0 = useRef(0)
+  const onHandlePanStart = useCallback(() => { handleH0.current = sheetH.get() }, [sheetH])
+  const onHandlePan = useCallback((_: PointerEvent, info: PanInfo) => {
+    const { initial, max } = dimsRef.current
+    const target = handleH0.current - info.offset.y
+    if (target < initial) { sheetH.set(initial); dragY.set(initial - target) }
+    else { dragY.set(0); sheetH.set(Math.min(max, target)) }
+  }, [sheetH, dragY])
+  const onHandlePanEnd = useCallback((_: PointerEvent, info: PanInfo) => {
+    if (dragY.get() > DISMISS_THRESHOLD || info.velocity.y > DISMISS_VELOCITY) close()
+    else animate(dragY, 0, { type: 'spring', damping: 34, stiffness: 360 })
+  }, [dragY, close])
 
   // ── Desktop variant: centered modal с адаптивной высотой ────────────────
   if (isDesktop) {
@@ -291,7 +323,7 @@ export function Sheet({
     )
   }
 
-  // ── Mobile variant: bottom sheet с snap points ──────────────────────────
+  // ── Mobile variant: интерактивный bottom sheet (высота 1:1 с пальцем) ──────
   return (
     <AnimatePresence onExitComplete={() => animate(dragY, 0, { duration: 0 })}>
       {open && (
@@ -330,7 +362,7 @@ export function Sheet({
                 width: '100%',
                 maxWidth: 560,
                 margin: '0 auto',
-                height: sheetHeight,
+                height: sheetH,
                 background: 'rgba(29, 24, 40, 0.96)',
                 backdropFilter: 'blur(24px)',
                 WebkitBackdropFilter: 'blur(24px)',
@@ -340,18 +372,14 @@ export function Sheet({
                 display: 'flex',
                 flexDirection: 'column',
                 overflow: 'hidden',
-                transition: 'height 0.3s cubic-bezier(0.32, 0.72, 0, 1)',
               }}
               onClick={(e) => e.stopPropagation()}
             >
-              {/* Drag handle — primary drag affordance */}
+              {/* Ручка — резайз/закрытие 1:1 (onPan не трансформирует сам элемент) */}
               <motion.div
-                drag="y"
-                dragConstraints={{ top: 0, bottom: 0 }}
-                dragElastic={0.2}
-                dragDirectionLock
-                onDrag={(_, info) => dragY.set(info.offset.y)}
-                onDragEnd={handleDragEnd}
+                onPanStart={onHandlePanStart}
+                onPan={onHandlePan}
+                onPanEnd={onHandlePanEnd}
                 style={{
                   padding: '12px 24px 6px',
                   cursor: 'grab',
@@ -390,10 +418,9 @@ export function Sheet({
                 </div>
               )}
 
-              {/* Scrollable content — нативный скролл управляет ростом/сжатием панели */}
+              {/* Scrollable content — нативный скролл; у верха жест растит/сжимает панель */}
               <div
                 ref={scrollRef}
-                onScroll={onContentScroll}
                 style={{
                   flex: 1,
                   minHeight: 0,

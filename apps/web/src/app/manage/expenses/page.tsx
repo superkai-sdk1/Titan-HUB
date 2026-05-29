@@ -102,7 +102,7 @@ export default function ExpensesPage() {
   ]
 
   return (
-    <div style={{ minHeight: '100dvh', background: 'var(--background)', display: 'flex', flexDirection: 'column' }}>
+    <div style={{ minHeight: '100dvh', display: 'flex', flexDirection: 'column' }}>
       <PageHeader
         title="Расходы"
         subtitle={formatAmount(total)}
