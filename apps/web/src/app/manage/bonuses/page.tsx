@@ -1,50 +1,14 @@
 'use client'
 import React, { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { useRouter } from 'next/navigation'
 import { api } from '@/lib/api'
 import { Icon } from '@/components/Icon'
-
-const INP: React.CSSProperties = {
-  width: '100%', padding: '14px 16px', borderRadius: 14,
-  border: '1px solid rgba(255,255,255,0.1)',
-  background: 'rgba(255,255,255,0.05)',
-  color: 'var(--on-surface)', fontSize: 14, outline: 'none',
-  boxSizing: 'border-box' as const,
-  transition: 'border-color 0.2s',
-}
-const LBL: React.CSSProperties = {
-  fontFamily: "'JetBrains Mono',monospace", fontSize: 10, fontWeight: 700,
-  textTransform: 'uppercase' as const, letterSpacing: '0.08em',
-  color: 'var(--on-surface-variant)', margin: '0 0 8px', display: 'block',
-}
-
-function Toggle({ value, onChange, color = '#EAB308' }: { value: boolean; onChange: (v: boolean) => void; color?: string }) {
-  return (
-    <div
-      onClick={() => onChange(!value)}
-      style={{
-        width: 52, height: 28, borderRadius: 14,
-        background: value ? color : 'rgba(255,255,255,0.1)',
-        position: 'relative', cursor: 'pointer',
-        transition: 'background 0.2s',
-        flexShrink: 0,
-        boxShadow: value ? `0 0 12px ${color}66` : 'none',
-      }}
-    >
-      <div style={{
-        position: 'absolute', top: 3, left: value ? 27 : 3,
-        width: 22, height: 22, borderRadius: '50%',
-        background: '#fff', transition: 'left 0.2s',
-        boxShadow: '0 1px 4px rgba(0,0,0,0.3)',
-      }} />
-    </div>
-  )
-}
+import { PageHeader, Toggle, INP, LBL } from '@/components/manage/DesignSystem'
+import { useToast } from '@/components/Toast'
 
 export default function BonusesPage() {
-  const router = useRouter()
   const qc = useQueryClient()
+  const { show } = useToast()
 
   const [enabled, setEnabled] = useState(true)
   const [rate, setRate] = useState('5')
@@ -77,6 +41,7 @@ export default function BonusesPage() {
       setSaved(true)
       setTimeout(() => setSaved(false), 2500)
     },
+    onError: () => show('Не удалось сохранить настройки', 'error'),
   })
 
   function handleSave() {
@@ -96,26 +61,10 @@ export default function BonusesPage() {
   const belowMin = parseFloat(minPurchase || '0') > exampleAmount
 
   return (
-    <div style={{ minHeight: '100dvh', background: 'var(--background)', display: 'flex', flexDirection: 'column' }}>
-      {/* Header */}
-      <div style={{
-        position: 'sticky', top: 0, zIndex: 20,
-        background: 'rgba(21,18,27,0.95)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
-        borderBottom: '1px solid rgba(255,255,255,0.06)',
-        padding: '16px 20px',
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <button onClick={() => router.back()} style={{ width: 36, height: 36, borderRadius: 10, border: '1px solid rgba(255,255,255,0.08)', background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--on-surface-variant)' }}>
-            <Icon name="arrow_back" size={18} />
-          </button>
-          <div style={{ flex: 1 }}>
-            <h1 style={{ fontSize: 20, fontWeight: 800, margin: 0 }}>Бонусная программа</h1>
-            <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: '2px 0 0' }}>Начисление и списание баллов</p>
-          </div>
-        </div>
-      </div>
+    <div style={{ minHeight: '100dvh', display: 'flex', flexDirection: 'column' }}>
+      <PageHeader title="Бонусная программа" subtitle="Начисление и списание баллов" />
 
-      <div style={{ padding: '20px 16px 16px', display: 'flex', flexDirection: 'column', gap: 16, maxWidth: 680, margin: '0 auto', width: '100%' }}>
+      <div style={{ padding: '20px 16px var(--bottom-nav-clear, 24px)', display: 'flex', flexDirection: 'column', gap: 16, maxWidth: 680, margin: '0 auto', width: '100%' }}>
 
         {/* Hero toggle */}
         <div style={{
