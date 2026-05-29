@@ -4,6 +4,15 @@ import { requireAuth, requireRole } from '../../middleware/auth.js'
 import * as Minio from 'minio'
 
 const BUCKET = 'titan-uploads'
+const MAX_UPLOAD_BYTES = 2 * 1024 * 1024
+// Только изображения. Расширение берём из MIME, не из имени файла (анти-подмена).
+// SVG не допускаем — может содержать активный скрипт.
+const ALLOWED_TYPES: Record<string, string> = {
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+  'image/webp': 'webp',
+  'image/gif': 'gif',
+}
 
 function getMinioClient() {
   const endpoint = process.env['MINIO_ENDPOINT'] ?? 'minio'
@@ -21,7 +30,10 @@ uploadRouter.post('/image', async (c) => {
   const file = formData.get('file') as File | null
   if (!file) return c.json({ error: 'No file provided' }, 400)
 
-  const ext = file.name.split('.').pop() ?? 'jpg'
+  const ext = ALLOWED_TYPES[file.type]
+  if (!ext) return c.json({ error: 'Допустимы только изображения: JPEG, PNG, WebP, GIF' }, 400)
+  if (file.size > MAX_UPLOAD_BYTES) return c.json({ error: 'Файл больше 2 МБ' }, 400)
+
   const objectName = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
 
   try {

@@ -275,7 +275,8 @@ authRouter.get('/passkey/list', requireAuth, async (c) => {
 // DELETE /auth/passkey/:id  (requires auth) → remove a passkey
 authRouter.delete('/passkey/:id', requireAuth, async (c) => {
   const user = c.get('user')
-  await db.delete(passkeys).where(eq(passkeys.id, c.req.param('id')))
+  // Только свой passkey (иначе IDOR — удаление чужого ключа по id).
+  await db.delete(passkeys).where(and(eq(passkeys.id, c.req.param('id')), eq(passkeys.userId, user.sub)))
   return c.json({ ok: true })
 })
 
