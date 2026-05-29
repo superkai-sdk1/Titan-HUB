@@ -357,7 +357,7 @@ button, [role="button"] { user-select: none; }
 /* Нав «парит»: отступ снизу (6px) + высота панели (≈60px) + выступ FAB (14px)
    + визуальный запас, чтобы последний элемент не оставался под панелью. */
 @media (max-width: 1023px) {
-  :root { --bottom-nav-clear: calc(122px + env(safe-area-inset-bottom)); }
+  :root { --bottom-nav-clear: calc(112px + env(safe-area-inset-bottom)); }
 }
 
 /* iOS standalone PWA: «рабочая» область вьюпорта может исключать нижнюю зону
@@ -367,7 +367,7 @@ button, [role="button"] { user-select: none; }
    Когда разницы нет (100lvh == 100svh) — выражение даёт 0, правка безопасна. */
 @media (display-mode: standalone) {
   .bottom-nav-root {
-    bottom: calc(env(safe-area-inset-bottom) + 16px + (100svh - 100lvh)) !important;
+    bottom: calc(env(safe-area-inset-bottom) + 6px + (100svh - 100lvh)) !important;
   }
 }
 
