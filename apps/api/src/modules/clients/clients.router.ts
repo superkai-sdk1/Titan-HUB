@@ -33,6 +33,9 @@ const UpdateClientSchema = z.object({
 
 export const clientsRouter = new Hono<AppEnv>()
 clientsRouter.use('*', requireAuth)
+// Все операции с клиентами — только персонал/владелец (PII, балансы, история).
+// Клиентский кошелёк (роль client) обслуживается отдельным self-эндпоинтом.
+clientsRouter.use('*', requireRole('owner', 'staff'))
 
 clientsRouter.get('/', async (c) => {
   const search = c.req.query('search')

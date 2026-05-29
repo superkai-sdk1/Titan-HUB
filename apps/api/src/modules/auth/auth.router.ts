@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
-import { db, profiles, eq, isNull } from '@titan/database'
+import { db, profiles, eq, and, isNull, inArray } from '@titan/database'
 // @ts-ignore
 import { passkeys } from '@titan/database'
 import { signToken, verifyPin, verifyPassword, hashPassword, hashPin, isPlaintext, verifyTelegramInitData } from '@titan/auth'
@@ -32,13 +32,19 @@ export const authRouter = new Hono<AppEnv>()
 const PIN_MAX_ATTEMPTS = 5
 const PIN_WINDOW_SECONDS = 900
 
+// Реальный IP клиента. nginx ставит X-Real-IP = $remote_addr (подделать нельзя).
+// Первый элемент X-Forwarded-For задаётся клиентом (spoofable) — его НЕ используем.
+function clientIp(c: any): string {
+  return c.req.header('x-real-ip')
+    ?? c.req.header('x-forwarded-for')?.split(',').pop()?.trim()
+    ?? 'unknown'
+}
+
 authRouter.post('/login/pin', zValidator('json', LoginPinSchema), async (c) => {
   const { pin, userId } = c.req.valid('json')
 
-  // Идентификатор для rate-limit: IP + userId (если указан)
-  const ip = c.req.header('x-forwarded-for')?.split(',')[0]?.trim()
-    ?? c.req.header('x-real-ip')
-    ?? 'unknown'
+  // Идентификатор для rate-limit: доверенный IP + userId (если указан)
+  const ip = clientIp(c)
   const key = `pin:fail:${ip}:${userId ?? 'any'}`
 
   const redis = getRedis()
@@ -53,10 +59,12 @@ authRouter.post('/login/pin', zValidator('json', LoginPinSchema), async (c) => {
       }, 429)
     }
 
-    // Find by userId or scan all staff
+    // PIN-вход доступен только персоналу/владельцу (клиенты/планшеты входят иначе).
+    // Без userId перебираем ТОЛЬКО staff/owner — не всех и не client/tablet.
+    const staffOnly = inArray(profiles.role, ['owner', 'staff'])
     const where = userId
-      ? eq(profiles.id, userId)
-      : isNull(profiles.deletedAt)
+      ? and(eq(profiles.id, userId), staffOnly)
+      : and(isNull(profiles.deletedAt), staffOnly)
     const all = await db.select().from(profiles).where(where)
     for (const profile of all) {
       if (!profile.pin) continue
@@ -86,10 +94,8 @@ authRouter.post('/login/pin', zValidator('json', LoginPinSchema), async (c) => {
 authRouter.post('/login/password', zValidator('json', LoginPasswordSchema), async (c) => {
   const { nickname, password } = c.req.valid('json')
 
-  // Rate limit для пароля: 5 попыток / 15 мин
-  const ip = c.req.header('x-forwarded-for')?.split(',')[0]?.trim()
-    ?? c.req.header('x-real-ip')
-    ?? 'unknown'
+  // Rate limit для пароля: 5 попыток / 15 мин (по доверенному IP + нику)
+  const ip = clientIp(c)
   const key = `pwd:fail:${ip}:${nickname}`
   const redis = getRedis()
   await redis.connect()
@@ -156,46 +162,53 @@ authRouter.post(
   async (c) => {
     const { code, deviceName } = c.req.valid('json')
 
-    // Получаем spaceId из Redis
+    // Rate-limit перебора 6-значного кода (как у PIN): по доверенному IP.
+    const ip = clientIp(c)
+    const rlKey = `tabletpair:fail:${ip}`
     const redis = getRedis()
-    let spaceId: string | null = null
     try {
       await redis.connect()
-      spaceId = await redis.get(`tablet:pair:${code}`)
-      if (spaceId) {
-        await redis.del(`tablet:pair:${code}`)  // one-time use
+      const fails = parseInt((await redis.get(rlKey)) ?? '0')
+      if (fails >= PIN_MAX_ATTEMPTS) {
+        const ttl = await redis.ttl(rlKey)
+        return c.json({ error: `Слишком много попыток. Попробуйте через ${Math.ceil(ttl / 60)} мин.` }, 429)
       }
+
+      const spaceId = await redis.get(`tablet:pair:${code}`)
+      if (!spaceId) {
+        await redis.incr(rlKey)
+        await redis.expire(rlKey, PIN_WINDOW_SECONDS)
+        return c.json({ error: 'Неверный или истёкший код' }, 401)
+      }
+      await redis.del(`tablet:pair:${code}`)  // одноразовый код
+      await redis.del(rlKey)                  // сброс счётчика при успехе
+
+      // Создаём профиль планшета
+      const nickname = deviceName ?? `Tablet ${code}`
+      const [profile] = await db.insert(profiles).values({
+        nickname,
+        role: 'tablet',
+        linkedSpaceId: spaceId,
+      } as any).returning()
+
+      // JWT с длинным TTL (30 дней)
+      const token = await signToken(
+        { sub: profile.id, role: profile.role, nickname: profile.nickname },
+        '30d',
+      )
+      return c.json({
+        token,
+        user: {
+          id: profile.id,
+          nickname: profile.nickname,
+          role: profile.role,
+          photoUrl: profile.photoUrl,
+          linkedSpaceId: spaceId,
+        },
+      })
     } finally {
       redis.disconnect()
     }
-
-    if (!spaceId) {
-      return c.json({ error: 'Неверный или истёкший код' }, 401)
-    }
-
-    // Создаём профиль планшета
-    const nickname = deviceName ?? `Tablet ${code}`
-    const [profile] = await db.insert(profiles).values({
-      nickname,
-      role: 'tablet',
-      linkedSpaceId: spaceId,
-    } as any).returning()
-
-    // JWT с длинным TTL (30 дней)
-    const token = await signToken(
-      { sub: profile.id, role: profile.role, nickname: profile.nickname },
-      '30d',
-    )
-    return c.json({
-      token,
-      user: {
-        id: profile.id,
-        nickname: profile.nickname,
-        role: profile.role,
-        photoUrl: profile.photoUrl,
-        linkedSpaceId: spaceId,
-      },
-    })
   },
 )
 

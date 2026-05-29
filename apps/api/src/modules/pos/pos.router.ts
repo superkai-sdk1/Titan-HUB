@@ -303,19 +303,33 @@ posRouter.patch('/checks/:id', requireRole('owner', 'staff'), zValidator('json',
 })
 
 posRouter.delete('/checks/:id', requireRole('owner', 'staff'), async (c) => {
-  const [check] = await db
-    .update(checks)
-    .set({ status: 'cancelled' })
-    .where(and(eq(checks.id, c.req.param('id')), eq(checks.status, 'open')))
-    .returning()
-  if (!check) return c.json({ error: 'Not found or already closed' }, 400)
+  const checkId = c.req.param('id')
+  const check = await db.transaction(async (tx) => {
+    const [ch] = await tx
+      .update(checks)
+      .set({ status: 'cancelled' })
+      .where(and(eq(checks.id, checkId), eq(checks.status, 'open')))
+      .returning()
+    if (!ch) return null
 
-  // Декрементим attendeesCount, если чек был привязан к событию
-  if (check.linkedEventId) {
-    await db.update(events)
-      .set({ attendeesCount: sql`GREATEST(${events.attendeesCount} - 1, 0)` })
-      .where(eq(events.id, check.linkedEventId))
-  }
+    // Возвращаем списанный сток по всем учётным позициям отменённого чека
+    const lines = await tx.select({ itemId: checkItems.itemId, quantity: checkItems.quantity })
+      .from(checkItems).where(eq(checkItems.checkId, checkId))
+    for (const ln of lines) {
+      await tx.update(inventory)
+        .set({ stockQuantity: sql`${inventory.stockQuantity} + ${ln.quantity}` })
+        .where(and(eq(inventory.id, ln.itemId), eq(inventory.trackStock, true)))
+    }
+
+    // Декрементим attendeesCount, если чек был привязан к событию
+    if (ch.linkedEventId) {
+      await tx.update(events)
+        .set({ attendeesCount: sql`GREATEST(${events.attendeesCount} - 1, 0)` })
+        .where(eq(events.id, ch.linkedEventId))
+    }
+    return ch
+  })
+  if (!check) return c.json({ error: 'Not found or already closed' }, 400)
 
   publishEvent('check:deleted', { checkId: check.id })
   return c.json({ ok: true })
@@ -393,10 +407,35 @@ posRouter.patch('/checks/:id/items/:itemId', requireRole('owner', 'staff', 'tabl
   const itemId = c.req.param('itemId')
   const { quantity } = c.req.valid('json')
 
-  if (quantity === 0) {
-    await db.delete(checkItems).where(and(eq(checkItems.id, itemId), eq(checkItems.checkId, checkId)))
-  } else {
-    await db.update(checkItems).set({ quantity }).where(and(eq(checkItems.id, itemId), eq(checkItems.checkId, checkId)))
+  try {
+    await db.transaction(async (tx) => {
+      const [ci] = await tx.select().from(checkItems).where(and(eq(checkItems.id, itemId), eq(checkItems.checkId, checkId)))
+      if (!ci) throw new Error('ITEM_NOT_FOUND')
+      // delta > 0 → возвращаем на склад; delta < 0 → дополнительно списываем
+      const delta = ci.quantity - quantity
+      if (delta !== 0) {
+        const rows: any = await tx.execute(
+          sql`SELECT track_stock as "trackStock", stock_quantity as "stockQuantity" FROM inventory WHERE id = ${ci.itemId} FOR UPDATE`
+        )
+        const inv: any = rows.rows?.[0] ?? rows[0]
+        if (inv?.trackStock) {
+          if (delta < 0 && (inv.stockQuantity ?? 0) + delta < 0) throw new Error('INSUFFICIENT_STOCK')
+          await tx.update(inventory)
+            .set({ stockQuantity: sql`${inventory.stockQuantity} + ${delta}` })
+            .where(eq(inventory.id, ci.itemId))
+        }
+      }
+      if (quantity === 0) {
+        await tx.delete(checkItems).where(and(eq(checkItems.id, itemId), eq(checkItems.checkId, checkId)))
+      } else {
+        await tx.update(checkItems).set({ quantity }).where(and(eq(checkItems.id, itemId), eq(checkItems.checkId, checkId)))
+      }
+    })
+  } catch (err: any) {
+    if (err.message === 'ITEM_NOT_FOUND') return c.json({ error: 'Item not found' }, 404)
+    if (err.message === 'INSUFFICIENT_STOCK') return c.json({ error: 'Insufficient stock' }, 400)
+    console.error('PATCH /checks/:id/items/:itemId error:', err)
+    return c.json({ error: 'Internal error' }, 500)
   }
 
   await recalcCheckTotal(checkId)
@@ -407,7 +446,15 @@ posRouter.patch('/checks/:id/items/:itemId', requireRole('owner', 'staff', 'tabl
 posRouter.delete('/checks/:id/items/:itemId', requireRole('owner', 'staff'), async (c) => {
   const checkId = c.req.param('id')
   const itemId = c.req.param('itemId')
-  await db.delete(checkItems).where(and(eq(checkItems.id, itemId), eq(checkItems.checkId, checkId)))
+  await db.transaction(async (tx) => {
+    const [ci] = await tx.select().from(checkItems).where(and(eq(checkItems.id, itemId), eq(checkItems.checkId, checkId)))
+    if (!ci) return
+    // Возвращаем списанный сток для учётных товаров
+    await tx.update(inventory)
+      .set({ stockQuantity: sql`${inventory.stockQuantity} + ${ci.quantity}` })
+      .where(and(eq(inventory.id, ci.itemId), eq(inventory.trackStock, true)))
+    await tx.delete(checkItems).where(and(eq(checkItems.id, itemId), eq(checkItems.checkId, checkId)))
+  })
   await recalcCheckTotal(checkId)
   const data = await getCheckWithItems(checkId)
   return c.json({ check: data })
@@ -582,6 +629,9 @@ posRouter.post('/checks/:id/pay', requireRole('owner', 'staff'), zValidator('jso
       if (nonCashSum > total + 0.01) throw new Error('OVERPAYMENT')
       // Бонус-тендер обязан совпадать с bonusAmount (иначе «оплата» бонусом без списания).
       if (Math.abs((body.bonusAmount ?? 0) - bonusSent) > 0.01) throw new Error('BONUS_MISMATCH')
+      // Бонусы списываются только с клиента: без playerId списание не произойдёт
+      // (ниже на :643), а тендер закроет чек → «бесплатная» оплата. Запрещаем.
+      if (bonusSent > 0.005 && !body.playerId) throw new Error('BONUS_NO_PLAYER')
 
       // Validate + lock certificate
       let cert = null
@@ -747,6 +797,7 @@ posRouter.post('/checks/:id/pay', requireRole('owner', 'staff'), zValidator('jso
       INSUFFICIENT_DEPOSIT: ['Недостаточно средств на депозите клиента', 400],
       INSUFFICIENT_BONUS: ['Недостаточно бонусных баллов', 400],
       BONUS_MISMATCH: ['Несовпадение суммы бонусов', 400],
+      BONUS_NO_PLAYER: ['Для списания бонусов нужно выбрать клиента', 400],
     }
     const mapped = err?.message ? map[err.message] : undefined
     if (mapped) return c.json({ error: mapped[0] }, mapped[1])
