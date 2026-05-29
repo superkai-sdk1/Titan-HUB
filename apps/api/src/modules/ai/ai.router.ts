@@ -82,7 +82,7 @@ const ActionSchema = z.object({
     'custom_query',
   ]),
   payload: z.record(z.unknown()).optional(),
-  question: z.string().optional(),
+  question: z.string().max(1000).optional(),
 })
 
 async function buildContext(action: string, payload?: Record<string, unknown>, question?: string): Promise<string> {

@@ -9,7 +9,7 @@ const ExpenseSchema = z.object({
   category: z.enum(['rent', 'utilities', 'supplies', 'salary', 'marketing', 'equipment', 'other']).default('other'),
   amount: z.number().positive(),
   description: z.string().optional(),
-  expenseDate: z.string(),
+  expenseDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Дата в формате ГГГГ-ММ-ДД'),
 })
 
 export const expensesRouter = new Hono<AppEnv>()

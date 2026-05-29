@@ -57,12 +57,15 @@ cashopsRouter.post('/', requireRole('owner', 'staff'), zValidator('json', z.obje
   const user = c.get('user')
   const { type, amount, description } = c.req.valid('json')
   const shift = await getCurrentShift()
+  // Операции с кассой пишутся только в открытую смену — иначе они не попадут
+  // в сверку (shiftId=null) и «потеряются» из ожидаемого остатка.
+  if (!shift) return c.json({ error: 'Нет открытой смены' }, 400)
 
   const [op] = await db.insert(cashOperations).values({
     type,
     amount: String(amount),
     description,
-    shiftId: shift?.id,
+    shiftId: shift.id,
     createdBy: user.sub,
   }).returning()
 
