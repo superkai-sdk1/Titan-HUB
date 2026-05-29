@@ -16,6 +16,8 @@ export default function BonusesPage() {
   const [maxSpend, setMaxSpend] = useState('50')
   const [expiryDays, setExpiryDays] = useState('0')
   const [onDebt, setOnDebt] = useState(false)
+  const [birthdayEnabled, setBirthdayEnabled] = useState(false)
+  const [birthdayAmount, setBirthdayAmount] = useState('0')
   const [saved, setSaved] = useState(false)
 
   const { data } = useQuery<{ settings: Record<string, string> }>({
@@ -32,6 +34,8 @@ export default function BonusesPage() {
     if (map.bonus_max_spend) setMaxSpend(map.bonus_max_spend)
     if (map.bonus_expiry_days) setExpiryDays(map.bonus_expiry_days)
     if (map.bonus_accrual_on_debt !== undefined) setOnDebt(map.bonus_accrual_on_debt === 'true')
+    if (map.birthday_bonus_enabled !== undefined) setBirthdayEnabled(map.birthday_bonus_enabled === 'true')
+    if (map.birthday_bonus_amount) setBirthdayAmount(map.birthday_bonus_amount)
   }, [data])
 
   const saveMut = useMutation({
@@ -52,6 +56,8 @@ export default function BonusesPage() {
       bonus_max_spend: maxSpend,
       bonus_expiry_days: expiryDays,
       bonus_accrual_on_debt: String(onDebt),
+      birthday_bonus_enabled: String(birthdayEnabled),
+      birthday_bonus_amount: birthdayAmount,
     })
   }
 
@@ -157,6 +163,26 @@ export default function BonusesPage() {
             <input type="number" min="0" value={expiryDays} onChange={e => setExpiryDays(e.target.value)} style={INP} />
             <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: '8px 0 0' }}>
               {expiryDays === '0' ? 'Бонусы не сгорают' : `Бонусы сгорают через ${expiryDays} дней`}
+            </p>
+          </div>
+        </div>
+
+        {/* Birthday bonus section */}
+        <div className="glass-l2" style={{ borderRadius: 18, padding: 20, display: 'flex', flexDirection: 'column', gap: 18, opacity: enabled ? 1 : 0.4, pointerEvents: enabled ? 'auto' : 'none', transition: 'opacity 0.3s' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div style={{ width: 32, height: 32, borderRadius: 10, background: 'rgba(234,179,8,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Icon name="event" size={16} color="#EAB308" />
+              </div>
+              <span style={{ ...LBL, margin: 0, color: '#EAB308' }}>День рождения</span>
+            </div>
+            <Toggle value={birthdayEnabled} onChange={setBirthdayEnabled} color="#EAB308" />
+          </div>
+          <div style={{ opacity: birthdayEnabled ? 1 : 0.4, pointerEvents: birthdayEnabled ? 'auto' : 'none', transition: 'opacity 0.3s' }}>
+            <label style={LBL}>Бонус в день рождения (баллов)</label>
+            <input type="number" min="0" value={birthdayAmount} onChange={e => setBirthdayAmount(e.target.value)} style={INP} />
+            <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: '8px 0 0' }}>
+              Начисляется автоматически утром в день рождения клиента (один раз).
             </p>
           </div>
         </div>

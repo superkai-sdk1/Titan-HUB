@@ -1,5 +1,5 @@
-import { db, profiles, notifications } from '@titan/database'
-import { eq, and, isNull, sql } from 'drizzle-orm'
+import { db, profiles, notifications, appSettings, bonusHistory } from '@titan/database'
+import { eq, and, isNull, inArray, sql } from 'drizzle-orm'
 
 export async function checkBirthdays() {
   // Дата по Москве (UTC+3) — независимо от TZ контейнера и времени запуска.
@@ -27,6 +27,47 @@ export async function checkBirthdays() {
     return
   }
 
+  // Настройки бонуса ко дню рождения (раздел «Бонусы»).
+  const settingRows = await db.select().from(appSettings)
+    .where(inArray(appSettings.key, ['bonus_enabled', 'birthday_bonus_enabled', 'birthday_bonus_amount']))
+  const settings = Object.fromEntries(settingRows.map(r => [r.key, r.value]))
+  // Требуется и общий тумблер программы, и тумблер бонуса ко дню рождения.
+  const bonusEnabled = settings['bonus_enabled'] !== 'false' && settings['birthday_bonus_enabled'] === 'true'
+  const bonusAmount = Math.max(0, Math.floor(parseFloat(settings['birthday_bonus_amount'] ?? '0')))
+
+  // Начисляем бонус каждому имениннику — идемпотентно (один раз в день).
+  const credited = new Set<string>()
+  if (bonusEnabled && bonusAmount > 0) {
+    for (const client of birthdayClients) {
+      try {
+        const done = await db.transaction(async (tx) => {
+          const already = await tx.select({ id: bonusHistory.id }).from(bonusHistory)
+            .where(and(
+              eq(bonusHistory.profileId, client.id),
+              eq(bonusHistory.reason, 'Бонус ко дню рождения'),
+              sql`DATE(${bonusHistory.createdAt}) = CURRENT_DATE`,
+            )).limit(1)
+          if (already.length > 0) return false
+          const [p] = await tx.select({ bonusPoints: profiles.bonusPoints })
+            .from(profiles).where(eq(profiles.id, client.id)).for('update')
+          if (!p) return false
+          const newBonus = (parseFloat(p.bonusPoints) || 0) + bonusAmount
+          await tx.update(profiles).set({ bonusPoints: String(newBonus) }).where(eq(profiles.id, client.id))
+          await tx.insert(bonusHistory).values({
+            profileId: client.id,
+            amount: String(bonusAmount),
+            balanceAfter: String(newBonus),
+            reason: 'Бонус ко дню рождения',
+          })
+          return true
+        })
+        if (done) credited.add(client.id)
+      } catch (e) {
+        console.error('[birthdays] bonus credit failed for', client.id, e)
+      }
+    }
+  }
+
   // All owners to notify
   const owners = await db
     .select({ id: profiles.id })
@@ -38,9 +79,10 @@ export async function checkBirthdays() {
       ? year - parseInt(client.birthday.split('-')[0])
       : null
 
-    const body = age
+    const base = age
       ? `Сегодня ${age} ${pluralAge(age)}: ${client.nickname}`
       : `День рождения: ${client.nickname}`
+    const body = credited.has(client.id) ? `${base} · +${bonusAmount} бонусов` : base
 
     for (const owner of owners) {
       // Avoid duplicate notifications for the same client+owner today
