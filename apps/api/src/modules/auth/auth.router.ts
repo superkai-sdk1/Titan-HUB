@@ -183,13 +183,24 @@ authRouter.post(
       await redis.del(`tablet:pair:${code}`)  // одноразовый код
       await redis.del(rlKey)                  // сброс счётчика при успехе
 
-      // Создаём профиль планшета
+      // Один планшет на зону: переиспользуем существующий tablet-профиль зоны
+      // (не плодим профили на каждый pair), иначе создаём новый.
       const nickname = deviceName ?? `Tablet ${code}`
-      const [profile] = await db.insert(profiles).values({
-        nickname,
-        role: 'tablet',
-        linkedSpaceId: spaceId,
-      } as any).returning()
+      const existing = await db.select().from(profiles)
+        .where(and(eq(profiles.role, 'tablet'), eq(profiles.linkedSpaceId, spaceId), isNull(profiles.deletedAt)))
+        .limit(1)
+      let profile = existing[0]
+      if (profile) {
+        await db.update(profiles).set({ nickname }).where(eq(profiles.id, profile.id))
+      } else {
+        const inserted = await db.insert(profiles).values({
+          nickname,
+          role: 'tablet',
+          linkedSpaceId: spaceId,
+        } as any).returning()
+        profile = inserted[0]
+      }
+      if (!profile) return c.json({ error: 'Не удалось создать планшет' }, 500)
 
       // JWT с длинным TTL (30 дней)
       const token = await signToken(

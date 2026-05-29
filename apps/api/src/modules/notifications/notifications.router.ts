@@ -5,6 +5,7 @@ import { z } from 'zod'
 import { db, notifications, userNotificationSettings, tgLinkRequests, profiles, spaces, checks, eq, and, desc } from '@titan/database'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
 import { Redis } from 'ioredis'
+import { randomInt } from 'crypto'
 import type { AppEnv } from '../../types.js'
 
 const NOTIF_CHANNEL = 'titan:staff-notifications'
@@ -197,8 +198,8 @@ notificationsRouter.put('/settings', zValidator('json', z.object({
 
 notificationsRouter.post('/tg-link', async (c) => {
   const user = c.get('user')
-  // Generate a 6-digit code stored as tgId pending
-  const code = String(Math.floor(100000 + Math.random() * 900000))
+  // Generate a 6-digit code stored as tgId pending (crypto-random)
+  const code = String(randomInt(100000, 1000000))
   await db.insert(tgLinkRequests).values({
     profileId: user.sub,
     tgId: code,
