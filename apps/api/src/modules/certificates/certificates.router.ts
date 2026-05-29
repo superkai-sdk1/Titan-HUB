@@ -4,10 +4,12 @@ import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import { db, certificates, eq, desc } from '@titan/database'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
+import { randomInt } from 'crypto'
 
 function generateCode(): string {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
-  return Array.from({ length: 10 }, () => chars[Math.floor(Math.random() * chars.length)]).join('')
+  // crypto.randomInt — криптостойкий выбор символов (коды нельзя предсказать).
+  return Array.from({ length: 10 }, () => chars[randomInt(chars.length)]).join('')
 }
 
 const CertSchema = z.object({

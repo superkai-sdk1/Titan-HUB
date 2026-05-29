@@ -60,9 +60,11 @@ menuRouter.patch('/categories/reorder', requireAuth, requireRole('owner', 'staff
   items: z.array(z.object({ id: z.string().uuid(), sortOrder: z.number().int() }))
 })), async (c) => {
   const { items } = c.req.valid('json')
-  await Promise.all(items.map(({ id, sortOrder }) =>
-    db.update(menuCategories).set({ sortOrder }).where(eq(menuCategories.id, id))
-  ))
+  await db.transaction(async (tx) => {
+    for (const { id, sortOrder } of items) {
+      await tx.update(menuCategories).set({ sortOrder }).where(eq(menuCategories.id, id))
+    }
+  })
   return c.json({ ok: true })
 })
 
@@ -90,11 +92,13 @@ menuRouter.get('/items', async (c) => {
   const baseFilter = eq(inventory.isActive, true)
   const catFilter = categoryId ? and(baseFilter, eq(inventory.category, categoryId)) : baseFilter
   const where = tabletVisible ? and(catFilter, eq(inventory.isTabletVisible, true)) : catFilter
-  const items = await db
+  const rows = await db
     .select()
     .from(inventory)
     .where(where)
     .orderBy(asc(inventory.sortOrder), asc(inventory.name))
+  // Публичный список — без costPrice (себестоимость/маржа не для гостей).
+  const items = rows.map(({ costPrice, ...rest }) => rest)
   return c.json({ items })
 })
 
@@ -107,7 +111,8 @@ menuRouter.get('/items/:id', async (c) => {
   const [item] = await db.select().from(inventory).where(eq(inventory.id, c.req.param('id')))
   if (!item) return c.json({ error: 'Not found' }, 404)
   const mods = await db.select().from(modifiers).where(eq(modifiers.productId, item.id))
-  return c.json({ item, modifiers: mods })
+  const { costPrice, ...safeItem } = item
+  return c.json({ item: safeItem, modifiers: mods })
 })
 
 menuRouter.post('/items', requireAuth, requireRole('owner', 'staff'), zValidator('json', ItemSchema), async (c) => {
@@ -125,9 +130,11 @@ menuRouter.patch('/items/reorder', requireAuth, requireRole('owner', 'staff'), z
   items: z.array(z.object({ id: z.string().uuid(), sortOrder: z.number().int() }))
 })), async (c) => {
   const { items } = c.req.valid('json')
-  await Promise.all(items.map(({ id, sortOrder }) =>
-    db.update(inventory).set({ sortOrder, updatedAt: new Date() }).where(eq(inventory.id, id))
-  ))
+  await db.transaction(async (tx) => {
+    for (const { id, sortOrder } of items) {
+      await tx.update(inventory).set({ sortOrder, updatedAt: new Date() }).where(eq(inventory.id, id))
+    }
+  })
   return c.json({ ok: true })
 })
 
