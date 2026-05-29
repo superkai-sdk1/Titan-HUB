@@ -34,6 +34,7 @@ export default function ClientsPage() {
   const [editForm, setEditForm] = useState<any>(null)
   const [balAmt, setBalAmt] = useState('')
   const [bonAmt, setBonAmt] = useState('')
+  const [page, setPage] = useState(1)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
@@ -42,7 +43,34 @@ export default function ClientsPage() {
     return () => { if (timer.current) clearTimeout(timer.current) }
   }, [search])
 
-  const { data, isLoading } = useQuery({ queryKey: ['clients', dbSearch], queryFn: () => api.get<any>(`/clients?search=${dbSearch}&page=1`), staleTime: 10000 })
+  // Новый поиск — сбрасываем пагинацию на первую страницу.
+  useEffect(() => { setPage(1) }, [dbSearch])
+
+  // Аккумулируем страницы: query key включает page, а накопленный список
+  // собираем через placeholderData (предыдущие страницы остаются в кэше по
+  // своим ключам). Грузим страницы 1..page и склеиваем.
+  const pageQueries = useQuery({
+    queryKey: ['clients', dbSearch, page],
+    queryFn: async () => {
+      const reqs = []
+      for (let p = 1; p <= page; p++) {
+        reqs.push(api.get<any>(`/clients?search=${encodeURIComponent(dbSearch)}&page=${p}`))
+      }
+      const pages = await Promise.all(reqs)
+      const merged: any[] = []
+      const seen = new Set<string>()
+      for (const pg of pages) {
+        for (const cl of (pg?.clients ?? [])) {
+          if (!seen.has(cl.id)) { seen.add(cl.id); merged.push(cl) }
+        }
+      }
+      const last = pages[pages.length - 1]
+      return { clients: merged, total: last?.total ?? merged.length, limit: last?.limit ?? 30 }
+    },
+    staleTime: 10000,
+    placeholderData: (prev) => prev,
+  })
+  const { data, isLoading } = pageQueries
   const { data: txData } = useQuery({ queryKey: ['clients', selected?.id, 'tx'], queryFn: () => api.get<any>(`/clients/${selected.id}/transactions`), enabled: !!selected?.id && tab === 'tx' })
 
   const create = useMutation({ mutationFn: (b: any) => api.post('/clients', b), onSuccess: () => { qc.invalidateQueries({ queryKey: ['clients'] }); setShowCreate(false); setForm({ nickname: '', phone: '', birthday: '', clientTier: 'guest', password: '' }) }, onError: () => show('Не удалось создать клиента', 'error') })
@@ -51,6 +79,10 @@ export default function ClientsPage() {
   const adjBon = useMutation({ mutationFn: ({ id, amount }: any) => api.post(`/clients/${id}/bonus`, { amount, reason: 'Корректировка бонусов' }), onSuccess: () => { qc.invalidateQueries({ queryKey: ['clients'] }); setBonAmt('') }, onError: () => show('Не удалось изменить бонусы', 'error') })
 
   const clients: any[] = data?.clients ?? []
+  const total: number = data?.total ?? clients.length
+  // Есть ли ещё страницы: загружено меньше, чем всего в выборке.
+  const hasMore = clients.length < total
+  const isFetchingMore = pageQueries.isFetching && page > 1
 
   // Tier distribution
   const tierCounts = Object.fromEntries(Object.keys(TIER_LABELS).map(k => [k, clients.filter(c => (c.clientTier ?? 'guest') === k).length]))
@@ -65,7 +97,7 @@ export default function ClientsPage() {
     <div style={{ minHeight: '100dvh', display: 'flex', flexDirection: 'column' }}>
       <PageHeader
         title="Клиенты"
-        subtitle={`${clients.length} игроков`}
+        subtitle={`${total} ${total % 10 === 1 && total % 100 !== 11 ? 'игрок' : 'игроков'}`}
         action={{ label: 'Добавить', icon: 'person_add', onClick: () => setShowCreate(true) }}
       />
 
@@ -120,6 +152,20 @@ export default function ClientsPage() {
                 </div>
               )
             })}
+            {hasMore && (
+              <button
+                onClick={() => setPage(p => p + 1)}
+                disabled={isFetchingMore}
+                style={{
+                  width: '100%', padding: '13px 0', marginTop: 4, borderRadius: 14,
+                  border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.04)',
+                  color: 'var(--on-surface)', fontSize: 13, fontWeight: 600,
+                  cursor: isFetchingMore ? 'default' : 'pointer', opacity: isFetchingMore ? 0.6 : 1,
+                }}
+              >
+                {isFetchingMore ? 'Загрузка…' : `Показать ещё (${clients.length} из ${total})`}
+              </button>
+            )}
           </div>
         )}
       </div>

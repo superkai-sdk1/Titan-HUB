@@ -11,18 +11,21 @@ import { Icon } from '@/components/Icon'
 
 interface Expense {
   id: string
-  date: string
+  expenseDate: string
   category: string
   amount: number
-  comment?: string
+  description?: string
 }
 
+// Ключи строго совпадают с enum expense_category в БД
+// (['rent','utilities','supplies','salary','marketing','equipment','other']).
 const CATEGORY_MAP: Record<string, [string, string, string]> = {
-  food:      ['Еда',          'restaurant',  '#10B981'],
-  salary:    ['Зарплата',     'payments',    '#8B5CF6'],
+  rent:      ['Аренда',       'home',        '#10B981'],
   utilities: ['Коммунальные', 'bolt',        '#F59E0B'],
   supplies:  ['Закупки',      'inventory_2', '#4cd7f6'],
+  salary:    ['Зарплата',     'payments',    '#8B5CF6'],
   marketing: ['Маркетинг',    'campaign',    '#F43F5E'],
+  equipment: ['Оборудование', 'build',       '#0EA5E9'],
   other:     ['Прочее',       'category',    '#94A3B8'],
 }
 
@@ -61,7 +64,7 @@ export default function ExpensesPage() {
   })
 
   const allExpenses = data?.expenses ?? []
-  const expenses = useMemo(() => [...allExpenses].filter(e => isInRange(e.date, dateFilter)).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()), [allExpenses, dateFilter])
+  const expenses = useMemo(() => [...allExpenses].filter(e => isInRange(e.expenseDate, dateFilter)).sort((a, b) => new Date(b.expenseDate).getTime() - new Date(a.expenseDate).getTime()), [allExpenses, dateFilter])
   const total = expenses.reduce((sum, e) => sum + e.amount, 0)
 
   // Category breakdown
@@ -161,7 +164,7 @@ export default function ExpensesPage() {
             {expenses.map(e => {
               const [catLabel, catIcon, catColor] = CATEGORY_MAP[e.category] ?? CATEGORY_MAP.other
               let dateStr = ''
-              try { dateStr = format(new Date(e.date), 'd MMM', { locale: ru }) } catch { dateStr = e.date }
+              try { dateStr = format(new Date(e.expenseDate), 'd MMM', { locale: ru }) } catch { dateStr = e.expenseDate }
               return (
                 <div key={e.id} className="glass-l2" style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 16px', borderRadius: 14 }}>
                   <div style={{ width: 44, height: 44, borderRadius: '50%', flexShrink: 0, background: `${catColor}22`, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: `0 0 12px ${catColor}22` }}>
@@ -174,7 +177,7 @@ export default function ExpensesPage() {
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                       <span style={{ fontSize: 11, color: catColor, fontWeight: 700 }}>{catLabel}</span>
-                      {e.comment && <span style={{ fontSize: 11, color: 'var(--on-surface-variant)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>· {e.comment}</span>}
+                      {e.description && <span style={{ fontSize: 11, color: 'var(--on-surface-variant)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>· {e.description}</span>}
                     </div>
                   </div>
                   <IconButton icon="delete" ariaLabel="Удалить расход" variant="danger" onClick={() => setDelId(e.id)} />

@@ -2,7 +2,38 @@ import type { AppEnv } from '../../types.js'
 import { Hono } from 'hono'
 import { Redis } from 'ioredis'
 import { timingSafeEqual } from 'node:crypto'
-import { db, checks, checkPayments, transactions, profiles, bonusHistory, appSettings, eq, inArray } from '@titan/database'
+import {
+  db, checks, checkItems, checkItemModifiers, checkDiscounts, spaces,
+  checkPayments, transactions, profiles, bonusHistory, appSettings,
+  eq, inArray,
+} from '@titan/database'
+
+const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100
+
+// Единый расчёт суммы чека: позиции + модификаторы − скидки.
+// ВАЖНО: логика — копия computeTotals из pos.router.ts (тот файл нам не принадлежит,
+// helper переиспользовать нельзя). Держать синхронно с pos.router.ts.
+function computeTotals(
+  items: { id: string; priceAtTime: string; quantity: number }[],
+  mods: { checkItemId: string; priceAtTime: string }[],
+  discountRows: { type: string; value: string; target: string; itemId: string | null }[],
+) {
+  const qtyByItem = new Map(items.map(i => [i.id, i.quantity]))
+  const itemsTotal = items.reduce((s, i) => s + parseFloat(i.priceAtTime) * i.quantity, 0)
+  const modsTotal = mods.reduce((s, m) => s + parseFloat(m.priceAtTime) * (qtyByItem.get(m.checkItemId) ?? 1), 0)
+  const gross = itemsTotal + modsTotal
+  let discountTotal = 0
+  for (const d of discountRows) {
+    let base = gross
+    if (d.target === 'item' && d.itemId) {
+      const it = items.find(i => i.id === d.itemId)
+      base = it ? parseFloat(it.priceAtTime) * it.quantity : 0
+    }
+    discountTotal += d.type === 'percent' ? base * (parseFloat(d.value) / 100) : Math.min(parseFloat(d.value), base)
+  }
+  discountTotal = Math.min(discountTotal, gross)
+  return { gross: round2(gross), discountTotal: round2(discountTotal), total: round2(Math.max(0, gross - discountTotal)) }
+}
 
 function publishEvent(event: string, data: unknown) {
   const redis = new Redis(process.env['REDIS_URL'] ?? 'redis://redis:6379')
@@ -54,7 +85,30 @@ plategaRouter.post('/webhook', async (c) => {
       // Идемпотентность: если чек уже не открыт — webhook уже обработан (или чек отменён).
       if (check.status !== 'open') return
 
-      const total = parseFloat(check.totalAmount)
+      // Авторитетная сумма считается тем же правилом, что и pos.router.ts /pay:
+      // позиции + модификаторы − скидки + аренда зоны. totalAmount НЕ включает
+      // аренду, поэтому раньше webhook ошибочно ловил AMOUNT_MISMATCH по аренде.
+      const itemRows = await tx.select().from(checkItems).where(eq(checkItems.checkId, checkId))
+      const ciIds = itemRows.map((i) => i.id)
+      const modRows = ciIds.length
+        ? await tx.select().from(checkItemModifiers).where(inArray(checkItemModifiers.checkItemId, ciIds))
+        : []
+      const discRows = await tx.select().from(checkDiscounts).where(eq(checkDiscounts.checkId, checkId))
+      const { total: itemsTotal } = computeTotals(itemRows, modRows, discRows)
+
+      // Аренда зоны: ceil(минуты/60) × ставка. Конец — заданный spaceEndAt либо
+      // момент подтверждения (живой счётчик). Идентично pos.router.ts /pay.
+      let rental = 0
+      if (check.spaceId && check.spaceStartAt) {
+        const [space] = await tx.select({ hourlyRate: spaces.hourlyRate }).from(spaces).where(eq(spaces.id, check.spaceId))
+        if (space?.hourlyRate) {
+          const endMs = check.spaceEndAt ? new Date(check.spaceEndAt).getTime() : Date.now()
+          const mins = Math.max(0, (endMs - new Date(check.spaceStartAt).getTime()) / 60000)
+          rental = Math.ceil(mins / 60) * parseFloat(space.hourlyRate)
+        }
+      }
+      const total = round2(itemsTotal + rental)
+
       // Сверка суммы (если провайдер её прислал).
       if (reportedAmount != null && !Number.isNaN(reportedAmount) && Math.abs(reportedAmount - total) > 0.01) {
         throw new Error('AMOUNT_MISMATCH')
@@ -75,6 +129,9 @@ plategaRouter.post('/webhook', async (c) => {
       await tx.update(checks).set({
         status: 'closed',
         paymentMethod: 'transfer',
+        totalAmount: String(total),
+        // Фиксируем конец аренды при закрытии (зеркало pos.router.ts close).
+        spaceEndAt: check.spaceEndAt ?? (check.spaceId ? new Date() : undefined),
         closedAt: new Date(),
       }).where(eq(checks.id, checkId))
 

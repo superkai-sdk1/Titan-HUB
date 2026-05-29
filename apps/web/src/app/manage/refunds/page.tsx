@@ -22,6 +22,8 @@ const METHOD_LABELS: Record<string, string> = {
   deposit: 'Депозит', bonus: 'Бонусы', certificate: 'Сертификат', debt: 'Долг',
 }
 
+interface Tender { method: string; amount: number }
+
 interface Refund {
   id: string
   checkId: string
@@ -29,6 +31,10 @@ interface Refund {
   refundType: 'full' | 'partial'
   reason: string
   note?: string | null
+  // Разбивка возврата по способам оплаты (новые возвраты); у старых — null.
+  tenders?: Tender[] | null
+  // UUID оформившего возврат (без джойна на профиль в API /refunds).
+  createdBy?: string | null
   createdAt: string
 }
 
@@ -182,12 +188,27 @@ export default function RefundsPage() {
               <span style={{ ...LBL, margin: 0 }}>Сумма</span>
               <span style={{ fontSize: 22, fontWeight: 800, color: 'var(--danger)', fontVariantNumeric: 'tabular-nums' }}>{formatMoney(-(parseFloat(selected.totalAmount) || 0))}</span>
             </div>
+
+            {/* Разбивка по способам оплаты (если возврат хранит tenders). */}
+            {selected.tenders && selected.tenders.length > 0 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '10px 14px', borderRadius: 12, background: 'rgba(255,255,255,0.04)' }}>
+                <span style={LBL}>По способам оплаты</span>
+                {selected.tenders.map((t, i) => (
+                  <div key={`${t.method}-${i}`} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
+                    <span style={{ color: 'var(--on-surface-variant)' }}>{METHOD_LABELS[t.method] ?? t.method}</span>
+                    <strong style={{ color: 'var(--danger)', fontVariantNumeric: 'tabular-nums' }}>{formatMoney(-(Number(t.amount) || 0))}</strong>
+                  </div>
+                ))}
+              </div>
+            )}
+
             <div style={{ height: 1, background: 'rgba(255,255,255,0.06)' }} />
             <div><span style={LBL}>Тип</span><p style={{ margin: 0, fontSize: 14 }}>{selected.refundType === 'partial' ? 'Частичный' : 'Полный'}</p></div>
             <div><span style={LBL}>Причина</span><p style={{ margin: 0, fontSize: 14 }}>{REASON_LABELS[selected.reason] ?? selected.reason}</p></div>
             <div><span style={LBL}>Чек</span><p style={{ margin: 0, fontSize: 14, fontFamily: "'JetBrains Mono',monospace" }}>#{selected.checkId.slice(0, 8)}</p></div>
             {selected.note && (<div><span style={LBL}>Комментарий</span><p style={{ margin: 0, fontSize: 14 }}>{selected.note}</p></div>)}
             <div><span style={LBL}>Дата</span><p style={{ margin: 0, fontSize: 14, color: 'var(--on-surface-variant)' }}>{fmtDate(selected.createdAt)}</p></div>
+            {selected.createdBy && (<div><span style={LBL}>Оформил</span><p style={{ margin: 0, fontSize: 14, fontFamily: "'JetBrains Mono',monospace", color: 'var(--on-surface-variant)' }}>#{selected.createdBy.slice(0, 8)}</p></div>)}
           </div>
         )}
       </Sheet>

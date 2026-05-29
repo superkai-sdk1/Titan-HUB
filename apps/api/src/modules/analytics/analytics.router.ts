@@ -2,8 +2,8 @@ import type { AppEnv } from '../../types.js'
 import { Hono } from 'hono'
 import {
   db, checks, checkItems, checkPayments, inventory, profiles, shifts, expenses,
-  supplies, supplyItems,
-  eq, and, gte, lte, desc, asc, sql, sum, count, avg, isNull,
+  supplies, supplyItems, salaryPayments,
+  eq, and, gte, lte, lt, desc, asc, sql, sum, count, avg, isNull, ne,
 } from '@titan/database'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
 
@@ -15,28 +15,46 @@ function parseNum(v: unknown) {
   return parseFloat(String(v ?? 0)) || 0
 }
 
+// Все витрины считаются по календарю Москвы (UTC+3), а не UTC, иначе около
+// полуночи «сегодня/вчера/30 дней» съезжают, а expenseDate (text-дата в местном
+// времени) сравнивается с UTC-границей с ошибкой на сутки. Паттерн как в
+// cron/birthdays.ts: сдвигаем «сейчас» на +3ч и берём UTC-компоненты.
+const MSK_OFFSET_MS = 3 * 3600 * 1000
+
+// YYYY-MM-DD по МСК для даты, отстоящей от текущего момента на `daysAgo` суток.
+function mskDateStr(daysAgo = 0): string {
+  const d = new Date(Date.now() + MSK_OFFSET_MS - daysAgo * 86400000)
+  return d.toISOString().split('T')[0]
+}
+
+// Граница полуночи МСК для YYYY-MM-DD как абсолютный момент (UTC = local − 3ч).
+function mskBoundary(dateStr: string): Date {
+  return new Date(`${dateStr}T00:00:00+03:00`)
+}
+
 // ─── Dashboard ───────────────────────────────────────────────────────────────
 analyticsRouter.get('/dashboard', async (c) => {
-  const now = new Date()
-  const today = now.toISOString().split('T')[0]
-  const yesterday = new Date(now.getTime() - 86400000).toISOString().split('T')[0]
-  const thirtyDaysAgo = new Date(now.getTime() - 30 * 86400000)
-  const sixtyDaysAgo = new Date(now.getTime() - 60 * 86400000)
+  // Границы окон — полночь МСК. Окна полуоткрытые [начало, следующее_начало),
+  // чтобы «вчера» и «сегодня» не дублировали чек, попавший ровно в полночь.
+  const todayStart = mskBoundary(mskDateStr(0))           // 00:00 МСК сегодня
+  const yesterdayStart = mskBoundary(mskDateStr(1))       // 00:00 МСК вчера
+  const thirtyDaysAgo = mskBoundary(mskDateStr(30))       // 00:00 МСК 30 дней назад
+  const sixtyDaysAgo = mskBoundary(mskDateStr(60))        // 00:00 МСК 60 дней назад
 
   // Today revenue
   const [todayStats] = await db
     .select({ revenue: sum(checks.totalAmount), count: count() })
     .from(checks)
-    .where(and(eq(checks.status, 'closed'), gte(checks.createdAt, new Date(today))))
+    .where(and(eq(checks.status, 'closed'), gte(checks.createdAt, todayStart)))
 
-  // Yesterday revenue for delta
+  // Yesterday revenue for delta — полуоткрытый интервал [вчера, сегодня)
   const [yesterdayStats] = await db
     .select({ revenue: sum(checks.totalAmount), count: count() })
     .from(checks)
     .where(and(
       eq(checks.status, 'closed'),
-      gte(checks.createdAt, new Date(yesterday)),
-      lte(checks.createdAt, new Date(today)),
+      gte(checks.createdAt, yesterdayStart),
+      lt(checks.createdAt, todayStart),
     ))
 
   // Month revenue
@@ -45,14 +63,14 @@ analyticsRouter.get('/dashboard', async (c) => {
     .from(checks)
     .where(and(eq(checks.status, 'closed'), gte(checks.createdAt, thirtyDaysAgo)))
 
-  // Previous month for delta
+  // Previous month for delta — полуоткрытый интервал [60д, 30д)
   const [prevMonthStats] = await db
     .select({ revenue: sum(checks.totalAmount), count: count() })
     .from(checks)
     .where(and(
       eq(checks.status, 'closed'),
       gte(checks.createdAt, sixtyDaysAgo),
-      lte(checks.createdAt, thirtyDaysAgo),
+      lt(checks.createdAt, thirtyDaysAgo),
     ))
 
   // COGS this month (supply costs)
@@ -62,11 +80,23 @@ analyticsRouter.get('/dashboard', async (c) => {
     .leftJoin(supplies, eq(supplies.id, supplyItems.supplyId))
     .where(gte(supplies.createdAt, thirtyDaysAgo))
 
-  // Expenses this month
+  // Expenses this month.
+  // ПРАВИЛО ЗАРПЛАТЫ В ПРИБЫЛИ: единственный источник истины по ФОТ — таблица
+  // salaryPayments. Поэтому из «операционных расходов» исключаем категорию
+  // 'salary' (её владелец мог завести и через расходы, и через выплаты ЗП —
+  // суммировать оба источника = двойной счёт). Так прибыль не зависит от того,
+  // через какой экран провели зарплату. Здесь категорию 'salary' исключаем, а
+  // фактический ФОТ берём ниже из salaryPayments.
   const [expensesRow] = await db
     .select({ total: sum(expenses.amount) })
     .from(expenses)
-    .where(gte(expenses.createdAt, thirtyDaysAgo))
+    .where(and(gte(expenses.createdAt, thirtyDaysAgo), ne(expenses.category, 'salary')))
+
+  // Payroll this month — единый источник (таблица выплат ЗП).
+  const [salaryRow] = await db
+    .select({ total: sum(salaryPayments.amount) })
+    .from(salaryPayments)
+    .where(gte(salaryPayments.createdAt, thirtyDaysAgo))
 
   // Payment breakdown (30d)
   const paymentBreakdown = await db
@@ -102,7 +132,12 @@ analyticsRouter.get('/dashboard', async (c) => {
   const monthRev = parseNum(monthStats?.revenue)
   const prevMonthRev = parseNum(prevMonthStats?.revenue)
   const cogs = parseNum(cogsRow?.total)
-  const totalExpenses = parseNum(expensesRow?.total)
+  // Операционные расходы БЕЗ зарплаты (см. правило выше).
+  const opExpenses = parseNum(expensesRow?.total)
+  // ФОТ — единственный источник истины.
+  const salary = parseNum(salaryRow?.total)
+  // Совокупные расходы для прибыли = операционные (без ЗП) + ФОТ из salaryPayments.
+  const totalExpenses = opExpenses + salary
   const profit = monthRev - cogs - totalExpenses
   const monthRevDelta = prevMonthRev > 0 ? Math.round(((monthRev - prevMonthRev) / prevMonthRev) * 100) : 0
 
@@ -133,58 +168,70 @@ analyticsRouter.get('/dashboard', async (c) => {
 
 // ─── Revenue by day ───────────────────────────────────────────────────────────
 analyticsRouter.get('/revenue', async (c) => {
-  const from = c.req.query('from') ?? new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0]
-  const to = c.req.query('to') ?? new Date().toISOString().split('T')[0]
+  // Период по МСК. from/to — YYYY-MM-DD (включительно). Окно по timestamptz —
+  // полуоткрытое [fromStart, toEndExclusive) на границах полуночи МСК; так чек,
+  // созданный в 23:30 МСК последнего дня, попадает в нужные сутки, а не в UTC-день.
+  const from = c.req.query('from') ?? mskDateStr(30)
+  const to = c.req.query('to') ?? mskDateStr(0)
+  const fromStart = mskBoundary(from)
+  // следующий день после `to` в 00:00 МСК (верхняя граница, исключающая)
+  const toEndExclusive = new Date(mskBoundary(to).getTime() + 86400000)
 
   const rows = await db
     .select({
-      date: sql<string>`date_trunc('day', ${checks.createdAt})::date::text`,
+      // День агрегируем в МСК, чтобы метки совпадали с границами окна.
+      date: sql<string>`(${checks.createdAt} AT TIME ZONE 'Europe/Moscow')::date::text`,
       revenue: sum(checks.totalAmount),
       count: count(),
     })
     .from(checks)
     .where(and(
       eq(checks.status, 'closed'),
-      gte(checks.createdAt, new Date(from)),
-      lte(checks.createdAt, new Date(to + 'T23:59:59')),
+      gte(checks.createdAt, fromStart),
+      lt(checks.createdAt, toEndExclusive),
     ))
-    .groupBy(sql`date_trunc('day', ${checks.createdAt})::date`)
-    .orderBy(asc(sql`date_trunc('day', ${checks.createdAt})::date`))
+    .groupBy(sql`(${checks.createdAt} AT TIME ZONE 'Europe/Moscow')::date`)
+    .orderBy(asc(sql`(${checks.createdAt} AT TIME ZONE 'Europe/Moscow')::date`))
 
-  // Expenses by day
+  // Expenses by day. expenseDate — text-дата в местном времени; сравниваем как
+  // строки YYYY-MM-DD (от and до включительно), без каста ::date vs timestamptz,
+  // который давал сдвиг на сутки относительно UTC-границы.
   const expRows = await db
     .select({
-      date: sql<string>`${expenses.expenseDate}::text`,
+      date: sql<string>`${expenses.expenseDate}`,
       total: sum(expenses.amount),
     })
     .from(expenses)
     .where(and(
-      gte(sql`${expenses.expenseDate}::date`, new Date(from)),
-      lte(sql`${expenses.expenseDate}::date`, new Date(to)),
+      gte(expenses.expenseDate, from),
+      lte(expenses.expenseDate, to),
     ))
     .groupBy(expenses.expenseDate)
 
-  // COGS by day (supply costs)
+  // COGS by day (supply costs) — те же полуоткрытые границы МСК.
   const cogsRows = await db
     .select({
-      date: sql<string>`date_trunc('day', ${supplies.createdAt})::date::text`,
+      date: sql<string>`(${supplies.createdAt} AT TIME ZONE 'Europe/Moscow')::date::text`,
       total: sql<number>`sum(${supplyItems.quantity}::numeric * ${supplyItems.costPerUnit}::numeric)`,
     })
     .from(supplyItems)
     .leftJoin(supplies, eq(supplies.id, supplyItems.supplyId))
     .where(and(
-      gte(supplies.createdAt, new Date(from)),
-      lte(supplies.createdAt, new Date(to + 'T23:59:59')),
+      gte(supplies.createdAt, fromStart),
+      lt(supplies.createdAt, toEndExclusive),
     ))
-    .groupBy(sql`date_trunc('day', ${supplies.createdAt})::date`)
+    .groupBy(sql`(${supplies.createdAt} AT TIME ZONE 'Europe/Moscow')::date`)
 
   return c.json({ revenue: rows, expenses: expRows, cogs: cogsRows })
 })
 
 // ─── Products ABC ─────────────────────────────────────────────────────────────
 analyticsRouter.get('/products', async (c) => {
-  const from = c.req.query('from') ?? new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0]
-  const to = c.req.query('to') ?? new Date().toISOString().split('T')[0]
+  // Период по МСК, полуоткрытое окно [fromStart, toEndExclusive) — как в /revenue.
+  const from = c.req.query('from') ?? mskDateStr(30)
+  const to = c.req.query('to') ?? mskDateStr(0)
+  const fromStart = mskBoundary(from)
+  const toEndExclusive = new Date(mskBoundary(to).getTime() + 86400000)
 
   const rows = await db
     .select({
@@ -199,8 +246,8 @@ analyticsRouter.get('/products', async (c) => {
     .leftJoin(checks, eq(checks.id, checkItems.checkId))
     .where(and(
       eq(checks.status, 'closed'),
-      gte(checks.createdAt, new Date(from)),
-      lte(checks.createdAt, new Date(to + 'T23:59:59')),
+      gte(checks.createdAt, fromStart),
+      lt(checks.createdAt, toEndExclusive),
     ))
     .groupBy(checkItems.itemId, inventory.name, inventory.category)
     .orderBy(desc(sql`sum(${checkItems.quantity}::numeric * ${checkItems.priceAtTime})`))

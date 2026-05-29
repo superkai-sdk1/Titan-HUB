@@ -11,6 +11,7 @@ const SupplySchema = z.object({
   note: z.string().optional(),
   supplier: z.string().optional(),
   paymentMethod: z.enum(['cash', 'card', 'transfer']).default('cash'),
+  idempotencyKey: z.string().max(80).optional(),
   items: z.array(z.object({
     // Привязка к карточке товара опциональна: сырьё без карточки можно
     // зафиксировать как затрату (без изменения остатка).
@@ -58,7 +59,12 @@ suppliesRouter.post('/', requireRole('owner', 'staff'), zValidator('json', Suppl
       paymentMethod: body.paymentMethod,
       totalCost: String(totalCost),
       createdBy: user.sub,
-    }).returning()
+      idempotencyKey: body.idempotencyKey,
+    }).onConflictDoNothing({ target: supplies.idempotencyKey }).returning()
+
+    // Двойной клик/ретрай с тем же ключом — приёмка уже создана. Прерываем
+    // транзакцию без побочных эффектов (без задвоения остатка/COGS).
+    if (!sup) return null
 
     await tx.insert(supplyItems).values(body.items.map(i => ({
       supplyId: sup.id,
@@ -89,6 +95,15 @@ suppliesRouter.post('/', requireRole('owner', 'staff'), zValidator('json', Suppl
 
     return sup
   })
+
+  // Повторный POST с тем же ключом — отдаём существующую приёмку (как expenses).
+  if (!supply) {
+    if (body.idempotencyKey) {
+      const [existing] = await db.select().from(supplies).where(eq(supplies.idempotencyKey, body.idempotencyKey))
+      if (existing) return c.json({ supply: existing, duplicate: true })
+    }
+    return c.json({ error: 'Не удалось сохранить приёмку' }, 500)
+  }
 
   return c.json({ supply }, 201)
 })

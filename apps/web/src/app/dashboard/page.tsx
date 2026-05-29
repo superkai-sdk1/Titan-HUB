@@ -236,18 +236,25 @@ function ReportsTab() {
     queryFn: () => api.get<any>('/analytics/dashboard'),
   })
 
-  const days: any[] = revData?.days ?? []
-  const totalRevenue  = days.reduce((s: number, d: any) => s + parseFloat(d.revenue || 0), 0)
-  const totalExpenses = days.reduce((s: number, d: any) => s + parseFloat(d.expenses || 0), 0)
-  const totalCogs     = days.reduce((s: number, d: any) => s + parseFloat(d.cogs || 0), 0)
+  // /analytics/revenue → { revenue: [{date,revenue,count}], expenses: [{date,total}], cogs: [{date,total}] }
+  // Это РАЗДЕЛЬНЫЕ дневные серии (даты по выручке/расходам/себестоимости могут
+  // не совпадать), поэтому суммы считаем по своим массивам, а не по одному `days`.
+  const revRows: any[] = revData?.revenue ?? []
+  const expRows: any[] = revData?.expenses ?? []
+  const cogsRows: any[] = revData?.cogs ?? []
+  const totalRevenue  = revRows.reduce((s: number, d: any) => s + parseNum(d.revenue), 0)
+  const totalExpenses = expRows.reduce((s: number, d: any) => s + parseNum(d.total), 0)
+  const totalCogs     = cogsRows.reduce((s: number, d: any) => s + parseNum(d.total), 0)
   const profit        = totalRevenue - totalExpenses - totalCogs
-  const checksCount   = days.reduce((s: number, d: any) => s + (d.checksCount || 0), 0)
+  const checksCount   = revRows.reduce((s: number, d: any) => s + (d.count || 0), 0)
   const avgCheck      = checksCount ? totalRevenue / checksCount : 0
-  const maxDayRev     = days.length ? Math.max(...days.map((d: any) => parseFloat(d.revenue || 0))) : 1
+  const maxDayRev     = revRows.length ? Math.max(...revRows.map((d: any) => parseNum(d.revenue))) : 1
 
-  const products: any[] = prodData?.items ?? []
-  const totalProdRev: number = prodData?.totalRev ?? 0
-  const payBreakdown: any = dashData?.paymentBreakdown ?? {}
+  // /analytics/products → { products: [...], totalRev }
+  const products: any[] = prodData?.products ?? []
+  const totalProdRev: number = parseNum(prodData?.totalRev)
+  // paymentBreakdown — МАССИВ [{ method, total }] (как в Overview/PayBreakdown).
+  const payBreakdown: any[] = dashData?.paymentBreakdown ?? []
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -294,10 +301,10 @@ function ReportsTab() {
       {subTab === 'revenue' && (
         <div className="glass-l2" style={{ borderRadius: 16, padding: 20 }}>
           <span style={LBL}>Выручка по дням · {format(new Date(from), 'd MMM', { locale: ru })} — {format(new Date(to), 'd MMM yyyy', { locale: ru })}</span>
-          {days.length === 0 ? <p style={{ fontSize: 13, color: 'rgba(204,195,216,0.4)', textAlign: 'center', padding: '20px 0' }}>Нет данных</p> : (
+          {revRows.length === 0 ? <p style={{ fontSize: 13, color: 'rgba(204,195,216,0.4)', textAlign: 'center', padding: '20px 0' }}>Нет данных</p> : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-              {days.map((d: any) => {
-                const rev = parseFloat(d.revenue || 0)
+              {revRows.map((d: any) => {
+                const rev = parseNum(d.revenue)
                 const pct = maxDayRev > 0 ? (rev / maxDayRev) * 100 : 0
                 let dateLabel = d.date
                 try { dateLabel = format(new Date(d.date), 'd MMM', { locale: ru }) } catch {}
@@ -340,7 +347,7 @@ function ReportsTab() {
           </div>
           {products.length === 0 ? <p style={{ padding: 24, textAlign: 'center', fontSize: 13, color: 'var(--on-surface-variant)' }}>Нет данных</p> : products.map((p: any, i: number) => {
             const abcColor = ABC_COLORS[p.abc] ?? '#94A3B8'
-            const barPct = totalProdRev > 0 ? (parseFloat(p.revenue) / totalProdRev) * 100 : 0
+            const barPct = totalProdRev > 0 ? (parseNum(p.totalRev) / totalProdRev) * 100 : 0
             return (
               <div key={p.itemId ?? i} style={{ padding: '12px 18px', borderBottom: '1px solid rgba(255,255,255,0.04)', display: 'flex', gap: 12, alignItems: 'center' }}>
                 <span style={{ fontSize: 11, fontFamily: "'JetBrains Mono',monospace", color: 'var(--on-surface-variant)', width: 18, flexShrink: 0 }}>{i + 1}</span>
@@ -354,8 +361,8 @@ function ReportsTab() {
                   </div>
                 </div>
                 <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                  <p style={{ fontSize: 13, fontWeight: 700, margin: 0 }}>{fmt(parseFloat(p.revenue || 0))} ₽</p>
-                  <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: '2px 0 0' }}>{parseFloat(p.quantity || 0).toFixed(0)} шт</p>
+                  <p style={{ fontSize: 13, fontWeight: 700, margin: 0 }}>{fmt(parseNum(p.totalRev))} ₽</p>
+                  <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: '2px 0 0' }}>{parseNum(p.totalQty).toFixed(0)} шт</p>
                 </div>
               </div>
             )
@@ -367,18 +374,18 @@ function ReportsTab() {
       {subTab === 'payments' && (
         <div className="glass-l2" style={{ borderRadius: 16, padding: 20 }}>
           <span style={LBL}>Способы оплаты</span>
-          {Object.keys(payBreakdown).length === 0 ? <p style={{ fontSize: 13, color: 'var(--on-surface-variant)' }}>Нет данных</p> : (
+          {payBreakdown.length === 0 ? <p style={{ fontSize: 13, color: 'var(--on-surface-variant)' }}>Нет данных</p> : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {(() => {
-                const totalPay = Object.values(payBreakdown).reduce((s: number, v: any) => s + parseFloat(v), 0)
-                return Object.entries(payBreakdown).map(([method, amount]: [string, any]) => {
-                  const pct = totalPay > 0 ? (parseFloat(amount) / totalPay) * 100 : 0
-                  const color = PAY_COLORS[method] ?? '#94A3B8'
+                const totalPay = payBreakdown.reduce((s: number, p: any) => s + parseNum(p.total), 0)
+                return payBreakdown.map((p: any) => {
+                  const pct = totalPay > 0 ? (parseNum(p.total) / totalPay) * 100 : 0
+                  const color = PAY_COLORS[p.method] ?? '#94A3B8'
                   return (
-                    <div key={method}>
+                    <div key={p.method}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                        <span style={{ fontSize: 12, color: 'var(--on-surface-variant)' }}>{PAY_LABELS[method] ?? method}</span>
-                        <span style={{ fontSize: 12, fontWeight: 700 }}>{fmt(parseFloat(amount))} ₽ · {pct.toFixed(1)}%</span>
+                        <span style={{ fontSize: 12, color: 'var(--on-surface-variant)' }}>{PAY_LABELS[p.method] ?? p.method}</span>
+                        <span style={{ fontSize: 12, fontWeight: 700 }}>{fmt(parseNum(p.total))} ₽ · {pct.toFixed(1)}%</span>
                       </div>
                       <div style={{ height: 6, borderRadius: 3, background: 'rgba(255,255,255,0.06)', overflow: 'hidden' }}>
                         <div style={{ height: '100%', width: `${pct}%`, background: color, borderRadius: 3 }} />

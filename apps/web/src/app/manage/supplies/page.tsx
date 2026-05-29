@@ -1,5 +1,5 @@
 'use client'
-import React, { useState } from 'react'
+import React, { useState, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { format } from 'date-fns'
@@ -61,9 +61,12 @@ export default function SuppliesPage() {
     setItems(prev => prev.map(i => i._key === key ? { ...i, itemId, name: invItem.name, lastPrice: lastPrice ?? undefined } : i))
   }
 
+  // Идемпотентный ключ: защита от двойного клика (двойной приход + COGS).
+  const idemRef = useRef(crypto.randomUUID())
   const create = useMutation({
-    mutationFn: (body: { supplier: string; items: { itemId?: string; name: string; unit: string; quantity: number; costPerUnit: number }[] }) => api.post('/supplies', body),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['supplies'] }); setShowModal(false); setSupplier(''); setItems([emptyItem()]) },
+    mutationFn: (body: { supplier: string; items: { itemId?: string; name: string; unit: string; quantity: number; costPerUnit: number }[] }) =>
+      api.post('/supplies', { ...body, idempotencyKey: idemRef.current }),
+    onSuccess: () => { idemRef.current = crypto.randomUUID(); qc.invalidateQueries({ queryKey: ['supplies'] }); setShowModal(false); setSupplier(''); setItems([emptyItem()]) },
     onError: () => show('Не удалось сохранить закупку', 'error'),
   })
 

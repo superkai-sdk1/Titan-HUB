@@ -46,14 +46,16 @@ certificatesRouter.post('/', requireRole('owner', 'staff'), zValidator('json', C
   return c.json({ certificate: cert }, 201)
 })
 
-certificatesRouter.get('/validate/:code', async (c) => {
+// validate используется на кассе персоналом — оставляем staff-доступ, но
+// закрываем от клиентов/планшетов (иначе можно перебирать коды/балансы).
+certificatesRouter.get('/validate/:code', requireRole('owner', 'staff'), async (c) => {
   const [cert] = await db.select().from(certificates).where(eq(certificates.code, c.req.param('code')))
   if (!cert) return c.json({ error: 'Not found' }, 404)
   if (cert.isUsed) return c.json({ error: 'Already used' }, 400)
   return c.json({ certificate: cert })
 })
 
-certificatesRouter.get('/:id', async (c) => {
+certificatesRouter.get('/:id', requireRole('owner', 'staff'), async (c) => {
   const [cert] = await db.select().from(certificates).where(eq(certificates.id, c.req.param('id')))
   if (!cert) return c.json({ error: 'Not found' }, 404)
   return c.json({ certificate: cert })

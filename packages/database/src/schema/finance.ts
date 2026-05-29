@@ -74,6 +74,7 @@ export const bonusHistory = pgTable('bonus_history', {
 
 export const supplies = pgTable('supplies', {
   id: uuid('id').primaryKey().defaultRandom(),
+  idempotencyKey: text('idempotency_key'),
   note: text('note'),
   supplier: text('supplier'),
   totalCost: numeric('total_cost', { precision: 12, scale: 2 }).notNull().default('0'),

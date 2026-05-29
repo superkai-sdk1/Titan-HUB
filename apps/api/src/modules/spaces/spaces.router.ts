@@ -8,8 +8,9 @@ import { Redis } from 'ioredis'
 
 const SpaceSchema = z.object({
   name: z.string().min(1),
-  type: z.enum(['small_booth', 'large_booth', 'hall']),
+  type: z.enum(['small_booth', 'large_booth', 'hall', 'table', 'vr', 'ps5', 'zone']),
   hourlyRate: z.number().min(0).default(0),
+  capacity: z.number().int().min(0).optional(),
   isActive: z.boolean().default(true),
 })
 

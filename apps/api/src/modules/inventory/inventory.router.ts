@@ -2,16 +2,24 @@ import type { AppEnv } from '../../types.js'
 import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
-import { db, inventory, stockMovements, eq, desc } from '@titan/database'
+import { db, inventory, stockMovements, eq, asc, isNull } from '@titan/database'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
 
 export const inventoryRouter = new Hono<AppEnv>()
 
 inventoryRouter.use('*', requireAuth)
 
-// GET /api/inventory
+// GET /api/inventory — управление остатками. Возвращает активные И неактивные
+// позиции (исключая только мягко удалённые deletedAt != null): скрытая из меню
+// позиция всё ещё нуждается в учёте остатков/ревизии. Порядок — как в меню
+// (sortOrder, затем имя). Эндпоинт за requireAuth (только персонал), поэтому
+// costPrice здесь допустим.
 inventoryRouter.get('/', async (c) => {
-  const rows = await db.select().from(inventory).orderBy(desc(inventory.name))
+  const rows = await db
+    .select()
+    .from(inventory)
+    .where(isNull(inventory.deletedAt))
+    .orderBy(asc(inventory.sortOrder), asc(inventory.name))
   return c.json({ items: rows })
 })
 

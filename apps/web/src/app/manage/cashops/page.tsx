@@ -22,11 +22,12 @@ interface CashOp {
 }
 
 interface Balance {
-  start?: number
+  cashStart?: number
   cashPayments?: number
   deposits?: number
   withdrawals?: number
-  total?: number
+  salaries?: number
+  expected?: number
 }
 
 function relTime(dateStr: string) {
@@ -61,11 +62,13 @@ export default function CashOpsPage() {
   )
 
   const balance = data?.balance ?? {}
-  const start = balance.start ?? 0
+  const cashStart = balance.cashStart ?? 0
   const cashPayments = balance.cashPayments ?? 0
   const deposits = balance.deposits ?? 0
   const withdrawals = balance.withdrawals ?? 0
-  const total = balance.total ?? (start + cashPayments + deposits - withdrawals)
+  const salaries = balance.salaries ?? 0
+  // expected = касса на старте + наличные оплаты + внесения − изъятия − зарплаты.
+  const total = balance.expected ?? (cashStart + cashPayments + deposits - withdrawals - salaries)
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ['cashops'] })
   // Стабильный ключ идемпотентности на одну операцию (защита от двойного клика);
@@ -113,10 +116,11 @@ export default function CashOpsPage() {
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                 {[
-                  { label: 'Открытие смены', value: start, color: 'var(--on-surface-variant)' },
+                  { label: 'Открытие смены', value: cashStart, color: 'var(--on-surface-variant)' },
                   { label: 'Наличные оплаты', value: cashPayments, color: 'var(--success)' },
                   { label: 'Внесено', value: deposits, color: 'var(--secondary)' },
                   { label: 'Изъято', value: withdrawals, color: 'var(--danger)' },
+                  { label: 'Зарплаты', value: salaries, color: 'var(--primary-violet)' },
                 ].map(({ label, value, color }) => (
                   <div key={label} style={{ padding: '10px 12px', borderRadius: 12, background: 'rgba(255,255,255,0.04)' }}>
                     <div style={{ fontSize: 10, color: 'var(--on-surface-variant)', marginBottom: 3, fontFamily: "'JetBrains Mono',monospace", textTransform: 'uppercase', letterSpacing: '0.06em' }}>{label}</div>

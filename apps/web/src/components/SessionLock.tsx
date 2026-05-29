@@ -10,9 +10,14 @@ import { Icon } from '@/components/Icon'
 export function SessionLock() {
   const { token, user, isLocked, lock, unlock, updateActivity } = useAuthStore()
 
+  // Планшеты (role 'tablet') не имеют PIN/passkey — для них блокировка по
+  // бездействию означала бы вечную блокировку (выход только через перепривязку).
+  // Поэтому планшеты вообще не отслеживаем и не блокируем.
+  const isTablet = user?.role === 'tablet'
+
   // Track user activity
   useEffect(() => {
-    if (!token) return
+    if (!token || isTablet) return
     const handler = () => updateActivity()
     window.addEventListener('mousedown', handler, { passive: true })
     window.addEventListener('touchstart', handler, { passive: true })
@@ -22,11 +27,11 @@ export function SessionLock() {
       window.removeEventListener('touchstart', handler)
       window.removeEventListener('keydown', handler)
     }
-  }, [token, updateActivity])
+  }, [token, isTablet, updateActivity])
 
   // Check inactivity every 30 seconds
   useEffect(() => {
-    if (!token) return
+    if (!token || isTablet) return
     const interval = setInterval(() => {
       const { lastActiveAt, isLocked: locked } = useAuthStore.getState()
       const idle = Date.now() - lastActiveAt
@@ -35,9 +40,9 @@ export function SessionLock() {
       }
     }, 30_000)
     return () => clearInterval(interval)
-  }, [token, lock])
+  }, [token, isTablet, lock])
 
-  if (!isLocked || !token) return null
+  if (!isLocked || !token || isTablet) return null
 
   return <LockOverlay user={user} onUnlock={unlock} />
 }
@@ -65,7 +70,18 @@ function LockOverlay({
     setPinLoading(true)
     setErrorMsg('')
     try {
-      const res = await api.post<{ token: string; user: any }>('/auth/login/pin', { pin: fullPin })
+      // Разблокировка строго СВОЕГО профиля: передаём id заблокированного
+      // пользователя, чтобы чужой PIN не подходил и не переключал аккаунт.
+      const lockedUserId = useAuthStore.getState().user?.id
+      const res = await api.post<{ token: string; user: any }>('/auth/login/pin', {
+        pin: fullPin,
+        userId: lockedUserId,
+      })
+      // Доп. защита: если по какой-то причине вернулся другой пользователь —
+      // не подменяем сессию молча, требуем именно свой PIN.
+      if (lockedUserId && res.user?.id && res.user.id !== lockedUserId) {
+        throw new Error('wrong-user')
+      }
       setAuth(res.token, res.user)
       onUnlock()
     } catch {
@@ -92,6 +108,10 @@ function LockOverlay({
         '/auth/passkey/authenticate/verify',
         { challengeId, response }
       )
+      // Разблокировка только своего профиля — не подменяем аккаунт чужим passkey.
+      if (userId && res.user?.id && res.user.id !== userId) {
+        throw new Error('wrong-user')
+      }
       setAuth(res.token, res.user)
       onUnlock()
     } catch (e: any) {

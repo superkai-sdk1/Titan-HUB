@@ -9,8 +9,8 @@ export const discountsRouter = new Hono<AppEnv>()
 
 discountsRouter.use('*', requireAuth)
 
-// GET /api/discounts
-discountsRouter.get('/', async (c) => {
+// GET /api/discounts — только персонал/владелец (видны привязки clientId).
+discountsRouter.get('/', requireRole('owner', 'staff'), async (c) => {
   const clientId = c.req.query('clientId')
   const where = clientId ? eq(discounts.clientId, clientId) : undefined
   const rows = await db.select().from(discounts).where(where).orderBy(desc(discounts.createdAt))
@@ -30,7 +30,11 @@ discountsRouter.post(
     minQuantity: z.number().int().min(1).optional().default(1),
     itemId: z.string().uuid().optional().nullable(),
     clientId: z.string().uuid().optional().nullable(),
-  })),
+  }).refine(
+    // Процентная скидка не может превышать 100%.
+    (d) => d.type !== 'percent' || d.value <= 100,
+    { message: 'Процентная скидка не может превышать 100%', path: ['value'] },
+  )),
   async (c) => {
     const body = c.req.valid('json')
     const [row] = await db.insert(discounts).values({
@@ -60,10 +64,28 @@ discountsRouter.patch(
     minQuantity: z.number().int().min(1).optional(),
     itemId: z.string().uuid().optional().nullable(),
     clientId: z.string().uuid().optional().nullable(),
-  })),
+  }).refine(
+    // Если в одном запросе указаны и type='percent', и value — value ≤ 100.
+    (d) => d.type !== 'percent' || d.value === undefined || d.value <= 100,
+    { message: 'Процентная скидка не может превышать 100%', path: ['value'] },
+  )),
   async (c) => {
     const id = c.req.param('id')
     const body = c.req.valid('json')
+
+    // Частичное обновление: если меняется только value (без type), сверяемся
+    // с уже сохранённым типом скидки, чтобы процент не превысил 100%.
+    if (body.value !== undefined) {
+      let effectiveType = body.type
+      if (effectiveType === undefined) {
+        const [cur] = await db.select({ type: discounts.type }).from(discounts).where(eq(discounts.id, id))
+        effectiveType = cur?.type as 'percent' | 'fixed' | undefined
+      }
+      if (effectiveType === 'percent' && body.value > 100) {
+        return c.json({ error: 'Процентная скидка не может превышать 100%' }, 400)
+      }
+    }
+
     const update: Record<string, unknown> = {}
     if (body.name !== undefined) update.name = body.name
     if (body.type !== undefined) update.type = body.type

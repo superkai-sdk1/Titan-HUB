@@ -2,7 +2,7 @@ import { Hono } from 'hono'
 import { streamSSE } from 'hono/streaming'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
-import { db, notifications, userNotificationSettings, tgLinkRequests, profiles, spaces, checks, eq, and, desc } from '@titan/database'
+import { db, notifications, userNotificationSettings, tgLinkRequests, profiles, spaces, checks, eq, and, or, isNull, desc } from '@titan/database'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
 import { Redis } from 'ioredis'
 import { randomInt } from 'crypto'
@@ -153,10 +153,17 @@ notificationsRouter.post(
 
 notificationsRouter.get('/', async (c) => {
   const user = c.get('user')
+  // Owner/staff видят свои персональные уведомления + broadcast'ы персонала
+  // (userId IS NULL — вызов официанта / запрос счёта). Клиенты — только свои,
+  // чтобы не утекали служебные broadcast'ы.
+  const isStaff = user.role === 'owner' || user.role === 'staff'
+  const where = isStaff
+    ? or(eq(notifications.userId, user.sub), isNull(notifications.userId))
+    : eq(notifications.userId, user.sub)
   const rows = await db
     .select()
     .from(notifications)
-    .where(eq(notifications.userId, user.sub))
+    .where(where)
     .orderBy(desc(notifications.createdAt))
     .limit(50)
   return c.json({ notifications: rows })
@@ -164,15 +171,27 @@ notificationsRouter.get('/', async (c) => {
 
 notificationsRouter.put('/:id/read', async (c) => {
   const user = c.get('user')
+  const isStaff = user.role === 'owner' || user.role === 'staff'
+  // Персонал может отметить прочитанным как свой row, так и общий broadcast
+  // (userId IS NULL). Клиент — только свои. Broadcast — общий row, поэтому
+  // отметка прочтения у него общая для всего персонала (компромисс текущей
+  // схемы: один is_read на строку).
+  const owns = isStaff
+    ? or(eq(notifications.userId, user.sub), isNull(notifications.userId))
+    : eq(notifications.userId, user.sub)
   await db.update(notifications)
     .set({ isRead: true })
-    .where(and(eq(notifications.id, c.req.param('id')), eq(notifications.userId, user.sub)))
+    .where(and(eq(notifications.id, c.req.param('id')), owns))
   return c.json({ ok: true })
 })
 
 notificationsRouter.put('/read-all', async (c) => {
   const user = c.get('user')
-  await db.update(notifications).set({ isRead: true }).where(eq(notifications.userId, user.sub))
+  const isStaff = user.role === 'owner' || user.role === 'staff'
+  const where = isStaff
+    ? or(eq(notifications.userId, user.sub), isNull(notifications.userId))
+    : eq(notifications.userId, user.sub)
+  await db.update(notifications).set({ isRead: true }).where(where)
   return c.json({ ok: true })
 })
 

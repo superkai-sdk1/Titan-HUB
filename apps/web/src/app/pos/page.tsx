@@ -174,8 +174,20 @@ function PosPageInner() {
   const { show: showToast } = useToast()
 
   const createCheck = useMutation({
-    mutationFn: async (body: { note?: string; playerId?: string; spaceId?: string; tariffItemId?: string }) => {
+    mutationFn: async (body: { note?: string; playerId?: string; spaceId?: string; tariffItemId?: string; linkedEventId?: string }) => {
       const { tariffItemId, ...checkBody } = body
+      // Привязка к событию: если открываем чек на зону, у которой сейчас идёт
+      // активное мероприятие, прикрепляем его linkedEventId — бэкенд тогда
+      // инкрементит число гостей события. (UI выбора события в кассе нет —
+      // событие определяется по активной зоне через /events/active-for-space.)
+      if (checkBody.spaceId && !checkBody.linkedEventId) {
+        try {
+          const { event } = await api.get<{ event: { id: string } | null }>(`/events/active-for-space/${checkBody.spaceId}`)
+          if (event?.id) checkBody.linkedEventId = event.id
+        } catch {
+          // не блокируем открытие чека, если проверка события упала
+        }
+      }
       const res = await api.post<{ check: { id: string } }>('/pos/checks', checkBody)
       if (tariffItemId) {
         // itemId — правильное имя поля согласно AddItemSchema на бэкенде

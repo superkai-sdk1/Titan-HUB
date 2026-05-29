@@ -1,6 +1,8 @@
 'use client'
 import Link from 'next/link'
+import { useQuery } from '@tanstack/react-query'
 import { useAuthStore } from '@/store/auth.store'
+import { api } from '@/lib/api'
 import { Icon } from '@/components/Icon'
 
 interface NavItem {
@@ -10,6 +12,12 @@ interface NavItem {
   color: string
   bg: string
   roles: string[]
+  /**
+   * Ключ права доступа (см. staff/page.tsx permissions). Если задан и у
+   * сотрудника (role 'staff') permissions[perm] === false — раздел скрыт.
+   * Владельца права не ограничивают. Пункты без perm гейтятся только ролью.
+   */
+  perm?: string
 }
 
 interface NavGroup {
@@ -23,19 +31,19 @@ const NAV: NavGroup[] = [
     title: 'Продукт',
     icon: 'restaurant_menu',
     items: [
-      { href: '/manage/menu',      label: 'Меню',      icon: 'restaurant_menu', color: '#F97316', bg: 'rgba(249,115,22,0.15)',  roles: ['owner','staff'] },
-      { href: '/manage/inventory', label: 'Склад',     icon: 'inventory_2',     color: '#3B82F6', bg: 'rgba(59,130,246,0.15)',  roles: ['owner','staff'] },
-      { href: '/manage/supplies',  label: 'Поставки',  icon: 'local_shipping',  color: '#10B981', bg: 'rgba(16,185,129,0.15)', roles: ['owner','staff'] },
-      { href: '/manage/revision',  label: 'Ревизия',   icon: 'fact_check',      color: '#F59E0B', bg: 'rgba(245,158,11,0.15)', roles: ['owner','staff'] },
+      { href: '/manage/menu',      label: 'Меню',      icon: 'restaurant_menu', color: '#F97316', bg: 'rgba(249,115,22,0.15)',  roles: ['owner','staff'], perm: 'menu' },
+      { href: '/manage/inventory', label: 'Склад',     icon: 'inventory_2',     color: '#3B82F6', bg: 'rgba(59,130,246,0.15)',  roles: ['owner','staff'], perm: 'inventory' },
+      { href: '/manage/supplies',  label: 'Поставки',  icon: 'local_shipping',  color: '#10B981', bg: 'rgba(16,185,129,0.15)', roles: ['owner','staff'], perm: 'supplies' },
+      { href: '/manage/revision',  label: 'Ревизия',   icon: 'fact_check',      color: '#F59E0B', bg: 'rgba(245,158,11,0.15)', roles: ['owner','staff'], perm: 'inventory' },
     ],
   },
   {
     title: 'Клиенты и продажи',
     icon: 'person',
     items: [
-      { href: '/manage/clients',   label: 'Клиенты',   icon: 'person',          color: '#4cd7f6', bg: 'rgba(76,215,246,0.15)', roles: ['owner','staff'] },
-      { href: '/manage/discounts', label: 'Скидки',    icon: 'percent',         color: '#F43F5E', bg: 'rgba(244,63,94,0.15)',  roles: ['owner'] },
-      { href: '/manage/bonuses',   label: 'Бонусы',    icon: 'star',            color: '#EAB308', bg: 'rgba(234,179,8,0.15)',  roles: ['owner'] },
+      { href: '/manage/clients',   label: 'Клиенты',   icon: 'person',          color: '#4cd7f6', bg: 'rgba(76,215,246,0.15)', roles: ['owner','staff'], perm: 'clients' },
+      { href: '/manage/discounts', label: 'Скидки',    icon: 'percent',         color: '#F43F5E', bg: 'rgba(244,63,94,0.15)',  roles: ['owner'], perm: 'discounts' },
+      { href: '/manage/bonuses',   label: 'Бонусы',    icon: 'star',            color: '#EAB308', bg: 'rgba(234,179,8,0.15)',  roles: ['owner'], perm: 'bonus' },
       { href: '/manage/refunds',   label: 'Возвраты',  icon: 'undo',            color: '#F87171', bg: 'rgba(248,113,113,0.15)',roles: ['owner','staff'] },
     ],
   },
@@ -45,16 +53,16 @@ const NAV: NavGroup[] = [
     items: [
       { href: '/manage/certificates', label: 'Сертификаты', icon: 'card_giftcard',          color: '#F59E0B', bg: 'rgba(245,158,11,0.15)',  roles: ['owner','staff'] },
       { href: '/manage/cashops',      label: 'Инкассация',  icon: 'account_balance_wallet', color: '#14B8A6', bg: 'rgba(20,184,166,0.15)',  roles: ['owner','staff'] },
-      { href: '/manage/expenses',     label: 'Расходы',     icon: 'receipt_long',           color: '#F43F5E', bg: 'rgba(244,63,94,0.15)',   roles: ['owner','staff'] },
-      { href: '/manage/debtors',      label: 'Должники',    icon: 'money_off',              color: '#F97316', bg: 'rgba(249,115,22,0.15)',  roles: ['owner','staff'] },
+      { href: '/manage/expenses',     label: 'Расходы',     icon: 'receipt_long',           color: '#F43F5E', bg: 'rgba(244,63,94,0.15)',   roles: ['owner','staff'], perm: 'expenses' },
+      { href: '/manage/debtors',      label: 'Должники',    icon: 'money_off',              color: '#F97316', bg: 'rgba(249,115,22,0.15)',  roles: ['owner','staff'], perm: 'debtors' },
     ],
   },
   {
     title: 'Персонал',
     icon: 'group',
     items: [
-      { href: '/manage/staff',  label: 'Сотрудники', icon: 'group',    color: '#A78BFA', bg: 'rgba(167,139,250,0.15)', roles: ['owner'] },
-      { href: '/manage/salary', label: 'Зарплата',   icon: 'payments', color: '#10B981', bg: 'rgba(16,185,129,0.15)', roles: ['owner'] },
+      { href: '/manage/staff',  label: 'Сотрудники', icon: 'group',    color: '#A78BFA', bg: 'rgba(167,139,250,0.15)', roles: ['owner'], perm: 'staff' },
+      { href: '/manage/salary', label: 'Зарплата',   icon: 'payments', color: '#10B981', bg: 'rgba(16,185,129,0.15)', roles: ['owner'], perm: 'salary' },
     ],
   },
   {
@@ -120,6 +128,26 @@ export default function ManagePage() {
   const roleLabel = role === 'owner' ? 'Владелец' : 'Персонал'
   const roleColor = role === 'owner' ? '#F59E0B' : '#8B5CF6'
 
+  // Права доступа сотрудника хранятся в профиле (profiles.permissions), но в
+  // auth-сторе их нет (там только id/nickname/role/photoUrl). Поэтому тянем их
+  // из /auth/me. Владельцу права не ограничивают — гейтим только роль 'staff'.
+  const { data: me } = useQuery({
+    queryKey: ['auth', 'me'],
+    queryFn: () => api.get<{ permissions?: Record<string, boolean> }>('/auth/me'),
+    enabled: role === 'staff',
+    staleTime: 60_000,
+  })
+  const permissions = me?.permissions ?? {}
+
+  // Раздел разрешён, если: роль подходит И (нет perm-ключа ИЛИ это владелец
+  // ИЛИ право не выставлено в явный false).
+  function isAllowed(item: NavItem): boolean {
+    if (!item.roles.includes(role)) return false
+    if (role === 'owner') return true
+    if (item.perm && permissions[item.perm] === false) return false
+    return true
+  }
+
   return (
     <div style={{ minHeight: '100%', display: 'flex', flexDirection: 'column', overflowX: 'hidden', width: '100%' }}>
       {/* Header */}
@@ -152,7 +180,7 @@ export default function ManagePage() {
       {/* Sections */}
       <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: 24, maxWidth: 680, margin: '0 auto', width: '100%' }}>
         {NAV.map(group => {
-          const visibleItems = group.items.filter(i => i.roles.includes(role))
+          const visibleItems = group.items.filter(isAllowed)
           if (visibleItems.length === 0) return null
           return (
             <div key={group.title}>

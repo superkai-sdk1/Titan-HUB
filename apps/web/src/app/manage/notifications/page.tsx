@@ -20,9 +20,15 @@ interface Notification {
   isRead: boolean
 }
 
-interface NotifSettings {
-  [key: string]: boolean
+// Контракт API: настройки хранятся как карта типов → { enabled, channel }.
+type NotifTypeSetting = { enabled: boolean; channel: string }
+type NotifTypesMap = Record<string, NotifTypeSetting>
+// Строка из БД (или null, если пользователь ещё не сохранял настройки).
+interface NotifSettingsRow {
+  types?: NotifTypesMap | null
 }
+
+const DEFAULT_CHANNEL = 'push'
 
 const TYPE_ICONS: Record<string, string> = {
   payment: 'payments',
@@ -66,7 +72,7 @@ export default function NotificationsPage() {
 
   const { data: settingsData } = useQuery({
     queryKey: ['notifications', 'settings'],
-    queryFn: () => api.get<{ settings: NotifSettings }>('/notifications/settings'),
+    queryFn: () => api.get<{ settings: NotifSettingsRow | null }>('/notifications/settings'),
   })
 
   const readOne = useMutation({
@@ -81,14 +87,20 @@ export default function NotificationsPage() {
   })
 
   const saveSettings = useMutation({
-    mutationFn: (settings: NotifSettings) => api.put('/notifications/settings', { settings }),
+    // API ожидает { types: Record<string, { enabled, channel }> }.
+    mutationFn: (types: NotifTypesMap) => api.put('/notifications/settings', { types }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['notifications', 'settings'] }),
     onError: () => show('Не удалось сохранить настройку', 'error'),
   })
 
   const notifications: Notification[] = notifData?.notifications ?? []
   const unreadCount = notifications.filter(n => !n.isRead).length
-  const settings: NotifSettings = settingsData?.settings ?? {}
+  const types: NotifTypesMap = settingsData?.settings?.types ?? {}
+
+  // Включено ли уведомление данного типа (по умолчанию — включено).
+  function isEnabled(key: string): boolean {
+    return types[key]?.enabled !== false
+  }
 
   function handleCardClick(n: Notification) {
     if (!n.isRead) readOne.mutate(n.id)
@@ -96,7 +108,11 @@ export default function NotificationsPage() {
   }
 
   function toggleSetting(key: string) {
-    const next = { ...settings, [key]: !settings[key] }
+    const prevChannel = types[key]?.channel ?? DEFAULT_CHANNEL
+    const next: NotifTypesMap = {
+      ...types,
+      [key]: { enabled: !isEnabled(key), channel: prevChannel },
+    }
     saveSettings.mutate(next)
   }
 
@@ -198,7 +214,7 @@ export default function NotificationsPage() {
                 <Icon name={TYPE_ICONS[key] ?? 'notifications'} size={18} color="var(--on-surface-variant)" />
                 <span style={{ fontSize: 14, color: 'var(--on-surface)' }}>{label}</span>
               </div>
-              <Toggle size="sm" value={settings[key] !== false} onChange={() => toggleSetting(key)} ariaLabel={label} />
+              <Toggle size="sm" value={isEnabled(key)} onChange={() => toggleSetting(key)} ariaLabel={label} />
             </div>
           ))}
         </div>

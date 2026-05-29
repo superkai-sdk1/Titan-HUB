@@ -8,6 +8,7 @@ import { Icon } from '@/components/Icon'
 import { PageHeader, Button, INP, SEL, LBL, formatMoney } from '@/components/manage/DesignSystem'
 import { StateView } from '@/components/StateView'
 import { useToast } from '@/components/Toast'
+import { useAuthStore } from '@/store/auth.store'
 
 const ROLE_LABELS: Record<string, string> = {
   owner: 'Владелец',
@@ -40,6 +41,11 @@ interface SalaryPayment {
 export default function SalaryPage() {
   const qc = useQueryClient()
   const { show } = useToast()
+  // Зарплата — чувствительный раздел: /staff и /salary доступны только владельцу.
+  // Гейтим страницу по роли (нав-гейт должен добавить platform-агент отдельно),
+  // чтобы staff не упирался в битую страницу с 403-запросами.
+  const role = useAuthStore(s => s.user?.role)
+  const isOwner = role === 'owner'
   const [revenue, setRevenue] = useState('')
   const [selectedStaffId, setSelectedStaffId] = useState('')
   const [period, setPeriod] = useState(new Date().toISOString().split('T')[0].slice(0, 7))
@@ -47,11 +53,13 @@ export default function SalaryPage() {
   const { data: staffData } = useQuery<{ staff?: StaffMember[]; clients?: StaffMember[] }>({
     queryKey: ['staff'],
     queryFn: () => api.get('/staff'),
+    enabled: isOwner,
   })
 
   const { data: paymentsData, isLoading } = useQuery<{ payments: SalaryPayment[] }>({
     queryKey: ['salary'],
     queryFn: () => api.get('/salary'),
+    enabled: isOwner,
   })
 
   const idemRef = useRef(crypto.randomUUID())
@@ -88,6 +96,21 @@ export default function SalaryPage() {
     } catch {
       return dateStr
     }
+  }
+
+  // Не владелец — раздел недоступен (а запросы и так вернут 403).
+  if (!isOwner) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100dvh' }}>
+        <PageHeader title="Зарплаты" />
+        <StateView
+          state="error"
+          icon="lock"
+          title="Только для владельца"
+          description="Раздел «Зарплаты» доступен только владельцу заведения."
+        />
+      </div>
+    )
   }
 
   return (

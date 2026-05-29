@@ -25,11 +25,15 @@ export default function InventoryPage() {
   const [search, setSearch] = useState('')
   const [selected, setSelected] = useState<MenuItem | null>(null)
   const [newQty, setNewQty] = useState('')
+  const [newThreshold, setNewThreshold] = useState('')
   const [note, setNote] = useState('')
 
+  // /inventory (не /menu/items): возвращает активные И неактивные позиции,
+  // исключая только мягко удалённые. Скрытая из меню позиция всё равно учитывается
+  // в остатках. /menu/items фильтрует isActive=true и прятал бы такие товары.
   const { data, isLoading } = useQuery<{ items: MenuItem[] }>({
     queryKey: ['menu-items-inventory'],
-    queryFn: () => api.get('/menu/items'),
+    queryFn: () => api.get('/inventory'),
   })
 
   const allItems = data?.items ?? []
@@ -45,8 +49,8 @@ export default function InventoryPage() {
   }, [allItems, filter, search])
 
   const patchMut = useMutation({
-    mutationFn: (body: { id: string; stockQuantity?: number; adjustDelta?: number; reason?: string }) =>
-      api.patch(`/inventory/${body.id}`, { stockQuantity: body.stockQuantity, adjustDelta: body.adjustDelta, reason: body.reason }),
+    mutationFn: (body: { id: string; stockQuantity?: number; adjustDelta?: number; minThreshold?: number; reason?: string }) =>
+      api.patch(`/inventory/${body.id}`, { stockQuantity: body.stockQuantity, adjustDelta: body.adjustDelta, minThreshold: body.minThreshold, reason: body.reason }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['menu-items-inventory'] }),
     onError: () => show('Не удалось обновить остаток', 'error'),
   })
@@ -56,11 +60,18 @@ export default function InventoryPage() {
     patchMut.mutate({ id: item.id, adjustDelta: delta })
   }
 
-  function openEdit(item: MenuItem) { setSelected(item); setNewQty(String(item.stockQuantity)); setNote('') }
-  function closeSheet() { setSelected(null); setNewQty(''); setNote('') }
+  function openEdit(item: MenuItem) { setSelected(item); setNewQty(String(item.stockQuantity)); setNewThreshold(String(item.minThreshold ?? 0)); setNote('') }
+  function closeSheet() { setSelected(null); setNewQty(''); setNewThreshold(''); setNote('') }
   function saveEdit() {
     if (!selected) return
-    patchMut.mutate({ id: selected.id, stockQuantity: parseInt(newQty) || 0, reason: note.trim() || undefined })
+    const threshold = parseInt(newThreshold)
+    patchMut.mutate({
+      id: selected.id,
+      stockQuantity: parseInt(newQty) || 0,
+      // Шлём порог, только если он реально изменился (иначе лишняя запись).
+      minThreshold: Number.isNaN(threshold) ? undefined : (threshold !== (selected.minThreshold ?? 0) ? threshold : undefined),
+      reason: note.trim() || undefined,
+    })
     closeSheet()
   }
 
@@ -172,6 +183,7 @@ export default function InventoryPage() {
             <strong style={{ color: selected ? stockColor(selected) : undefined }}>{selected?.stockQuantity} шт</strong>
           </div>
           <div><label style={LBL}>Новое количество</label><input style={INP} type="number" min="0" value={newQty} onChange={e => setNewQty(e.target.value)} placeholder="Введите количество" /></div>
+          <div><label style={LBL}>Порог пополнения</label><input style={INP} type="number" min="0" value={newThreshold} onChange={e => setNewThreshold(e.target.value)} placeholder="Уведомлять, когда остаток ≤ порога" /></div>
           <div><label style={LBL}>Причина / заметка</label><input style={INP} value={note} onChange={e => setNote(e.target.value)} placeholder="Поставка, инвентаризация…" /></div>
           <button onClick={saveEdit} style={{ width: '100%', padding: 14, borderRadius: 14, border: 'none', cursor: 'pointer', background: 'linear-gradient(135deg, #8B5CF6, #4cd7f6)', color: '#fff', fontSize: 15, fontWeight: 700 }}>
             Сохранить

@@ -5,7 +5,7 @@ import { z } from 'zod'
 import {
   db, checks, checkItems, checkItemModifiers, checkPayments, checkDiscounts,
   inventory, profiles, spaces, certificates, bonusHistory, transactions, modifiers as modifiersTable,
-  appSettings, events,
+  appSettings, events, discounts,
   eq, and, inArray, desc, sql, isNull,
 } from '@titan/database'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
@@ -118,15 +118,83 @@ async function getCheckWithItems(checkId: string) {
   return { ...check, items: itemsWithMods, payments, discounts: discountRows, spaceHourlyRate, guestName }
 }
 
-async function recalcCheckTotal(checkId: string) {
-  const items = await db.select().from(checkItems).where(eq(checkItems.checkId, checkId))
+// Авто-скидки из справочника `discounts` (isActive && isAuto) применяются к чеку
+// при каждом пересчёте. Правила:
+//   • discount.itemId  → target='item' на эту позицию, если она есть в чеке
+//                        и её количество ≥ minQuantity.
+//   • discount.clientId→ общая скидка на чек, только если playerId чека совпадает.
+//   • без itemId/clientId → общая скидка на чек.
+// Прежде применённые авто-строки (discountId IS NOT NULL) удаляются и
+// пересоздаются, чтобы суммы оставались верными при изменении позиций и не
+// плодились дубли. Ручные скидки (discountId IS NULL из /discount) не трогаем.
+// База/сумма считаются тем же правилом, что и computeTotals / ручная скидка.
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0]
+type DbOrTx = typeof db | Tx
+
+async function applyAutoDiscounts(exec: DbOrTx, checkId: string) {
+  const [check] = await exec.select().from(checks).where(eq(checks.id, checkId))
+  if (!check) return
+
+  const items = await exec.select().from(checkItems).where(eq(checkItems.checkId, checkId))
+  // База для check-скидок — сумма позиций (без модификаторов, как у ручной /discount).
+  const itemsSum = items.reduce((s, i) => s + parseFloat(i.priceAtTime) * i.quantity, 0)
+
+  // Удаляем ранее применённые авто-скидки (по наличию discountId) перед пересчётом.
+  await exec.delete(checkDiscounts).where(
+    and(eq(checkDiscounts.checkId, checkId), sql`${checkDiscounts.discountId} IS NOT NULL`),
+  )
+
+  const autoRows = await exec.select().from(discounts)
+    .where(and(eq(discounts.isActive, true), eq(discounts.isAuto, true)))
+  if (!autoRows.length) return
+
+  const toInsert: (typeof checkDiscounts.$inferInsert)[] = []
+  for (const d of autoRows) {
+    if (d.itemId) {
+      // Скидка на конкретную позицию: применяем к каждой строке этого товара,
+      // прошедшей порог minQuantity.
+      const minQty = d.minQuantity ?? 1
+      for (const it of items.filter(i => i.itemId === d.itemId && i.quantity >= minQty)) {
+        const base = parseFloat(it.priceAtTime) * it.quantity
+        const amount = d.type === 'percent'
+          ? base * (parseFloat(d.value) / 100)
+          : Math.min(parseFloat(d.value), base)
+        if (amount <= 0) continue
+        toInsert.push({
+          checkId, discountId: d.id, name: d.name, type: d.type,
+          value: String(d.value), amount: String(round2(amount)),
+          target: 'item', itemId: it.id,
+        })
+      }
+    } else {
+      // Общая скидка на чек. С clientId — только для совпадающего клиента.
+      if (d.clientId && d.clientId !== check.playerId) continue
+      const base = itemsSum
+      const amount = d.type === 'percent'
+        ? base * (parseFloat(d.value) / 100)
+        : Math.min(parseFloat(d.value), base)
+      if (amount <= 0) continue
+      toInsert.push({
+        checkId, discountId: d.id, name: d.name, type: d.type,
+        value: String(d.value), amount: String(round2(amount)),
+        target: 'check', itemId: null,
+      })
+    }
+  }
+  if (toInsert.length) await exec.insert(checkDiscounts).values(toInsert)
+}
+
+async function recalcCheckTotal(checkId: string, exec: DbOrTx = db) {
+  // Сначала пересчитываем авто-скидки от текущих позиций, затем итог.
+  await applyAutoDiscounts(exec, checkId)
+  const items = await exec.select().from(checkItems).where(eq(checkItems.checkId, checkId))
   const ids = items.map(i => i.id)
   const mods = ids.length
-    ? await db.select().from(checkItemModifiers).where(inArray(checkItemModifiers.checkItemId, ids))
+    ? await exec.select().from(checkItemModifiers).where(inArray(checkItemModifiers.checkItemId, ids))
     : []
-  const discountRows = await db.select().from(checkDiscounts).where(eq(checkDiscounts.checkId, checkId))
+  const discountRows = await exec.select().from(checkDiscounts).where(eq(checkDiscounts.checkId, checkId))
   const { discountTotal, total } = computeTotals(items, mods, discountRows)
-  await db.update(checks).set({
+  await exec.update(checks).set({
     totalAmount: String(total),
     discountTotal: String(discountTotal),
   }).where(eq(checks.id, checkId))
@@ -176,7 +244,7 @@ posRouter.get('/spaces', async (c) => {
   return c.json({ spaces: rows })
 })
 
-posRouter.get('/players/:id', async (c) => {
+posRouter.get('/players/:id', requireRole('owner', 'staff', 'tablet'), async (c) => {
   const [player] = await db.select({
     id: profiles.id,
     nickname: profiles.nickname,
@@ -305,7 +373,7 @@ posRouter.get('/checks/closed', requireRole('owner', 'staff'), async (c) => {
   return c.json({ checks: enriched })
 })
 
-posRouter.get('/checks/:id', async (c) => {
+posRouter.get('/checks/:id', requireRole('owner', 'staff', 'tablet'), async (c) => {
   const data = await getCheckWithItems(c.req.param('id'))
   if (!data) return c.json({ error: 'Not found' }, 404)
   return c.json({ check: data })
@@ -475,7 +543,7 @@ posRouter.patch('/checks/:id/items/:itemId', requireRole('owner', 'staff', 'tabl
   return c.json({ check: data })
 })
 
-posRouter.delete('/checks/:id/items/:itemId', requireRole('owner', 'staff'), async (c) => {
+posRouter.delete('/checks/:id/items/:itemId', requireRole('owner', 'staff', 'tablet'), async (c) => {
   const checkId = c.req.param('id')
   const itemId = c.req.param('itemId')
   await db.transaction(async (tx) => {
@@ -624,6 +692,9 @@ posRouter.post('/checks/:id/pay', requireRole('owner', 'staff'), zValidator('jso
 
       // Авторитетная сумма: пересчитываем из позиций+модификаторов−скидок в транзакции
       // (не доверяем totalAmount — он мог устареть и не включать модификаторы).
+      // Сначала пересобираем авто-скидки от текущих позиций (на случай, если
+      // позиции менялись без recalc) — иначе оплата прошла бы без авто-скидки.
+      await applyAutoDiscounts(tx, checkId)
       const itemRows = await tx.select().from(checkItems).where(eq(checkItems.checkId, checkId))
       const ciIds = itemRows.map(i => i.id)
       const modRowsForTotal = ciIds.length
@@ -666,6 +737,16 @@ posRouter.post('/checks/:id/pay', requireRole('owner', 'staff'), zValidator('jso
       // Бонусы списываются только с клиента: без playerId списание не произойдёт
       // (ниже на :643), а тендер закроет чек → «бесплатная» оплата. Запрещаем.
       if (bonusSent > 0.005 && !body.playerId) throw new Error('BONUS_NO_PLAYER')
+
+      // Лимит оплаты бонусами: owner задаёт bonus_max_spend (% от суммы чека) в
+      // настройках. Бонус-тендер не может превышать этот процент авторитетного total.
+      if (bonusSent > 0.005) {
+        const [maxSpendRow] = await tx.select().from(appSettings).where(eq(appSettings.key, 'bonus_max_spend'))
+        const parsed = parseFloat(maxSpendRow?.value ?? '')
+        const maxSpendPct = Number.isFinite(parsed) && parsed >= 0 && parsed <= 100 ? parsed : 50
+        const maxBonus = round2(total * (maxSpendPct / 100))
+        if (bonusSent > maxBonus + 0.01) throw new Error('BONUS_LIMIT')
+      }
 
       // Validate + lock certificate
       let cert = null
@@ -756,7 +837,9 @@ posRouter.post('/checks/:id/pay', requireRole('owner', 'staff'), zValidator('jso
         await tx.update(certificates).set({
           balance: String(Math.max(0, newCertBalance)),
           isUsed: newCertBalance <= 0.005,
-          usedBy: body.playerId ?? null,
+          // Кто погасил: клиент чека, иначе сотрудник, закрывший чек (user.sub —
+          // валидный profile id), чтобы не оставлять usedBy пустым при анонимном чеке.
+          usedBy: body.playerId ?? user.sub,
           usedAt: new Date(),
         }).where(eq(certificates.id, cert.id))
       }
@@ -832,6 +915,7 @@ posRouter.post('/checks/:id/pay', requireRole('owner', 'staff'), zValidator('jso
       INSUFFICIENT_BONUS: ['Недостаточно бонусных баллов', 400],
       BONUS_MISMATCH: ['Несовпадение суммы бонусов', 400],
       BONUS_NO_PLAYER: ['Для списания бонусов нужно выбрать клиента', 400],
+      BONUS_LIMIT: ['Сумма бонусов превышает допустимый лимит оплаты', 400],
     }
     const mapped = err?.message ? map[err.message] : undefined
     if (mapped) return c.json({ error: mapped[0] }, mapped[1])

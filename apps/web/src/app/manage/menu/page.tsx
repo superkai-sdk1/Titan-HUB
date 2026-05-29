@@ -298,13 +298,14 @@ function CatIconRenderer({ icon, size = 20, color }: { icon?: string; size?: num
 }
 
 const BLANK_ITEM = {
-  name: '', price: '0', category: '', isActive: true, isTop: false,
-  trackStock: false, stockQuantity: '0', isTabletVisible: false, searchTags: [] as string[],
+  name: '', price: '0', costPrice: '0', category: '', isActive: true, isTop: false,
+  trackStock: false, isService: false, stockQuantity: '0', isTabletVisible: false,
+  searchTags: [] as string[], linkedSpaceId: '',
 }
 const BLANK_CAT = { name: '', icon: 'food', color: '#10B981', isTabletVisible: true }
 
-function SortableItem({ item, cats, onEdit, onDelete }: { item: any; cats: any[]; onEdit: () => void; onDelete: () => void }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: item.id })
+function SortableItem({ item, cats, onEdit, onDelete, reorderEnabled }: { item: any; cats: any[]; onEdit: () => void; onDelete: () => void; reorderEnabled: boolean }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: item.id, disabled: !reorderEnabled })
   const style: React.CSSProperties = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.5 : item.isActive ? 1 : 0.5, zIndex: isDragging ? 999 : 'auto' }
 
   const cat = cats.find((c: any) => c.id === item.category)
@@ -317,14 +318,16 @@ function SortableItem({ item, cats, onEdit, onDelete }: { item: any; cats: any[]
   return (
     <div ref={setNodeRef} style={style}>
       <div className="glass-l2" style={{ borderRadius: 14, padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 10 }}>
-        <span
-          {...attributes}
-          {...listeners}
-          aria-label="Перетащить для сортировки"
-          style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'grab', touchAction: 'none', userSelect: 'none', flexShrink: 0, padding: 4, margin: -4 }}
-        >
-          <Icon name="drag_indicator" size={20} color="rgba(204,195,216,0.3)" />
-        </span>
+        {reorderEnabled && (
+          <span
+            {...attributes}
+            {...listeners}
+            aria-label="Перетащить для сортировки"
+            style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'grab', touchAction: 'none', userSelect: 'none', flexShrink: 0, padding: 4, margin: -4 }}
+          >
+            <Icon name="drag_indicator" size={20} color="rgba(204,195,216,0.3)" />
+          </span>
+        )}
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
             <p style={{ fontSize: 14, fontWeight: 700, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.name}</p>
@@ -411,8 +414,10 @@ export default function MenuPage() {
   const { show } = useToast()
   const { data: catsData } = useQuery({ queryKey: ['menu', 'categories'], queryFn: () => api.get<any>('/menu/categories') })
   const { data: itemsData } = useQuery({ queryKey: ['menu', 'items', 'all'], queryFn: () => api.get<any>('/menu/items/all') })
+  const { data: spacesData } = useQuery({ queryKey: ['spaces'], queryFn: () => api.get<any>('/spaces') })
   const cats: any[] = catsData?.categories ?? []
   const allItems: any[] = itemsData?.items ?? []
+  const spaces: any[] = spacesData?.spaces ?? []
 
   // Синхронизируем локальный порядок с сервером. Ключимся на itemsData (стабильная
   // ссылка), а не на allItems (новый массив каждый рендер). Пустой items → список
@@ -429,6 +434,11 @@ export default function MenuPage() {
     if (activeCat === 'none') return !i.category || !catIds.has(i.category)
     return i.category === activeCat
   })
+
+  // Перетаскивание сохраняет sortOrder только для ВИДИМОГО подмножества. При
+  // активном фильтре/поиске это перемешало бы глобальный порядок скрытых позиций.
+  // Поэтому reorder разрешён лишь когда виден полный список (все категории, без поиска).
+  const reorderEnabled = activeCat === 'all' && !search
 
   const saveItem = useMutation({
     mutationFn: (b: any) => editing ? api.patch(`/menu/items/${editing.id}`, b) : api.post('/menu/items', b),
@@ -456,6 +466,7 @@ export default function MenuPage() {
   })
 
   function handleItemDragEnd(event: DragEndEvent) {
+    if (!reorderEnabled) return // защита: не перемешиваем глобальный порядок при фильтре
     const { active, over } = event
     if (!over || active.id === over.id) return
     setSortedItems(prev => {
@@ -469,11 +480,14 @@ export default function MenuPage() {
   function openItem(item?: any) {
     setEditing(item ?? null)
     setForm(item ? {
-      name: item.name, price: String(item.price), category: item.category ?? '',
+      name: item.name, price: String(item.price), costPrice: String(item.costPrice ?? 0),
+      category: item.category ?? '',
       isActive: item.isActive, isTop: item.isTop, trackStock: item.trackStock,
+      isService: item.isService ?? false,
       stockQuantity: String(item.stockQuantity ?? 0),
       isTabletVisible: item.isTabletVisible ?? false,
       searchTags: item.searchTags ?? [],
+      linkedSpaceId: item.linkedSpaceId ?? '',
     } : BLANK_ITEM)
     setTagInput('')
     setShowForm(true)
@@ -552,8 +566,14 @@ export default function MenuPage() {
                   <p style={{ fontSize: 14, color: 'rgba(204,195,216,0.4)', margin: 0 }}>{search ? 'Ничего не найдено' : activeCat === 'all' ? 'Позиций нет' : 'В этой категории нет позиций'}</p>
                 </div>
               )}
+              {!reorderEnabled && filteredItems.length > 0 && (
+                <p style={{ fontSize: 11, color: 'rgba(204,195,216,0.45)', margin: '0 0 2px', display: 'flex', alignItems: 'center', gap: 5 }}>
+                  <Icon name="info" size={13} color="rgba(204,195,216,0.45)" />
+                  Сбросьте фильтр и поиск, чтобы менять порядок позиций
+                </p>
+              )}
               {filteredItems.map((item: any) => (
-                <SortableItem key={item.id} item={item} cats={cats} onEdit={() => openItem(item)} onDelete={() => setConfirmDelItem(item)} />
+                <SortableItem key={item.id} item={item} cats={cats} onEdit={() => openItem(item)} onDelete={() => setConfirmDelItem(item)} reorderEnabled={reorderEnabled} />
               ))}
             </div>
           </SortableContext>
@@ -565,6 +585,7 @@ export default function MenuPage() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div><label style={LBL}>Название *</label><input value={form.name} onChange={e => setForm((p: any) => ({ ...p, name: e.target.value }))} style={INP} placeholder="Название блюда или услуги" /></div>
           <div><label style={LBL}>Цена (₽)</label><input type="number" value={form.price} onChange={e => setForm((p: any) => ({ ...p, price: e.target.value }))} style={INP} /></div>
+          <div><label style={LBL}>Себестоимость (₽)</label><input type="number" value={form.costPrice} onChange={e => setForm((p: any) => ({ ...p, costPrice: e.target.value }))} style={INP} placeholder="Для расчёта маржи" /></div>
           <div>
             <label style={LBL}>Теги поиска</label>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
@@ -584,10 +605,18 @@ export default function MenuPage() {
               {cats.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           </div>
+          <div>
+            <label style={LBL}>Привязка к пространству</label>
+            <select value={form.linkedSpaceId} onChange={e => setForm((p: any) => ({ ...p, linkedSpaceId: e.target.value }))} style={SEL}>
+              <option value="">Не привязано</option>
+              {spaces.map((s: any) => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
+          </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {([
               ['isActive', 'Активна', 'Позиция отображается в меню'],
               ['isTop', 'Хит продаж', 'Выделяется звёздочкой'],
+              ['isService', 'Услуга', 'Услуга, а не товар (без физического остатка)'],
               ['trackStock', 'Учёт остатков', 'Следить за количеством'],
               ['isTabletVisible', 'Видно на планшете', 'Показывать гостям в меню планшета'],
             ] as [string, string, string][]).map(([key, lbl, sub]) => (
@@ -601,7 +630,7 @@ export default function MenuPage() {
             ))}
           </div>
           {form.trackStock && <div><label style={LBL}>Количество на складе</label><input type="number" value={form.stockQuantity} onChange={e => setForm((p: any) => ({ ...p, stockQuantity: e.target.value }))} style={INP} /></div>}
-          <button onClick={() => saveItem.mutate({ ...form, price: Number(form.price), stockQuantity: Number(form.stockQuantity), isTabletVisible: form.isTabletVisible, searchTags: form.searchTags })} disabled={saveItem.isPending || !form.name} style={{ width: '100%', padding: '14px 0', borderRadius: 14, border: 'none', background: 'linear-gradient(135deg, #8B5CF6, #4cd7f6)', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer', marginTop: 4, opacity: !form.name ? 0.6 : 1 }}>
+          <button onClick={() => saveItem.mutate({ ...form, price: Number(form.price), costPrice: Number(form.costPrice), stockQuantity: Number(form.stockQuantity), isTabletVisible: form.isTabletVisible, searchTags: form.searchTags, linkedSpaceId: form.linkedSpaceId || undefined })} disabled={saveItem.isPending || !form.name} style={{ width: '100%', padding: '14px 0', borderRadius: 14, border: 'none', background: 'linear-gradient(135deg, #8B5CF6, #4cd7f6)', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer', marginTop: 4, opacity: !form.name ? 0.6 : 1 }}>
             {saveItem.isPending ? 'Сохраняем…' : 'Сохранить'}
           </button>
         </div>

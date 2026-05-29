@@ -155,6 +155,17 @@ eventsRouter.patch('/:id', requireRole('owner', 'staff'), zValidator('json', Eve
   if (body.fixedAmount !== undefined) update.fixedAmount = body.fixedAmount != null ? String(body.fixedAmount) : null
   if (body.perHeadAmount !== undefined) update.perHeadAmount = body.perHeadAmount != null ? String(body.perHeadAmount) : null
 
+  // При финализации (completed/cancelled) приводим attendeesCount к фактическому
+  // числу привязанных чеков — иначе сохранённое поле расходится со значением,
+  // которое аналитика считает «на лету» (eventChecks.length).
+  if (body.status === 'completed' || body.status === 'cancelled') {
+    const [{ cnt }] = await db
+      .select({ cnt: sql<number>`count(*)::int` })
+      .from(checks)
+      .where(eq(checks.linkedEventId, eventId))
+    update.attendeesCount = cnt
+  }
+
   const [event] = await db.update(events).set(update).where(eq(events.id, eventId)).returning()
   if (!event) return c.json({ error: 'Not found' }, 404)
   return c.json({ event })

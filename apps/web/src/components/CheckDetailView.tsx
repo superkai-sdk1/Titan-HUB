@@ -137,6 +137,17 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
     queryFn: () => api.get<{ items: InventoryItem[] }>('/menu/items'),
   })
 
+  // Настройки: процент макс. оплаты бонусами (bonus_max_spend). Бэкенд /pay
+  // enforce-ит этот же лимит; здесь — только для корректного UI слайдера.
+  const { data: settingsData } = useQuery({
+    queryKey: ['app-settings'],
+    queryFn: () => api.get<{ settings: Record<string, string> }>('/system/settings'),
+  })
+  const bonusMaxSpendPct = (() => {
+    const parsed = parseFloat(settingsData?.settings?.['bonus_max_spend'] ?? '')
+    return Number.isFinite(parsed) && parsed >= 0 && parsed <= 100 ? parsed : 50
+  })()
+
   const [activeCat, setActiveCat] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [showMenuDrawer, setShowMenuDrawer] = useState(false)
@@ -913,7 +924,7 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
                 )}
 
                 {(() => {
-                  const maxBonus = Math.min(playerBonus, Math.floor(total * 0.5))
+                  const maxBonus = Math.min(playerBonus, Math.floor(total * (bonusMaxSpendPct / 100)))
                   const step = Math.max(10, Math.round(maxBonus / 20) * 10) || 10
                   const bonusRemainder = total - bonusAmount
                   return (

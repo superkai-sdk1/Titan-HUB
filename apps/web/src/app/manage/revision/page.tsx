@@ -31,7 +31,8 @@ export default function RevisionPage() {
 
   const { data, isLoading } = useQuery<{ items: StockItem[] }>({
     queryKey: ['menu-items-inventory'],
-    queryFn: () => api.get('/menu/items'),
+    // /inventory отдаёт активные + неактивные (без удалённых) — ревизия видит весь склад.
+    queryFn: () => api.get('/inventory'),
   })
 
   const tracked = useMemo(
