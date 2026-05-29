@@ -1,5 +1,5 @@
 'use client'
-import React, { useState, useMemo } from 'react'
+import React, { useState, useMemo, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { format } from 'date-fns'
@@ -73,10 +73,11 @@ export default function ExpensesPage() {
   const maxCat = catTotals[0]?.[1] ?? 1
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ['expenses'] })
+  const idemRef = useRef(crypto.randomUUID())
 
   const createMutation = useMutation({
     mutationFn: (body: object) => api.post('/expenses', body),
-    onSuccess: () => { invalidate(); closeForm() },
+    onSuccess: () => { invalidate(); closeForm(); idemRef.current = crypto.randomUUID() },
     onError: () => show('Не удалось добавить расход', 'error'),
   })
 
@@ -91,7 +92,7 @@ export default function ExpensesPage() {
   function submitForm() {
     const amt = parseFloat(formAmount)
     if (!formDate || isNaN(amt) || amt <= 0) return
-    createMutation.mutate({ date: formDate, category: formCategory, amount: amt, comment: formComment })
+    createMutation.mutate({ expenseDate: formDate, category: formCategory, amount: amt, description: formComment.trim() || undefined, idempotencyKey: idemRef.current })
   }
 
   const DATE_FILTERS: { key: DateFilter; label: string }[] = [

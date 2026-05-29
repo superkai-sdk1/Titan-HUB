@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useState, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { formatDistanceToNow } from 'date-fns'
@@ -68,10 +68,13 @@ export default function CashOpsPage() {
   const total = balance.total ?? (start + cashPayments + deposits - withdrawals)
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ['cashops'] })
+  // Стабильный ключ идемпотентности на одну операцию (защита от двойного клика);
+  // обновляется после успешного сохранения.
+  const idemRef = useRef(crypto.randomUUID())
 
   const createMut = useMutation({
     mutationFn: (body: object) => api.post('/cashops', body),
-    onSuccess: () => { invalidate(); closeModal() },
+    onSuccess: () => { invalidate(); closeModal(); idemRef.current = crypto.randomUUID() },
     onError: () => show('Не удалось сохранить операцию', 'error'),
   })
 
@@ -91,7 +94,7 @@ export default function CashOpsPage() {
   function handleSubmit() {
     const amt = parseFloat(amount)
     if (!amt || amt <= 0) return
-    createMut.mutate({ type: opType, amount: amt, description: description.trim() || undefined })
+    createMut.mutate({ type: opType, amount: amt, description: description.trim() || undefined, idempotencyKey: idemRef.current })
   }
 
   return (

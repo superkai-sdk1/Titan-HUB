@@ -15,6 +15,7 @@ const PaySalarySchema = z.object({
   amount: z.number().positive(),
   paymentMethod: z.string().default('cash'),
   note: z.string().optional(),
+  idempotencyKey: z.string().max(80).optional(),
 })
 
 export const salaryRouter = new Hono<AppEnv>()
@@ -52,6 +53,13 @@ salaryRouter.post('/pay', requireRole('owner'), zValidator('json', PaySalarySche
     ...body,
     amount: String(body.amount),
     createdBy: user.sub,
-  }).returning()
+  }).onConflictDoNothing({ target: salaryPayments.idempotencyKey }).returning()
+  if (!payment) {
+    if (body.idempotencyKey) {
+      const [existing] = await db.select().from(salaryPayments).where(eq(salaryPayments.idempotencyKey, body.idempotencyKey))
+      if (existing) return c.json({ payment: existing, duplicate: true })
+    }
+    return c.json({ error: 'Не удалось сохранить выплату' }, 500)
+  }
   return c.json({ payment }, 201)
 })

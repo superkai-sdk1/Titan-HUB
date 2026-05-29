@@ -122,6 +122,7 @@ export const expenseCategoryEnum = pgEnum('expense_category', [
 
 export const expenses = pgTable('expenses', {
   id: uuid('id').primaryKey().defaultRandom(),
+  idempotencyKey: text('idempotency_key'),
   category: expenseCategoryEnum('category').notNull().default('other'),
   amount: numeric('amount', { precision: 12, scale: 2 }).notNull(),
   description: text('description'),
@@ -152,6 +153,7 @@ export const refunds = pgTable('refunds', {
 
 export const salaryPayments = pgTable('salary_payments', {
   id: uuid('id').primaryKey().defaultRandom(),
+  idempotencyKey: text('idempotency_key'),
   profileId: uuid('profile_id')
     .notNull()
     .references(() => profiles.id),
@@ -172,6 +174,7 @@ export const cashOperationTypeEnum = pgEnum('cash_operation_type', [
 
 export const cashOperations = pgTable('cash_operations', {
   id: uuid('id').primaryKey().defaultRandom(),
+  idempotencyKey: text('idempotency_key'),
   type: cashOperationTypeEnum('type').notNull(),
   amount: numeric('amount', { precision: 12, scale: 2 }).notNull(),
   description: text('description'),

@@ -1,5 +1,5 @@
 'use client'
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { format } from 'date-fns'
@@ -54,12 +54,20 @@ export default function SalaryPage() {
     queryFn: () => api.get('/salary'),
   })
 
+  const idemRef = useRef(crypto.randomUUID())
   const pay = useMutation({
+    // API ждёт profileId (не staffId) и не имеет поля period — period кладём в note.
     mutationFn: (body: { staffId: string; amount: number; period: string; note?: string }) =>
-      api.post('/salary/pay', body),
+      api.post('/salary/pay', {
+        profileId: body.staffId,
+        amount: body.amount,
+        note: body.note ? `${body.period}: ${body.note}` : body.period,
+        idempotencyKey: idemRef.current,
+      }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['salary'] })
       setRevenue('')
+      idemRef.current = crypto.randomUUID()
     },
     onError: () => show('Не удалось начислить зарплату', 'error'),
   })

@@ -10,6 +10,7 @@ const ExpenseSchema = z.object({
   amount: z.number().positive(),
   description: z.string().optional(),
   expenseDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Дата в формате ГГГГ-ММ-ДД'),
+  idempotencyKey: z.string().max(80).optional(),
 })
 
 export const expensesRouter = new Hono<AppEnv>()
@@ -39,7 +40,14 @@ expensesRouter.post('/', requireRole('owner', 'staff'), zValidator('json', Expen
     ...body,
     amount: String(body.amount),
     createdBy: user.sub,
-  }).returning()
+  }).onConflictDoNothing({ target: expenses.idempotencyKey }).returning()
+  if (!expense) {
+    if (body.idempotencyKey) {
+      const [existing] = await db.select().from(expenses).where(eq(expenses.idempotencyKey, body.idempotencyKey))
+      if (existing) return c.json({ expense: existing, duplicate: true })
+    }
+    return c.json({ error: 'Не удалось сохранить расход' }, 500)
+  }
   return c.json({ expense }, 201)
 })
 

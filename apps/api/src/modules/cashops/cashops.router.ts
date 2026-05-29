@@ -53,9 +53,10 @@ cashopsRouter.post('/', requireRole('owner', 'staff'), zValidator('json', z.obje
   type: z.enum(['deposit', 'withdrawal', 'salary']),
   amount: z.number().positive(),
   description: z.string().optional(),
+  idempotencyKey: z.string().max(80).optional(),
 })), async (c) => {
   const user = c.get('user')
-  const { type, amount, description } = c.req.valid('json')
+  const { type, amount, description, idempotencyKey } = c.req.valid('json')
   const shift = await getCurrentShift()
   // Операции с кассой пишутся только в открытую смену — иначе они не попадут
   // в сверку (shiftId=null) и «потеряются» из ожидаемого остатка.
@@ -67,7 +68,17 @@ cashopsRouter.post('/', requireRole('owner', 'staff'), zValidator('json', z.obje
     description,
     shiftId: shift.id,
     createdBy: user.sub,
-  }).returning()
+    idempotencyKey,
+  }).onConflictDoNothing({ target: cashOperations.idempotencyKey }).returning()
+
+  // Повторный POST с тем же ключом (двойной клик/ретрай) — отдаём существующую.
+  if (!op) {
+    if (idempotencyKey) {
+      const [existing] = await db.select().from(cashOperations).where(eq(cashOperations.idempotencyKey, idempotencyKey))
+      if (existing) return c.json({ operation: existing, duplicate: true })
+    }
+    return c.json({ error: 'Не удалось сохранить операцию' }, 500)
+  }
 
   return c.json({ operation: op }, 201)
 })
