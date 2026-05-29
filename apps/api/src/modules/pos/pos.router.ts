@@ -258,6 +258,31 @@ posRouter.post('/checks', requireRole('owner', 'staff'), zValidator('json', Open
   return c.json({ check }, 201)
 })
 
+// Недавно закрытые чеки — для выбора при оформлении возврата.
+// Должен идти ДО /checks/:id, иначе "closed" перехватится как id.
+posRouter.get('/checks/closed', requireRole('owner', 'staff'), async (c) => {
+  const limit = Math.min(Number(c.req.query('limit') ?? 30) || 30, 50)
+  const rows = await db.select().from(checks)
+    .where(eq(checks.status, 'closed'))
+    .orderBy(desc(checks.closedAt))
+    .limit(limit)
+  const enriched = await Promise.all(rows.map(async (ch) => {
+    const [{ count }] = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(checkItems)
+      .where(eq(checkItems.checkId, ch.id))
+    let guestName: string | null = null
+    if (ch.playerId) {
+      const [p] = await db.select({ nickname: profiles.nickname }).from(profiles).where(eq(profiles.id, ch.playerId))
+      guestName = p?.nickname ?? null
+    } else if (ch.guestNames && ch.guestNames.length > 0) {
+      guestName = ch.guestNames[0]
+    }
+    return { id: ch.id, totalAmount: ch.totalAmount, closedAt: ch.closedAt, paymentMethod: ch.paymentMethod, itemCount: count, guestName }
+  }))
+  return c.json({ checks: enriched })
+})
+
 posRouter.get('/checks/:id', async (c) => {
   const data = await getCheckWithItems(c.req.param('id'))
   if (!data) return c.json({ error: 'Not found' }, 404)

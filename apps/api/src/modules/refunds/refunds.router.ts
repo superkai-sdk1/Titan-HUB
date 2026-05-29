@@ -145,6 +145,38 @@ refundsRouter.post('/', requireRole('owner', 'staff'), zValidator('json', Refund
   }
 })
 
+// Данные для формы возврата по чеку: позиции, оплачено, уже возвращено, лимит.
+// Должен идти ДО /:id.
+refundsRouter.get('/prepare/:checkId', requireRole('owner', 'staff'), async (c) => {
+  const checkId = c.req.param('checkId')
+  const [check] = await db.select().from(checks).where(eq(checks.id, checkId))
+  if (!check) return c.json({ error: 'Not found' }, 404)
+
+  const items = await db
+    .select({ checkItem: checkItems, item: inventory })
+    .from(checkItems)
+    .leftJoin(inventory, eq(inventory.id, checkItems.itemId))
+    .where(eq(checkItems.checkId, checkId))
+  const payments = await db.select().from(checkPayments).where(eq(checkPayments.checkId, checkId))
+  const paidTotal = payments.reduce((s, p) => s + parseFloat(p.amount), 0)
+  const prev = await db.select().from(refunds).where(eq(refunds.checkId, checkId))
+  const refundedTotal = prev.reduce((s, r) => s + parseFloat(r.totalAmount), 0)
+
+  return c.json({
+    check: { id: check.id, status: check.status, totalAmount: check.totalAmount, closedAt: check.closedAt },
+    items: items.map(i => ({
+      itemId: i.checkItem.itemId,
+      name: i.item?.name ?? '—',
+      quantity: i.checkItem.quantity,
+      priceAtTime: Number(i.checkItem.priceAtTime),
+      trackStock: i.item?.trackStock ?? false,
+    })),
+    paidTotal: round2(paidTotal),
+    refundedTotal: round2(refundedTotal),
+    maxRefund: round2(Math.max(0, paidTotal - refundedTotal)),
+  })
+})
+
 refundsRouter.get('/:id', async (c) => {
   const [refund] = await db.select().from(refunds).where(eq(refunds.id, c.req.param('id')))
   if (!refund) return c.json({ error: 'Not found' }, 404)
