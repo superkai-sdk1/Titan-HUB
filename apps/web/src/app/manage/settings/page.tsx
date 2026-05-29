@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { Icon } from '@/components/Icon'
 import { PageHeader, SaveButton, ToggleRow, INP, SEL, LBL } from '@/components/manage/DesignSystem'
+import { TimeInput24 } from '@/components/TimeInput24'
 import { StateView } from '@/components/StateView'
 import { useToast } from '@/components/Toast'
 
@@ -122,11 +123,11 @@ export default function SettingsPage() {
                 <div style={{ display: 'flex', gap: 10 }}>
                   <div style={{ flex: 1 }}>
                     <label style={{ ...LBL, color: 'rgba(204,195,216,0.5)' }}>Открытие</label>
-                    <input type="time" style={INP} value={form.hours_open} onChange={e => set('hours_open', e.target.value)} />
+                    <TimeInput24 value={form.hours_open} onChange={v => set('hours_open', v)} />
                   </div>
                   <div style={{ flex: 1 }}>
                     <label style={{ ...LBL, color: 'rgba(204,195,216,0.5)' }}>Закрытие</label>
-                    <input type="time" style={INP} value={form.hours_close} onChange={e => set('hours_close', e.target.value)} />
+                    <TimeInput24 value={form.hours_close} onChange={v => set('hours_close', v)} />
                   </div>
                 </div>
               </Field>

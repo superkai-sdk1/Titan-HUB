@@ -6,6 +6,7 @@ import { SwipeableRow } from '@/components/SwipeableRow'
 import { Icon } from '@/components/Icon'
 import { useToast } from '@/components/Toast'
 import { ConfirmDialog } from '@/components/manage/DesignSystem'
+import { TimeInput24 } from '@/components/TimeInput24'
 
 interface InventoryItem {
   id: string
@@ -756,9 +757,15 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
               <h2 style={{ fontSize: 18, fontWeight: 900, fontStyle: 'italic', textTransform: 'uppercase', margin: 0 }}>Время аренды</h2>
             </div>
             <label style={{ display: 'block', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--on-surface-variant)', marginBottom: 6 }}>Начало</label>
-            <input type="datetime-local" value={editStart} onChange={e => setEditStart(e.target.value)} className="glass-l2" style={{ width: '100%', padding: '12px 14px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.08)', color: 'var(--on-surface)', fontSize: 14, background: 'none', marginBottom: 14, boxSizing: 'border-box' }} />
+            <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+              <input type="date" value={editStart.slice(0, 10)} onChange={e => setEditStart(e.target.value ? `${e.target.value}T${editStart.slice(11, 16) || '00:00'}` : '')} className="glass-l2" style={{ flex: 1, minWidth: 0, padding: '12px 12px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.1)', color: 'var(--on-surface)', fontSize: 14, background: 'rgba(29,26,36,0.9)', boxSizing: 'border-box' }} />
+              <TimeInput24 value={editStart.slice(11, 16)} onChange={t => setEditStart(`${editStart.slice(0, 10) || new Date().toISOString().slice(0, 10)}T${t}`)} style={{ flex: 1 }} />
+            </div>
             <label style={{ display: 'block', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--on-surface-variant)', marginBottom: 6 }}>Конец</label>
-            <input type="datetime-local" value={editEnd} onChange={e => setEditEnd(e.target.value)} className="glass-l2" style={{ width: '100%', padding: '12px 14px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.08)', color: 'var(--on-surface)', fontSize: 14, background: 'none', marginBottom: 8, boxSizing: 'border-box' }} />
+            <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+              <input type="date" value={editEnd.slice(0, 10)} onChange={e => setEditEnd(e.target.value ? `${e.target.value}T${editEnd.slice(11, 16) || '00:00'}` : '')} className="glass-l2" style={{ flex: 1, minWidth: 0, padding: '12px 12px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.1)', color: 'var(--on-surface)', fontSize: 14, background: 'rgba(29,26,36,0.9)', boxSizing: 'border-box' }} />
+              <TimeInput24 value={editEnd.slice(11, 16)} onChange={t => setEditEnd(`${editEnd.slice(0, 10) || editStart.slice(0, 10) || new Date().toISOString().slice(0, 10)}T${t}`)} style={{ flex: 1 }} />
+            </div>
             <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: '0 0 14px' }}>
               {editEnd
                 ? <button type="button" onClick={() => setEditEnd('')} style={{ background: 'none', border: 'none', color: '#A78BFA', fontSize: 11, cursor: 'pointer', padding: 0, textDecoration: 'underline' }}>Сбросить конец → живой счётчик до оплаты</button>

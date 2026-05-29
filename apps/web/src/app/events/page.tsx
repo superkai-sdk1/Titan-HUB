@@ -4,6 +4,7 @@ import { Icon } from '@/components/Icon'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { Sheet, INP, LBL } from '@/components/manage/DesignSystem'
+import { TimeInput24 } from '@/components/TimeInput24'
 
 const STATUS: Record<string, [string, string, string]> = {
   planned:   ['Запланировано', '#3B82F6', 'schedule'],
@@ -213,8 +214,8 @@ export default function EventsPage() {
           )}
           <div><label style={LBL}>Дата</label><input type="date" value={form.date} onChange={e => setForm((p: any) => ({ ...p, date: e.target.value }))} style={INP} /></div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-            <div><label style={LBL}>Начало</label><input type="time" value={form.startTime} onChange={e => setForm((p: any) => ({ ...p, startTime: e.target.value }))} style={INP} /></div>
-            <div><label style={LBL}>Конец</label><input type="time" value={form.endTime} onChange={e => setForm((p: any) => ({ ...p, endTime: e.target.value }))} style={INP} /></div>
+            <div><label style={LBL}>Начало</label><TimeInput24 value={form.startTime} onChange={v => setForm((p: any) => ({ ...p, startTime: v }))} /></div>
+            <div><label style={LBL}>Конец</label><TimeInput24 value={form.endTime} onChange={v => setForm((p: any) => ({ ...p, endTime: v }))} /></div>
           </div>
           <div>
             <label style={LBL}>Оплата</label>
