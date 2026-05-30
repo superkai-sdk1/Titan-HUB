@@ -189,11 +189,15 @@ async function applyAutoDiscounts(exec: DbOrTx, checkId: string) {
     }
   }
 
-  // 1. Авто-скидки (isAuto). Общая скидка с clientId — только для совпадающего клиента.
+  // 1. Авто-скидки (isAuto). Скидка с clientId (персональная) применяется ТОЛЬКО к
+  //    чеку этого клиента — независимо от того, на позицию она или на весь чек.
+  //    (Был баг: проверка клиента срабатывала лишь при отсутствии itemId, поэтому
+  //    персональная скидка на конкретную позицию протекала во ВСЕ чеки с этой
+  //    позицией. Теперь клиент-привязка проверяется всегда.)
   const autoRows = await exec.select().from(discounts)
     .where(and(eq(discounts.isActive, true), eq(discounts.isAuto, true)))
   for (const d of autoRows) {
-    if (!d.itemId && d.clientId && d.clientId !== check.playerId) continue
+    if (d.clientId && d.clientId !== check.playerId) continue
     pushDiscount(d)
   }
 
