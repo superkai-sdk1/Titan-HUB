@@ -365,17 +365,9 @@ button, [role="button"] { user-select: none; }
   :root { --bottom-nav-clear: calc(112px + env(safe-area-inset-bottom)); }
 }
 
-/* iOS standalone PWA: iOS резервирует env(safe-area-inset-bottom) (~34px) под home
-   indicator, и с отступом `safe-area + 6px` под плавающей панелью оставалась тёмная
-   «мёртвая» полоса (~40px), которой нет в обычном браузере (там inset = 0). Прижимаем
-   панель к низу небольшим фиксированным зазором (10px), игнорируя резерв safe-area —
-   полоса исчезает, низ совпадает с браузером. Иконки/подписи остаются выше home
-   indicator за счёт собственных отступов панели. */
-@media (display-mode: standalone) {
-  .bottom-nav-root {
-    bottom: 10px !important;
-  }
-}
+/* Нижняя навигация прижата к низу (bottom:0) и сама закрывает safe-area через
+   paddingBottom (см. BottomNav.tsx). Отдельный standalone-override больше не нужен —
+   и в браузере, и в PWA панель доходит до низа экрана, тёмной полосы под ней нет. */
 
 /* ── Reduced motion (a11y) ──────────────────────────── */
 @media (prefers-reduced-motion: reduce) {
