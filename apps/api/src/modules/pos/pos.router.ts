@@ -6,7 +6,7 @@ import {
   db, checks, checkItems, checkItemModifiers, checkPayments, checkDiscounts,
   inventory, profiles, spaces, certificates, bonusHistory, transactions, modifiers as modifiersTable,
   appSettings, events, discounts, clientDiscountRules,
-  eq, and, inArray, desc, sql, isNull,
+  eq, and, ne, inArray, desc, sql, isNull,
 } from '@titan/database'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
 import { getCurrentShift } from '../shifts/shifts.service.js'
@@ -1047,6 +1047,13 @@ posRouter.post('/checks/:id/pay', requireRole('owner', 'staff'), zValidator('jso
         spaceEndAt: check.spaceEndAt ?? (check.spaceId ? new Date() : undefined),
         closedAt: new Date(),
       }).where(eq(checks.id, checkId)).returning()
+
+      // Авто-завершение мероприятия: чек события оплачен и закрыт → событие
+      // переходит в «Завершено» (ручной кнопки «Завершить» нет — финал только здесь).
+      if (check.linkedEventId) {
+        await tx.update(events).set({ status: 'completed' })
+          .where(and(eq(events.id, check.linkedEventId), ne(events.status, 'cancelled')))
+      }
 
       // Начисление бонусов с учётом настроек app_settings (на полную сумму, включая аренду)
       if (body.playerId && player) {

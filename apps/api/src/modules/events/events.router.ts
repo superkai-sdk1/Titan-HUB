@@ -23,10 +23,12 @@ const EventSchema = z.object({
   perHeadAmount: z.number().optional().nullable(),
   manualAmount: z.number().optional().nullable(),
   maxGuests: z.number().int().positive().optional().nullable(),
-  status: z.enum(['planned', 'active', 'completed', 'cancelled']).default('planned'),
+  status: z.enum(['planned', 'needs_clarification', 'active', 'completed', 'cancelled']).default('planned'),
   comment: z.string().optional().nullable(),
   reminders: z.array(z.string()).default([]),
   responsibleStaffId: z.string().uuid().optional().nullable(),
+  customerName: z.string().optional().nullable(),
+  customerPhone: z.string().optional().nullable(),
 })
 
 // Базовая сумма события для чека (billingMode=amount): ручная сумма приоритетна,
@@ -134,6 +136,8 @@ eventsRouter.post('/', requireRole('owner', 'staff'), zValidator('json', EventSc
     comment: body.comment,
     reminders: body.reminders,
     responsibleStaffId: body.responsibleStaffId ?? null,
+    customerName: body.customerName ?? null,
+    customerPhone: body.customerPhone ?? null,
     createdBy: user.sub,
   }).returning()
   return c.json({ event }, 201)

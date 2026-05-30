@@ -6,13 +6,19 @@ import { api } from '@/lib/api'
 import { Sheet, INP, SEL, LBL } from '@/components/manage/DesignSystem'
 import { TimeInput24 } from '@/components/TimeInput24'
 import { useToast } from '@/components/Toast'
+import { telLink, whatsappLink, telegramLink, openContact } from '@/lib/contact'
 
 const STATUS: Record<string, [string, string, string]> = {
-  planned:   ['Запланировано', '#3B82F6', 'schedule'],
-  active:    ['Активно',       '#10B981', 'play_circle'],
-  completed: ['Завершено',     '#94A3B8', 'check_circle'],
-  cancelled: ['Отменено',      '#F43F5E', 'cancel'],
+  planned:            ['Запланировано',     '#3B82F6', 'schedule'],
+  needs_clarification:['Требуется уточнить', '#F59E0B', 'help'],
+  active:             ['Активно',           '#10B981', 'play_circle'],
+  completed:          ['Завершено',         '#94A3B8', 'check_circle'],
+  cancelled:          ['Отменено',          '#F43F5E', 'cancel'],
 }
+
+// Статусы, переключаемые вручную в деталь-модалке. active — кнопкой «Начать»;
+// completed — автоматически при оплате чека на кассе (не показываем как кнопку).
+const MANUAL_STATUSES = ['planned', 'needs_clarification', 'cancelled']
 
 const TYPES: Record<string, [string, string, string]> = {
   titan: ['Titan клуб', 'home',            '#8B5CF6'],
@@ -45,6 +51,8 @@ const BLANK = {
   manualAmount: '',
   maxGuests: '',
   responsibleStaffId: '',
+  customerName: '',
+  customerPhone: '',
   comment: '',
 }
 
@@ -165,6 +173,8 @@ export default function EventsPage() {
       manualAmount: ev.manualAmount != null ? String(ev.manualAmount) : '',
       maxGuests: ev.maxGuests != null ? String(ev.maxGuests) : '',
       responsibleStaffId: ev.responsibleStaffId ?? '',
+      customerName: ev.customerName ?? '',
+      customerPhone: ev.customerPhone ?? '',
       comment: ev.comment ?? '',
     })
     setEditId(ev.id)
@@ -199,6 +209,8 @@ export default function EventsPage() {
       paymentType: form.paymentType,
       billingMode,
       responsibleStaffId: form.responsibleStaffId || null,
+      customerName: form.customerName || null,
+      customerPhone: form.customerPhone || null,
       comment: form.comment || null,
       maxGuests: form.maxGuests ? parseInt(form.maxGuests) : null,
     }
@@ -391,6 +403,12 @@ export default function EventsPage() {
             </div>
           </FormSection>
 
+          {/* ── Заказчик ── */}
+          <FormSection title="Заказчик">
+            <div><label style={LBL}>Имя заказчика</label><input value={form.customerName} onChange={e => setForm((p: any) => ({ ...p, customerName: e.target.value }))} placeholder="Имя контактного лица" style={INP} /></div>
+            <div><label style={LBL}>Телефон</label><input type="tel" inputMode="tel" value={form.customerPhone} onChange={e => setForm((p: any) => ({ ...p, customerPhone: e.target.value }))} placeholder="+7 900 000-00-00" style={INP} /></div>
+          </FormSection>
+
           {/* ── Дата и время ── */}
           <FormSection title="Дата и время">
             <div><label style={LBL}>Дата</label><input type="date" value={form.date} onChange={e => setForm((p: any) => ({ ...p, date: e.target.value }))} style={INP} /></div>
@@ -514,6 +532,31 @@ export default function EventsPage() {
                   </div>
                 ) : null })}
               </div>
+              {/* Заказчик — имя + связь по номеру */}
+              {(selected.customerName || selected.customerPhone) && (
+                <div style={{ marginBottom: 16, padding: '12px 14px', borderRadius: 14, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
+                  <p style={{ fontSize: 11, fontWeight: 700, fontFamily: "'JetBrains Mono',monospace", color: 'var(--on-surface-variant)', textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 10px' }}>Заказчик</p>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: selected.customerPhone ? 12 : 0 }}>
+                    <Icon name="person" size={16} color="#a78bfa" />
+                    <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--on-surface)' }}>{selected.customerName || 'Без имени'}</span>
+                    {selected.customerPhone && <span style={{ fontSize: 12, color: 'var(--on-surface-variant)', marginLeft: 'auto', fontVariantNumeric: 'tabular-nums' }}>{selected.customerPhone}</span>}
+                  </div>
+                  {selected.customerPhone && (
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      {([
+                        ['call', 'Позвонить', '#10B981', telLink(selected.customerPhone)],
+                        ['whatsapp', 'WhatsApp', '#25D366', whatsappLink(selected.customerPhone)],
+                        ['telegram', 'Telegram', '#229ED9', telegramLink(selected.customerPhone)],
+                      ] as [string, string, string, string][]).map(([icon, label, color, url]) => (
+                        <button key={icon} onClick={() => openContact(url)}
+                          style={{ flex: 1, padding: '10px 4px', borderRadius: 11, border: `1px solid ${color}44`, background: `${color}12`, color, fontSize: 11, fontWeight: 700, cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5 }}>
+                          <Icon name={icon} size={18} />{label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
               {selected.status === 'planned' && (
                 <button onClick={() => startEvent(selected)} disabled={update.isPending}
                   style={{ width: '100%', padding: '13px 0', borderRadius: 14, border: 'none', background: 'linear-gradient(135deg, #10B981, #4cd7f6)', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer', marginBottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, boxShadow: '0 4px 18px rgba(16,185,129,0.3)' }}>
@@ -527,18 +570,15 @@ export default function EventsPage() {
                 </button>
               </div>
               <div style={{ marginBottom: 16 }}>
-                <button onClick={() => setAnalyticsId(selected.id)}
-                  style={{ width: '100%', padding: '12px 0', borderRadius: 12, border: '1px solid rgba(139,92,246,0.3)', background: 'rgba(139,92,246,0.08)', color: '#a78bfa', fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-                  <Icon name="analytics" size={16} />Аналитика
-                </button>
-              </div>
-              <div style={{ marginBottom: 16 }}>
                 <p style={{ fontSize: 11, fontWeight: 700, fontFamily: "'JetBrains Mono',monospace", color: 'var(--on-surface-variant)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 }}>Изменить статус</p>
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' as const }}>
-                  {Object.entries(STATUS).filter(([k]) => k !== selected.status).map(([k, [l, c]]) => (
-                    <button key={k} onClick={() => update.mutate({ id: selected.id, status: k })}
-                      style={{ padding: '8px 14px', borderRadius: 10, border: `1px solid ${c}44`, background: `${c}11`, color: c, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>{l}</button>
-                  ))}
+                  {MANUAL_STATUSES.filter((k) => k !== selected.status).map((k) => {
+                    const [l, c] = STATUS[k]
+                    return (
+                      <button key={k} onClick={() => update.mutate({ id: selected.id, status: k })}
+                        style={{ padding: '8px 14px', borderRadius: 10, border: `1px solid ${c}44`, background: `${c}11`, color: c, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>{l}</button>
+                    )
+                  })}
                 </div>
               </div>
               <button onClick={() => del.mutate(selected.id)}

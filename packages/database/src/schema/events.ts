@@ -3,7 +3,10 @@ import { profiles } from './profiles.js'
 import { spaces } from './spaces.js'
 
 export const eventTypeEnum = pgEnum('event_type', ['titan', 'exit'])
-export const eventStatusEnum = pgEnum('event_status', ['planned', 'active', 'completed', 'cancelled'])
+// Статусы события. Хранится как text + CHECK (миграция 018) — добавить значение в
+// enum нельзя в транзакции, поэтому колонка text. Допустимые значения ниже.
+export const EVENT_STATUSES = ['planned', 'needs_clarification', 'active', 'completed', 'cancelled'] as const
+export type EventStatus = (typeof EVENT_STATUSES)[number]
 export const eventPaymentTypeEnum = pgEnum('event_payment_type', ['fixed', 'per_head', 'free'])
 // Как событие списывает деньги за «основу» (помимо допов из меню):
 //  - amount: фиксированная/ручная сумма события (fixedAmount/manualAmount/perHead);
@@ -29,9 +32,13 @@ export const events = pgTable('events', {
   manualAmount: numeric('manual_amount', { precision: 10, scale: 2 }),
   maxGuests: integer('max_guests'),
   attendeesCount: integer('attendees_count').notNull().default(0),
-  status: eventStatusEnum('status').notNull().default('planned'),
+  // text + CHECK (см. EVENT_STATUSES / миграция 018), а не pgEnum.
+  status: text('status').notNull().default('planned').$type<EventStatus>(),
   comment: text('comment'),
   reminders: jsonb('reminders').$type<string[]>().default([]),
+  // Заказчик: имя + телефон (для связи — звонок/WhatsApp/Telegram по номеру).
+  customerName: text('customer_name'),
+  customerPhone: text('customer_phone'),
   // Ответственный сотрудник (актуально для выездов; опционально для titan).
   responsibleStaffId: uuid('responsible_staff_id').references(() => profiles.id),
   // Чек, созданный при старте события (status active). Один чек на событие.
