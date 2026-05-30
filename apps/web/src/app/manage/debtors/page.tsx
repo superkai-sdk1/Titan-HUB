@@ -1,150 +1,228 @@
 'use client'
 
-import React, { useState, useMemo } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
-import { format } from 'date-fns'
+import { formatDistanceToNow } from 'date-fns'
 import { ru } from 'date-fns/locale'
 import { Icon } from '@/components/Icon'
 import { PageHeader, Sheet, Button, INP, LBL, formatMoney } from '@/components/manage/DesignSystem'
 import { StateView } from '@/components/StateView'
 import { useToast } from '@/components/Toast'
 
-interface Client {
-  id: string
-  nickname: string
-  balance: number
-  lastVisit?: string
-  clientTier?: string
-}
+const ACCENT = '#F43F5E' // цвет долга
 
-function avatarColor(name: string) {
-  const hues = [0, 10, 350, 5, 355]
-  let h = 0
-  for (let i = 0; i < name.length; i++) h = (h + name.charCodeAt(i)) % hues.length
-  return `hsl(${hues[h]}, 65%, 40%)`
-}
-
-function formatDate(str: string) {
-  try {
-    return format(new Date(str), 'd MMM yyyy', { locale: ru })
-  } catch {
-    return '—'
-  }
-}
+function parseNum(v: unknown) { return parseFloat(String(v ?? 0)) || 0 }
+function fmt(n: number) { return n.toLocaleString('ru', { maximumFractionDigits: 0 }) }
+function initials(s?: string | null) { return (s ?? '?').slice(0, 2).toUpperCase() }
 
 export default function DebtorsPage() {
   const qc = useQueryClient()
   const { show } = useToast()
-  const [selected, setSelected] = useState<Client | null>(null)
+
+  const [selected, setSelected] = useState<any>(null)
+  const [showAdd, setShowAdd] = useState(false)
+  const [search, setSearch] = useState('')
+  const [results, setResults] = useState<any[]>([])
+  const [searching, setSearching] = useState(false)
+  const [opMode, setOpMode] = useState<null | 'add' | 'writeoff'>(null)
   const [amount, setAmount] = useState('')
   const [note, setNote] = useState('')
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const { data, isLoading } = useQuery<{ clients: Client[] }>({
+  const { data, isLoading } = useQuery<{ clients: any[] }>({
     queryKey: ['clients-debtors'],
     queryFn: () => api.get('/clients?filter=debtors'),
   })
+  const debtors = (data?.clients ?? []).slice().sort((a, b) => parseNum(a.balance) - parseNum(b.balance))
+  const totalDebt = debtors.reduce((s, c) => s + Math.abs(parseNum(c.balance)), 0)
 
-  const allClients = data?.clients ?? []
-  const debtors = useMemo(
-    () => allClients.filter(c => c.balance < 0).sort((a, b) => a.balance - b.balance),
-    [allClients]
-  )
-  const totalDebt = debtors.reduce((sum, c) => sum + Math.abs(c.balance), 0)
+  // История по долгу выбранного клиента — начисления/списания баланса.
+  const { data: txData } = useQuery<{ transactions: any[] }>({
+    queryKey: ['debtor-tx', selected?.id],
+    queryFn: () => api.get(`/clients/${selected.id}/transactions`),
+    enabled: !!selected?.id,
+  })
+  const history = (txData?.transactions ?? []).filter((t: any) => t.type === 'deposit' || t.type === 'withdrawal')
 
-  const invalidate = () => qc.invalidateQueries({ queryKey: ['clients-debtors'] })
+  // Поиск клиента для добавления долга.
+  useEffect(() => {
+    if (!showAdd) return
+    if (timer.current) clearTimeout(timer.current)
+    const q = search.trim()
+    if (!q) { setResults([]); setSearching(false); return }
+    setSearching(true)
+    timer.current = setTimeout(async () => {
+      try {
+        const res = await api.get<{ clients: any[] }>(`/clients?search=${encodeURIComponent(q)}`)
+        setResults(res.clients ?? [])
+      } catch { setResults([]) }
+      finally { setSearching(false) }
+    }, 300)
+    return () => { if (timer.current) clearTimeout(timer.current) }
+  }, [search, showAdd])
 
-  const payMut = useMutation({
+  const adjust = useMutation({
     mutationFn: ({ id, amount, reason }: { id: string; amount: number; reason: string }) =>
       api.post(`/clients/${id}/balance`, { amount, reason }),
-    onSuccess: () => { invalidate(); closeSheet() },
-    onError: () => show('Не удалось зачислить платёж', 'error'),
+    onSuccess: (_r, vars: any) => {
+      qc.invalidateQueries({ queryKey: ['clients-debtors'] })
+      qc.invalidateQueries({ queryKey: ['debtor-tx', vars.id] })
+      setSelected((s: any) => s ? { ...s, balance: parseNum(s.balance) + parseNum(vars.amount) } : s)
+      setOpMode(null); setAmount(''); setNote('')
+      show('Долг обновлён', 'success')
+    },
+    onError: (e: any) => show(e?.message || 'Не удалось изменить долг', 'error'),
   })
 
-  function openSheet(client: Client) {
-    setSelected(client)
-    setAmount(String(Math.abs(client.balance)))
-    setNote('')
-  }
-
-  function closeSheet() {
-    setSelected(null)
-    setAmount('')
-    setNote('')
-  }
-
-  function handlePay() {
+  function openDetail(c: any) { setSelected(c); setOpMode(null); setAmount(''); setNote('') }
+  function pickClient(c: any) { setShowAdd(false); setSearch(''); setResults([]); openDetail(c) }
+  function submitOp() {
     if (!selected) return
-    const amt = parseFloat(amount)
-    if (!amt || amt <= 0) return
-    payMut.mutate({ id: selected.id, amount: amt, reason: note.trim() || 'Погашение долга' })
+    const v = parseFloat(amount)
+    if (!(v > 0)) return
+    // «Добавить долг» → баланс в минус; «Списать долг» → баланс к нулю.
+    const signed = opMode === 'add' ? -v : v
+    adjust.mutate({ id: selected.id, amount: signed, reason: note.trim() || (opMode === 'add' ? 'Долг (ручное начисление)' : 'Списание долга') })
   }
+
+  const bal = selected ? parseNum(selected.balance) : 0
+  const debt = bal < 0 ? -bal : 0
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100dvh' }}>
-      <PageHeader title="Должники" subtitle={debtors.length > 0 ? `Общий долг: ${formatMoney(totalDebt)}` : 'Нет задолженностей'} />
+    <div style={{ minHeight: '100dvh', display: 'flex', flexDirection: 'column' }}>
+      <PageHeader
+        title="Должники"
+        subtitle={debtors.length > 0 ? `${debtors.length} ${debtors.length === 1 ? 'должник' : 'должников'} · ${fmt(totalDebt)} ₽` : 'Нет задолженностей'}
+        action={{ label: 'Добавить', icon: 'person_add', onClick: () => { setShowAdd(true); setSearch(''); setResults([]) } }}
+      />
 
-      <div style={{ padding: '16px 16px var(--bottom-nav-clear, 24px)', flex: 1, maxWidth: 680, margin: '0 auto', width: '100%' }}>
+      <div style={{ padding: '16px 16px var(--bottom-nav-clear, 24px)', flex: 1, maxWidth: 680, margin: '0 auto', width: '100%', boxSizing: 'border-box' }}>
         {isLoading && !data ? (
           <StateView state="loading" />
         ) : debtors.length === 0 ? (
-          <StateView state="empty" icon="check_circle" title="Должников нет" description="Все клиенты с положительным или нулевым балансом." />
+          <StateView state="empty" icon="check_circle" title="Должников нет" description="Нажмите «Добавить», чтобы начислить долг клиенту." />
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {debtors.map((client) => {
-              const initial = (client.nickname ?? '?')[0].toUpperCase()
-              const color = avatarColor(client.nickname ?? '')
-              return (
-                <div key={client.id} className="glass-l2" style={{ borderRadius: 14, padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 14 }}>
-                  <div style={{ width: 44, height: 44, borderRadius: '50%', background: color, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: 17, fontWeight: 800, color: '#fff', border: '2px solid rgba(251,113,133,0.4)' }}>
-                    {initial}
-                  </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 2 }}>{client.nickname}</div>
-                    {client.lastVisit && (
-                      <div style={{ fontSize: 11, color: 'var(--on-surface-variant)' }}>Последний визит: {formatDate(client.lastVisit)}</div>
-                    )}
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8, flexShrink: 0 }}>
-                    <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--danger)', fontStyle: 'italic', fontVariantNumeric: 'tabular-nums' }}>
-                      {formatMoney(client.balance)}
-                    </div>
-                    <Button size="sm" variant="secondary" onClick={() => openSheet(client)} style={{ borderColor: 'rgba(16,185,129,0.35)', background: 'rgba(16,185,129,0.1)', color: 'var(--success)' }}>
-                      Погасить долг
-                    </Button>
-                  </div>
+            {debtors.map((client) => (
+              <div key={client.id} className="glass-l2" onClick={() => openDetail(client)}
+                style={{ borderRadius: 14, padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 14, cursor: 'pointer' }}>
+                <div style={{ width: 46, height: 46, borderRadius: '50%', flexShrink: 0, background: `${ACCENT}22`, border: `2px solid ${ACCENT}55`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 800, color: ACCENT }}>
+                  {initials(client.nickname)}
                 </div>
-              )
-            })}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <p style={{ fontSize: 14, fontWeight: 700, margin: 0 }}>{client.nickname}</p>
+                  <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: '3px 0 0' }}>{client.fullName || client.phone || 'Без контакта'}</p>
+                </div>
+                <p style={{ fontSize: 16, fontWeight: 800, fontStyle: 'italic', color: ACCENT, margin: 0, fontFamily: "'JetBrains Mono',monospace" }}>{formatMoney(parseNum(client.balance))}</p>
+              </div>
+            ))}
           </div>
         )}
       </div>
 
-      <Sheet open={!!selected} onClose={closeSheet} title="Погасить долг" desktopSize="sm">
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <div style={{ padding: '12px 16px', borderRadius: 12, background: 'rgba(255,255,255,0.04)' }}>
-            <p style={{ fontSize: 13, color: 'var(--on-surface-variant)', margin: '0 0 4px' }}>
-              Клиент: <strong style={{ color: 'var(--on-surface)' }}>{selected?.nickname}</strong>
-            </p>
-            <p style={{ fontSize: 13, margin: 0 }}>
-              Текущий баланс: <strong style={{ color: 'var(--danger)', fontStyle: 'italic' }}>{formatMoney(selected?.balance ?? 0)}</strong>
-            </p>
+      {/* Добавить клиента (поиск) */}
+      <Sheet open={showAdd} onClose={() => setShowAdd(false)} title="Найти клиента">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <input autoFocus value={search} onChange={e => setSearch(e.target.value)} placeholder="Имя или ник клиента" style={INP} />
+          {searching && <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: 0 }}>Поиск…</p>}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 360, overflowY: 'auto' }}>
+            {results.map((c: any) => (
+              <button key={c.id} type="button" onClick={() => pickClient(c)}
+                style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.08)', background: 'rgba(255,255,255,0.04)', color: 'var(--on-surface)', cursor: 'pointer', textAlign: 'left' }}>
+                <div style={{ width: 34, height: 34, borderRadius: '50%', flexShrink: 0, background: `${ACCENT}22`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, color: ACCENT }}>{initials(c.nickname)}</div>
+                <div style={{ minWidth: 0 }}>
+                  <p style={{ fontSize: 14, fontWeight: 600, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.nickname}</p>
+                  <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: 0 }}>Баланс: {formatMoney(parseNum(c.balance))}</p>
+                </div>
+              </button>
+            ))}
           </div>
-          <div>
-            <label style={LBL}>Сумма пополнения (₽)</label>
-            <input style={INP} type="number" min="0" inputMode="decimal" value={amount} onChange={e => setAmount(e.target.value)} placeholder="Сумма" autoFocus />
-          </div>
-          <div>
-            <label style={LBL}>Заметка</label>
-            <input style={INP} value={note} onChange={e => setNote(e.target.value)} placeholder="Причина / комментарий" />
-          </div>
-          <Button
-            fullWidth size="lg" loading={payMut.isPending} disabled={!parseFloat(amount)} onClick={handlePay}
-            style={{ background: 'linear-gradient(135deg, #10B981, #059669)', boxShadow: '0 4px 20px rgba(16,185,129,0.3)' }}
-          >
-            Зачислить
-          </Button>
         </div>
+      </Sheet>
+
+      {/* Карточка должника */}
+      <Sheet open={!!selected} onClose={() => setSelected(null)} maxHeight="92vh">
+        {selected && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            {/* Инфо о клиенте */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+              <div style={{ width: 56, height: 56, borderRadius: '50%', flexShrink: 0, background: `${ACCENT}22`, border: `2px solid ${ACCENT}55`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, fontWeight: 800, color: ACCENT }}>
+                {initials(selected.nickname)}
+              </div>
+              <div style={{ minWidth: 0 }}>
+                <h2 style={{ fontSize: 18, fontWeight: 800, margin: 0 }}>{selected.nickname}</h2>
+                {selected.fullName ? <p style={{ fontSize: 13, color: 'var(--on-surface-variant)', margin: '2px 0 0' }}>{selected.fullName}</p> : null}
+                {selected.phone ? <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: '2px 0 0' }}>{selected.phone}</p> : null}
+              </div>
+            </div>
+
+            {/* Текущий долг / баланс */}
+            <div className="glass-l2" style={{ borderRadius: 16, padding: '14px 16px', textAlign: 'center', border: `1px solid ${debt > 0 ? ACCENT + '33' : 'rgba(255,255,255,0.08)'}` }}>
+              <p style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--on-surface-variant)', margin: '0 0 4px' }}>{debt > 0 ? 'Долг' : 'Баланс'}</p>
+              <p style={{ fontSize: 30, fontWeight: 900, fontStyle: 'italic', color: debt > 0 ? ACCENT : 'var(--on-surface)', margin: 0, fontVariantNumeric: 'tabular-nums' }}>
+                {debt > 0 ? `${fmt(debt)} ₽` : formatMoney(bal)}
+              </p>
+            </div>
+
+            {/* Кнопки / форма операции */}
+            {opMode === null ? (
+              <div style={{ display: 'flex', gap: 10 }}>
+                <button onClick={() => { setOpMode('add'); setAmount(''); setNote('') }}
+                  style={{ flex: 1, padding: '14px 0', borderRadius: 14, border: '1px solid rgba(244,63,94,0.4)', cursor: 'pointer', background: 'rgba(244,63,94,0.1)', color: ACCENT, fontSize: 14, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                  <Icon name="add" size={18} /> Добавить долг
+                </button>
+                <button onClick={() => { setOpMode('writeoff'); setAmount(debt > 0 ? String(debt) : ''); setNote('') }}
+                  style={{ flex: 1, padding: '14px 0', borderRadius: 14, border: 'none', cursor: 'pointer', background: 'linear-gradient(135deg, #10B981, #059669)', color: '#fff', fontSize: 14, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                  <Icon name="remove" size={18} /> Списать долг
+                </button>
+              </div>
+            ) : (
+              <div className="glass-l2" style={{ borderRadius: 14, padding: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <p style={{ fontSize: 14, fontWeight: 700, margin: 0, color: opMode === 'add' ? ACCENT : '#10B981' }}>
+                  {opMode === 'add' ? 'Начислить долг' : 'Списать (погасить) долг'}
+                </p>
+                <div><label style={LBL}>Сумма (₽)</label>
+                  <input type="number" inputMode="decimal" min="0" autoFocus value={amount} onChange={e => setAmount(e.target.value)} placeholder="например 500" style={INP} /></div>
+                <div><label style={LBL}>Причина / заметка (необязательно)</label>
+                  <input value={note} onChange={e => setNote(e.target.value)} placeholder={opMode === 'add' ? 'Долг (ручное начисление)' : 'Списание долга'} style={INP} /></div>
+                <div style={{ display: 'flex', gap: 10, marginTop: 2 }}>
+                  <Button variant="ghost" fullWidth onClick={() => { setOpMode(null); setAmount(''); setNote('') }}>Отмена</Button>
+                  <Button fullWidth loading={adjust.isPending} disabled={!(parseFloat(amount) > 0)} onClick={submitOp}>
+                    {opMode === 'add' ? 'Начислить долг' : 'Списать'}
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* История */}
+            <div>
+              <p style={{ ...LBL, marginBottom: 10 }}>История</p>
+              {history.length === 0 ? (
+                <p style={{ fontSize: 13, color: 'rgba(204,195,216,0.4)', textAlign: 'center', padding: '16px 0' }}>Пока нет операций</p>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {history.map((tx: any) => {
+                    // deposit (+) уменьшает долг — зелёным; withdrawal (−) увеличивает — красным.
+                    const credit = tx.type === 'deposit'
+                    const amt = parseNum(tx.amount)
+                    return (
+                      <div key={tx.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 12, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.05)' }}>
+                        <div style={{ minWidth: 0 }}>
+                          <p style={{ fontSize: 13, fontWeight: 600, margin: 0 }}>{tx.description || (credit ? 'Погашение' : 'Начисление долга')}</p>
+                          <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: '2px 0 0' }}>{tx.createdAt ? formatDistanceToNow(new Date(tx.createdAt), { locale: ru, addSuffix: true }) : ''}</p>
+                        </div>
+                        <p style={{ fontSize: 14, fontWeight: 800, fontStyle: 'italic', color: credit ? '#10B981' : ACCENT, margin: 0, fontFamily: "'JetBrains Mono',monospace" }}>
+                          {credit ? '+' : '−'}{fmt(amt)} ₽
+                        </p>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </Sheet>
     </div>
   )
