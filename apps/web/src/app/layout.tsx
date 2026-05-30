@@ -7,6 +7,7 @@ import { Sidebar } from '@/components/Sidebar'
 import { SessionLock } from '@/components/SessionLock'
 import { StaffNotifications } from '@/components/StaffNotifications'
 import { ServiceWorkerRegister } from '@/components/ServiceWorkerRegister'
+import { ViewportFix } from '@/components/ViewportFix'
 
 export const metadata: Metadata = {
   title: 'Titan HUB',
@@ -80,6 +81,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 
             {/* Service Worker для PWA-offline */}
             <ServiceWorkerRegister />
+
+            {/* Фикс stale-вьюпорта iOS standalone (тёмная полоса снизу до поворота) */}
+            <ViewportFix />
           </AuthGuard>
         </Providers>
 
