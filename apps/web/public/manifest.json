@@ -4,8 +4,8 @@
   "description": "Кассовая система",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#0a0e1a",
-  "theme_color": "#0a0e1a",
+  "background_color": "#15121b",
+  "theme_color": "#15121b",
   "orientation": "portrait",
   "icons": [
     {

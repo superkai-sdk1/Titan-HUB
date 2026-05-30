@@ -94,6 +94,11 @@ html {
   margin: 0; padding: 0;
   overflow: hidden;
   height: 100dvh;
+  /* Базовый цвет корневого холста = фон приложения. В standalone-PWA нижняя
+     safe-area (под home indicator) красится цветом холста/манифеста — если он
+     отличался (#0a0e1a в манифесте vs #15121b в приложении), внизу была тёмная
+     полоса другого оттенка. Держим один цвет везде, чтобы зона сливалась. */
+  background-color: #15121b;
   /* iOS Safari: prevent bounce scroll on the root */
   overscroll-behavior: none;
 }
