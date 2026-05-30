@@ -644,7 +644,7 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
               <button
                 type="button"
                 onClick={openRentalEdit}
-                className="check-pay-rental"
+                className="check-pay-rental check-pay-line"
                 style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}
               >
                 <span style={{ fontSize: 12, color: 'var(--on-surface-variant)', display: 'flex', alignItems: 'center', gap: 5 }}>
@@ -658,7 +658,7 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
               </button>
             )}
             {(check?.discounts ?? []).map(d => (
-              <div key={d.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, gap: 8 }}>
+              <div key={d.id} className="check-pay-line" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, gap: 8 }}>
                 <span style={{ fontSize: 12, color: 'var(--on-surface-variant)', display: 'flex', alignItems: 'center', gap: 5, minWidth: 0 }}>
                   <Icon name="sell" size={14} color="#34D399" />
                   <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.name}</span>
@@ -1329,21 +1329,23 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
             -webkit-backdrop-filter: blur(24px) saturate(180%) !important;
             box-shadow: 0 10px 30px rgba(0,0,0,0.45), 0 2px 8px rgba(0,0,0,0.25) !important;
           }
-          /* Разбивка аренды в компактный остров не помещается — сумма её уже учитывает. */
-          .check-pay-rental { display: none !important; }
+          /* Строки аренды/скидок в компактном острове — мельче и плотнее, но видны
+             (синхронно с ПК: те же редактор времени аренды и снятие скидок). */
+          .check-pay-line { margin-bottom: 4px !important; font-size: 11px !important; }
           .check-pay-label { font-size: 9px !important; letter-spacing: 0.06em !important; margin: 0 0 1px !important; }
           .check-pay-amount { font-size: 18px !important; }
-          .check-pay-actions { gap: 8px !important; }
-          /* «Добавить» → круглая иконка-кнопка (как FAB у навигации). */
+          .check-pay-actions { gap: 6px !important; }
+          /* «Добавить» и «Скидка» → круглые иконки-кнопки (как FAB у навигации). */
           .check-pay-add {
-            width: 46px !important; height: 46px !important;
+            width: 44px !important; height: 44px !important;
             padding: 0 !important; border-radius: 50% !important; gap: 0 !important; flex-shrink: 0 !important;
           }
           .check-pay-add-label { display: none !important; }
           .check-pay-go {
-            height: 46px !important; padding: 0 20px !important;
+            height: 44px !important; padding: 0 16px !important;
             display: flex !important; align-items: center !important; justify-content: center !important;
             font-size: 12px !important; border-radius: 16px !important; flex-shrink: 0 !important;
+            white-space: nowrap !important;
           }
           /* Контент чека докручивается выше плавающей плашки. */
           .check-items { padding-bottom: var(--bottom-nav-clear, 96px) !important; }
