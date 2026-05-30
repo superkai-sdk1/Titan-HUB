@@ -33,8 +33,12 @@ import {
 } from '@titan/database'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
 
-const POLZA_BASE = process.env['POLZA_BASE_URL'] ?? 'https://polza.ai/api/v1'
-const POLZA_KEY = process.env['POLZA_API_KEY'] ?? ''
+// Снимаем возможные кавычки/пробелы вокруг значений из .env (docker не всегда их убирает)
+const clean = (v: string | undefined): string => (v ?? '').trim().replace(/^["']|["']$/g, '')
+const POLZA_BASE = clean(process.env['POLZA_BASE_URL']) || 'https://polza.ai/api/v1'
+const POLZA_KEY = clean(process.env['POLZA_API_KEY'])
+// id модели на Polza: с префиксом провайдера и точкой в версии
+const POLZA_MODEL = clean(process.env['POLZA_MODEL']) || 'anthropic/claude-sonnet-4.6'
 
 async function callAI(systemPrompt: string, userMessage: string): Promise<string> {
   const res = await fetch(`${POLZA_BASE}/chat/completions`, {
@@ -44,16 +48,19 @@ async function callAI(systemPrompt: string, userMessage: string): Promise<string
       'Authorization': `Bearer ${POLZA_KEY}`,
     },
     body: JSON.stringify({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 1024,
+      model: POLZA_MODEL,
+      max_tokens: 2048,
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userMessage },
       ],
     }),
   })
-  if (!res.ok) throw new Error(`Polza AI error: ${res.status}`)
-  const data = await res.json() as { choices: { message: { content: string } }[] }
+  if (!res.ok) {
+    const body = await res.text().catch(() => '')
+    throw new Error(`Polza AI error: ${res.status} ${body.slice(0, 300)}`)
+  }
+  const data = await res.json() as { choices?: { message?: { content?: string } }[] }
   return data.choices?.[0]?.message?.content ?? ''
 }
 

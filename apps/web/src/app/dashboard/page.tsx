@@ -9,7 +9,7 @@ import { useCountUp } from '@/hooks/useCountUp'
 import { StateView } from '@/components/StateView'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-type MainTab = 'overview' | 'reports' | 'products' | 'players'
+type MainTab = 'overview' | 'reports' | 'products' | 'players' | 'checks'
 type ReportRange = '7d' | '30d' | 'month' | 'custom'
 
 const PAY_COLORS: Record<string, string> = {
@@ -28,6 +28,12 @@ const TIER_LABELS: Record<string, string> = {
   bronze: 'Бронза', silver: 'Серебро', gold: 'Золото', platinum: 'Платина', null: 'Без уровня',
 }
 const ABC_COLORS: Record<string, string> = { A: '#8B5CF6', B: '#3B82F6', C: '#94A3B8' }
+// Полные подписи методов оплаты (для чеков) — по ТЗ.
+const PAY_LABELS_FULL: Record<string, string> = {
+  cash: 'Наличные', card: 'Перевод', transfer: 'СБП', bonus: 'Бонусы',
+  deposit: 'Депозит', debt: 'Долг', split: 'Раздельная', certificate: 'Сертификат',
+}
+function payLabel(m: string) { return PAY_LABELS_FULL[m] ?? m }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function parseNum(v: unknown) { return parseFloat(String(v ?? 0)) || 0 }
@@ -40,25 +46,56 @@ function getRange(range: ReportRange, from: string, to: string): [string, string
   return [from, to]
 }
 
+// Время чека в МСК (UTC+3) → HH:MM, независимо от часового пояса устройства.
+function fmtMsk(iso?: string | null) {
+  if (!iso) return '—'
+  try {
+    return new Intl.DateTimeFormat('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Moscow' }).format(new Date(iso))
+  } catch { return '—' }
+}
+function fmtMskDate(iso?: string | null) {
+  if (!iso) return '—'
+  try {
+    return new Intl.DateTimeFormat('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Moscow' }).format(new Date(iso))
+  } catch { return '—' }
+}
+// Сдвиг бизнес-дня (YYYY-MM-DD) на N дней.
+function shiftBizDay(day: string, deltaDays: number): string {
+  const d = new Date(`${day}T12:00:00`)
+  d.setDate(d.getDate() + deltaDays)
+  return format(d, 'yyyy-MM-dd')
+}
+function bizDayLabel(day: string): string {
+  try { return format(new Date(`${day}T12:00:00`), 'd MMMM yyyy', { locale: ru }) } catch { return day }
+}
+
 const INP: React.CSSProperties = { padding: '9px 13px', borderRadius: 10, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.05)', color: 'var(--on-surface)', fontSize: 12, outline: 'none', boxSizing: 'border-box' as const }
 const LBL: React.CSSProperties = { fontFamily: "'JetBrains Mono',monospace", fontSize: 10, fontWeight: 700, textTransform: 'uppercase' as const, letterSpacing: '0.08em', color: 'var(--on-surface-variant)', margin: '0 0 12px', display: 'block' }
 
 // ─── Shared components ────────────────────────────────────────────────────────
-function KpiCard({ label, value, rawValue, suffix = ' ₽', sub, delta, icon, iconColor, iconBg }: {
+function KpiCard({ label, value, rawValue, suffix = ' ₽', sub, delta, icon, iconColor, iconBg, onClick }: {
   label: string; value?: string; rawValue?: number; suffix?: string; sub: string; delta?: number
-  icon: string; iconColor: string; iconBg: string
+  icon: string; iconColor: string; iconBg: string; onClick?: () => void
 }) {
   const animated = useCountUp(rawValue ?? 0, 700)
   const displayValue = rawValue !== undefined
     ? `${animated.toLocaleString('ru', { maximumFractionDigits: 0 })}${suffix}`
     : (value ?? '')
+  const clickable = !!onClick
   return (
-    <div className="glass-l2 ti-slide-up" style={{ borderRadius: 16, padding: 20 }}>
+    <div
+      className="glass-l2 ti-slide-up"
+      onClick={onClick}
+      role={clickable ? 'button' : undefined}
+      style={{ borderRadius: 16, padding: 20, cursor: clickable ? 'pointer' : 'default', position: 'relative', transition: 'transform 0.15s, border-color 0.15s' }}
+      onMouseEnter={clickable ? e => { e.currentTarget.style.transform = 'translateY(-2px)' } : undefined}
+      onMouseLeave={clickable ? e => { e.currentTarget.style.transform = 'translateY(0)' } : undefined}
+    >
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
         <div style={{ width: 40, height: 40, borderRadius: 12, background: iconBg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <Icon name={icon} size={20} color={iconColor} />
         </div>
-        {delta !== undefined && <DeltaBadge delta={delta} />}
+        {delta !== undefined ? <DeltaBadge delta={delta} /> : clickable ? <Icon name="chevron_right" size={16} color="rgba(204,195,216,0.4)" /> : null}
       </div>
       <p style={{ fontSize: 22, fontWeight: 900, fontStyle: 'italic', margin: '0 0 4px', color: 'var(--on-surface)', lineHeight: 1 }}>{displayValue}</p>
       <p style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 2px', color: 'var(--on-surface-variant)' }}>{label}</p>
@@ -123,63 +160,146 @@ function PayBreakdown({ data }: { data: { method: string; total: string | number
   )
 }
 
+// ─── Net/Gross breakdown shared bits ──────────────────────────────────────────
+type NetBreak = {
+  gross: number | string; checks: number; avgCheck: number | string
+  refunds: number | string; commission: number | string; cogs: number | string
+  opex: number | string; salary: number | string; expenses: number | string; net: number | string
+}
+
+// Раскладка валовая → чистая (общая для модалок и списка чеков).
+function NetBreakdownRows({ b }: { b: NetBreak }) {
+  const rows: [string, number, 'plus' | 'minus' | 'net'][] = [
+    ['Валовая выручка', parseNum(b.gross), 'plus'],
+    ['Возвраты', parseNum(b.refunds), 'minus'],
+    ['Эквайринг', parseNum(b.commission), 'minus'],
+    ['Себестоимость', parseNum(b.cogs), 'minus'],
+    ['Расходы', parseNum(b.opex), 'minus'],
+    ['ЗП', parseNum(b.salary), 'minus'],
+    ['Чистая прибыль', parseNum(b.net), 'net'],
+  ]
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+      {rows.map(([label, val, kind]) => {
+        const highlight = kind === 'net'
+        const sign = kind === 'minus' && val !== 0 ? '− ' : ''
+        const color = highlight ? (val >= 0 ? '#10B981' : '#F43F5E') : kind === 'minus' ? '#F43F5E' : 'var(--on-surface)'
+        return (
+          <div key={label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: highlight ? '12px 12px' : '9px 12px', borderRadius: highlight ? 10 : 0, background: highlight ? 'rgba(16,185,129,0.06)' : 'transparent', borderTop: highlight ? '1px solid rgba(255,255,255,0.08)' : 'none', marginTop: highlight ? 6 : 0 }}>
+            <span style={{ fontSize: highlight ? 13 : 12, fontWeight: highlight ? 700 : 400, color: highlight ? 'var(--on-surface)' : 'var(--on-surface-variant)' }}>{label}</span>
+            <span style={{ fontSize: highlight ? 16 : 13, fontWeight: highlight ? 800 : 600, fontStyle: highlight ? 'italic' : 'normal', color }}>{sign}{fmt(Math.abs(val))} ₽</span>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+// Базовая шторка (как в shifts/pos): затемнение + glass снизу.
+function Sheet({ title, subtitle, onClose, children }: { title: string; subtitle?: string; onClose: () => void; children: React.ReactNode }) {
+  return (
+    <div
+      style={{ position: 'fixed', inset: 0, zIndex: 100, background: 'rgba(10,8,14,0.8)', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}
+      onClick={e => { if (e.target === e.currentTarget) onClose() }}
+    >
+      <div className="glass-l1 ti-slide-up" style={{ width: '100%', maxWidth: 480, maxHeight: '88dvh', overflowY: 'auto', borderRadius: '24px 24px 0 0', padding: '22px 22px 40px', boxSizing: 'border-box' }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 18 }}>
+          <div>
+            <h2 style={{ fontSize: 18, fontWeight: 800, margin: 0 }}>{title}</h2>
+            {subtitle && <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: '3px 0 0' }}>{subtitle}</p>}
+          </div>
+          <button onClick={onClose} style={{ width: 32, height: 32, borderRadius: 8, border: '1px solid rgba(255,255,255,0.1)', background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--on-surface-variant)', flexShrink: 0 }}>
+            <Icon name="close" size={16} />
+          </button>
+        </div>
+        {children}
+      </div>
+    </div>
+  )
+}
+
+// Модалка детализации KPI: показывает раскладку gross→net.
+function KpiBreakdownModal({ title, subtitle, b, onClose }: { title: string; subtitle?: string; b: NetBreak; onClose: () => void }) {
+  return (
+    <Sheet title={title} subtitle={subtitle} onClose={onClose}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 18 }}>
+        <div style={{ padding: '12px 14px', borderRadius: 10, background: 'rgba(255,255,255,0.04)' }}>
+          <p style={{ fontSize: 18, fontWeight: 800, fontStyle: 'italic', margin: '0 0 4px', color: '#8B5CF6', lineHeight: 1 }}>{b.checks}</p>
+          <p style={{ fontSize: 10, color: 'var(--on-surface-variant)', margin: 0, textTransform: 'uppercase', letterSpacing: '0.06em', fontFamily: "'JetBrains Mono',monospace" }}>Чеков</p>
+        </div>
+        <div style={{ padding: '12px 14px', borderRadius: 10, background: 'rgba(255,255,255,0.04)' }}>
+          <p style={{ fontSize: 18, fontWeight: 800, fontStyle: 'italic', margin: '0 0 4px', color: '#4cd7f6', lineHeight: 1 }}>{fmt(parseNum(b.avgCheck))} ₽</p>
+          <p style={{ fontSize: 10, color: 'var(--on-surface-variant)', margin: 0, textTransform: 'uppercase', letterSpacing: '0.06em', fontFamily: "'JetBrains Mono',monospace" }}>Средний чек</p>
+        </div>
+      </div>
+      <NetBreakdownRows b={b} />
+    </Sheet>
+  )
+}
+
 // ─── Tab: Сводка (live overview) ──────────────────────────────────────────────
 function OverviewTab({ dash, revenue }: { dash: any; revenue: any }) {
-  const [dayOffset, setDayOffset] = useState(0)
-  const targetDate = subDays(new Date(), dayOffset)
-  const targetStr = targetDate.toISOString().split('T')[0]
+  const [mode, setMode] = useState<'gross' | 'net'>('gross')
+  const [modal, setModal] = useState<null | { title: string; subtitle?: string; b: NetBreak }>(null)
 
-  const { data: dayData } = useQuery({
-    queryKey: ['analytics', 'revenue', 'day', targetStr],
-    queryFn: () => api.get<any>(`/analytics/revenue?from=${targetStr}&to=${targetStr}`),
-  })
+  const businessDay: string = dash?.businessDay ?? format(new Date(), 'yyyy-MM-dd')
+  const netToday: NetBreak | undefined = dash?.netToday
+  const netMonth: NetBreak | undefined = dash?.netMonth
 
-  const dayRev   = parseNum(dayData?.revenue?.[0]?.revenue)
-  const dayChecks= dayData?.revenue?.[0]?.count ?? 0
-  const dayExp   = parseNum(dayData?.expenses?.[0]?.total)
-  const dayCogs  = parseNum(dayData?.cogs?.[0]?.total)
-  const dayProfit= dayRev - dayExp - dayCogs
+  // Заголовочные суммы зависят от переключателя «С учётом»/«Без учёта».
+  const isNet = mode === 'net'
+  const dayHeadline   = isNet && netToday ? parseNum(netToday.net) : parseNum(dash?.today?.revenue)
+  const dayChecks     = dash?.today?.checks ?? netToday?.checks ?? 0
+  const dayAvg        = parseNum(dash?.today?.avgCheck ?? netToday?.avgCheck)
+  const monthHeadline = isNet && netMonth ? parseNum(netMonth.net) : parseNum(dash?.month?.revenue)
+  const monthChecks   = netMonth?.checks ?? dash?.month?.checks ?? 0
 
-  const monthRev   = parseNum(dash?.month?.revenue)
   const monthProfit= parseNum(dash?.month?.profit)
   const monthCogs  = parseNum(dash?.month?.cogs)
   const monthExp   = parseNum(dash?.month?.expenses)
   const monthDelta = dash?.month?.delta ?? 0
+  const monthRevGross = parseNum(dash?.month?.revenue)
   const revenueRows: any[] = revenue?.revenue ?? []
+
+  const seg: React.CSSProperties = { padding: '7px 16px', borderRadius: 9999, border: 'none', background: 'transparent', fontSize: 12, fontWeight: 600, cursor: 'pointer', transition: 'all 0.2s', color: 'var(--on-surface-variant)' }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-      {/* Month KPIs */}
+      {/* Net/Gross toggle */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
+        <div style={{ display: 'inline-flex', padding: 3, borderRadius: 9999, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)' }}>
+          <button onClick={() => setMode('gross')} style={{ ...seg, background: !isNet ? 'rgba(139,92,246,0.25)' : 'transparent', color: !isNet ? '#A78BFA' : 'var(--on-surface-variant)' }}>Без учёта</button>
+          <button onClick={() => setMode('net')} style={{ ...seg, background: isNet ? 'rgba(16,185,129,0.22)' : 'transparent', color: isNet ? '#34D399' : 'var(--on-surface-variant)' }}>С учётом</button>
+        </div>
+        <span style={{ fontSize: 11, color: 'rgba(204,195,216,0.45)' }}>с учётом расходов и комиссий</span>
+      </div>
+
+      {/* Month KPIs (clickable) */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))', gap: 12 }}>
-        <KpiCard label="Выручка месяц" rawValue={monthRev} sub="последние 30 дней" delta={monthDelta} icon="payments" iconColor="#8B5CF6" iconBg="rgba(139,92,246,0.1)" />
-        <KpiCard label="Прибыль месяц" rawValue={monthProfit} sub={`маржа ${monthRev > 0 ? Math.round((monthProfit / monthRev) * 100) : 0}%`} icon="trending_up" iconColor="#10B981" iconBg="rgba(16,185,129,0.1)" />
+        <KpiCard label={isNet ? 'Чистая прибыль месяц' : 'Выручка месяц'} rawValue={monthHeadline} sub="последние 30 дней" delta={!isNet ? monthDelta : undefined} icon="payments" iconColor="#8B5CF6" iconBg="rgba(139,92,246,0.1)" onClick={netMonth ? () => setModal({ title: isNet ? 'Чистая прибыль · месяц' : 'Выручка · месяц', subtitle: 'последние 30 дней', b: netMonth }) : undefined} />
+        <KpiCard label="Прибыль месяц" rawValue={monthProfit} sub={`маржа ${monthRevGross > 0 ? Math.round((monthProfit / monthRevGross) * 100) : 0}%`} icon="trending_up" iconColor="#10B981" iconBg="rgba(16,185,129,0.1)" onClick={netMonth ? () => setModal({ title: 'Прибыль · месяц', subtitle: 'последние 30 дней', b: netMonth }) : undefined} />
         <KpiCard label="Себестоимость" rawValue={monthCogs} sub="стоимость товаров" icon="inventory" iconColor="#F59E0B" iconBg="rgba(245,158,11,0.1)" />
         <KpiCard label="Расходы" rawValue={monthExp} sub="операционные" icon="receipt" iconColor="#F43F5E" iconBg="rgba(244,63,94,0.1)" />
       </div>
 
       {/* Day navigator + chart */}
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) minmax(0,1fr)', gap: 16 }} className="dash-row">
-        <div className="glass-l2" style={{ borderRadius: 16, padding: 20 }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-            <span style={LBL}>День</span>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <button onClick={() => setDayOffset(d => d + 1)} style={{ width: 28, height: 28, borderRadius: 8, border: '1px solid rgba(255,255,255,0.1)', background: 'transparent', color: 'var(--on-surface-variant)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <Icon name="chevron_left" size={16} />
-              </button>
-              <span style={{ fontSize: 12, fontWeight: 600, minWidth: 80, textAlign: 'center' }}>
-                {dayOffset === 0 ? 'Сегодня' : dayOffset === 1 ? 'Вчера' : format(targetDate, 'd MMM', { locale: ru })}
-              </span>
-              <button onClick={() => setDayOffset(d => Math.max(0, d - 1))} disabled={dayOffset === 0} style={{ width: 28, height: 28, borderRadius: 8, border: '1px solid rgba(255,255,255,0.1)', background: 'transparent', color: dayOffset === 0 ? 'rgba(204,195,216,0.2)' : 'var(--on-surface-variant)', cursor: dayOffset === 0 ? 'default' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <Icon name="chevron_right" size={16} />
-              </button>
-            </div>
+        <div
+          className="glass-l2"
+          onClick={netToday ? () => setModal({ title: isNet ? 'Чистая прибыль · бизнес-день' : 'Выручка · бизнес-день', subtitle: `${bizDayLabel(businessDay)} · 09:00–06:00`, b: netToday }) : undefined}
+          style={{ borderRadius: 16, padding: 20, cursor: netToday ? 'pointer' : 'default' }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+            <span style={{ ...LBL, margin: 0 }}>Бизнес-день</span>
+            {netToday && <Icon name="chevron_right" size={16} color="rgba(204,195,216,0.4)" />}
           </div>
+          <p style={{ fontSize: 11, color: 'rgba(204,195,216,0.45)', margin: '0 0 14px' }}>{bizDayLabel(businessDay)} · 09:00–06:00</p>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
             {[
-              { label: 'Выручка', value: `${fmt(dayRev)} ₽`, color: '#8B5CF6' },
-              { label: 'Прибыль', value: `${fmt(dayProfit)} ₽`, color: dayProfit >= 0 ? '#10B981' : '#F43F5E' },
+              { label: isNet ? 'Чистая прибыль' : 'Выручка', value: `${fmt(dayHeadline)} ₽`, color: isNet ? (dayHeadline >= 0 ? '#10B981' : '#F43F5E') : '#8B5CF6' },
               { label: 'Чеков', value: String(dayChecks), color: '#4cd7f6' },
-              { label: 'Расходы', value: `${fmt(dayExp + dayCogs)} ₽`, color: '#F59E0B' },
+              { label: 'Средний чек', value: `${fmt(dayAvg)} ₽`, color: '#A78BFA' },
+              { label: 'Эквайринг', value: `${fmt(parseNum(netToday?.commission))} ₽`, color: '#F59E0B' },
             ].map(item => (
               <div key={item.label} style={{ padding: '12px 14px', borderRadius: 10, background: 'rgba(255,255,255,0.04)' }}>
                 <p style={{ fontSize: 18, fontWeight: 800, fontStyle: 'italic', margin: '0 0 4px', color: item.color, lineHeight: 1 }}>{item.value}</p>
@@ -208,6 +328,8 @@ function OverviewTab({ dash, revenue }: { dash: any; revenue: any }) {
         <span style={LBL}>Методы оплаты — 30 дней</span>
         <PayBreakdown data={dash?.paymentBreakdown ?? []} />
       </div>
+
+      {modal && <KpiBreakdownModal title={modal.title} subtitle={modal.subtitle} b={modal.b} onClose={() => setModal(null)} />}
     </div>
   )
 }
@@ -557,6 +679,233 @@ function PlayersTab({ clients }: { clients: any }) {
   )
 }
 
+// ─── Tab: Чеки ────────────────────────────────────────────────────────────────
+function PayChips({ payments }: { payments: { method: string; amount: number | string }[] }) {
+  if (!payments?.length) return null
+  return (
+    <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+      {payments.map((p, i) => {
+        const color = PAY_COLORS[p.method] ?? '#94A3B8'
+        return (
+          <span key={i} style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 6, background: `${color}1f`, color, whiteSpace: 'nowrap' }}>
+            {payLabel(p.method)}
+          </span>
+        )
+      })}
+    </div>
+  )
+}
+
+function CheckDetailModal({ id, onClose }: { id: string; onClose: () => void }) {
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ['analytics', 'check', id],
+    queryFn: () => api.get<any>(`/analytics/checks/${id}`),
+  })
+
+  const check = data?.check
+  const items: any[] = data?.items ?? []
+  const payments: any[] = data?.payments ?? []
+  const refunds: any[] = data?.refunds ?? []
+  const player = data?.player
+  const staff = data?.staff
+  const guestName = data?.guestName
+
+  const whoTitle = player ? (player.nickname || player.fullName || 'Игрок') : (guestName || 'Гость')
+
+  return (
+    <Sheet title={`Чек · ${check ? fmtMsk(check.createdAt) : ''}`} subtitle={check ? bizDayLabel(format(new Date(check.createdAt), 'yyyy-MM-dd')) : undefined} onClose={onClose}>
+      {isLoading && <StateView state="loading" />}
+      {isError && <p style={{ fontSize: 13, color: '#F43F5E', textAlign: 'center', padding: '20px 0' }}>Не удалось загрузить чек</p>}
+      {check && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          {/* Кто / кассир */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '12px 14px', borderRadius: 12, background: 'rgba(255,255,255,0.04)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: 12, color: 'var(--on-surface-variant)' }}>Чей чек</span>
+              <span style={{ fontSize: 13, fontWeight: 700 }}>{whoTitle}</span>
+            </div>
+            {player?.phone && (
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ fontSize: 11, color: 'var(--on-surface-variant)' }}>Телефон</span>
+                <span style={{ fontSize: 12 }}>{player.phone}</span>
+              </div>
+            )}
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <span style={{ fontSize: 11, color: 'var(--on-surface-variant)' }}>Кассир</span>
+              <span style={{ fontSize: 12 }}>{staff?.nickname ?? '—'}</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <span style={{ fontSize: 11, color: 'var(--on-surface-variant)' }}>Открыт / закрыт</span>
+              <span style={{ fontSize: 12 }}>{fmtMsk(check.createdAt)} → {check.closedAt ? fmtMsk(check.closedAt) : '—'}</span>
+            </div>
+          </div>
+
+          {/* Состав */}
+          <div>
+            <span style={LBL}>Состав чека</span>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+              {items.length === 0 ? <p style={{ fontSize: 12, color: 'var(--on-surface-variant)' }}>Нет позиций</p> : items.map((it, i) => (
+                <div key={it.id ?? i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                  <span style={{ fontSize: 13, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingRight: 8 }}>{it.name}</span>
+                  <span style={{ fontSize: 11, color: 'var(--on-surface-variant)', width: 56, textAlign: 'right', flexShrink: 0 }}>× {parseNum(it.quantity)}</span>
+                  <span style={{ fontSize: 13, fontWeight: 700, width: 84, textAlign: 'right', flexShrink: 0 }}>{fmt(parseNum(it.lineTotal))} ₽</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Скидки / бонусы / сертификат */}
+          {(parseNum(check.discountTotal) > 0 || parseNum(check.bonusUsed) > 0 || parseNum(check.certificateUsed) > 0) && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {parseNum(check.discountTotal) > 0 && <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ fontSize: 12, color: 'var(--on-surface-variant)' }}>Скидка</span><span style={{ fontSize: 13, fontWeight: 700, color: '#F59E0B' }}>− {fmt(parseNum(check.discountTotal))} ₽</span></div>}
+              {parseNum(check.bonusUsed) > 0 && <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ fontSize: 12, color: 'var(--on-surface-variant)' }}>Бонусы</span><span style={{ fontSize: 13, fontWeight: 700, color: '#F59E0B' }}>− {fmt(parseNum(check.bonusUsed))} ₽</span></div>}
+              {parseNum(check.certificateUsed) > 0 && <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ fontSize: 12, color: 'var(--on-surface-variant)' }}>Сертификат</span><span style={{ fontSize: 13, fontWeight: 700, color: '#14B8A6' }}>− {fmt(parseNum(check.certificateUsed))} ₽</span></div>}
+            </div>
+          )}
+
+          {/* Итог + оплата */}
+          <div style={{ padding: '12px 14px', borderRadius: 12, background: 'rgba(139,92,246,0.08)', display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: 13, fontWeight: 700 }}>Итого</span>
+              <span style={{ fontSize: 18, fontWeight: 800, fontStyle: 'italic', color: '#A78BFA' }}>{fmt(parseNum(check.totalAmount))} ₽</span>
+            </div>
+            <div>
+              <span style={{ fontSize: 11, color: 'var(--on-surface-variant)', display: 'block', marginBottom: 6 }}>Как оплачено</span>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {payments.length === 0 ? <span style={{ fontSize: 12, color: 'var(--on-surface-variant)' }}>—</span> : payments.map((p, i) => (
+                  <div key={i} style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ fontSize: 12, color: 'var(--on-surface-variant)' }}>{payLabel(p.method)}</span>
+                    <span style={{ fontSize: 12, fontWeight: 700 }}>{fmt(parseNum(p.amount))} ₽</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Возвраты */}
+          {refunds.length > 0 && (
+            <div>
+              <span style={LBL}>Возвраты</span>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {refunds.map((r, i) => (
+                  <div key={r.id ?? i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', borderRadius: 10, background: 'rgba(244,63,94,0.08)' }}>
+                    <div>
+                      <p style={{ fontSize: 12, fontWeight: 600, margin: 0 }}>{r.reason || 'Возврат'}</p>
+                      <p style={{ fontSize: 10, color: 'var(--on-surface-variant)', margin: '2px 0 0' }}>{fmtMskDate(r.createdAt)}</p>
+                    </div>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: '#F43F5E' }}>− {fmt(parseNum(r.totalAmount))} ₽</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </Sheet>
+  )
+}
+
+function ChecksTab() {
+  type CMode = 'day' | 'range'
+  const todayBiz = format(new Date(), 'yyyy-MM-dd')
+  const [cmode, setCmode] = useState<CMode>('day')
+  const [day, setDay] = useState(todayBiz)
+  const [from, setFrom] = useState(format(subDays(new Date(), 6), 'yyyy-MM-dd'))
+  const [to, setTo] = useState(todayBiz)
+  const [openId, setOpenId] = useState<string | null>(null)
+
+  const qFrom = cmode === 'day' ? day : from
+  const qTo = cmode === 'day' ? day : to
+
+  const { data, isLoading, isError, refetch } = useQuery({
+    queryKey: ['analytics', 'checks', qFrom, qTo],
+    queryFn: () => api.get<any>(`/analytics/checks?from=${qFrom}&to=${qTo}`),
+    enabled: !!qFrom && !!qTo,
+  })
+
+  const summary: NetBreak | undefined = data?.summary
+  const checks: any[] = data?.checks ?? []
+
+  const preset: React.CSSProperties = { padding: '6px 12px', borderRadius: 9999, border: '1px solid rgba(255,255,255,0.08)', background: 'transparent', color: 'var(--on-surface-variant)', fontSize: 12, fontWeight: 600, cursor: 'pointer' }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      {/* Mode switch */}
+      <div style={{ display: 'inline-flex', padding: 3, borderRadius: 9999, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', alignSelf: 'flex-start' }}>
+        <button onClick={() => setCmode('day')} style={{ padding: '7px 16px', borderRadius: 9999, border: 'none', background: cmode === 'day' ? 'rgba(139,92,246,0.25)' : 'transparent', color: cmode === 'day' ? '#A78BFA' : 'var(--on-surface-variant)', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>Бизнес-день</button>
+        <button onClick={() => setCmode('range')} style={{ padding: '7px 16px', borderRadius: 9999, border: 'none', background: cmode === 'range' ? 'rgba(139,92,246,0.25)' : 'transparent', color: cmode === 'range' ? '#A78BFA' : 'var(--on-surface-variant)', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>Период</button>
+      </div>
+
+      {/* Day navigator OR range inputs */}
+      {cmode === 'day' ? (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <button onClick={() => setDay(d => shiftBizDay(d, -1))} style={{ width: 32, height: 32, borderRadius: 8, border: '1px solid rgba(255,255,255,0.1)', background: 'transparent', color: 'var(--on-surface-variant)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Icon name="chevron_left" size={18} />
+            </button>
+            <span style={{ fontSize: 13, fontWeight: 700, minWidth: 150, textAlign: 'center' }}>
+              {day === todayBiz ? 'Сегодня' : day === shiftBizDay(todayBiz, -1) ? 'Вчера' : ''} {bizDayLabel(day)}
+            </span>
+            <button onClick={() => setDay(d => shiftBizDay(d, 1))} disabled={day >= todayBiz} style={{ width: 32, height: 32, borderRadius: 8, border: '1px solid rgba(255,255,255,0.1)', background: 'transparent', color: day >= todayBiz ? 'rgba(204,195,216,0.2)' : 'var(--on-surface-variant)', cursor: day >= todayBiz ? 'default' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Icon name="chevron_right" size={18} />
+            </button>
+          </div>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button onClick={() => { setDay(todayBiz) }} style={preset}>Сегодня</button>
+            <button onClick={() => { setDay(shiftBizDay(todayBiz, -1)) }} style={preset}>Вчера</button>
+            <button onClick={() => { setCmode('range'); setFrom(format(subDays(new Date(), 6), 'yyyy-MM-dd')); setTo(todayBiz) }} style={preset}>7 дней</button>
+          </div>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <input type="date" value={from} onChange={e => setFrom(e.target.value)} style={INP} />
+          <span style={{ color: 'var(--on-surface-variant)', fontSize: 12 }}>—</span>
+          <input type="date" value={to} onChange={e => setTo(e.target.value)} style={INP} />
+          <button onClick={() => { setFrom(todayBiz); setTo(todayBiz) }} style={preset}>Сегодня</button>
+          <button onClick={() => { setFrom(shiftBizDay(todayBiz, -1)); setTo(shiftBizDay(todayBiz, -1)) }} style={preset}>Вчера</button>
+          <button onClick={() => { setFrom(format(subDays(new Date(), 6), 'yyyy-MM-dd')); setTo(todayBiz) }} style={preset}>7 дней</button>
+        </div>
+      )}
+
+      {/* Summary */}
+      {summary && (
+        <div className="glass-l2" style={{ borderRadius: 16, padding: 20 }}>
+          <span style={LBL}>Итог за период</span>
+          <NetBreakdownRows b={summary} />
+        </div>
+      )}
+
+      {/* Checks list */}
+      <div className="glass-l2" style={{ borderRadius: 16, overflow: 'hidden' }}>
+        <div style={{ padding: '14px 18px', borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span style={{ ...LBL, margin: 0 }}>Чеки</span>
+          <span style={{ fontSize: 11, color: 'var(--on-surface-variant)' }}>{checks.length}</span>
+        </div>
+        {isLoading ? <StateView state="loading" />
+          : isError ? <StateView state="error" description="Не удалось загрузить чеки." action={{ label: 'Повторить', onClick: () => refetch() }} />
+          : checks.length === 0 ? <p style={{ padding: 28, textAlign: 'center', fontSize: 13, color: 'var(--on-surface-variant)' }}>Нет чеков за период</p>
+          : checks.map(c => (
+            <button
+              key={c.id}
+              onClick={() => setOpenId(c.id)}
+              style={{ width: '100%', textAlign: 'left', display: 'flex', alignItems: 'center', gap: 12, padding: '12px 18px', borderBottom: '1px solid rgba(255,255,255,0.04)', background: 'transparent', border: 'none', borderBottomStyle: 'solid', cursor: 'pointer', color: 'var(--on-surface)' }}
+            >
+              <span style={{ fontSize: 12, fontFamily: "'JetBrains Mono',monospace", color: 'var(--on-surface-variant)', width: 44, flexShrink: 0 }}>{fmtMsk(c.createdAt)}</span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <p style={{ fontSize: 13, fontWeight: 600, margin: '0 0 3px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.guestName || 'Гость'}</p>
+                <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: '0 0 5px' }}>{c.staffNickname || '—'} · {c.itemCount ?? 0} поз.</p>
+                <PayChips payments={c.payments ?? []} />
+              </div>
+              <span style={{ fontSize: 14, fontWeight: 800, fontStyle: 'italic', flexShrink: 0 }}>{fmt(parseNum(c.totalAmount))} ₽</span>
+            </button>
+          ))}
+      </div>
+
+      {openId && <CheckDetailModal id={openId} onClose={() => setOpenId(null)} />}
+    </div>
+  )
+}
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
 export default function DashboardPage() {
   const [activeTab, setActiveTab] = useState<MainTab>('overview')
@@ -569,6 +918,7 @@ export default function DashboardPage() {
   const TABS = [
     { key: 'overview' as MainTab, label: 'Сводка',  icon: 'dashboard' },
     { key: 'reports'  as MainTab, label: 'Отчёты',  icon: 'bar_chart' },
+    { key: 'checks'   as MainTab, label: 'Чеки',    icon: 'receipt_long' },
     { key: 'products' as MainTab, label: 'Товары',  icon: 'inventory_2' },
     { key: 'players'  as MainTab, label: 'Игроки',  icon: 'group' },
   ]
@@ -612,6 +962,7 @@ export default function DashboardPage() {
       <div style={{ padding: '16px 16px var(--bottom-nav-clear)', flex: 1, width: '100%', boxSizing: 'border-box' }}>
         {activeTab === 'overview'  && (dash ? <OverviewTab dash={dash} revenue={revenue} /> : dashError ? <StateView state="error" description="Не удалось загрузить аналитику." action={{ label: 'Повторить', onClick: () => refetchDash() }} /> : <StateView state="loading" />)}
         {activeTab === 'reports'   && <ReportsTab />}
+        {activeTab === 'checks'    && <ChecksTab />}
         {activeTab === 'products'  && <ProductsTab  products={products} />}
         {activeTab === 'players'   && <PlayersTab   clients={clients} />}
       </div>

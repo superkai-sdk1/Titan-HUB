@@ -4,7 +4,7 @@ import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import {
   db, checks, checkItems, checkPayments, inventory, profiles, shifts, expenses,
-  supplies, supplyItems, salaryPayments,
+  supplies, supplyItems, salaryPayments, refunds,
   eq, and, gte, lte, lt, desc, asc, sql, sum, count, avg, isNull, ne, inArray,
 } from '@titan/database'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
@@ -56,22 +56,109 @@ function mskBoundary(dateStr: string): Date {
   return new Date(`${dateStr}T00:00:00+03:00`)
 }
 
+// ─── Бизнес-день (09:00 → 06:00 следующих суток) ───────────────────────────────
+// Заведение работает с 9 утра до 6 утра. «Итоги дня» считаются за этот промежуток,
+// а не за календарные сутки. Бизнес-день D = [D 09:00 МСК, D+1 09:00 МСК):
+// активность 09:00–06:00 + пустой технический интервал 06:00–09:00. Чек в 02:00
+// относится к бизнес-дню предыдущей календарной даты.
+const BIZ_START_HOUR = 9
+
+// YYYY-MM-DD бизнес-дня, которому принадлежит момент `daysAgo` суток назад.
+// Сдвигаем «сейчас» назад на 9ч, чтобы 00:00–08:59 МСК отнести к прошлой дате.
+function bizDayStr(daysAgo = 0): string {
+  const d = new Date(Date.now() + MSK_OFFSET_MS - BIZ_START_HOUR * 3600000 - daysAgo * 86400000)
+  return d.toISOString().split('T')[0]
+}
+
+// Границы бизнес-дня как абсолютные моменты: [dateStr 09:00 МСК, +24ч).
+function bizDayBounds(dateStr: string): { start: Date; end: Date } {
+  const start = new Date(`${dateStr}T09:00:00+03:00`)
+  return { start, end: new Date(start.getTime() + 86400000) }
+}
+
+// Чистая разбивка за окно [start, end): валовая выручка, возвраты, эквайринг (8%
+// от СБП-переводов), себестоимость проданного, операционные расходы (без ЗП) и ЗП.
+// Возвращает и «грязные», и «чистые» показатели — фронт сам решает, что показывать.
+async function netBreakdown(start: Date, end: Date, expFrom: string, expTo: string) {
+  const [grossRow] = await db
+    .select({ revenue: sum(checks.totalAmount), cnt: count() })
+    .from(checks)
+    .where(and(eq(checks.status, 'closed'), gte(checks.createdAt, start), lt(checks.createdAt, end)))
+
+  // Возвраты за окно (по дате возврата).
+  const [refundRow] = await db
+    .select({ total: sum(refunds.totalAmount) })
+    .from(refunds)
+    .where(and(gte(refunds.createdAt, start), lt(refunds.createdAt, end)))
+
+  // Эквайринг СБП: 8% от суммы переводов (method='transfer') закрытых чеков окна.
+  const [sbpRow] = await db
+    .select({ total: sum(checkPayments.amount) })
+    .from(checkPayments)
+    .leftJoin(checks, eq(checks.id, checkPayments.checkId))
+    .where(and(eq(checks.status, 'closed'), eq(checkPayments.method, 'transfer'), gte(checks.createdAt, start), lt(checks.createdAt, end)))
+
+  // Себестоимость поставок, пришедших в окно (приближение COGS периода).
+  const [cogsRow] = await db
+    .select({ total: sql<number>`sum(${supplyItems.quantity}::numeric * ${supplyItems.costPerUnit}::numeric)` })
+    .from(supplyItems)
+    .leftJoin(supplies, eq(supplies.id, supplyItems.supplyId))
+    .where(and(gte(supplies.createdAt, start), lt(supplies.createdAt, end)))
+
+  // Операционные расходы без ЗП (по text-дате expenseDate, YYYY-MM-DD).
+  const [opexRow] = await db
+    .select({ total: sum(expenses.amount) })
+    .from(expenses)
+    .where(and(gte(expenses.expenseDate, expFrom), lte(expenses.expenseDate, expTo), ne(expenses.category, 'salary')))
+
+  // ФОТ — из выплат ЗП (единый источник).
+  const [salaryRow] = await db
+    .select({ total: sum(salaryPayments.amount) })
+    .from(salaryPayments)
+    .where(and(gte(salaryPayments.createdAt, start), lt(salaryPayments.createdAt, end)))
+
+  const gross = parseNum(grossRow?.revenue)
+  const cnt = grossRow?.cnt ?? 0
+  const refundsTotal = parseNum(refundRow?.total)
+  const commission = Math.round(parseNum(sbpRow?.total) * 0.08 * 100) / 100
+  const cogs = parseNum(cogsRow?.total)
+  const opex = parseNum(opexRow?.total)
+  const salary = parseNum(salaryRow?.total)
+  // Чистыми считаем: выручка − возвраты − эквайринг − себестоимость − опекс − ЗП.
+  const net = gross - refundsTotal - commission - cogs - opex - salary
+  return {
+    gross,
+    checks: cnt,
+    avgCheck: cnt > 0 ? gross / cnt : 0,
+    refunds: refundsTotal,
+    commission,
+    cogs,
+    opex,
+    salary,
+    expenses: opex + salary,
+    net: Math.round(net * 100) / 100,
+  }
+}
+
 // ─── Dashboard ───────────────────────────────────────────────────────────────
 analyticsRouter.get('/dashboard', async (c) => {
-  // Границы окон — полночь МСК. Окна полуоткрытые [начало, следующее_начало),
-  // чтобы «вчера» и «сегодня» не дублировали чек, попавший ровно в полночь.
-  const todayStart = mskBoundary(mskDateStr(0))           // 00:00 МСК сегодня
-  const yesterdayStart = mskBoundary(mskDateStr(1))       // 00:00 МСК вчера
+  // «Сегодня/вчера» считаем по БИЗНЕС-ДНЮ (09:00→06:00), а не по календарным суткам:
+  // заведение работает с 9 утра до 6 утра, и «итоги дня» должны покрывать этот
+  // промежуток. Бизнес-день D = [D 09:00 МСК, D+1 09:00 МСК).
+  const todayBizStr = bizDayStr(0)
+  const yesterdayBizStr = bizDayStr(1)
+  const { start: todayStart } = bizDayBounds(todayBizStr)
+  const { start: yesterdayStart } = bizDayBounds(yesterdayBizStr)
   const thirtyDaysAgo = mskBoundary(mskDateStr(30))       // 00:00 МСК 30 дней назад
   const sixtyDaysAgo = mskBoundary(mskDateStr(60))        // 00:00 МСК 60 дней назад
 
-  // Today revenue
+  // Today revenue (бизнес-день: с 09:00 текущего бизнес-дня)
   const [todayStats] = await db
     .select({ revenue: sum(checks.totalAmount), count: count() })
     .from(checks)
     .where(and(eq(checks.status, 'closed'), gte(checks.createdAt, todayStart)))
 
-  // Yesterday revenue for delta — полуоткрытый интервал [вчера, сегодня)
+  // Yesterday revenue for delta — полуоткрытый интервал [вчера-бизнес, сегодня-бизнес)
   const [yesterdayStats] = await db
     .select({ revenue: sum(checks.totalAmount), count: count() })
     .from(checks)
@@ -153,6 +240,11 @@ analyticsRouter.get('/dashboard', async (c) => {
     .from(profiles)
     .where(and(eq(profiles.role, 'client'), isNull(profiles.deletedAt), gte(profiles.createdAt, thirtyDaysAgo)))
 
+  // Net-разбивка (с учётом расходов/комиссий/возвратов) для дня и месяца.
+  const { end: todayEnd } = bizDayBounds(todayBizStr)
+  const netToday = await netBreakdown(todayStart, todayEnd, todayBizStr, todayBizStr)
+  const netMonth = await netBreakdown(thirtyDaysAgo, todayEnd, mskDateStr(30), mskDateStr(0))
+
   const monthRev = parseNum(monthStats?.revenue)
   const prevMonthRev = parseNum(prevMonthStats?.revenue)
   const cogs = parseNum(cogsRow?.total)
@@ -187,6 +279,12 @@ analyticsRouter.get('/dashboard', async (c) => {
     newClients: newClients.count,
     topItems,
     paymentBreakdown,
+    // Бизнес-день, к которому относятся «итоги дня» (09:00→06:00).
+    businessDay: todayBizStr,
+    // Чистые показатели с учётом расходов/комиссий/возвратов (день и месяц).
+    // Фронт показывает «без учёта» (gross) и «с учётом» (net) по переключателю.
+    netToday,
+    netMonth,
   })
 })
 
@@ -564,5 +662,157 @@ analyticsRouter.get('/shifts/:id', async (c) => {
     payments,
     topItems: topItemsWithAbc,
     playerStats,
+  })
+})
+
+// ─── Список чеков за бизнес-день/диапазон (для просмотра чеков) ─────────────────
+// from/to — бизнес-дни YYYY-MM-DD (включительно). По умолчанию — текущий бизнес-день.
+// Окно по timestamptz — [from 09:00 МСК, to+1 09:00 МСК). Отдаёт сводку (net/gross)
+// и список чеков с именем гостя/игрока, кассиром, способами оплаты и числом позиций.
+analyticsRouter.get('/checks', zValidator('query', dateRangeQuerySchema), async (c) => {
+  const q = c.req.valid('query')
+  const from = q.from ?? bizDayStr(0)
+  const to = q.to ?? from
+  const { start } = bizDayBounds(from)
+  const { end } = bizDayBounds(to)
+
+  const rows = await db
+    .select({
+      id: checks.id,
+      createdAt: checks.createdAt,
+      closedAt: checks.closedAt,
+      status: checks.status,
+      totalAmount: checks.totalAmount,
+      discountTotal: checks.discountTotal,
+      bonusUsed: checks.bonusUsed,
+      certificateUsed: checks.certificateUsed,
+      playerId: checks.playerId,
+      playerNickname: profiles.nickname,
+      guestNames: checks.guestNames,
+      staffId: checks.staffId,
+      shiftId: checks.shiftId,
+      linkedEventId: checks.linkedEventId,
+      spaceId: checks.spaceId,
+      paymentMethod: checks.paymentMethod,
+    })
+    .from(checks)
+    .leftJoin(profiles, eq(profiles.id, checks.playerId))
+    .where(and(eq(checks.status, 'closed'), gte(checks.createdAt, start), lt(checks.createdAt, end)))
+    .orderBy(desc(checks.createdAt))
+    .limit(1000)
+
+  const checkIds = rows.map((r: any) => r.id)
+
+  // Кассиры — отдельной выборкой по staffId (избегаем второго join к profiles).
+  const staffIds = [...new Set(rows.map((r: any) => r.staffId).filter(Boolean))]
+  const staffRows = staffIds.length
+    ? await db.select({ id: profiles.id, nickname: profiles.nickname }).from(profiles).where(inArray(profiles.id, staffIds as string[]))
+    : []
+  const staffMap = new Map(staffRows.map((s: any) => [s.id, s.nickname]))
+
+  // Число позиций на чек (сумма количеств).
+  const itemRows = checkIds.length
+    ? await db
+        .select({ checkId: checkItems.checkId, qty: sum(checkItems.quantity) })
+        .from(checkItems)
+        .where(inArray(checkItems.checkId, checkIds))
+        .groupBy(checkItems.checkId)
+    : []
+  const itemMap = new Map(itemRows.map((r: any) => [r.checkId, Number(r.qty ?? 0)]))
+
+  // Способы оплаты на чек.
+  const payRows = checkIds.length
+    ? await db
+        .select({ checkId: checkPayments.checkId, method: checkPayments.method, amount: checkPayments.amount })
+        .from(checkPayments)
+        .where(inArray(checkPayments.checkId, checkIds))
+    : []
+  const payMap = new Map<string, { method: string; amount: number }[]>()
+  for (const p of payRows as any[]) {
+    const list = payMap.get(p.checkId) ?? []
+    list.push({ method: p.method, amount: parseNum(p.amount) })
+    payMap.set(p.checkId, list)
+  }
+
+  const list = rows.map((r: any) => {
+    const guest = r.playerNickname || (Array.isArray(r.guestNames) && r.guestNames[0]) || null
+    return {
+      id: r.id,
+      createdAt: r.createdAt,
+      closedAt: r.closedAt,
+      totalAmount: parseNum(r.totalAmount),
+      discountTotal: parseNum(r.discountTotal),
+      bonusUsed: parseNum(r.bonusUsed),
+      certificateUsed: parseNum(r.certificateUsed),
+      playerId: r.playerId,
+      guestName: guest,
+      staffId: r.staffId,
+      staffNickname: staffMap.get(r.staffId) ?? null,
+      shiftId: r.shiftId,
+      linkedEventId: r.linkedEventId,
+      hasRental: !!r.spaceId,
+      paymentMethod: r.paymentMethod,
+      itemCount: itemMap.get(r.id) ?? 0,
+      payments: payMap.get(r.id) ?? [],
+    }
+  })
+
+  const summary = await netBreakdown(start, end, from, to)
+  return c.json({ from, to, summary, checks: list })
+})
+
+// ─── Детализация одного чека (что в чеке, чей, как оплачен) ─────────────────────
+analyticsRouter.get('/checks/:id', async (c) => {
+  const id = c.req.param('id')
+  const [check] = await db.select().from(checks).where(eq(checks.id, id)).limit(1)
+  if (!check) return c.json({ error: 'not_found' }, 404)
+
+  const items = await db
+    .select({
+      id: checkItems.id,
+      itemId: checkItems.itemId,
+      name: inventory.name,
+      category: inventory.category,
+      quantity: checkItems.quantity,
+      priceAtTime: checkItems.priceAtTime,
+    })
+    .from(checkItems)
+    .leftJoin(inventory, eq(inventory.id, checkItems.itemId))
+    .where(eq(checkItems.checkId, id))
+
+  const payments = await db
+    .select({ method: checkPayments.method, amount: checkPayments.amount })
+    .from(checkPayments)
+    .where(eq(checkPayments.checkId, id))
+
+  const [player] = check.playerId
+    ? await db.select({ id: profiles.id, nickname: profiles.nickname, fullName: profiles.fullName, phone: profiles.phone, clientTier: profiles.clientTier })
+        .from(profiles).where(eq(profiles.id, check.playerId)).limit(1)
+    : [null as any]
+
+  const [staff] = await db.select({ id: profiles.id, nickname: profiles.nickname })
+    .from(profiles).where(eq(profiles.id, check.staffId)).limit(1)
+
+  const checkRefunds = await db
+    .select({ id: refunds.id, totalAmount: refunds.totalAmount, reason: refunds.reason, tenders: refunds.tenders, createdAt: refunds.createdAt })
+    .from(refunds).where(eq(refunds.checkId, id))
+
+  const guestName = player?.nickname || (Array.isArray(check.guestNames) && check.guestNames[0]) || null
+
+  return c.json({
+    check: {
+      ...check,
+      totalAmount: parseNum(check.totalAmount),
+      discountTotal: parseNum(check.discountTotal),
+      bonusUsed: parseNum(check.bonusUsed),
+      certificateUsed: parseNum(check.certificateUsed),
+      eventBaseAmount: check.eventBaseAmount != null ? parseNum(check.eventBaseAmount) : null,
+    },
+    guestName,
+    items: items.map((i: any) => ({ ...i, priceAtTime: parseNum(i.priceAtTime), lineTotal: parseNum(i.priceAtTime) * Number(i.quantity) })),
+    payments: payments.map((p: any) => ({ method: p.method, amount: parseNum(p.amount) })),
+    player,
+    staff,
+    refunds: checkRefunds.map((r: any) => ({ ...r, totalAmount: parseNum(r.totalAmount) })),
   })
 })
