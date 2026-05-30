@@ -24,13 +24,13 @@ COPY apps/bot-wallet/ ./apps/bot-wallet/
 RUN pnpm --filter @titan/types build
 RUN pnpm --filter @titan/database build
 RUN pnpm --filter @titan/bot-wallet build
-RUN pnpm --filter @titan/bot-wallet deploy --legacy --prod --prefer-offline /deploy/bot-wallet
+# Без `pnpm deploy` (виснет на флакающем npm-реестре). Копируем собранный
+# workspace целиком — pnpm-симлинки относительные, резолв сохраняется.
 
 FROM base AS runner
-WORKDIR /app
 ENV NODE_ENV=production
-
-COPY --from=builder /deploy/bot-wallet ./
-COPY --from=builder /app/apps/bot-wallet/dist ./dist
+WORKDIR /app
+COPY --from=builder /app /app
+WORKDIR /app/apps/bot-wallet
 
 CMD ["node", "dist/index.js"]

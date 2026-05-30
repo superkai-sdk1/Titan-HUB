@@ -25,7 +25,7 @@ RUN pnpm --filter @titan/types build
 RUN pnpm --filter @titan/database build
 RUN pnpm --filter @titan/auth build
 RUN pnpm --filter @titan/api build
-RUN pnpm --filter @titan/api deploy --legacy --prod --prefer-offline /deploy/api
+RUN pnpm --filter @titan/api deploy --legacy --prod --offline /deploy/api
 
 FROM base AS runner
 WORKDIR /app

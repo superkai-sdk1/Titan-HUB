@@ -24,13 +24,13 @@ COPY apps/bot-admin/ ./apps/bot-admin/
 RUN pnpm --filter @titan/types build
 RUN pnpm --filter @titan/database build
 RUN pnpm --filter @titan/bot-admin build
-RUN pnpm --filter @titan/bot-admin deploy --legacy --prod --prefer-offline /deploy/bot-admin
+# Без `pnpm deploy` (виснет на флакающем npm-реестре). Копируем собранный
+# workspace целиком — pnpm-симлинки относительные, резолв сохраняется.
 
 FROM base AS runner
-WORKDIR /app
 ENV NODE_ENV=production
-
-COPY --from=builder /deploy/bot-admin ./
-COPY --from=builder /app/apps/bot-admin/dist ./dist
+WORKDIR /app
+COPY --from=builder /app /app
+WORKDIR /app/apps/bot-admin
 
 CMD ["node", "dist/index.js"]
