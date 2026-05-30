@@ -15,6 +15,7 @@ export const clientTierEnum = pgEnum('client_tier', ['guest', 'resident', 'stude
 export const profiles = pgTable('profiles', {
   id: uuid('id').primaryKey().defaultRandom(),
   nickname: text('nickname').notNull().unique(),
+  fullName: text('full_name'),
   role: roleEnum('role').notNull().default('staff'),
   clientTier: clientTierEnum('client_tier').notNull().default('guest'),
   balance: numeric('balance', { precision: 12, scale: 2 }).notNull().default('0'),

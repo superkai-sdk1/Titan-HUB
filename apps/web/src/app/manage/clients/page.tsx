@@ -2,12 +2,13 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
-import { format, formatDistanceToNow } from 'date-fns'
+import { formatDistanceToNow } from 'date-fns'
 import { ru } from 'date-fns/locale'
-import { PageHeader, Sheet, ConfirmDialog, INP, SEL, LBL } from '@/components/manage/DesignSystem'
+import { PageHeader, Sheet, Button, IconButton, ConfirmDialog, INP, LBL } from '@/components/manage/DesignSystem'
 import { StateView } from '@/components/StateView'
 import { useToast } from '@/components/Toast'
 import { Icon } from '@/components/Icon'
+import { telLink, openContact } from '@/lib/contact'
 
 const TIER_COLORS: Record<string, string> = {
   guest: 'rgba(204,195,216,0.6)', resident: '#8B5CF6', student: '#3B82F6',
@@ -29,11 +30,14 @@ export default function ClientsPage() {
   const [dbSearch, setDbSearch] = useState('')
   const [showCreate, setShowCreate] = useState(false)
   const [selected, setSelected] = useState<any>(null)
+  const [mode, setMode] = useState<'view' | 'edit'>('view')
   const [tab, setTab] = useState<'info' | 'tx'>('info')
   const [form, setForm] = useState({ nickname: '', phone: '', birthday: '', clientTier: 'guest', password: '' })
   const [editForm, setEditForm] = useState<any>(null)
-  const [balAmt, setBalAmt] = useState('')
-  const [bonAmt, setBonAmt] = useState('')
+  const [tagsInput, setTagsInput] = useState('')
+  const [tgQr, setTgQr] = useState<{ deepLink: string; qrDataUrl: string } | null>(null)
+  const [topUpBon, setTopUpBon] = useState('')
+  const [adjBonVal, setAdjBonVal] = useState('')
   const [page, setPage] = useState(1)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -74,9 +78,22 @@ export default function ClientsPage() {
   const { data: txData } = useQuery({ queryKey: ['clients', selected?.id, 'tx'], queryFn: () => api.get<any>(`/clients/${selected.id}/transactions`), enabled: !!selected?.id && tab === 'tx' })
 
   const create = useMutation({ mutationFn: (b: any) => api.post('/clients', b), onSuccess: () => { qc.invalidateQueries({ queryKey: ['clients'] }); setShowCreate(false); setForm({ nickname: '', phone: '', birthday: '', clientTier: 'guest', password: '' }) }, onError: () => show('Не удалось создать клиента', 'error') })
-  const update = useMutation({ mutationFn: ({ id, ...b }: any) => api.patch(`/clients/${id}`, b), onSuccess: () => { qc.invalidateQueries({ queryKey: ['clients'] }); setSelected(null); setConfirmBlock(false) }, onError: () => show('Не удалось сохранить изменения', 'error') })
-  const adjBal = useMutation({ mutationFn: ({ id, amount }: any) => api.post(`/clients/${id}/balance`, { amount, reason: 'Корректировка баланса' }), onSuccess: () => { qc.invalidateQueries({ queryKey: ['clients'] }); setBalAmt('') }, onError: () => show('Не удалось изменить баланс', 'error') })
-  const adjBon = useMutation({ mutationFn: ({ id, amount }: any) => api.post(`/clients/${id}/bonus`, { amount, reason: 'Корректировка бонусов' }), onSuccess: () => { qc.invalidateQueries({ queryKey: ['clients'] }); setBonAmt('') }, onError: () => show('Не удалось изменить бонусы', 'error') })
+  const update = useMutation({
+    mutationFn: ({ id, ...b }: any) => api.patch(`/clients/${id}`, b),
+    onSuccess: (res: any, vars: any) => {
+      qc.invalidateQueries({ queryKey: ['clients'] })
+      // Блокировка или отвязка ТГ — закрываем/обновляем; обычное сохранение — назад в просмотр.
+      if (vars?.deletedAt) { setSelected(null); setConfirmBlock(false); return }
+      const merged = { ...selected, ...vars }
+      delete (merged as any).deletedAt
+      setSelected(merged)
+      setMode('view')
+    },
+    onError: () => show('Не удалось сохранить изменения', 'error'),
+  })
+  const adjBal = useMutation({ mutationFn: ({ id, amount, reason }: any) => api.post(`/clients/${id}/balance`, { amount, reason: reason ?? 'Корректировка баланса' }), onSuccess: (_r, vars: any) => { qc.invalidateQueries({ queryKey: ['clients'] }); setSelected((s: any) => s ? { ...s, balance: parseNum(s.balance) + parseNum(vars.amount) } : s) }, onError: () => show('Не удалось изменить баланс', 'error') })
+  const adjBon = useMutation({ mutationFn: ({ id, amount, reason }: any) => api.post(`/clients/${id}/bonus`, { amount, reason: reason ?? 'Корректировка бонусов' }), onSuccess: (_r, vars: any) => { qc.invalidateQueries({ queryKey: ['clients'] }); setSelected((s: any) => s ? { ...s, bonusPoints: parseNum(s.bonusPoints) + parseNum(vars.amount) } : s); setTopUpBon(''); setAdjBonVal('') }, onError: () => show('Не удалось изменить бонусы', 'error') })
+  const telegramLinkMut = useMutation({ mutationFn: (id: string) => api.post<any>(`/clients/${id}/telegram-link`, {}), onSuccess: (res: any) => { setTgQr({ deepLink: res.deepLink, qrDataUrl: res.qrDataUrl }) }, onError: () => show('Не удалось создать ссылку привязки', 'error') })
 
   const clients: any[] = data?.clients ?? []
   const total: number = data?.total ?? clients.length
@@ -89,8 +106,40 @@ export default function ClientsPage() {
 
   function openDetail(c: any) {
     setSelected(c)
-    setEditForm({ nickname: c.nickname, phone: c.phone ?? '', birthday: c.birthday ?? '', clientTier: c.clientTier ?? 'guest' })
-    setTab('info'); setBalAmt(''); setBonAmt('')
+    setMode('view')
+    setTab('info')
+    setTgQr(null)
+    setTopUpBon(''); setAdjBonVal('')
+  }
+
+  // Перевод в режим редактирования: заполняем форму из выбранного клиента.
+  function startEdit() {
+    if (!selected) return
+    const tags: string[] = Array.isArray(selected.searchTags) ? selected.searchTags : []
+    setEditForm({
+      nickname: selected.nickname ?? '',
+      fullName: selected.fullName ?? '',
+      phone: selected.phone ?? '',
+      birthday: selected.birthday ? String(selected.birthday).slice(0, 10) : '',
+      clientTier: selected.clientTier ?? 'guest',
+    })
+    setTagsInput(tags.join(', '))
+    setTgQr(null)
+    setMode('edit')
+  }
+
+  function saveEdit() {
+    if (!selected) return
+    const searchTags = tagsInput.split(',').map(t => t.trim()).filter(Boolean)
+    update.mutate({
+      id: selected.id,
+      nickname: editForm.nickname,
+      fullName: editForm.fullName,
+      phone: editForm.phone || null,
+      birthday: editForm.birthday || null,
+      clientTier: editForm.clientTier,
+      searchTags,
+    })
   }
 
   return (
@@ -188,51 +237,145 @@ export default function ClientsPage() {
         {selected && (() => {
           const tier = selected.clientTier ?? 'guest'
           const tierColor = TIER_COLORS[tier]
+          const bal = parseNum(selected.balance)
+          const debt = bal < 0 ? -bal : 0
+          const isLinked = !!(selected.tgUsername || selected.tgId)
+
+          // ── РЕЖИМ РЕДАКТИРОВАНИЯ ──────────────────────────────────────────
+          if (mode === 'edit' && editForm) {
+            return (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
+                  <IconButton icon="arrow_back" ariaLabel="Назад" variant="ghost" onClick={() => setMode('view')} />
+                  <h2 style={{ fontSize: 18, fontWeight: 800, margin: 0 }}>Редактирование</h2>
+                </div>
+
+                <div><label style={LBL}>Никнейм</label><input value={editForm.nickname} onChange={e => setEditForm((p: any) => ({ ...p, nickname: e.target.value }))} style={INP} /></div>
+                <div><label style={LBL}>Имя</label><input value={editForm.fullName} onChange={e => setEditForm((p: any) => ({ ...p, fullName: e.target.value }))} style={INP} placeholder="Реальное имя" /></div>
+                <div><label style={LBL}>Теги (через запятую)</label><input value={tagsInput} onChange={e => setTagsInput(e.target.value)} style={INP} placeholder="VIP, друг, постоянный" /></div>
+                <div><label style={LBL}>Телефон</label><input type="tel" value={editForm.phone} onChange={e => setEditForm((p: any) => ({ ...p, phone: e.target.value }))} style={INP} /></div>
+                <div><label style={LBL}>День рождения</label><input type="date" value={editForm.birthday} onChange={e => setEditForm((p: any) => ({ ...p, birthday: e.target.value }))} style={INP} /></div>
+                <div><label style={LBL}>Уровень</label><select value={editForm.clientTier} onChange={e => setEditForm((p: any) => ({ ...p, clientTier: e.target.value }))} style={{ ...INP, background: 'rgba(29,26,36,0.8)', cursor: 'pointer' } as React.CSSProperties}>{Object.entries(TIER_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></div>
+
+                {/* Привязка телеграма */}
+                <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 16 }}>
+                  <p style={{ ...LBL, marginBottom: 10 }}>Telegram</p>
+                  {isLinked ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--on-surface)' }}>
+                        <Icon name="telegram" size={18} color="#229ED9" />
+                        Привязан: @{selected.tgUsername ?? '—'}
+                      </div>
+                      <Button variant="danger" fullWidth icon="link"
+                        loading={update.isPending}
+                        onClick={() => update.mutate({ id: selected.id, tgId: null, tgUsername: null })}>
+                        Отменить привязку
+                      </Button>
+                    </div>
+                  ) : tgQr ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, padding: 12, borderRadius: 14, background: 'rgba(255,255,255,0.04)' }}>
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={tgQr.qrDataUrl} alt="QR для привязки Telegram" width={180} height={180} style={{ borderRadius: 12, background: '#fff', padding: 6 }} />
+                      <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', textAlign: 'center', margin: 0 }}>Отсканируйте QR в Telegram, чтобы привязать аккаунт</p>
+                      <a href={tgQr.deepLink} target="_blank" rel="noreferrer" style={{ fontSize: 13, fontWeight: 700, color: '#229ED9', textDecoration: 'none' }}>Открыть в Telegram</a>
+                    </div>
+                  ) : (
+                    <Button variant="secondary" fullWidth icon="link"
+                      loading={telegramLinkMut.isPending}
+                      onClick={() => telegramLinkMut.mutate(selected.id)}>
+                      Привязать телеграм
+                    </Button>
+                  )}
+                </div>
+
+                <Button fullWidth size="lg" loading={update.isPending} disabled={!editForm.nickname?.trim()} onClick={saveEdit}>Сохранить</Button>
+                <Button variant="ghost" fullWidth onClick={() => setMode('view')}>Отмена</Button>
+              </div>
+            )
+          }
+
+          // ── РЕЖИМ ПРОСМОТРА ──────────────────────────────────────────────
           return (
             <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 20 }}>
-                <div style={{ width: 64, height: 64, borderRadius: '50%', background: `${tierColor}22`, border: `2px solid ${tierColor}55`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, fontWeight: 800, color: tierColor }}>
-                  {(selected.nickname ?? '?').slice(0, 2).toUpperCase()}
-                </div>
-                <div>
-                  <h2 style={{ fontSize: 20, fontWeight: 800, margin: '0 0 4px' }}>{selected.nickname}</h2>
-                  <span style={{ fontSize: 11, fontWeight: 700, fontFamily: "'JetBrains Mono',monospace", padding: '3px 8px', borderRadius: 6, background: `${tierColor}22`, color: tierColor, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{TIER_LABELS[tier]}</span>
-                </div>
+              {/* Шапка: фото / инициалы по центру */}
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, marginBottom: 18 }}>
+                {selected.photoUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={selected.photoUrl} alt={selected.nickname} width={88} height={88} style={{ width: 88, height: 88, borderRadius: '50%', objectFit: 'cover', border: `2px solid ${tierColor}55` }} />
+                ) : (
+                  <div style={{ width: 88, height: 88, borderRadius: '50%', background: `${tierColor}22`, border: `2px solid ${tierColor}55`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 30, fontWeight: 800, color: tierColor }}>
+                    {(selected.nickname ?? '?').slice(0, 2).toUpperCase()}
+                  </div>
+                )}
+                <h2 style={{ fontSize: 18, fontWeight: 600, margin: '8px 0 0', textAlign: 'center' }}>{selected.nickname}</h2>
+                {selected.fullName ? <p style={{ fontSize: 13, color: 'var(--on-surface-variant)', margin: 0, textAlign: 'center' }}>{selected.fullName}</p> : null}
+                <span style={{ fontSize: 11, fontWeight: 700, fontFamily: "'JetBrains Mono',monospace", padding: '3px 8px', borderRadius: 6, background: `${tierColor}22`, color: tierColor, textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: 2 }}>{TIER_LABELS[tier]}</span>
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8, marginBottom: 16 }}>
-                {[['account_balance_wallet', 'Баланс', `${fmt(parseNum(selected.balance))} ₽`, '#8B5CF6'], ['star', 'Бонусы', fmt(parseNum(selected.bonusPoints)), '#EAB308'], ['calendar_today', 'Рег-ция', selected.createdAt ? format(new Date(selected.createdAt), 'd MMM yy', { locale: ru }) : '—', '#4cd7f6']].map(([icon, lbl, val, color]) => (
-                  <div key={lbl as string} style={{ padding: 12, borderRadius: 12, background: 'rgba(255,255,255,0.04)', textAlign: 'center' }}>
-                    <Icon name={icon as string} size={18} color={color as string} style={{ display: 'block', marginBottom: 4 }} />
-                    <p style={{ fontSize: 13, fontWeight: 700, margin: '0 0 2px', fontFamily: "'JetBrains Mono',monospace" }}>{val}</p>
-                    <p style={{ fontSize: 9, color: 'var(--on-surface-variant)', margin: 0, textTransform: 'uppercase', letterSpacing: '0.06em', fontFamily: "'JetBrains Mono',monospace" }}>{lbl}</p>
+
+              {/* Пилюли статистики + Редактировать */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 8, marginBottom: 16 }}>
+                {([
+                  ['star', 'Бонусы', fmt(parseNum(selected.bonusPoints)), '#EAB308'],
+                  ['account_balance_wallet', 'Депозит', `${fmt(bal)} ₽`, '#8B5CF6'],
+                  ['account_balance_wallet', 'Долг', `${fmt(debt)} ₽`, debt > 0 ? '#F43F5E' : 'var(--on-surface-variant)'],
+                ] as [string, string, string, string][]).map(([icon, lbl, val, color]) => (
+                  <div key={lbl} style={{ padding: '10px 6px', borderRadius: 12, background: 'rgba(255,255,255,0.04)', textAlign: 'center' }}>
+                    <Icon name={icon} size={16} color={color} style={{ display: 'block', margin: '0 auto 4px' }} />
+                    <p style={{ fontSize: 12, fontWeight: 700, margin: '0 0 2px', fontFamily: "'JetBrains Mono',monospace", color }}>{val}</p>
+                    <p style={{ fontSize: 9, color: 'var(--on-surface-variant)', margin: 0, textTransform: 'uppercase', letterSpacing: '0.05em', fontFamily: "'JetBrains Mono',monospace" }}>{lbl}</p>
                   </div>
                 ))}
+                <button onClick={startEdit} style={{ padding: '10px 6px', borderRadius: 12, background: 'rgba(139,92,246,0.12)', border: '1px solid rgba(139,92,246,0.3)', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
+                  <Icon name="edit" size={16} color="#a78bfa" />
+                  <span style={{ fontSize: 9, color: '#a78bfa', textTransform: 'uppercase', letterSpacing: '0.05em', fontFamily: "'JetBrains Mono',monospace", fontWeight: 700 }}>Изменить</span>
+                </button>
               </div>
+
+              {/* Вкладки */}
               <div style={{ display: 'flex', borderBottom: '1px solid rgba(255,255,255,0.06)', marginBottom: 16 }}>
-                {[['info', 'Профиль'], ['tx', 'Транзакции']].map(([k, l]) => (
+                {[['info', 'Основное'], ['tx', 'Транзакции']].map(([k, l]) => (
                   <button key={k} onClick={() => setTab(k as any)} style={{ padding: '8px 16px', border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 13, fontWeight: tab === k ? 700 : 400, color: tab === k ? '#8B5CF6' : 'var(--on-surface-variant)', borderBottom: tab === k ? '2px solid #8B5CF6' : '2px solid transparent', marginBottom: -1 }}>{l}</button>
                 ))}
               </div>
-              {tab === 'info' && editForm && (
+
+              {tab === 'info' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                  {([['Никнейм', 'nickname', 'text'], ['Телефон', 'phone', 'tel'], ['День рождения', 'birthday', 'date']] as [string, string, string][]).map(([lbl, key, type]) => (
-                    <div key={key}><label style={LBL}>{lbl}</label><input type={type} value={editForm[key] ?? ''} onChange={e => setEditForm((p: any) => ({ ...p, [key]: e.target.value }))} style={INP} /></div>
-                  ))}
-                  <div><label style={LBL}>Уровень</label><select value={editForm.clientTier} onChange={e => setEditForm((p: any) => ({ ...p, clientTier: e.target.value }))} style={{ ...INP, background: 'rgba(29,26,36,0.8)', cursor: 'pointer' } as React.CSSProperties}>{Object.entries(TIER_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></div>
-                  <button onClick={() => update.mutate({ id: selected.id, ...editForm })} disabled={update.isPending} style={{ width: '100%', padding: '12px 0', borderRadius: 14, border: 'none', background: 'linear-gradient(135deg, #8B5CF6, #4cd7f6)', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>Сохранить</button>
-                  <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 16 }}>
-                    <p style={{ ...LBL, marginBottom: 10 }}>Пополнить баланс (₽)</p>
-                    <div style={{ display: 'flex', gap: 8 }}><input type="number" value={balAmt} onChange={e => setBalAmt(e.target.value)} placeholder="500 или -500" style={{ ...INP, flex: 1 }} /><button onClick={() => adjBal.mutate({ id: selected.id, amount: Number(balAmt) })} disabled={!balAmt} style={{ padding: '12px 16px', borderRadius: 12, border: 'none', background: '#8B5CF6', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', flexShrink: 0 }}>OK</button></div>
-                  </div>
+                  {/* Пополнить бонусный баланс */}
                   <div>
-                    <p style={{ ...LBL, marginBottom: 10 }}>Изменить бонусы</p>
-                    <div style={{ display: 'flex', gap: 8 }}><input type="number" value={bonAmt} onChange={e => setBonAmt(e.target.value)} placeholder="100 или -100" style={{ ...INP, flex: 1 }} /><button onClick={() => adjBon.mutate({ id: selected.id, amount: Number(bonAmt) })} disabled={!bonAmt} style={{ padding: '12px 16px', borderRadius: 12, border: 'none', background: '#EAB308', color: '#000', fontSize: 13, fontWeight: 700, cursor: 'pointer', flexShrink: 0 }}>OK</button></div>
+                    <p style={{ ...LBL, marginBottom: 10 }}>Пополнить бонусный баланс</p>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <input type="number" value={topUpBon} onChange={e => setTopUpBon(e.target.value)} placeholder="Сумма начисления" style={{ ...INP, flex: 1 }} />
+                      <button onClick={() => adjBon.mutate({ id: selected.id, amount: Math.abs(Number(topUpBon)), reason: 'Начисление' })} disabled={!topUpBon || adjBon.isPending} style={{ padding: '12px 16px', borderRadius: 12, border: 'none', background: '#EAB308', color: '#000', fontSize: 13, fontWeight: 700, cursor: 'pointer', flexShrink: 0, opacity: !topUpBon ? 0.6 : 1 }}>Начислить</button>
+                    </div>
                   </div>
+                  {/* Изменить бонусный баланс (+/-) */}
+                  <div>
+                    <p style={{ ...LBL, marginBottom: 10 }}>Изменить бонусный баланс</p>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <input type="number" value={adjBonVal} onChange={e => setAdjBonVal(e.target.value)} placeholder="+100 или -100" style={{ ...INP, flex: 1 }} />
+                      <button onClick={() => adjBon.mutate({ id: selected.id, amount: Number(adjBonVal), reason: 'Корректировка' })} disabled={!adjBonVal || adjBon.isPending} style={{ padding: '12px 16px', borderRadius: 12, border: 'none', background: '#8B5CF6', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', flexShrink: 0, opacity: !adjBonVal ? 0.6 : 1 }}>OK</button>
+                    </div>
+                  </div>
+
+                  {/* Контакты */}
+                  <div style={{ display: 'flex', gap: 8, borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 14 }}>
+                    <button onClick={() => selected.phone && openContact(telLink(selected.phone))} disabled={!selected.phone}
+                      style={{ flex: 1, padding: '12px 0', borderRadius: 12, border: '1px solid rgba(16,185,129,0.3)', background: 'rgba(16,185,129,0.1)', color: '#10B981', fontSize: 13, fontWeight: 700, cursor: selected.phone ? 'pointer' : 'not-allowed', opacity: selected.phone ? 1 : 0.45, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                      <Icon name="call" size={16} />Позвонить
+                    </button>
+                    <button onClick={() => selected.tgUsername && openContact(`https://t.me/${selected.tgUsername}`)} disabled={!selected.tgUsername}
+                      style={{ flex: 1, padding: '12px 0', borderRadius: 12, border: '1px solid rgba(34,158,217,0.3)', background: 'rgba(34,158,217,0.1)', color: '#229ED9', fontSize: 13, fontWeight: 700, cursor: selected.tgUsername ? 'pointer' : 'not-allowed', opacity: selected.tgUsername ? 1 : 0.45, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                      <Icon name="telegram" size={16} />Написать
+                    </button>
+                  </div>
+
+                  {/* Блокировка */}
                   <button onClick={() => setConfirmBlock(true)} style={{ width: '100%', padding: '13px 0', borderRadius: 14, border: '1px solid rgba(244,63,94,0.3)', background: 'rgba(244,63,94,0.08)', color: 'var(--danger)', fontSize: 13, fontWeight: 600, cursor: 'pointer', marginTop: 4 }}>
                     <Icon name="block" size={16} style={{ verticalAlign: 'middle', marginRight: 6 }} />Заблокировать
                   </button>
                 </div>
               )}
+
               {tab === 'tx' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                   {!txData?.transactions?.length

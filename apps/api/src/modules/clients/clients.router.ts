@@ -9,9 +9,11 @@ import {
 import { requireAuth, requireRole } from '../../middleware/auth.js'
 import { accrueBonusLot, getBonusExpiryDays } from '../../lib/bonusLots.js'
 import { hashPassword } from '@titan/auth'
+import { createHmac } from 'node:crypto'
 
 const CreateClientSchema = z.object({
   nickname: z.string().min(2),
+  fullName: z.string().nullable().optional(),
   phone: z.string().optional(),
   birthday: z.string().optional(),
   clientTier: z.enum(['guest', 'resident', 'student']).default('guest'),
@@ -23,12 +25,15 @@ const CreateClientSchema = z.object({
 
 const UpdateClientSchema = z.object({
   nickname: z.string().min(2).optional(),
+  fullName: z.string().nullable().optional(),
   phone: z.string().optional(),
   birthday: z.string().optional(),
   clientTier: z.enum(['guest', 'resident', 'student']).optional(),
   photoUrl: z.string().optional(),
   searchTags: z.array(z.string()).optional(),
   isResident: z.boolean().optional(),
+  tgId: z.string().nullable().optional(),
+  tgUsername: z.string().nullable().optional(),
   deletedAt: z.string().nullable().optional(),
 })
 
@@ -92,6 +97,7 @@ clientsRouter.post('/', requireRole('owner', 'staff'), zValidator('json', Create
   const passwordHash = body.password ? await hashPassword(body.password) : undefined
   const [client] = await db.insert(profiles).values({
     nickname: body.nickname,
+    fullName: body.fullName ?? null,
     role: 'client',
     phone: body.phone,
     birthday: body.birthday,
@@ -121,6 +127,36 @@ clientsRouter.patch('/:id', requireRole('owner', 'staff'), zValidator('json', Up
   if (!client) return c.json({ error: 'Not found' }, 404)
   const { pin, passwordHash, ...safe } = client
   return c.json({ client: safe })
+})
+
+// Подписанный диплинк + QR для привязки Telegram клиента через Wallet-бота.
+// Эндпоинт ТОЛЬКО подписывает и кодирует токен — запущенный бот не требуется.
+// Формат токена обязан совпадать с тем, что проверяет apps/bot-wallet/src/index.ts.
+const WALLET_BOT_USERNAME = process.env['WALLET_BOT_USERNAME'] ?? 'titanwalletrobot'
+
+clientsRouter.post('/:id/telegram-link', requireRole('owner', 'staff'), async (c) => {
+  const [client] = await db
+    .select()
+    .from(profiles)
+    .where(and(eq(profiles.id, c.req.param('id')), eq(profiles.role, 'client'), isNull(profiles.deletedAt)))
+  if (!client) return c.json({ error: 'Not found' }, 404)
+
+  const jwtSecret = process.env['JWT_SECRET']
+  if (!jwtSecret) return c.json({ error: 'JWT_SECRET is not configured' }, 500)
+
+  // UUID профиля → 16 сырых байт → base64url (22 симв.)
+  const idB64 = Buffer.from(client.id.replace(/-/g, ''), 'hex').toString('base64url')
+  const exp = Math.floor(Date.now() / 1000) + 15 * 60
+  const expB36 = exp.toString(36)
+  const sigMsg = `${idB64}_${expB36}`
+  const sig = createHmac('sha256', jwtSecret).update(sigMsg).digest().subarray(0, 12).toString('base64url')
+  const payload = `link_${idB64}_${expB36}_${sig}`
+  const deepLink = `https://t.me/${WALLET_BOT_USERNAME}?start=${payload}`
+
+  const QRCode = await import('qrcode')
+  const qrDataUrl = await QRCode.toDataURL(deepLink, { margin: 1, width: 320 })
+
+  return c.json({ deepLink, qrDataUrl, expiresIn: 900 })
 })
 
 clientsRouter.delete('/:id', requireRole('owner'), async (c) => {
