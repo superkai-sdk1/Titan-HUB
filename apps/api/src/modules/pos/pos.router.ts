@@ -532,6 +532,30 @@ posRouter.post('/checks/:id/items', requireRole('owner', 'staff', 'tablet'), zVa
           .where(eq(inventory.id, itemId))
       }
 
+      // Мерж с существующей строкой того же товара БЕЗ модификаторов: повторное
+      // добавление увеличивает количество (а не плодит дубли) — иначе авто-скидки
+      // с minQuantity по одной строке не срабатывают. Позиции с модификаторами
+      // различаются составом → всегда отдельная строка.
+      if (!modifierIds.length) {
+        const existing = await tx
+          .select({ id: checkItems.id, quantity: checkItems.quantity })
+          .from(checkItems)
+          .leftJoin(checkItemModifiers, eq(checkItemModifiers.checkItemId, checkItems.id))
+          .where(and(
+            eq(checkItems.checkId, checkId),
+            eq(checkItems.itemId, itemId),
+            isNull(checkItemModifiers.id),
+          ))
+          .limit(1)
+        if (existing.length && existing[0]) {
+          const [merged] = await tx.update(checkItems)
+            .set({ quantity: sql`${checkItems.quantity} + ${quantity}` })
+            .where(eq(checkItems.id, existing[0].id))
+            .returning()
+          return merged
+        }
+      }
+
       const [insertedItem] = await tx.insert(checkItems).values({
         checkId,
         itemId,
