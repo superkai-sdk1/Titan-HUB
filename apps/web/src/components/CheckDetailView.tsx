@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api, ApiError } from '@/lib/api'
 import { funnyGuestName } from '@/lib/funnyName'
@@ -38,6 +38,7 @@ interface CheckData {
   items: CheckItem[]
   payments: { id: string; method: string; amount: string }[]
   guestName?: string
+  guestNames?: string[] | null
   playerId?: string | null
   spaceId?: string | null
   spaceStartAt?: string | null
@@ -205,6 +206,14 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
   // Split-композитор: выбранный метод и сумма для следующего добавляемого tender'а.
   const [splitMethod, setSplitMethod] = useState<string>('cash')
   const [splitAmtInput, setSplitAmtInput] = useState('')
+
+  // Клиенты в чеке: плательщик (playerId) + доп. люди (guestNames). Шторка добавления.
+  const [showClient, setShowClient] = useState(false)
+  const [clientQuery, setClientQuery] = useState('')
+  const [clientResults, setClientResults] = useState<{ id: string; nickname: string; clientTier: string }[]>([])
+  const [clientSearching, setClientSearching] = useState(false)
+  const [guestNameInput, setGuestNameInput] = useState('')
+  const clientTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const check = checkData
   // Имя в заголовке: реальное имя клиента/гостя, иначе смешная заглушка (по id чека).
@@ -421,6 +430,61 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
     onSuccess: writeCheck,
     onError: toastError,
   })
+
+  // Привязать/сменить/снять плательщика (playerId). Работает и для чеков с арендой.
+  const setPlayer = useMutation({
+    mutationFn: (playerId: string | null) =>
+      api.patch<{ check: CheckData }>(`/pos/checks/${checkId}`, { playerId }),
+    onSuccess: (res) => { writeCheck(res); qc.invalidateQueries({ queryKey: ['checks', 'active'] }) },
+    onError: toastError,
+  })
+  // Доп. люди в чеке (guestNames) — например, когда один платит за двоих.
+  const setGuests = useMutation({
+    mutationFn: (guestNames: string[]) =>
+      api.patch<{ check: CheckData }>(`/pos/checks/${checkId}`, { guestNames }),
+    onSuccess: (res) => { writeCheck(res); qc.invalidateQueries({ queryKey: ['checks', 'active'] }) },
+    onError: toastError,
+  })
+
+  // Debounced-поиск клиентов в шторке (тот же эндпоинт, что и на кассе).
+  useEffect(() => {
+    if (!showClient) return
+    if (clientTimerRef.current) clearTimeout(clientTimerRef.current)
+    const q = clientQuery.trim()
+    if (!q) { setClientResults([]); setClientSearching(false); return }
+    setClientSearching(true)
+    clientTimerRef.current = setTimeout(async () => {
+      try {
+        const res = await api.get<{ players: { id: string; nickname: string; clientTier: string }[] }>(`/pos/players/search?q=${encodeURIComponent(q)}`)
+        setClientResults(res.players)
+      } catch { setClientResults([]) }
+      finally { setClientSearching(false) }
+    }, 300)
+    return () => { if (clientTimerRef.current) clearTimeout(clientTimerRef.current) }
+  }, [clientQuery, showClient])
+
+  // Выбор клиента в шторке: если плательщика нет — ставим его; иначе добавляем как
+  // доп. человека (по нику). «Один платит за двоих»: плательщик = тот, кто платит.
+  const pickClient = (cl: { id: string; nickname: string }) => {
+    if (!check?.playerId) {
+      setPlayer.mutate(cl.id)
+    } else if (cl.id !== check.playerId) {
+      const names = check.guestNames ?? []
+      if (!names.includes(cl.nickname)) setGuests.mutate([...names, cl.nickname])
+    }
+    setClientQuery('')
+    setClientResults([])
+  }
+  const addGuestName = () => {
+    const name = guestNameInput.trim()
+    if (!name) return
+    const names = check?.guestNames ?? []
+    if (!names.includes(name)) setGuests.mutate([...names, name])
+    setGuestNameInput('')
+  }
+  const removeGuestName = (name: string) => {
+    setGuests.mutate((check?.guestNames ?? []).filter(n => n !== name))
+  }
 
   const pay = useMutation({
     mutationFn: (body: { payments: SplitPart[]; bonusAmount?: number; certificateCode?: string; playerId?: string }) =>
@@ -804,6 +868,28 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
                 >
                   <Icon name="sell" size={18} />
                 </button>
+                {/* Клиент в чеке: привязать плательщика (в т.ч. при аренде) и добавить
+                    доп. людей (один платит за двоих). Бейдж = число людей в чеке. */}
+                <button
+                  onClick={() => setShowClient(true)}
+                  className="check-pay-add"
+                  aria-label="Добавить клиента"
+                  title="Клиент в чеке"
+                  style={{
+                    position: 'relative',
+                    padding: '14px 16px', borderRadius: 16, border: '1px solid rgba(56,189,248,0.35)',
+                    cursor: 'pointer', background: 'rgba(56,189,248,0.1)', color: '#38BDF8',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  }}
+                >
+                  <Icon name="person_add" size={18} />
+                  {(() => {
+                    const ppl = (check?.playerId ? 1 : 0) + (check?.guestNames?.length ?? 0)
+                    return ppl > 1 ? (
+                      <span style={{ position: 'absolute', top: -6, right: -6, minWidth: 18, height: 18, padding: '0 4px', borderRadius: 9, background: '#38BDF8', color: '#0D1526', fontSize: 11, fontWeight: 900, display: 'flex', alignItems: 'center', justifyContent: 'center', fontVariantNumeric: 'tabular-nums' }}>{ppl}</span>
+                    ) : null
+                  })()}
+                </button>
                 {/* Сертификат — только для чеков мероприятия (вход в существующий cert-флоу). */}
                 {check?.linkedEventId && (
                   <button
@@ -983,6 +1069,101 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
                 </div>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Клиент в чеке: плательщик + доп. люди */}
+      {showClient && (
+        <div
+          onClick={e => { if (e.target === e.currentTarget) setShowClient(false) }}
+          style={{ position: 'absolute', inset: 0, zIndex: 60, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(13,21,38,0.8)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)', padding: 16 }}
+        >
+          <div className="glass-l1" style={{ borderRadius: 24, padding: 24, width: 'min(440px,100%)', maxHeight: '90%', overflowY: 'auto', boxShadow: '0 24px 80px rgba(0,0,0,0.6)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 18 }}>
+              <Icon name="group" size={22} color="#38BDF8" />
+              <h2 style={{ fontSize: 18, fontWeight: 900, fontStyle: 'italic', textTransform: 'uppercase', margin: 0 }}>Клиенты в чеке</h2>
+            </div>
+
+            {/* Плательщик */}
+            <p style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--on-surface-variant)', margin: '0 0 8px' }}>Плательщик</p>
+            {check?.playerId ? (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '12px 14px', borderRadius: 14, background: 'rgba(56,189,248,0.08)', border: '1px solid rgba(56,189,248,0.3)', marginBottom: 16 }}>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                  <Icon name="person" size={18} color="#38BDF8" />
+                  <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--on-surface)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{check.guestName || 'Клиент'}</span>
+                </span>
+                <button type="button" onClick={() => setPlayer.mutate(null)} disabled={setPlayer.isPending} aria-label="Снять плательщика"
+                  style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 5, padding: '7px 10px', borderRadius: 10, border: '1px solid rgba(244,63,94,0.35)', background: 'rgba(244,63,94,0.1)', color: '#f43f5e', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+                  <Icon name="close" size={14} /> Снять
+                </button>
+              </div>
+            ) : (
+              <p style={{ fontSize: 13, color: 'var(--on-surface-variant)', margin: '0 0 16px' }}>Не выбран — найдите клиента ниже, первый станет плательщиком.</p>
+            )}
+
+            {/* Доп. люди */}
+            {(check?.guestNames?.length ?? 0) > 0 && (
+              <>
+                <p style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--on-surface-variant)', margin: '0 0 8px' }}>Ещё в чеке</p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
+                  {(check?.guestNames ?? []).map((name, i) => (
+                    <div key={`${name}-${i}`} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '10px 12px', borderRadius: 12, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                        <Icon name="person" size={16} color="var(--on-surface-variant)" />
+                        <span style={{ fontSize: 14, color: 'var(--on-surface)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</span>
+                      </span>
+                      <button type="button" onClick={() => removeGuestName(name)} disabled={setGuests.isPending} aria-label="Убрать"
+                        style={{ flexShrink: 0, display: 'flex', alignItems: 'center', padding: '6px 8px', borderRadius: 10, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.04)', color: 'var(--on-surface-variant)', cursor: 'pointer' }}>
+                        <Icon name="close" size={14} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+
+            {/* Поиск клиента */}
+            <label style={{ display: 'block', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--on-surface-variant)', marginBottom: 6 }}>{check?.playerId ? 'Добавить человека' : 'Найти клиента'}</label>
+            <input
+              type="text" autoFocus value={clientQuery} onChange={e => setClientQuery(e.target.value)}
+              placeholder="Имя или ник клиента"
+              className="glass-l2"
+              style={{ width: '100%', padding: '14px 16px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.1)', color: 'var(--on-surface)', fontSize: 16, fontWeight: 600, background: 'rgba(255,255,255,0.04)', boxSizing: 'border-box', marginBottom: 10 }}
+            />
+            {clientSearching && <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: '0 0 10px' }}>Поиск…</p>}
+            {clientResults.length > 0 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12, maxHeight: 220, overflowY: 'auto' }}>
+                {clientResults.filter(r => r.id !== check?.playerId).map(r => (
+                  <button key={r.id} type="button" onClick={() => pickClient(r)}
+                    style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.08)', background: 'rgba(255,255,255,0.04)', color: 'var(--on-surface)', fontSize: 14, fontWeight: 600, cursor: 'pointer', textAlign: 'left' }}>
+                    <Icon name="person" size={16} color="#38BDF8" />
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.nickname}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* Добавить по имени (без профиля) */}
+            <label style={{ display: 'block', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--on-surface-variant)', margin: '8px 0 6px' }}>Или добавить по имени</label>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 18 }}>
+              <input
+                type="text" value={guestNameInput} onChange={e => setGuestNameInput(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addGuestName() } }}
+                placeholder="Имя гостя"
+                className="glass-l2"
+                style={{ flex: 1, padding: '12px 14px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.1)', color: 'var(--on-surface)', fontSize: 15, fontWeight: 600, background: 'rgba(255,255,255,0.04)', boxSizing: 'border-box' }}
+              />
+              <button type="button" onClick={addGuestName} disabled={setGuests.isPending || !guestNameInput.trim()}
+                style={{ flexShrink: 0, padding: '0 16px', borderRadius: 12, border: '1px solid rgba(56,189,248,0.35)', background: 'rgba(56,189,248,0.1)', color: '#38BDF8', fontSize: 13, fontWeight: 800, cursor: 'pointer', opacity: (setGuests.isPending || !guestNameInput.trim()) ? 0.5 : 1 }}>
+                Добавить
+              </button>
+            </div>
+
+            <button type="button" onClick={() => setShowClient(false)}
+              style={{ width: '100%', padding: '13px 0', borderRadius: 14, border: 'none', background: 'linear-gradient(135deg, #38BDF8, #0EA5E9)', color: '#fff', fontSize: 13, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.06em', cursor: 'pointer' }}>
+              Готово
+            </button>
           </div>
         </div>
       )}

@@ -489,7 +489,8 @@ posRouter.get('/checks/:id', requireRole('owner', 'staff', 'tablet'), async (c) 
 
 posRouter.patch('/checks/:id', requireRole('owner', 'staff'), zValidator('json', z.object({
   spaceId: z.string().uuid().optional(),
-  playerId: z.string().uuid().optional(),
+  // nullable: null снимает привязанного плательщика (можно исправить ошибочную привязку).
+  playerId: z.string().uuid().nullable().optional(),
   guestNames: z.array(z.string()).optional(),
   note: z.string().optional(),
   linkedEventId: z.string().uuid().optional(),
