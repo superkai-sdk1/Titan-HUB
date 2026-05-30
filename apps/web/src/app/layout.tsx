@@ -7,7 +7,6 @@ import { Sidebar } from '@/components/Sidebar'
 import { SessionLock } from '@/components/SessionLock'
 import { StaffNotifications } from '@/components/StaffNotifications'
 import { ServiceWorkerRegister } from '@/components/ServiceWorkerRegister'
-import { ViewportFix } from '@/components/ViewportFix'
 
 export const metadata: Metadata = {
   title: 'Titan HUB',
@@ -15,7 +14,11 @@ export const metadata: Metadata = {
   manifest: '/manifest.json',
   appleWebApp: {
     capable: true,
-    statusBarStyle: 'black-translucent',
+    // 'default' (не 'black-translucent'): standalone-вебвью НЕ уходит под статус-бар
+    // edge-to-edge — iOS корректно отдаёт размер вьюпорта с первого кадра, без бага
+    // «короткого вьюпорта до поворота» (тёмная полоса снизу). Статус-бар становится
+    // непрозрачным, но того же цвета (#15121b, theme-color) — сливается с приложением.
+    statusBarStyle: 'default',
     title: 'Titan HUB',
   },
   other: {
@@ -32,7 +35,10 @@ export const viewport: Viewport = {
   initialScale: 1,
   maximumScale: 1,
   userScalable: false,
-  viewportFit: 'cover',
+  // 'auto' (не 'cover'): отдаём управление safe-area системе. Вебвью сразу корректного
+  // размера (нет бага «короткого вьюпорта до поворота» → нет тёмной полосы снизу).
+  // Зоны safe-area iOS закрашивает фоном окна = theme-color #15121b → сливается.
+  viewportFit: 'auto',
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -81,9 +87,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 
             {/* Service Worker для PWA-offline */}
             <ServiceWorkerRegister />
-
-            {/* Фикс stale-вьюпорта iOS standalone (тёмная полоса снизу до поворота) */}
-            <ViewportFix />
           </AuthGuard>
         </Providers>
 
