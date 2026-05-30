@@ -26,8 +26,10 @@ const CreateClientSchema = z.object({
 const UpdateClientSchema = z.object({
   nickname: z.string().min(2).optional(),
   fullName: z.string().nullable().optional(),
-  phone: z.string().optional(),
-  birthday: z.string().optional(),
+  // nullable: фронт шлёт null, когда поле очищено (иначе весь PATCH падал 400 и
+  // не сохранялось НИЧЕГО, включая статус/имя).
+  phone: z.string().nullable().optional(),
+  birthday: z.string().nullable().optional(),
   clientTier: z.string().min(1).optional(),
   photoUrl: z.string().optional(),
   searchTags: z.array(z.string()).optional(),
