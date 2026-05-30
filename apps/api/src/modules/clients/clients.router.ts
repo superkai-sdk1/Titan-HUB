@@ -67,6 +67,21 @@ clientsRouter.get('/', async (c) => {
     return c.json({ clients: safe, total: safe.length, page: 1, limit: safe.length })
   }
 
+  // deposits filter — clients with positive balance (депозит)
+  if (filter === 'deposits') {
+    const clients = await db
+      .select()
+      .from(profiles)
+      .where(and(
+        eq(profiles.role, 'client'),
+        isNull(profiles.deletedAt),
+        sql`${profiles.balance}::numeric > 0`,
+      ))
+      .orderBy(sql`${profiles.balance}::numeric desc`)
+    const safe = clients.map(({ pin, passwordHash, ...c }) => c)
+    return c.json({ clients: safe, total: safe.length, page: 1, limit: safe.length })
+  }
+
   const where = and(
     eq(profiles.role, 'client'),
     isNull(profiles.deletedAt),

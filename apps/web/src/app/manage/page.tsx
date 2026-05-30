@@ -52,6 +52,7 @@ const NAV: NavGroup[] = [
     title: 'Финансы',
     icon: 'account_balance_wallet',
     items: [
+      { href: '/manage/deposits',     label: 'Депозиты',    icon: 'savings',                color: '#06B6D4', bg: 'rgba(6,182,212,0.15)',   roles: ['owner','staff'] },
       { href: '/manage/certificates', label: 'Сертификаты', icon: 'card_giftcard',          color: '#F59E0B', bg: 'rgba(245,158,11,0.15)',  roles: ['owner','staff'] },
       { href: '/manage/cashops',      label: 'Инкассация',  icon: 'account_balance_wallet', color: '#14B8A6', bg: 'rgba(20,184,166,0.15)',  roles: ['owner','staff'] },
       { href: '/manage/expenses',     label: 'Расходы',     icon: 'receipt_long',           color: '#F43F5E', bg: 'rgba(244,63,94,0.15)',   roles: ['owner','staff'], perm: 'expenses' },
