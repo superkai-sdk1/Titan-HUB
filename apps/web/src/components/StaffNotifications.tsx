@@ -6,8 +6,7 @@
 import { useEffect, useState, useRef } from 'react'
 import { useAuthStore } from '@/store/auth.store'
 import { Icon } from '@/components/Icon'
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? '/api'
+import { openSse } from '@/lib/sse'
 
 interface NotifEvent {
   id: string
@@ -40,16 +39,18 @@ export function StaffNotifications() {
     // Только для staff/owner
     if (!token || !user || !['owner', 'staff'].includes(user.role)) return
 
-    // EventSource не поддерживает кастомные заголовки → токен в query
-    const url = `${API_BASE}/notifications/stream?token=${encodeURIComponent(token)}`
-    let es: EventSource
-    try {
-      es = new EventSource(url)
-    } catch {
-      return
-    }
-    esRef.current = es
+    // EventSource не поддерживает кастомные заголовки → одноразовый SSE-тикет в query
+    // (не полный JWT). Открытие асинхронное — защищаемся от размонтирования флагом.
+    let cancelled = false
+    let es: EventSource | null = null
+    openSse('/notifications/stream').then((stream) => {
+      if (cancelled) { stream.close(); return }
+      es = stream
+      esRef.current = stream
+      attachHandlers(stream)
+    }).catch(() => { /* нет тикета/сети — поток не открываем */ })
 
+    function attachHandlers(es: EventSource) {
     es.onmessage = (e) => {
       try {
         const data = JSON.parse(e.data) as NotifEvent
@@ -73,9 +74,11 @@ export function StaffNotifications() {
     es.onerror = () => {
       // SSE автоматически реконнектится — ничего не делаем
     }
+    }
 
     return () => {
-      es.close()
+      cancelled = true
+      es?.close()
       esRef.current = null
     }
   }, [token, user])

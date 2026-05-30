@@ -8,6 +8,7 @@
 import { createMiddleware } from 'hono/factory'
 import { Redis } from 'ioredis'
 import { verifyToken } from '@titan/auth'
+import { clientIp } from '../lib/clientIp.js'
 
 const ANON_LIMIT = parseInt(process.env['RATELIMIT_ANON'] ?? '120')
 const AUTH_LIMIT = parseInt(process.env['RATELIMIT_AUTH'] ?? '600')
@@ -54,9 +55,8 @@ export const rateLimit = createMiddleware(async (c, next) => {
     key = `rl:user:${userId}`
     limit = AUTH_LIMIT
   } else {
-    const ip = c.req.header('x-forwarded-for')?.split(',')[0]?.trim()
-      ?? c.req.header('x-real-ip')
-      ?? 'unknown'
+    // Доверенный IP (X-Real-IP от nginx), а не спуфабельный первый XFF.
+    const ip = clientIp(c)
     key = `rl:ip:${ip}`
     limit = ANON_LIMIT
   }

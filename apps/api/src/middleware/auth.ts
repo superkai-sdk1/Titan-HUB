@@ -11,8 +11,23 @@ export function tokenHash(token: string): string {
 }
 
 export const requireAuth = createMiddleware<{ Variables: Variables }>(async (c, next) => {
+  // SSE: одноразовый короткоживущий тикет (?ticket=) вместо полного JWT в URL.
+  // Выдаётся /auth/sse-ticket по Bearer, живёт 60с, потребляется здесь однократно.
+  const ticket = c.req.query('ticket')
+  if (ticket) {
+    try {
+      const raw = await getSharedRedis().getdel(`sse:${ticket}`)
+      if (!raw) return c.json({ error: 'Invalid ticket' }, 401)
+      c.set('user', JSON.parse(raw) as JwtPayload)
+      await next()
+      return
+    } catch {
+      return c.json({ error: 'Invalid ticket' }, 401)
+    }
+  }
+
   // Bearer-токен в Authorization-заголовке ИЛИ в ?token=... query param
-  // (последнее нужно для EventSource SSE — он не поддерживает кастомные заголовки)
+  // (?token= — легаси-путь SSE; новый клиент использует ?ticket= выше).
   let token: string | null = null
   const header = c.req.header('Authorization')
   if (header?.startsWith('Bearer ')) {

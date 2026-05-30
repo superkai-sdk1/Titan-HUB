@@ -7,6 +7,7 @@ import { signToken, verifyPin, verifyPassword, hashPassword, hashPin, isPlaintex
 import { LoginPinSchema, LoginPasswordSchema, LoginTelegramSchema, SetPinSchema } from '@titan/types'
 import { requireAuth, tokenHash } from '../../middleware/auth.js'
 import { getSharedRedis } from '../../lib/redis.js'
+import { clientIp } from '../../lib/clientIp.js'
 import { Redis } from 'ioredis'
 import {
   generateRegistrationOptions,
@@ -46,11 +47,7 @@ const PIN_GLOBAL_MAX = 50 // суммарных неудачных попыто�
 // ДОВЕРИЕ: оба заголовка (X-Real-IP и X-Forwarded-For) в общем случае подделываемы
 // клиентом, поэтому per-IP bucket — лишь "вежливый" троттлинг. Для security-решений
 // на нём НЕ полагаемся: реальную защиту даёт глобальный потолок PIN_GLOBAL_FAIL_KEY.
-function clientIp(c: any): string {
-  return c.req.header('x-real-ip')
-    ?? c.req.header('x-forwarded-for')?.split(',').pop()?.trim()
-    ?? 'unknown'
-}
+// clientIp — общий доверенный резолвер (apps/api/src/lib/clientIp.ts).
 
 authRouter.post('/login/pin', zValidator('json', LoginPinSchema), async (c) => {
   const { pin, userId } = c.req.valid('json')
@@ -328,6 +325,25 @@ authRouter.post('/logout', requireAuth, async (c) => {
     try { await getSharedRedis().set(`revoked:${tokenHash(token)}`, '1', 'EX', ttl) } catch { /* ignore */ }
   }
   return c.json({ ok: true })
+})
+
+// Одноразовый короткоживущий тикет для EventSource (SSE). Полноценный JWT в
+// ?token= утекал бы в логи nginx/историю браузера и реиграбелен (до 30 дней у
+// планшета). Вместо него фронт берёт ticket по Bearer-авторизации и кладёт в URL
+// ?ticket=...; requireAuth принимает его, проверяя в Redis (TTL 60с, одноразовый).
+authRouter.post('/sse-ticket', requireAuth, async (c) => {
+  const user = c.get('user')
+  const ticket = crypto.randomUUID()
+  try {
+    await getSharedRedis().set(
+      `sse:${ticket}`,
+      JSON.stringify({ sub: user.sub, role: user.role, nickname: user.nickname }),
+      'EX', 60,
+    )
+  } catch {
+    return c.json({ error: 'SSE недоступен' }, 503)
+  }
+  return c.json({ ticket })
 })
 
 // ── Passkey / WebAuthn endpoints ────────────────────────────────────────────

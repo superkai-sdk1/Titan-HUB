@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { useAuthStore } from '@/store/auth.store'
+import { openSse } from '@/lib/sse'
 import { differenceInMinutes } from 'date-fns'
 import { Icon } from '@/components/Icon'
 
@@ -97,10 +98,16 @@ export default function TabletPage() {
     const token = useAuthStore.getState().token
     if (!token) return
 
-    const es = new EventSource(`/api/pos/checks/${activeCheck.id}/events?token=${token}`)
-    es.onmessage = () => { refetch() }
-    sseRef.current = es
-    return () => { es.close() }
+    // Одноразовый SSE-тикет вместо JWT в URL. Открытие асинхронное.
+    let cancelled = false
+    let es: EventSource | null = null
+    openSse(`/pos/checks/${activeCheck.id}/events`).then((stream) => {
+      if (cancelled) { stream.close(); return }
+      es = stream
+      sseRef.current = stream
+      stream.onmessage = () => { refetch() }
+    }).catch(() => {})
+    return () => { cancelled = true; es?.close() }
   }, [activeCheck?.id, refetch])
 
   // Счётчик аренды
