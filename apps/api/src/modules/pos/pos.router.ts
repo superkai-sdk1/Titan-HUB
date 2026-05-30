@@ -146,9 +146,11 @@ async function applyAutoDiscounts(exec: DbOrTx, checkId: string) {
 
   const toInsert: (typeof checkDiscounts.$inferInsert)[] = []
   const applied = new Set<string>() // дедуп по id скидки (auto + tier не задвоить)
+  // Скидки, вручную снятые с этого чека — не применяем повторно.
+  const excluded = new Set<string>(check.excludedDiscountIds ?? [])
 
   function pushDiscount(d: typeof discounts.$inferSelect) {
-    if (applied.has(d.id)) return
+    if (applied.has(d.id) || excluded.has(d.id)) return
     applied.add(d.id)
     if (d.itemId) {
       // Скидка на конкретную позицию: к каждой строке этого товара, прошедшей minQuantity.
@@ -725,16 +727,28 @@ posRouter.post('/checks/:id/discount', requireRole('owner', 'staff'), zValidator
   return c.json({ check: data })
 })
 
-// Снятие ручной скидки с чека. Только ручные строки (discountId IS NULL) —
-// авто/тир-скидки пересоздаются recalcCheckTotal и удалять их вручную нельзя.
+// Снятие ЛЮБОЙ применённой скидки с чека. Ручная (discountId IS NULL) — просто
+// удаляем строку. Авто/тир (discountId задан) — заносим discountId в исключения
+// чека, иначе recalcCheckTotal пересоздал бы её. Снятие постоянно для этого чека.
 posRouter.delete('/checks/:id/discount/:discountRowId', requireRole('owner', 'staff'), async (c) => {
   const checkId = c.req.param('id')
   const rowId = c.req.param('discountRowId')
   const [check] = await db.select().from(checks).where(eq(checks.id, checkId))
   if (!check || check.status !== 'open') return c.json({ error: 'Check not open' }, 400)
-  await db.delete(checkDiscounts).where(
-    and(eq(checkDiscounts.id, rowId), eq(checkDiscounts.checkId, checkId), isNull(checkDiscounts.discountId)),
-  )
+
+  const [row] = await db.select().from(checkDiscounts)
+    .where(and(eq(checkDiscounts.id, rowId), eq(checkDiscounts.checkId, checkId)))
+  if (!row) return c.json({ error: 'Discount not found' }, 404)
+
+  if (row.discountId) {
+    // Авто/тир-скидка: добавляем в исключения чека (дедуп), recalc уберёт её.
+    const next = Array.from(new Set([...(check.excludedDiscountIds ?? []), row.discountId]))
+    await db.update(checks).set({ excludedDiscountIds: next }).where(eq(checks.id, checkId))
+  } else {
+    // Ручная скидка: просто удаляем строку.
+    await db.delete(checkDiscounts).where(and(eq(checkDiscounts.id, rowId), eq(checkDiscounts.checkId, checkId)))
+  }
+
   await recalcCheckTotal(checkId)
   const data = await getCheckWithItems(checkId)
   return c.json({ check: data })

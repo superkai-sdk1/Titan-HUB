@@ -666,11 +666,9 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
                         <span style={{ fontSize: 13, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: '#34D399' }}>
                           −{Math.round(parseFloat(d.amount)).toLocaleString('ru')} ₽
                         </span>
-                        {d.discountId === null && (
-                          <button type="button" onClick={() => removeDiscount.mutate(d.id)} disabled={removeDiscount.isPending} aria-label="Снять скидку" style={{ width: 26, height: 26, borderRadius: 8, border: '1px solid rgba(244,63,94,0.2)', background: 'rgba(244,63,94,0.08)', color: '#F87171', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                            <Icon name="close" size={14} />
-                          </button>
-                        )}
+                        <button type="button" onClick={() => removeDiscount.mutate(d.id)} disabled={removeDiscount.isPending} aria-label="Снять скидку" style={{ width: 26, height: 26, borderRadius: 8, border: '1px solid rgba(244,63,94,0.2)', background: 'rgba(244,63,94,0.08)', color: '#F87171', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                          <Icon name="close" size={14} />
+                        </button>
                       </span>
                     </div>
                   ))}

@@ -46,6 +46,9 @@ export const checks = pgTable('checks', {
   spaceEndAt: timestamp('space_end_at', { withTimezone: true }),
   guestNames: text('guest_names').array().default([]),
   note: text('note'),
+  // ID авто/тир-скидок, вручную снятых с ЭТОГО чека: applyAutoDiscounts их
+  // пропускает (иначе скидка вернулась бы при следующем пересчёте позиций).
+  excludedDiscountIds: uuid('excluded_discount_ids').array().default([]),
   linkedEventId: uuid('linked_event_id'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   closedAt: timestamp('closed_at', { withTimezone: true }),
