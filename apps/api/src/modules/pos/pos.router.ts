@@ -264,7 +264,10 @@ async function computeCheckGrandTotal(exec: DbOrTx, check: typeof checks.$inferS
   const discountRows = await exec.select().from(checkDiscounts).where(eq(checkDiscounts.checkId, check.id))
   const { total: itemsTotal } = computeTotals(items, mods, discountRows)
   const rental = await computeRentalForCheck(exec, check)
-  return round2(itemsTotal + rental)
+  // База события (фикс/ручная сумма мероприятия) — отдельное слагаемое итога,
+  // как и аренда. Хранится в checks.event_base_amount, редактируется отдельно.
+  const eventBase = parseFloat(check.eventBaseAmount ?? '0') || 0
+  return round2(itemsTotal + rental + eventBase)
 }
 
 posRouter.get('/players/search', async (c) => {
@@ -887,7 +890,9 @@ posRouter.post('/checks/:id/pay', requireRole('owner', 'staff'), zValidator('jso
         const [space] = await tx.select({ hourlyRate: spaces.hourlyRate }).from(spaces).where(eq(spaces.id, check.spaceId))
         rental = computeRental(check.spaceStartAt, check.spaceEndAt, space?.hourlyRate, Date.now())
       }
-      const total = round2(itemsTotal + rental)
+      // База события (фикс/ручная сумма мероприятия) — слагаемое итога к оплате.
+      const eventBase = parseFloat(check.eventBaseAmount ?? '0') || 0
+      const total = round2(itemsTotal + rental + eventBase)
 
       // Суммы по способам оплаты
       const sumBy = (m: string) => body.payments.filter(p => p.method === m).reduce((s, p) => s + p.amount, 0)

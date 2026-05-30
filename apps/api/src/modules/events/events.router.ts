@@ -7,23 +7,39 @@ import {
   eq, and, gte, lte, desc, sql, or, ne,
 } from '@titan/database'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
+import { getCurrentShift } from '../shifts/shifts.service.js'
 
 const EventSchema = z.object({
   type: z.enum(['titan', 'exit']).default('titan'),
   title: z.string().optional(),
   location: z.string().optional(),
-  spaceId: z.string().uuid().optional(),
+  spaceId: z.string().uuid().optional().nullable(),
   date: z.string(),
   startTime: z.string(),
-  endTime: z.string().optional(),
+  endTime: z.string().optional().nullable(),
   paymentType: z.enum(['fixed', 'per_head', 'free']).default('fixed'),
-  fixedAmount: z.number().optional(),
-  perHeadAmount: z.number().optional(),
-  maxGuests: z.number().int().positive().optional(),
+  billingMode: z.enum(['amount', 'hourly']).default('amount'),
+  fixedAmount: z.number().optional().nullable(),
+  perHeadAmount: z.number().optional().nullable(),
+  manualAmount: z.number().optional().nullable(),
+  maxGuests: z.number().int().positive().optional().nullable(),
   status: z.enum(['planned', 'active', 'completed', 'cancelled']).default('planned'),
-  comment: z.string().optional(),
+  comment: z.string().optional().nullable(),
   reminders: z.array(z.string()).default([]),
+  responsibleStaffId: z.string().uuid().optional().nullable(),
 })
+
+// Базовая сумма события для чека (billingMode=amount): ручная сумма приоритетна,
+// иначе фикс; для free/per_head без ручной — 0. hourly → база 0 (платим арендой зоны).
+function eventBaseAmount(ev: {
+  billingMode: string; paymentType: string
+  manualAmount: string | null; fixedAmount: string | null
+}): number {
+  if (ev.billingMode === 'hourly') return 0
+  if (ev.manualAmount != null) return parseFloat(ev.manualAmount) || 0
+  if (ev.paymentType === 'fixed' && ev.fixedAmount != null) return parseFloat(ev.fixedAmount) || 0
+  return 0
+}
 
 export const eventsRouter = new Hono<AppEnv>()
 eventsRouter.use('*', requireAuth)
@@ -104,17 +120,20 @@ eventsRouter.post('/', requireRole('owner', 'staff'), zValidator('json', EventSc
     type: body.type,
     title: body.title,
     location: body.location,
-    spaceId: body.spaceId,
+    spaceId: body.spaceId ?? null,
     date: body.date,
     startTime: body.startTime,
-    endTime: body.endTime,
+    endTime: body.endTime ?? null,
     paymentType: body.paymentType,
+    billingMode: body.billingMode,
     fixedAmount: body.fixedAmount != null ? String(body.fixedAmount) : null,
     perHeadAmount: body.perHeadAmount != null ? String(body.perHeadAmount) : null,
+    manualAmount: body.manualAmount != null ? String(body.manualAmount) : null,
     maxGuests: body.maxGuests ?? null,
     status: body.status,
     comment: body.comment,
     reminders: body.reminders,
+    responsibleStaffId: body.responsibleStaffId ?? null,
     createdBy: user.sub,
   }).returning()
   return c.json({ event }, 201)
@@ -127,6 +146,7 @@ eventsRouter.get('/:id', async (c) => {
 })
 
 eventsRouter.patch('/:id', requireRole('owner', 'staff'), zValidator('json', EventSchema.partial()), async (c) => {
+  const user = c.get('user')
   const eventId = c.req.param('id')
   const body = c.req.valid('json')
 
@@ -151,13 +171,16 @@ eventsRouter.patch('/:id', requireRole('owner', 'staff'), zValidator('json', Eve
     }
   }
 
+  const [prev] = await db.select().from(events).where(eq(events.id, eventId))
+  if (!prev) return c.json({ error: 'Not found' }, 404)
+
   const update: Record<string, any> = { ...body }
   if (body.fixedAmount !== undefined) update.fixedAmount = body.fixedAmount != null ? String(body.fixedAmount) : null
   if (body.perHeadAmount !== undefined) update.perHeadAmount = body.perHeadAmount != null ? String(body.perHeadAmount) : null
+  if (body.manualAmount !== undefined) update.manualAmount = body.manualAmount != null ? String(body.manualAmount) : null
 
   // При финализации (completed/cancelled) приводим attendeesCount к фактическому
-  // числу привязанных чеков — иначе сохранённое поле расходится со значением,
-  // которое аналитика считает «на лету» (eventChecks.length).
+  // числу привязанных чеков.
   if (body.status === 'completed' || body.status === 'cancelled') {
     const [{ cnt }] = await db
       .select({ cnt: sql<number>`count(*)::int` })
@@ -166,7 +189,65 @@ eventsRouter.patch('/:id', requireRole('owner', 'staff'), zValidator('json', Eve
     update.attendeesCount = cnt
   }
 
-  const [event] = await db.update(events).set(update).where(eq(events.id, eventId)).returning()
+  let event
+  try {
+    event = await db.transaction(async (tx) => {
+    // Слитое состояние события после апдейта — для расчёта базы чека.
+    const merged = { ...prev, ...update }
+
+    // 1) СТАРТ события: переход planned→active создаёт чек (если ещё не создан).
+    const becomingActive = body.status === 'active' && prev.status !== 'active'
+    if (becomingActive && !prev.checkId) {
+      const shift = await getCurrentShift()
+      if (!shift) throw new Error('NO_SHIFT')
+      const isHourly = merged.billingMode === 'hourly' && merged.spaceId
+      const base = eventBaseAmount(merged as any)
+      const [chk] = await tx.insert(checks).values({
+        staffId: (merged.responsibleStaffId as string) ?? user.sub,
+        shiftId: shift.id,
+        status: 'open',
+        linkedEventId: eventId,
+        // hourly+зона → почасовая аренда (как обычный аренда-чек); иначе база события.
+        spaceId: isHourly ? (merged.spaceId as string) : null,
+        spaceStartAt: isHourly ? new Date() : null,
+        eventBaseAmount: isHourly ? null : String(base),
+        guestNames: merged.title ? [merged.title as string] : [],
+        note: `Мероприятие: ${merged.title ?? ''}`.trim(),
+        totalAmount: '0',
+      }).returning()
+      update.checkId = chk!.id
+      update.attendeesCount = 1
+    }
+
+    // 2) СИНК суммы: если у активного события поменялась база (сумма/режим/тип) —
+    //    обновляем eventBaseAmount его чека (не для hourly — там платим арендой).
+    const checkId = (update.checkId as string) ?? prev.checkId
+    if (checkId && !becomingActive) {
+      const amountTouched = body.manualAmount !== undefined || body.fixedAmount !== undefined
+        || body.billingMode !== undefined || body.paymentType !== undefined
+      if (amountTouched && merged.billingMode !== 'hourly') {
+        await tx.update(checks)
+          .set({ eventBaseAmount: String(eventBaseAmount(merged as any)) })
+          .where(and(eq(checks.id, checkId), eq(checks.status, 'open')))
+      }
+    }
+
+    // 3) ОТМЕНА события → отменяем его открытый чек.
+    if (body.status === 'cancelled' && prev.checkId) {
+      await tx.update(checks).set({ status: 'cancelled' })
+        .where(and(eq(checks.id, prev.checkId), eq(checks.status, 'open')))
+    }
+
+    const [ev] = await tx.update(events).set(update).where(eq(events.id, eventId)).returning()
+    return ev
+    })
+  } catch (err: any) {
+    if (err?.message === 'NO_SHIFT') {
+      return c.json({ error: 'Нет открытой смены — нельзя начать мероприятие (создать чек)' }, 400)
+    }
+    throw err
+  }
+
   if (!event) return c.json({ error: 'Not found' }, 404)
   return c.json({ event })
 })

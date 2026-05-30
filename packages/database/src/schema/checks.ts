@@ -50,6 +50,9 @@ export const checks = pgTable('checks', {
   // пропускает (иначе скидка вернулась бы при следующем пересчёте позиций).
   excludedDiscountIds: uuid('excluded_discount_ids').array().default([]),
   linkedEventId: uuid('linked_event_id'),
+  // База события на чеке: фикс/ручная сумма мероприятия (помимо позиций и аренды).
+  // Входит в «Итого», редактируется; синхронизируется при правке суммы события.
+  eventBaseAmount: numeric('event_base_amount', { precision: 12, scale: 2 }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   closedAt: timestamp('closed_at', { withTimezone: true }),
 })
