@@ -331,20 +331,55 @@ posRouter.get('/checks', async (c) => {
     .from(checks)
     .where(whereClause)
     .orderBy(desc(checks.createdAt))
-  // attach item count + player nickname
-  const enriched = await Promise.all(rows.map(async (ch) => {
-    const [{ count }] = await db
-      .select({ count: sql<number>`count(*)::int` })
-      .from(checkItems)
-      .where(eq(checkItems.checkId, ch.id))
+
+  // Обогащение списка чеков set-based запросами вместо N+1 (этот эндпоинт POS
+  // поллит каждые 5с). Раньше на каждый чек шло 3 запроса (счётчик позиций, ник
+  // игрока, имя/ставка зоны) → 1 + 3N. Теперь ровно 3 агрегата на весь список:
+  // одна группировка count(checkItems) по checkId, одна выборка профилей по
+  // playerId-набору, одна выборка зон по spaceId-набору; сшивка через Map.
+  // Форма ответа дословно прежняя (itemCount/guestName/spaceName/
+  // spaceHourlyRate/hasRental + поля чека из ...ch, включая spaceStartAt/End).
+  const checkIds = rows.map(ch => ch.id)
+  const playerIds = [...new Set(rows.map(ch => ch.playerId).filter((v): v is string => !!v))]
+  const spaceIds = [...new Set(rows.map(ch => ch.spaceId).filter((v): v is string => !!v))]
+
+  // Счётчик позиций по чекам одним group by (пустой набор не запрашиваем).
+  const itemCountRows = checkIds.length
+    ? await db
+        .select({ checkId: checkItems.checkId, count: sql<number>`count(*)::int` })
+        .from(checkItems)
+        .where(inArray(checkItems.checkId, checkIds))
+        .groupBy(checkItems.checkId)
+    : []
+  const itemCountByCheck = new Map<string, number>()
+  for (const r of itemCountRows) itemCountByCheck.set(r.checkId, r.count)
+
+  // Ники привязанных игроков одной выборкой.
+  const playerRows = playerIds.length
+    ? await db
+        .select({ id: profiles.id, nickname: profiles.nickname })
+        .from(profiles)
+        .where(inArray(profiles.id, playerIds))
+    : []
+  const nicknameByPlayer = new Map<string, string | null>()
+  for (const p of playerRows) nicknameByPlayer.set(p.id, p.nickname ?? null)
+
+  // Имя + ставка зон одной выборкой.
+  const spaceRows = spaceIds.length
+    ? await db
+        .select({ id: spaces.id, name: spaces.name, hourlyRate: spaces.hourlyRate })
+        .from(spaces)
+        .where(inArray(spaces.id, spaceIds))
+    : []
+  const spaceById = new Map<string, { name: string | null; hourlyRate: string | null }>()
+  for (const s of spaceRows) spaceById.set(s.id, { name: s.name ?? null, hourlyRate: s.hourlyRate ?? null })
+
+  const enriched = rows.map((ch) => {
+    const count = itemCountByCheck.get(ch.id) ?? 0
 
     let guestName: string | null = null
     if (ch.playerId) {
-      const [player] = await db
-        .select({ nickname: profiles.nickname })
-        .from(profiles)
-        .where(eq(profiles.id, ch.playerId))
-      guestName = player?.nickname ?? null
+      guestName = nicknameByPlayer.get(ch.playerId) ?? null
     } else if (ch.guestNames && ch.guestNames.length > 0) {
       guestName = ch.guestNames[0]
     }
@@ -353,16 +388,13 @@ posRouter.get('/checks', async (c) => {
     let spaceName: string | null = null
     let spaceHourlyRate: string | null = null
     if (ch.spaceId) {
-      const [sp] = await db
-        .select({ name: spaces.name, hourlyRate: spaces.hourlyRate })
-        .from(spaces)
-        .where(eq(spaces.id, ch.spaceId))
+      const sp = spaceById.get(ch.spaceId)
       spaceName = sp?.name ?? null
       spaceHourlyRate = sp?.hourlyRate ?? null
     }
 
     return { ...ch, itemCount: count, guestName, spaceName, spaceHourlyRate, hasRental: !!ch.spaceId }
-  }))
+  })
   return c.json({ checks: enriched })
 })
 
