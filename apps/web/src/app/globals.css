@@ -102,6 +102,20 @@ html {
   /* iOS Safari: prevent bounce scroll on the root */
   overscroll-behavior: none;
 }
+/* Полноэкранный слой фона: html/body = 100dvh, который в standalone-PWA может НЕ
+   включать нижнюю safe-area (под home indicator) → там оставалась тёмная полоса
+   (цвет холста/манифеста). Этот фиксированный слой высотой 100lvh (= вся физическая
+   высота экрана при viewport-fit=cover) принудительно закрашивает ВЕСЬ экран,
+   включая нижнюю зону, фоном приложения. Лежит позади контента (z-index:-1). */
+html::before {
+  content: '';
+  position: fixed;
+  left: 0; right: 0; top: 0;
+  height: 100lvh;
+  background-color: #15121b;
+  z-index: -1;
+  pointer-events: none;
+}
 body {
   margin: 0; padding: 0;
   overflow: hidden;
@@ -362,7 +376,10 @@ button, [role="button"] { user-select: none; }
 /* Нав «парит»: отступ снизу (6px) + высота панели (≈60px) + выступ FAB (14px)
    + визуальный запас, чтобы последний элемент не оставался под панелью. */
 @media (max-width: 1023px) {
-  :root { --bottom-nav-clear: calc(112px + env(safe-area-inset-bottom)); }
+  /* Резерв под плавающую панель: bottom 8px + высота острова (~64px) + выступ FAB
+     (~14px) + запас. Нижнюю safe-area НЕ добавляем (панель не резервирует её, фон
+     закрашивает html::before) — иначе снизу копился лишний отступ. */
+  :root { --bottom-nav-clear: 104px; }
 }
 
 /* Нижняя навигация прижата к низу (bottom:0) и сама закрывает safe-area через

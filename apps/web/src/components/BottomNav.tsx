@@ -90,13 +90,10 @@ export function BottomNav() {
         className="bottom-nav-root"
         style={{
           position: 'fixed',
-          // Панель прижата к низу экрана (bottom:0), а её фон продлён через нижнюю
-          // safe-area за счёт paddingBottom = 6px + env(safe-area-inset-bottom).
-          // Так остров сам закрывает зону под home indicator и НЕ оставляет под
-          // собой тёмной полосы в standalone-PWA (раньше панель «парила» с зазором
-          // safe-area+6px, и под ней была видна тёмная safe-area). Иконки/подписи
-          // остаются выше home indicator — их поднимает этот же нижний паддинг.
-          bottom: 0,
+          // Небольшой плавающий «остров» у низа экрана. Нижнюю safe-area НЕ
+          // резервируем (фон всего экрана закрашивает фиксированный слой в globals.css,
+          // см. html::before), поэтому фиксированный небольшой зазор 8px.
+          bottom: 8,
           left: 14,
           right: 14,
           zIndex: 40,
@@ -106,7 +103,7 @@ export function BottomNav() {
           border: '1px solid rgba(255,255,255,0.12)',
           borderRadius: 28,
           paddingTop: 6,
-          paddingBottom: 'calc(6px + env(safe-area-inset-bottom))',
+          paddingBottom: 6,
           paddingLeft: 10,
           paddingRight: 10,
           boxShadow: '0 10px 30px rgba(0,0,0,0.45), 0 2px 8px rgba(0,0,0,0.25)',
