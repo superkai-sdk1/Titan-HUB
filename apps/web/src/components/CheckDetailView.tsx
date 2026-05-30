@@ -200,7 +200,9 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
   // Space rental calc — та же epoch-логика, что и на бэкенде при оплате:
   // ceil(минуты/60) × ставка. До spaceEndAt (если задан) либо до now (живой счётчик).
   useEffect(() => {
-    if (!check?.spaceId || !check?.spaceStartAt || !check?.spaceHourlyRate) return
+    // Нет аренды у этого чека — обнуляем счётчик (иначе значение «прилипло» бы
+    // от предыдущего чека и попало в «Итого»).
+    if (!check?.spaceId || !check?.spaceStartAt || !check?.spaceHourlyRate) { setSpaceRental(0); return }
     const startMs = new Date(check.spaceStartAt).getTime()
     const rate = parseFloat(check.spaceHourlyRate ?? '0')
     const calc = () => {

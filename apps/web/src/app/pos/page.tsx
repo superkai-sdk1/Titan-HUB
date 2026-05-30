@@ -1455,6 +1455,7 @@ function PosPageInner() {
           }}
         >
           <CheckDetailView
+            key={activeCheckId}
             checkId={activeCheckId}
             onBack={() => setActiveCheckId(null)}
             onClose={() => setActiveCheckId(null)}
