@@ -8,8 +8,7 @@ import {
   eq, inArray,
 } from '@titan/database'
 import { accrueBonusLot, getBonusExpiryDays } from '../../lib/bonusLots.js'
-
-const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100
+import { round2, computeRental } from '../../lib/money.js'
 
 // Единый расчёт суммы чека: позиции + модификаторы − скидки.
 // ВАЖНО: логика — копия computeTotals из pos.router.ts (тот файл нам не принадлежит,
@@ -102,11 +101,7 @@ plategaRouter.post('/webhook', async (c) => {
       let rental = 0
       if (check.spaceId && check.spaceStartAt) {
         const [space] = await tx.select({ hourlyRate: spaces.hourlyRate }).from(spaces).where(eq(spaces.id, check.spaceId))
-        if (space?.hourlyRate) {
-          const endMs = check.spaceEndAt ? new Date(check.spaceEndAt).getTime() : Date.now()
-          const mins = Math.max(0, (endMs - new Date(check.spaceStartAt).getTime()) / 60000)
-          rental = Math.ceil(mins / 60) * parseFloat(space.hourlyRate)
-        }
+        rental = computeRental(check.spaceStartAt, check.spaceEndAt, space?.hourlyRate, Date.now())
       }
       const total = round2(itemsTotal + rental)
 

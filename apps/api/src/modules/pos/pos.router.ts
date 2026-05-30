@@ -11,6 +11,7 @@ import {
 import { requireAuth, requireRole } from '../../middleware/auth.js'
 import { getCurrentShift } from '../shifts/shifts.service.js'
 import { accrueBonusLot, spendBonusLots, getBonusExpiryDays } from '../../lib/bonusLots.js'
+import { round2, computeRental } from '../../lib/money.js'
 import { Redis } from 'ioredis'
 
 function publishEvent(event: string, data: unknown) {
@@ -19,8 +20,6 @@ function publishEvent(event: string, data: unknown) {
     .finally(() => redis.disconnect())
     .catch(() => {})
 }
-
-const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100
 
 // Единый расчёт суммы чека: позиции + модификаторы − скидки.
 // Скидки пересчитываются от ТЕКУЩИХ позиций (не доверяем сохранённому amount),
@@ -241,10 +240,7 @@ async function recalcCheckTotal(checkId: string, exec: DbOrTx = db) {
 async function computeRentalForCheck(exec: DbOrTx, check: typeof checks.$inferSelect): Promise<number> {
   if (!check.spaceId || !check.spaceStartAt) return 0
   const [space] = await exec.select({ hourlyRate: spaces.hourlyRate }).from(spaces).where(eq(spaces.id, check.spaceId))
-  if (!space?.hourlyRate) return 0
-  const endMs = check.spaceEndAt ? new Date(check.spaceEndAt).getTime() : Date.now()
-  const mins = Math.max(0, (endMs - new Date(check.spaceStartAt).getTime()) / 60000)
-  return Math.ceil(mins / 60) * parseFloat(space.hourlyRate)
+  return computeRental(check.spaceStartAt, check.spaceEndAt, space?.hourlyRate, Date.now())
 }
 
 // Авторитетный итог чека к оплате = позиции+модификаторы−скидки + аренда.
@@ -817,15 +813,11 @@ posRouter.post('/checks/:id/pay', requireRole('owner', 'staff'), zValidator('jso
 
       // Аренда зоны («живой счётчик») считается на сервере на момент оплаты
       // тем же правилом, что и на фронте: ceil(минуты/60) × ставка.
+      // Конец аренды: заданный вручную spaceEndAt либо момент оплаты (живой счётчик).
       let rental = 0
       if (check.spaceId && check.spaceStartAt) {
         const [space] = await tx.select({ hourlyRate: spaces.hourlyRate }).from(spaces).where(eq(spaces.id, check.spaceId))
-        if (space?.hourlyRate) {
-          // Конец аренды: заданный вручную spaceEndAt либо момент оплаты (живой счётчик).
-          const endMs = check.spaceEndAt ? new Date(check.spaceEndAt).getTime() : Date.now()
-          const mins = Math.max(0, (endMs - new Date(check.spaceStartAt).getTime()) / 60000)
-          rental = Math.ceil(mins / 60) * parseFloat(space.hourlyRate)
-        }
+        rental = computeRental(check.spaceStartAt, check.spaceEndAt, space?.hourlyRate, Date.now())
       }
       const total = round2(itemsTotal + rental)
 
