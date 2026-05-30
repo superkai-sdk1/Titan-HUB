@@ -360,14 +360,15 @@ button, [role="button"] { user-select: none; }
   :root { --bottom-nav-clear: calc(112px + env(safe-area-inset-bottom)); }
 }
 
-/* iOS standalone PWA: «рабочая» область вьюпорта может исключать нижнюю зону
-   (как будто нижняя адресная строка Safari ещё зарезервирована), поэтому
-   position:fixed; bottom:0 приземляется выше реального низа экрана. Опускаем
-   панель вниз ровно на разницу большого и малого вьюпорта (= эта зона).
-   Когда разницы нет (100lvh == 100svh) — выражение даёт 0, правка безопасна. */
+/* iOS standalone PWA: iOS резервирует env(safe-area-inset-bottom) (~34px) под home
+   indicator, и с отступом `safe-area + 6px` под плавающей панелью оставалась тёмная
+   «мёртвая» полоса (~40px), которой нет в обычном браузере (там inset = 0). Прижимаем
+   панель к низу небольшим фиксированным зазором (10px), игнорируя резерв safe-area —
+   полоса исчезает, низ совпадает с браузером. Иконки/подписи остаются выше home
+   indicator за счёт собственных отступов панели. */
 @media (display-mode: standalone) {
   .bottom-nav-root {
-    bottom: calc(env(safe-area-inset-bottom) + 6px + (100svh - 100lvh)) !important;
+    bottom: 10px !important;
   }
 }
 
