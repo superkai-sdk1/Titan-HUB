@@ -94,18 +94,27 @@ html {
   margin: 0; padding: 0;
   overflow: hidden;
   height: 100dvh;
-  /* Фон-меш кладём НА html. Фон корневого элемента распространяется на весь холст
-     вьюпорта (canvas) — т.е. на ВСЮ физическую высоту экрана, включая нижнюю
-     safe-area под home indicator, независимо от overflow/height:100dvh. Раньше меш
-     был на body (100dvh), а safe-area ниже оставалась плоским #15121b без градиента
-     → тёмная полоса. Теперь фон сквозной до самого низа. body прозрачный (.bg-mesh
-     ниже), чтобы не перекрывать распространение фона html. */
+  background-color: #15121b;
+  /* iOS Safari: prevent bounce scroll on the root */
+  overscroll-behavior: none;
+}
+/* Фон-меш на фиксированном слое, который ВЫХОДИТ за нижнюю границу вьюпорта
+   (bottom: -120px). В standalone-PWA «рабочий» вьюпорт исключает нижнюю зону home
+   indicator, и обычные 100lvh/100dvh/распространение фона до неё не достают. Но
+   fixed-элемент можно завести в эту зону (тем же приёмом в проекте опускается
+   нижняя навигация) — поэтому растягиваем слой на 120px ниже низа вьюпорта, и он
+   гарантированно закрывает системную зону фоном приложения. body прозрачный. */
+body::before {
+  content: '';
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  bottom: -120px;
   background-color: #15121b;
   background-image:
     radial-gradient(at 0% 0%, rgba(139, 92, 246, 0.15) 0px, transparent 50%),
     radial-gradient(at 100% 100%, rgba(59, 130, 246, 0.1) 0px, transparent 50%);
-  /* iOS Safari: prevent bounce scroll on the root */
-  overscroll-behavior: none;
+  z-index: -1;
+  pointer-events: none;
 }
 body {
   margin: 0; padding: 0;
