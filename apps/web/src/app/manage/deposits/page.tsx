@@ -139,7 +139,7 @@ export default function DepositsPage() {
       </Sheet>
 
       {/* Карточка депозита клиента */}
-      <Sheet open={!!selected} onClose={() => setSelected(null)} maxHeight="92vh">
+      <Sheet open={!!selected} onClose={() => setSelected(null)} initialHeight="85dvh" maxHeight="94dvh">
         {selected && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             {/* Инфо о клиенте */}
