@@ -99,6 +99,16 @@ const ICONS: Record<string, React.ReactNode> = {
       <path d="M3 13a9 9 0 109 9" />
     </>
   ),
+  money_return: (
+    /* Возврат средств: банкнота с монетой + изогнутая стрелка назад сверху —
+       однозначно «деньги возвращаются клиенту», в отличие от общей петли undo. */
+    <>
+      <polyline points="3 4 3 8 7 8" />
+      <path d="M3 8a8 8 0 0 1 14.5-2.5" strokeLinecap="round" />
+      <rect x="2" y="11" width="20" height="9" rx="2" />
+      <circle cx="12" cy="15.5" r="2" />
+    </>
+  ),
   print: (
     <>
       <polyline points="6 9 6 2 18 2 18 9" />

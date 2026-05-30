@@ -44,7 +44,7 @@ const NAV: NavGroup[] = [
       { href: '/manage/clients',   label: 'Клиенты',   icon: 'person',          color: '#4cd7f6', bg: 'rgba(76,215,246,0.15)', roles: ['owner','staff'], perm: 'clients' },
       { href: '/manage/discounts', label: 'Скидки',    icon: 'percent',         color: '#F43F5E', bg: 'rgba(244,63,94,0.15)',  roles: ['owner'], perm: 'discounts' },
       { href: '/manage/bonuses',   label: 'Бонусы',    icon: 'star',            color: '#EAB308', bg: 'rgba(234,179,8,0.15)',  roles: ['owner'], perm: 'bonus' },
-      { href: '/manage/refunds',   label: 'Возвраты',  icon: 'undo',            color: '#F87171', bg: 'rgba(248,113,113,0.15)',roles: ['owner','staff'] },
+      { href: '/manage/refunds',   label: 'Возвраты',  icon: 'money_return',            color: '#F87171', bg: 'rgba(248,113,113,0.15)',roles: ['owner','staff'] },
     ],
   },
   {

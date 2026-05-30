@@ -36,7 +36,7 @@ const TYPE_ICONS: Record<string, string> = {
   alert: 'warning',
   system: 'settings',
   bonus: 'stars',
-  refund: 'undo',
+  refund: 'money_return',
 }
 
 const SETTING_LABELS: Record<string, string> = {

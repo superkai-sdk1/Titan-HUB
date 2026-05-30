@@ -415,7 +415,7 @@ function PosPageInner() {
                 title="Возврат"
                 style={{ width: 36, height: 36, borderRadius: 10, border: '1px solid rgba(255,255,255,0.1)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
               >
-                <Icon name="undo" size={18} color="var(--on-surface-variant)" />
+                <Icon name="money_return" size={18} color="var(--on-surface-variant)" />
               </button>
             </div>
           )}
@@ -726,7 +726,7 @@ function PosPageInner() {
               letterSpacing: '0.06em',
             }}
           >
-            <Icon name="undo" size={18} />
+            <Icon name="money_return" size={18} />
             <span className="btn-label">ВОЗВРАТ</span>
           </button>
         </div>
