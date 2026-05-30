@@ -705,6 +705,7 @@ function CheckDetailModal({ id, onClose }: { id: string; onClose: () => void }) 
   const check = data?.check
   const items: any[] = data?.items ?? []
   const payments: any[] = data?.payments ?? []
+  const discounts: any[] = data?.discounts ?? []
   const refunds: any[] = data?.refunds ?? []
   const player = data?.player
   const staff = data?.staff
@@ -754,10 +755,25 @@ function CheckDetailModal({ id, onClose }: { id: string; onClose: () => void }) 
             </div>
           </div>
 
-          {/* Скидки / бонусы / сертификат */}
-          {(parseNum(check.discountTotal) > 0 || parseNum(check.bonusUsed) > 0 || parseNum(check.certificateUsed) > 0) && (
+          {/* Скидки (детально) / бонусы / сертификат */}
+          {(discounts.length > 0 || parseNum(check.discountTotal) > 0 || parseNum(check.bonusUsed) > 0 || parseNum(check.certificateUsed) > 0) && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {parseNum(check.discountTotal) > 0 && <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ fontSize: 12, color: 'var(--on-surface-variant)' }}>Скидка</span><span style={{ fontSize: 13, fontWeight: 700, color: '#F59E0B' }}>− {fmt(parseNum(check.discountTotal))} ₽</span></div>}
+              {discounts.length > 0 ? (
+                <>
+                  <span style={{ fontSize: 11, color: 'var(--on-surface-variant)', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 700 }}>Скидки</span>
+                  {discounts.map((d) => (
+                    <div key={d.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                      <span style={{ fontSize: 12, color: 'var(--on-surface-variant)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>
+                        {d.name}
+                        <span style={{ marginLeft: 6, opacity: 0.7 }}>{d.type === 'percent' ? `${parseNum(d.value)}%` : ''}{d.target === 'item' ? ' · позиция' : ''}</span>
+                      </span>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: '#F59E0B', flexShrink: 0 }}>− {fmt(parseNum(d.amount))} ₽</span>
+                    </div>
+                  ))}
+                </>
+              ) : parseNum(check.discountTotal) > 0 && (
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ fontSize: 12, color: 'var(--on-surface-variant)' }}>Скидка</span><span style={{ fontSize: 13, fontWeight: 700, color: '#F59E0B' }}>− {fmt(parseNum(check.discountTotal))} ₽</span></div>
+              )}
               {parseNum(check.bonusUsed) > 0 && <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ fontSize: 12, color: 'var(--on-surface-variant)' }}>Бонусы</span><span style={{ fontSize: 13, fontWeight: 700, color: '#F59E0B' }}>− {fmt(parseNum(check.bonusUsed))} ₽</span></div>}
               {parseNum(check.certificateUsed) > 0 && <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ fontSize: 12, color: 'var(--on-surface-variant)' }}>Сертификат</span><span style={{ fontSize: 13, fontWeight: 700, color: '#14B8A6' }}>− {fmt(parseNum(check.certificateUsed))} ₽</span></div>}
             </div>

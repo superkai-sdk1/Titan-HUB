@@ -3,7 +3,7 @@ import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import {
-  db, checks, checkItems, checkPayments, inventory, profiles, shifts, expenses,
+  db, checks, checkItems, checkPayments, checkDiscounts, inventory, profiles, shifts, expenses,
   supplies, supplyItems, salaryPayments, refunds,
   eq, and, gte, lte, lt, desc, asc, sql, sum, count, avg, isNull, ne, inArray,
 } from '@titan/database'
@@ -785,6 +785,12 @@ analyticsRouter.get('/checks/:id', async (c) => {
     .from(checkPayments)
     .where(eq(checkPayments.checkId, id))
 
+  // Применённые скидки (детально: название, тип, значение, сумма, на чек/позицию).
+  const discountRows = await db
+    .select({ id: checkDiscounts.id, name: checkDiscounts.name, type: checkDiscounts.type, value: checkDiscounts.value, amount: checkDiscounts.amount, target: checkDiscounts.target, itemId: checkDiscounts.itemId })
+    .from(checkDiscounts)
+    .where(eq(checkDiscounts.checkId, id))
+
   const [player] = check.playerId
     ? await db.select({ id: profiles.id, nickname: profiles.nickname, fullName: profiles.fullName, phone: profiles.phone, clientTier: profiles.clientTier })
         .from(profiles).where(eq(profiles.id, check.playerId)).limit(1)
@@ -811,6 +817,7 @@ analyticsRouter.get('/checks/:id', async (c) => {
     guestName,
     items: items.map((i: any) => ({ ...i, priceAtTime: parseNum(i.priceAtTime), lineTotal: parseNum(i.priceAtTime) * Number(i.quantity) })),
     payments: payments.map((p: any) => ({ method: p.method, amount: parseNum(p.amount) })),
+    discounts: discountRows.map((d: any) => ({ id: d.id, name: d.name, type: d.type, value: parseNum(d.value), amount: parseNum(d.amount), target: d.target, itemId: d.itemId })),
     player,
     staff,
     refunds: checkRefunds.map((r: any) => ({ ...r, totalAmount: parseNum(r.totalAmount) })),
