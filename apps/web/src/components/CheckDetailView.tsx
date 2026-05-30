@@ -94,6 +94,19 @@ const CERT_CONFIG = { label: 'Сертификат', icon: 'card_membership', co
 // Методы, доступные как ручной tender внутри «Раздельной» (без QR-СБП).
 const SPLIT_MANUAL_METHODS = ['cash', 'card', 'deposit', 'debt', 'bonus'] as const
 
+// Тарифный шаг при привязке плательщика — как при открытии нового чека на кассе.
+// Маппинг тира клиента → название тарифа в меню (для предвыбора).
+const TIER_TO_TARIFF_NAME: Record<string, string> = { guest: 'Гость', resident: 'Резидент', student: 'Студент' }
+const TIER_LABELS: Record<string, string> = { guest: 'Гость', resident: 'Резидент', student: 'Студент' }
+const TARIFF_PALETTE = [
+  { color: '#8B5CF6', bg: 'rgba(139,92,246,0.15)', selBg: 'rgba(139,92,246,0.22)', selBorder: 'rgba(139,92,246,0.65)' },
+  { color: '#10B981', bg: 'rgba(16,185,129,0.15)', selBg: 'rgba(16,185,129,0.22)', selBorder: 'rgba(16,185,129,0.65)' },
+  { color: '#F59E0B', bg: 'rgba(245,158,11,0.15)', selBg: 'rgba(245,158,11,0.22)', selBorder: 'rgba(245,158,11,0.65)' },
+  { color: '#3B82F6', bg: 'rgba(59,130,246,0.15)', selBg: 'rgba(59,130,246,0.22)', selBorder: 'rgba(59,130,246,0.65)' },
+  { color: '#F43F5E', bg: 'rgba(244,63,94,0.15)', selBg: 'rgba(244,63,94,0.22)', selBorder: 'rgba(244,63,94,0.65)' },
+  { color: '#4cd7f6', bg: 'rgba(76,215,246,0.15)', selBg: 'rgba(76,215,246,0.22)', selBorder: 'rgba(76,215,246,0.65)' },
+]
+
 function getInitials(name?: string | null): string {
   if (!name) return 'Г'
   return name.split(' ').map(p => p[0]).join('').toUpperCase().slice(0, 2)
@@ -214,12 +227,19 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
   const [clientSearching, setClientSearching] = useState(false)
   const [guestNameInput, setGuestNameInput] = useState('')
   const clientTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Тарифный шаг (как на кассе): после выбора плательщика предлагаем выбрать тариф.
+  const [tariffStep, setTariffStep] = useState(false)
+  const [pendingPlayer, setPendingPlayer] = useState<{ id: string; nickname: string; clientTier: string } | null>(null)
+  const [selectedTariffId, setSelectedTariffId] = useState<string | null>(null)
 
   const check = checkData
   // Имя в заголовке: реальное имя клиента/гостя, иначе смешная заглушка (по id чека).
   const displayName = check ? (check.guestName || funnyGuestName(check.id)) : 'Гость'
   const categories = categoriesData?.categories ?? []
   const allItems = (itemsData?.items ?? []).filter(i => i.isActive)
+  // Тарифы — активные позиции из категории «Тарифы» (для тарифного шага привязки).
+  const tariffCategoryId = categories.find(c => c.name.toLowerCase().includes('тариф'))?.id ?? null
+  const tariffItems = allItems.filter(i => tariffCategoryId ? i.category === tariffCategoryId : false)
   const filteredItems = allItems.filter(item => {
     const matchCat = !activeCat || item.category === activeCat
     const matchSearch = !search || item.name.toLowerCase().includes(search.toLowerCase())
@@ -463,17 +483,41 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
     return () => { if (clientTimerRef.current) clearTimeout(clientTimerRef.current) }
   }, [clientQuery, showClient])
 
-  // Выбор клиента в шторке: если плательщика нет — ставим его; иначе добавляем как
-  // доп. человека (по нику). «Один платит за двоих»: плательщик = тот, кто платит.
-  const pickClient = (cl: { id: string; nickname: string }) => {
+  // Предвыбор тарифа по тиру клиента (как на кассе) при входе в тарифный шаг.
+  useEffect(() => {
+    if (!tariffStep || !pendingPlayer) return
+    const expected = TIER_TO_TARIFF_NAME[pendingPlayer.clientTier]
+    if (!expected) { setSelectedTariffId(null); return }
+    const match = tariffItems.find(i => i.name.toLowerCase() === expected.toLowerCase())
+    setSelectedTariffId(match?.id ?? null)
+  }, [tariffStep, pendingPlayer, itemsData]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Закрыть шторку клиента и сбросить тарифный шаг.
+  const closeClient = () => {
+    setShowClient(false); setTariffStep(false); setPendingPlayer(null)
+    setSelectedTariffId(null); setClientQuery(''); setClientResults([]); setGuestNameInput('')
+  }
+
+  // Подтверждение тарифного шага: добавляем выбранный тариф позицией в чек (или без).
+  const confirmTariff = async () => {
+    if (selectedTariffId) { try { await addItem.mutateAsync(selectedTariffId) } catch { /* toastError в мутации */ } }
+    closeClient()
+  }
+
+  // Выбор клиента в шторке: если плательщика нет — ставим его и показываем тарифный
+  // шаг (как при открытии нового чека). Иначе добавляем как доп. человека (по нику):
+  // «один платит за двоих» — плательщик = тот, кто платит.
+  const pickClient = (cl: { id: string; nickname: string; clientTier: string }) => {
+    setClientQuery(''); setClientResults([])
     if (!check?.playerId) {
       setPlayer.mutate(cl.id)
+      setPendingPlayer(cl)
+      setSelectedTariffId(null)
+      setTariffStep(true)
     } else if (cl.id !== check.playerId) {
       const names = check.guestNames ?? []
       if (!names.includes(cl.nickname)) setGuests.mutate([...names, cl.nickname])
     }
-    setClientQuery('')
-    setClientResults([])
   }
   const addGuestName = () => {
     const name = guestNameInput.trim()
@@ -1076,10 +1120,11 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
       {/* Клиент в чеке: плательщик + доп. люди */}
       {showClient && (
         <div
-          onClick={e => { if (e.target === e.currentTarget) setShowClient(false) }}
+          onClick={e => { if (e.target === e.currentTarget) closeClient() }}
           style={{ position: 'absolute', inset: 0, zIndex: 60, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(13,21,38,0.8)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)', padding: 16 }}
         >
           <div className="glass-l1" style={{ borderRadius: 24, padding: 24, width: 'min(440px,100%)', maxHeight: '90%', overflowY: 'auto', boxShadow: '0 24px 80px rgba(0,0,0,0.6)' }}>
+            {!tariffStep && (<>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 18 }}>
               <Icon name="group" size={22} color="#38BDF8" />
               <h2 style={{ fontSize: 18, fontWeight: 900, fontStyle: 'italic', textTransform: 'uppercase', margin: 0 }}>Клиенты в чеке</h2>
@@ -1160,10 +1205,77 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
               </button>
             </div>
 
-            <button type="button" onClick={() => setShowClient(false)}
+            <button type="button" onClick={closeClient}
               style={{ width: '100%', padding: '13px 0', borderRadius: 14, border: 'none', background: 'linear-gradient(135deg, #38BDF8, #0EA5E9)', color: '#fff', fontSize: 13, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.06em', cursor: 'pointer' }}>
               Готово
             </button>
+            </>)}
+
+            {/* Тарифный шаг — как при открытии нового чека на кассе */}
+            {tariffStep && pendingPlayer && (
+              <>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 18 }}>
+                  <button type="button" onClick={() => setTariffStep(false)}
+                    style={{ width: 36, height: 36, borderRadius: 10, border: 'none', cursor: 'pointer', background: 'rgba(255,255,255,0.06)', color: 'var(--on-surface-variant)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <Icon name="arrow_back" size={18} />
+                  </button>
+                  <div style={{ flex: 1 }}>
+                    <h2 style={{ fontSize: 18, fontWeight: 900, fontStyle: 'italic', textTransform: 'uppercase', margin: 0 }}>Тариф</h2>
+                    <p style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--on-surface-variant)', margin: '3px 0 0' }}>Выберите тариф</p>
+                  </div>
+                </div>
+
+                <div className="glass-l2" style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', borderRadius: 14, marginBottom: 18, border: '1px solid rgba(56,189,248,0.25)' }}>
+                  <div style={{ width: 40, height: 40, borderRadius: '50%', flexShrink: 0, background: 'linear-gradient(135deg, rgba(56,189,248,0.35), rgba(76,215,246,0.35))', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 700, color: '#38BDF8' }}>
+                    {getInitials(pendingPlayer.nickname)}
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <p style={{ fontSize: 14, fontWeight: 700, margin: 0, color: 'var(--on-surface)' }}>{pendingPlayer.nickname}</p>
+                    <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: '2px 0 0' }}>{TIER_LABELS[pendingPlayer.clientTier] ?? pendingPlayer.clientTier}</p>
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                  {tariffItems.map((item, idx) => {
+                    const price = parseFloat(String(item.price)) || 0
+                    const isSelected = selectedTariffId === item.id
+                    const pal = TARIFF_PALETTE[idx % TARIFF_PALETTE.length]
+                    return (
+                      <button key={item.id} type="button" onClick={() => setSelectedTariffId(isSelected ? null : item.id)} disabled={addItem.isPending} className="glass-l2"
+                        style={{ padding: '16px 14px', borderRadius: 16, border: isSelected ? `1px solid ${pal.selBorder}` : '1px solid rgba(255,255,255,0.08)', background: isSelected ? pal.selBg : 'transparent', cursor: 'pointer', textAlign: 'left', display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 10, opacity: addItem.isPending ? 0.6 : 1 }}>
+                        <div style={{ width: 36, height: 36, borderRadius: 10, background: isSelected ? `${pal.color}44` : pal.bg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          <Icon name="confirmation_number" size={18} color={pal.color} />
+                        </div>
+                        <div>
+                          <p style={{ fontSize: 14, fontWeight: 700, margin: 0, color: isSelected ? '#fff' : 'var(--on-surface)' }}>{item.name}</p>
+                          <p style={{ fontSize: 16, fontWeight: 900, fontStyle: 'italic', margin: '4px 0 0', color: pal.color, fontVariantNumeric: 'tabular-nums' }}>{price.toLocaleString('ru')} ₽</p>
+                        </div>
+                      </button>
+                    )
+                  })}
+
+                  <button type="button" onClick={() => setSelectedTariffId(null)} disabled={addItem.isPending}
+                    style={{ gridColumn: '1 / -1', padding: '14px 18px', borderRadius: 16, border: selectedTariffId === null ? '1px solid rgba(255,255,255,0.2)' : '1px solid rgba(255,255,255,0.06)', background: selectedTariffId === null ? 'rgba(255,255,255,0.06)' : 'transparent', cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: 12, opacity: addItem.isPending ? 0.6 : 1 }}>
+                    <div style={{ width: 36, height: 36, borderRadius: 10, background: 'rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                      <Icon name="block" size={18} color="var(--on-surface-variant)" />
+                    </div>
+                    <div>
+                      <span style={{ fontSize: 14, fontWeight: 600, color: selectedTariffId === null ? 'var(--on-surface)' : 'var(--on-surface-variant)' }}>Без тарифа</span>
+                      <p style={{ fontSize: 11, color: 'rgba(204,195,216,0.4)', margin: '2px 0 0' }}>Не добавлять позицию</p>
+                    </div>
+                  </button>
+
+                  <button type="button" onClick={confirmTariff} disabled={addItem.isPending}
+                    style={{ gridColumn: '1 / -1', marginTop: 4, width: '100%', padding: '15px 0', borderRadius: 16, border: 'none', cursor: 'pointer', background: 'linear-gradient(135deg, #38BDF8, #0EA5E9)', color: '#fff', fontSize: 14, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.06em', opacity: addItem.isPending ? 0.7 : 1 }}>
+                    {addItem.isPending ? 'Добавляем…' : 'Готово'}
+                  </button>
+                </div>
+
+                {tariffItems.length === 0 && (
+                  <p style={{ fontSize: 13, color: 'var(--on-surface-variant)', textAlign: 'center', margin: '12px 0 0' }}>Категория «Тарифы» пуста — клиент привязан без тарифа.</p>
+                )}
+              </>
+            )}
           </div>
         </div>
       )}
