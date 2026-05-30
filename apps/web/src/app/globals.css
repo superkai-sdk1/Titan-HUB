@@ -107,12 +107,20 @@ html {
    (цвет холста/манифеста). Этот фиксированный слой высотой 100lvh (= вся физическая
    высота экрана при viewport-fit=cover) принудительно закрашивает ВЕСЬ экран,
    включая нижнюю зону, фоном приложения. Лежит позади контента (z-index:-1). */
+/* Единый фон приложения — фиксированный слой на ВСЮ физическую высоту экрана
+   (100lvh), включая нижнюю зону home indicator. Меш (цвет + радиальные градиенты)
+   живёт здесь, а body прозрачный (.bg-mesh ниже). Так нет стыка между body (100dvh)
+   и зоной ниже: нижняя зона прозрачно показывает тот же сплошной фон, без полосы.
+   Градиент `at 100% 100%` теперь приходится на реальный низ экрана. */
 html::before {
   content: '';
   position: fixed;
   left: 0; right: 0; top: 0;
   height: 100lvh;
   background-color: #15121b;
+  background-image:
+    radial-gradient(at 0% 0%, rgba(139, 92, 246, 0.15) 0px, transparent 50%),
+    radial-gradient(at 100% 100%, rgba(59, 130, 246, 0.1) 0px, transparent 50%);
   z-index: -1;
   pointer-events: none;
 }
@@ -133,11 +141,10 @@ body {
 button, [role="button"] { user-select: none; }
 
 /* ── Background Mesh ────────────────────────────────── */
+/* Меш перенесён на фиксированный html::before (на всю высоту экрана). body —
+   прозрачный, чтобы не было отдельной заливки 100dvh со стыком у home indicator. */
 .bg-mesh {
-  background-color: #15121b;
-  background-image:
-    radial-gradient(at 0% 0%, rgba(139, 92, 246, 0.15) 0px, transparent 50%),
-    radial-gradient(at 100% 100%, rgba(59, 130, 246, 0.1) 0px, transparent 50%);
+  background: transparent;
 }
 
 /* ── Glass surfaces ─────────────────────────────────── */
