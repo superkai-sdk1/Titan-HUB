@@ -3,8 +3,9 @@ import React, { useState } from 'react'
 import { Icon } from '@/components/Icon'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
-import { Sheet, INP, LBL } from '@/components/manage/DesignSystem'
+import { Sheet, INP, SEL, LBL } from '@/components/manage/DesignSystem'
 import { TimeInput24 } from '@/components/TimeInput24'
+import { useToast } from '@/components/Toast'
 
 const STATUS: Record<string, [string, string, string]> = {
   planned:   ['Запланировано', '#3B82F6', 'schedule'],
@@ -24,6 +25,11 @@ const PAY_TYPES: Record<string, string> = {
   free:     'Бесплатно',
 }
 
+const BILLING_MODES: Record<string, string> = {
+  amount: 'Сумма',
+  hourly: 'Почасовая аренда зоны',
+}
+
 const BLANK = {
   type: 'titan',
   title: '',
@@ -32,9 +38,12 @@ const BLANK = {
   startTime: '18:00',
   endTime: '',
   paymentType: 'fixed' as 'fixed' | 'per_head' | 'free',
+  billingMode: 'amount' as 'amount' | 'hourly',
   fixedAmount: '',
   perHeadAmount: '',
+  manualAmount: '',
   maxGuests: '',
+  responsibleStaffId: '',
   comment: '',
 }
 
@@ -42,15 +51,39 @@ const MONTHS_SHORT = ['', 'янв', 'фев', 'мар', 'апр', 'май', 'и�
 
 export default function EventsPage() {
   const qc = useQueryClient()
+  const { show } = useToast()
+  const [tab, setTab] = useState<'upcoming' | 'past'>('upcoming')
   const [showForm, setShowForm] = useState(false)
+  const [editId, setEditId] = useState<string | null>(null)
   const [selected, setSelected] = useState<any>(null)
   const [form, setForm] = useState<any>(BLANK)
   const [analyticsId, setAnalyticsId] = useState<string | null>(null)
   const [formError, setFormError] = useState<string | null>(null)
 
   const { data } = useQuery({ queryKey: ['events'], queryFn: () => api.get<any>('/events') })
-  const events: any[] = (data?.events ?? []).sort((a: any, b: any) => b.date.localeCompare(a.date))
-  const upcomingCount = events.filter(e => e.status === 'planned' || e.status === 'active').length
+  const allEvents: any[] = data?.events ?? []
+
+  // sortable key from date + startTime, e.g. "2026-05-30T18:00"
+  const sortKey = (e: any) => `${e.date ?? ''}T${e.startTime ?? '00:00'}`
+  const isPast = (e: any) => e.status === 'completed' || e.status === 'cancelled'
+
+  // Upcoming: planned/active, ascending (nearest first). Past: completed/cancelled, descending.
+  const upcoming = allEvents
+    .filter(e => !isPast(e))
+    .sort((a, b) => sortKey(a).localeCompare(sortKey(b)))
+  const past = allEvents
+    .filter(isPast)
+    .sort((a, b) => sortKey(b).localeCompare(sortKey(a)))
+  const events = tab === 'upcoming' ? upcoming : past
+  const upcomingCount = upcoming.length
+
+  // Staff list (owner + staff roles) — GET /staff → { staff: [{ id, nickname, role }] }
+  const { data: staffData } = useQuery({
+    queryKey: ['staff'],
+    queryFn: () => api.get<{ staff: any[] }>('/staff'),
+  })
+  const staffList: any[] = staffData?.staff ?? []
+  const staffById = (id: string | null | undefined) => staffList.find(s => s.id === id)
 
   const { data: spacesData } = useQuery({
     queryKey: ['pos', 'spaces'],
@@ -71,32 +104,101 @@ export default function EventsPage() {
       qc.invalidateQueries({ queryKey: ['events'] })
       setShowForm(false)
       setForm(BLANK)
+      setEditId(null)
       setFormError(null)
     },
     onError: (err: any) => {
       setFormError(err?.message ?? 'Ошибка сохранения')
     },
   })
-  const update = useMutation({ mutationFn: ({ id, ...b }: any) => api.patch(`/events/${id}`, b), onSuccess: () => { qc.invalidateQueries({ queryKey: ['events'] }); setSelected(null) } })
+  const saveEdit = useMutation({
+    mutationFn: ({ id, ...b }: any) => api.patch(`/events/${id}`, b),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['events'] })
+      setShowForm(false)
+      setForm(BLANK)
+      setEditId(null)
+      setFormError(null)
+    },
+    onError: (err: any) => {
+      setFormError(err?.message ?? 'Ошибка сохранения')
+    },
+  })
+  const update = useMutation({
+    mutationFn: ({ id, ...b }: any) => api.patch(`/events/${id}`, b),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['events'] }); setSelected(null) },
+    onError: (err: any) => show(err?.message ?? 'Не удалось изменить статус', 'error'),
+  })
   const del = useMutation({ mutationFn: (id: string) => api.delete(`/events/${id}`), onSuccess: () => { qc.invalidateQueries({ queryKey: ['events'] }); setSelected(null) } })
+
+  function openCreate() {
+    setForm(BLANK)
+    setEditId(null)
+    setFormError(null)
+    setShowForm(true)
+  }
+
+  function openEdit(ev: any) {
+    setForm({
+      type: ev.type ?? 'titan',
+      title: ev.title ?? '',
+      spaceId: ev.spaceId ?? '',
+      date: ev.date ?? new Date().toISOString().split('T')[0],
+      startTime: ev.startTime ?? '18:00',
+      endTime: ev.endTime ?? '',
+      paymentType: ev.paymentType ?? 'fixed',
+      billingMode: ev.billingMode ?? 'amount',
+      fixedAmount: ev.fixedAmount != null ? String(ev.fixedAmount) : '',
+      perHeadAmount: ev.perHeadAmount != null ? String(ev.perHeadAmount) : '',
+      manualAmount: ev.manualAmount != null ? String(ev.manualAmount) : '',
+      maxGuests: ev.maxGuests != null ? String(ev.maxGuests) : '',
+      responsibleStaffId: ev.responsibleStaffId ?? '',
+      comment: ev.comment ?? '',
+    })
+    setEditId(ev.id)
+    setFormError(null)
+    setSelected(null)
+    setShowForm(true)
+  }
+
+  function startEvent(ev: any) {
+    update.mutate({ id: ev.id, status: 'active' })
+  }
 
   function submitForm() {
     setFormError(null)
+    // Exit type always uses 'amount' billing; hourly only meaningful for titan
+    const billingMode = form.type === 'exit' ? 'amount' : form.billingMode
+    const hourly = billingMode === 'hourly'
+
+    if (form.type === 'exit' && !form.responsibleStaffId) {
+      setFormError('Для выезда укажите ответственного')
+      return
+    }
+
     const payload: any = {
       type: form.type,
-      title: form.title || undefined,
-      spaceId: form.spaceId || undefined,
+      title: form.title || null,
+      spaceId: form.type === 'titan' ? (form.spaceId || null) : null,
       date: form.date,
       startTime: form.startTime,
-      endTime: form.endTime || undefined,
+      endTime: form.endTime || null,
       paymentType: form.paymentType,
-      comment: form.comment || undefined,
+      billingMode,
+      responsibleStaffId: form.responsibleStaffId || null,
+      comment: form.comment || null,
+      maxGuests: form.maxGuests ? parseInt(form.maxGuests) : null,
     }
-    if (form.paymentType === 'fixed' && form.fixedAmount) payload.fixedAmount = parseFloat(form.fixedAmount)
-    if (form.paymentType === 'per_head' && form.perHeadAmount) payload.perHeadAmount = parseFloat(form.perHeadAmount)
-    if (form.maxGuests) payload.maxGuests = parseInt(form.maxGuests)
-    create.mutate(payload)
+    // Amounts: when hourly, charged per zone rate — clear manual/fixed overrides
+    payload.fixedAmount = !hourly && form.paymentType === 'fixed' && form.fixedAmount ? parseFloat(form.fixedAmount) : null
+    payload.perHeadAmount = form.paymentType === 'per_head' && form.perHeadAmount ? parseFloat(form.perHeadAmount) : null
+    payload.manualAmount = !hourly && form.manualAmount ? parseFloat(form.manualAmount) : null
+
+    if (editId) saveEdit.mutate({ id: editId, ...payload })
+    else create.mutate(payload)
   }
+
+  const saving = create.isPending || saveEdit.isPending
 
   return (
     <div style={{ minHeight: '100dvh', display: 'flex', flexDirection: 'column', overflowX: 'hidden', width: '100%' }}>
@@ -115,7 +217,7 @@ export default function EventsPage() {
             </p>
           </div>
           <button
-            onClick={() => { setForm(BLANK); setFormError(null); setShowForm(true) }}
+            onClick={openCreate}
             style={{
               display: 'flex', alignItems: 'center', gap: 8,
               padding: '10px 18px', borderRadius: 14, border: 'none', cursor: 'pointer',
@@ -128,13 +230,32 @@ export default function EventsPage() {
             Добавить
           </button>
         </div>
+
+        {/* Tabs */}
+        <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid rgba(255,255,255,0.06)', maxWidth: 680, margin: '12px auto 0', width: '100%' }}>
+          {([['upcoming', 'Предстоящие', upcoming.length], ['past', 'Прошедшие', past.length]] as [typeof tab, string, number][]).map(([k, l, n]) => (
+            <button key={k} onClick={() => setTab(k)} style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              padding: '9px 14px', border: 'none', background: 'transparent', cursor: 'pointer',
+              borderBottom: tab === k ? '2px solid #8B5CF6' : '2px solid transparent',
+              color: tab === k ? '#8B5CF6' : 'var(--on-surface-variant)',
+              fontSize: 13, fontWeight: tab === k ? 700 : 500,
+              transition: 'all 0.2s', marginBottom: -1, whiteSpace: 'nowrap',
+            }}>
+              {l}
+              <span style={{ fontSize: 11, fontWeight: 700, padding: '1px 7px', borderRadius: 9999, background: tab === k ? 'rgba(139,92,246,0.18)' : 'rgba(255,255,255,0.06)', color: tab === k ? '#a78bfa' : 'var(--on-surface-variant)' }}>{n}</span>
+            </button>
+          ))}
+        </div>
       </div>
 
       <div style={{ padding: '16px 16px var(--bottom-nav-clear)', flex: 1, maxWidth: 680, margin: '0 auto', width: '100%', boxSizing: 'border-box' }}>
         {events.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '80px 0' }}>
             <Icon name="event" size={56} color="rgba(204,195,216,0.2)" style={{ display: 'block', marginBottom: 12 }} />
-            <p style={{ fontSize: 15, color: 'rgba(204,195,216,0.4)', margin: 0 }}>Мероприятий нет</p>
+            <p style={{ fontSize: 15, color: 'rgba(204,195,216,0.4)', margin: 0 }}>
+              {tab === 'upcoming' ? 'Предстоящих мероприятий нет' : 'Прошедших мероприятий нет'}
+            </p>
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -146,6 +267,16 @@ export default function EventsPage() {
               const guestsLabel = ev.maxGuests
                 ? `${ev.attendeesCount ?? 0} / ${ev.maxGuests}`
                 : ev.attendeesCount > 0 ? `${ev.attendeesCount} гостей` : null
+              const responsible = staffById(ev.responsibleStaffId)
+              const baseAmount = ev.billingMode === 'hourly'
+                ? 'почасовая'
+                : ev.manualAmount != null
+                ? `${parseFloat(ev.manualAmount).toLocaleString('ru')} ₽`
+                : ev.paymentType === 'fixed' && ev.fixedAmount != null
+                ? `${parseFloat(ev.fixedAmount).toLocaleString('ru')} ₽`
+                : ev.paymentType === 'per_head' && ev.perHeadAmount != null
+                ? `${parseFloat(ev.perHeadAmount).toLocaleString('ru')} ₽/чел`
+                : null
               return (
                 <div key={ev.id} className="glass-l2" onClick={() => setSelected(ev)}
                   style={{ borderRadius: 16, padding: '16px', cursor: 'pointer', display: 'flex', gap: 14, alignItems: 'flex-start', transition: 'border-color 0.2s, transform 0.15s' }}
@@ -173,12 +304,30 @@ export default function EventsPage() {
                     </div>
                     <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: '0 0 3px' }}>
                       {ev.startTime}{ev.endTime ? ` — ${ev.endTime}` : ''} · {PAY_TYPES[ev.paymentType] ?? ev.paymentType}
-                      {ev.paymentType === 'fixed' && ev.fixedAmount ? ` · ${parseFloat(ev.fixedAmount).toLocaleString('ru')} ₽` : ''}
-                      {ev.paymentType === 'per_head' && ev.perHeadAmount ? ` · ${parseFloat(ev.perHeadAmount).toLocaleString('ru')} ₽/чел` : ''}
+                      {baseAmount ? ` · ${baseAmount}` : ''}
                     </p>
+                    {(ev.type === 'exit' && ev.location) && (
+                      <p style={{ fontSize: 12, color: 'rgba(204,195,216,0.6)', margin: '0 0 3px', display: 'flex', alignItems: 'center', gap: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        <Icon name="location_on" size={12} color="#F59E0B" />{ev.location}
+                      </p>
+                    )}
+                    {responsible && (
+                      <p style={{ fontSize: 12, color: 'rgba(204,195,216,0.6)', margin: '0 0 3px', display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <Icon name="person" size={12} color="#a78bfa" />{responsible.nickname}
+                      </p>
+                    )}
                     {ev.comment && <p style={{ fontSize: 12, color: 'rgba(204,195,216,0.5)', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ev.comment}</p>}
                   </div>
-                  <Icon name="chevron_right" size={18} color="rgba(204,195,216,0.3)" />
+                  {ev.status === 'planned' ? (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); startEvent(ev) }}
+                      disabled={update.isPending}
+                      style={{ alignSelf: 'center', display: 'flex', alignItems: 'center', gap: 5, padding: '8px 14px', borderRadius: 12, border: 'none', cursor: 'pointer', background: 'linear-gradient(135deg, #10B981, #4cd7f6)', color: '#fff', fontSize: 12, fontWeight: 700, flexShrink: 0, boxShadow: '0 4px 14px rgba(16,185,129,0.3)' }}>
+                      <Icon name="play_arrow" size={15} />Начать
+                    </button>
+                  ) : (
+                    <Icon name="chevron_right" size={18} color="rgba(204,195,216,0.3)" />
+                  )}
                 </div>
               )
             })}
@@ -186,14 +335,14 @@ export default function EventsPage() {
         )}
       </div>
 
-      {/* Create sheet */}
-      <Sheet open={showForm} onClose={() => setShowForm(false)} title="Новое мероприятие">
+      {/* Create / Edit sheet */}
+      <Sheet open={showForm} onClose={() => { setShowForm(false); setEditId(null) }} title={editId ? 'Редактировать мероприятие' : 'Новое мероприятие'}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div>
             <label style={LBL}>Тип</label>
             <div style={{ display: 'flex', gap: 8 }}>
               {Object.entries(TYPES).map(([k, [l, icon, c]]) => (
-                <button key={k} onClick={() => setForm((p: any) => ({ ...p, type: k }))}
+                <button key={k} onClick={() => setForm((p: any) => ({ ...p, type: k, billingMode: k === 'exit' ? 'amount' : p.billingMode }))}
                   style={{ flex: 1, padding: '12px', borderRadius: 12, border: `1px solid ${form.type === k ? c : 'rgba(255,255,255,0.1)'}`, background: form.type === k ? `${c}22` : 'rgba(255,255,255,0.04)', color: form.type === k ? c : 'var(--on-surface-variant)', fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
                   <Icon name={icon} size={16} />{l}
                 </button>
@@ -212,10 +361,32 @@ export default function EventsPage() {
               </select>
             </div>
           )}
+          {form.type === 'titan' && (
+            <div>
+              <label style={LBL}>Тариф зоны</label>
+              <div style={{ display: 'flex', gap: 8 }}>
+                {Object.entries(BILLING_MODES).map(([k, l]) => (
+                  <button key={k} onClick={() => setForm((p: any) => ({ ...p, billingMode: k }))}
+                    style={{ flex: 1, padding: '11px 8px', borderRadius: 12, border: `1px solid ${form.billingMode === k ? '#8B5CF6' : 'rgba(255,255,255,0.1)'}`, background: form.billingMode === k ? 'rgba(139,92,246,0.15)' : 'rgba(255,255,255,0.04)', color: form.billingMode === k ? '#a78bfa' : 'var(--on-surface-variant)', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+                    {l}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           <div><label style={LBL}>Дата</label><input type="date" value={form.date} onChange={e => setForm((p: any) => ({ ...p, date: e.target.value }))} style={INP} /></div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
             <div><label style={LBL}>Начало</label><TimeInput24 value={form.startTime} onChange={v => setForm((p: any) => ({ ...p, startTime: v }))} /></div>
             <div><label style={LBL}>Конец</label><TimeInput24 value={form.endTime} onChange={v => setForm((p: any) => ({ ...p, endTime: v }))} /></div>
+          </div>
+          <div>
+            <label style={LBL}>Ответственный{form.type === 'exit' ? ' *' : ''}</label>
+            <select value={form.responsibleStaffId} onChange={e => setForm((p: any) => ({ ...p, responsibleStaffId: e.target.value }))} style={SEL}>
+              <option value="">{form.type === 'exit' ? 'Выберите сотрудника' : 'Не назначен'}</option>
+              {staffList.map((s) => (
+                <option key={s.id} value={s.id}>{s.nickname}</option>
+              ))}
+            </select>
           </div>
           <div>
             <label style={LBL}>Оплата</label>
@@ -228,11 +399,23 @@ export default function EventsPage() {
               ))}
             </div>
           </div>
-          {form.paymentType === 'fixed' && (
-            <div><label style={LBL}>Сумма (₽)</label><input type="number" value={form.fixedAmount} onChange={e => setForm((p: any) => ({ ...p, fixedAmount: e.target.value }))} style={INP} /></div>
-          )}
-          {form.paymentType === 'per_head' && (
-            <div><label style={LBL}>Сумма с гостя (₽)</label><input type="number" value={form.perHeadAmount} onChange={e => setForm((p: any) => ({ ...p, perHeadAmount: e.target.value }))} style={INP} /></div>
+          {form.type === 'titan' && form.billingMode === 'hourly' ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 14px', borderRadius: 12, background: 'rgba(139,92,246,0.08)', border: '1px solid rgba(139,92,246,0.2)' }}>
+              <Icon name="schedule" size={18} color="#a78bfa" />
+              <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: 0 }}>Оплата по почасовой ставке зоны</p>
+            </div>
+          ) : (
+            <>
+              {form.paymentType === 'fixed' && (
+                <div><label style={LBL}>Сумма (₽)</label><input type="number" value={form.fixedAmount} onChange={e => setForm((p: any) => ({ ...p, fixedAmount: e.target.value }))} style={INP} /></div>
+              )}
+              {form.paymentType === 'per_head' && (
+                <div><label style={LBL}>Сумма с гостя (₽)</label><input type="number" value={form.perHeadAmount} onChange={e => setForm((p: any) => ({ ...p, perHeadAmount: e.target.value }))} style={INP} /></div>
+              )}
+              {(form.paymentType === 'per_head' || form.paymentType === 'free') && (
+                <div><label style={LBL}>Сумма вручную (₽)</label><input type="number" value={form.manualAmount} onChange={e => setForm((p: any) => ({ ...p, manualAmount: e.target.value }))} placeholder="Необязательно" style={INP} /></div>
+              )}
+            </>
           )}
           <div><label style={LBL}>Максимум гостей (опционально)</label><input type="number" value={form.maxGuests} onChange={e => setForm((p: any) => ({ ...p, maxGuests: e.target.value }))} placeholder="Без ограничения" style={INP} /></div>
           <div><label style={LBL}>Комментарий</label><input value={form.comment} onChange={e => setForm((p: any) => ({ ...p, comment: e.target.value }))} placeholder="Необязательно" style={INP} /></div>
@@ -241,9 +424,9 @@ export default function EventsPage() {
               {formError}
             </div>
           )}
-          <button onClick={submitForm} disabled={create.isPending}
+          <button onClick={submitForm} disabled={saving}
             style={{ width: '100%', padding: '14px 0', borderRadius: 14, border: 'none', background: 'linear-gradient(135deg, #8B5CF6, #4cd7f6)', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer', marginTop: 4 }}>
-            {create.isPending ? 'Создаём…' : 'Создать мероприятие'}
+            {saving ? 'Сохраняем…' : editId ? 'Сохранить изменения' : 'Создать мероприятие'}
           </button>
         </div>
       </Sheet>
@@ -262,8 +445,15 @@ export default function EventsPage() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
                 {[
                   ['Время', `${selected.startTime}${selected.endTime ? ` — ${selected.endTime}` : ''}`],
+                  selected.type === 'exit' ? ['Локация', selected.location || '—'] : null,
+                  ['Ответственный', staffById(selected.responsibleStaffId)?.nickname || '—'],
                   ['Тип оплаты', PAY_TYPES[selected.paymentType] ?? selected.paymentType],
-                  ['Сумма', selected.paymentType === 'fixed' && selected.fixedAmount
+                  ['Тариф', selected.billingMode === 'hourly' ? 'Почасовая аренда зоны' : '—'],
+                  ['Сумма', selected.billingMode === 'hourly'
+                    ? 'почасовая'
+                    : selected.manualAmount != null
+                    ? `${parseFloat(selected.manualAmount).toLocaleString('ru')} ₽`
+                    : selected.paymentType === 'fixed' && selected.fixedAmount
                     ? `${parseFloat(selected.fixedAmount).toLocaleString('ru')} ₽`
                     : selected.paymentType === 'per_head' && selected.perHeadAmount
                     ? `${parseFloat(selected.perHeadAmount).toLocaleString('ru')} ₽/чел`
@@ -272,12 +462,24 @@ export default function EventsPage() {
                     ? `${selected.attendeesCount ?? 0} / ${selected.maxGuests}`
                     : selected.attendeesCount ? String(selected.attendeesCount) : '—'],
                   ['Комментарий', selected.comment || '—'],
-                ].map(([k, v]) => v && v !== '—' ? (
+                ].filter(Boolean).map((row) => { const [k, v] = row as [string, string]; return v && v !== '—' ? (
                   <div key={k} style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 14px', borderRadius: 10, background: 'rgba(255,255,255,0.04)' }}>
                     <span style={{ fontSize: 12, color: 'var(--on-surface-variant)' }}>{k}</span>
                     <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--on-surface)' }}>{v}</span>
                   </div>
-                ) : null)}
+                ) : null })}
+              </div>
+              {selected.status === 'planned' && (
+                <button onClick={() => startEvent(selected)} disabled={update.isPending}
+                  style={{ width: '100%', padding: '13px 0', borderRadius: 14, border: 'none', background: 'linear-gradient(135deg, #10B981, #4cd7f6)', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer', marginBottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, boxShadow: '0 4px 18px rgba(16,185,129,0.3)' }}>
+                  <Icon name="play_arrow" size={18} />Начать мероприятие
+                </button>
+              )}
+              <div style={{ marginBottom: 16 }}>
+                <button onClick={() => openEdit(selected)}
+                  style={{ width: '100%', padding: '12px 0', borderRadius: 12, border: '1px solid rgba(139,92,246,0.3)', background: 'rgba(139,92,246,0.08)', color: '#a78bfa', fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                  <Icon name="edit" size={16} />Редактировать
+                </button>
               </div>
               <div style={{ marginBottom: 16 }}>
                 <button onClick={() => setAnalyticsId(selected.id)}

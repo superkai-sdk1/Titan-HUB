@@ -24,6 +24,7 @@ interface CheckCard {
   spaceStartAt?: string | null
   spaceEndAt?: string | null
   spaceHourlyRate?: string | null
+  eventBaseAmount?: string | null
 }
 
 interface PlayerResult {
@@ -501,7 +502,7 @@ function PosPageInner() {
             const isActive = activeCheckId === check.id
             // Почасовая аренда: итог на карточке = позиции + живой счётчик аренды.
             const rental = computeRental(check.spaceStartAt, check.spaceEndAt, check.spaceHourlyRate, now)
-            const displayTotal = parseFloat(check.totalAmount) + rental
+            const displayTotal = parseFloat(check.totalAmount) + rental + (parseFloat(check.eventBaseAmount ?? '0') || 0)
             const cardName = check.guestName || funnyGuestName(check.id)
             return (
               <button

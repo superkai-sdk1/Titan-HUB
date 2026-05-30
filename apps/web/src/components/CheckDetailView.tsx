@@ -43,6 +43,8 @@ interface CheckData {
   spaceStartAt?: string | null
   spaceEndAt?: string | null
   spaceHourlyRate?: string | null
+  eventBaseAmount?: string | null
+  linkedEventId?: string | null
   discounts?: { id: string; name: string; type: string; value: string; amount: string; discountId: string | null }[]
   excludedDiscounts?: { id: string; name: string; type: string; value: string }[]
 }
@@ -218,7 +220,10 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
   }, [check])
 
   const baseTotal = parseFloat(check?.totalAmount ?? '0')
-  const total = baseTotal + spaceRental
+  // База мероприятия (фикс/ручная сумма события) — отдельное слагаемое итога,
+  // как и аренда. Сервер так же считает grandTotal в /pay (computeCheckGrandTotal).
+  const eventBase = parseFloat(check?.eventBaseAmount ?? '0') || 0
+  const total = baseTotal + spaceRental + eventBase
   const splitSum = splitParts.reduce((s, p) => s + p.amount, 0)
   const remaining = Math.max(0, total - splitSum)
 
@@ -645,6 +650,19 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
               <div style={{ textAlign: 'center', padding: '48px 0', color: 'var(--on-surface-variant)' }}>
                 <Icon name="shopping_cart" size={40} style={{ display: 'block', marginBottom: 12, opacity: 0.4 }} />
                 <p style={{ fontSize: 13 }}>Добавьте товары из меню →</p>
+              </div>
+            )}
+
+            {/* База мероприятия — фикс/ручная сумма события (помимо позиций/аренды). */}
+            {eventBase > 0 && (
+              <div style={{ marginTop: 8, padding: '12px 14px', borderRadius: 14, background: 'rgba(139,92,246,0.06)', border: '1px solid rgba(139,92,246,0.18)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--on-surface)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <Icon name="event" size={15} color="#A78BFA" />
+                  Мероприятие
+                </span>
+                <span style={{ fontSize: 14, fontWeight: 800, fontVariantNumeric: 'tabular-nums', color: '#A78BFA' }}>
+                  {eventBase.toLocaleString('ru')} ₽
+                </span>
               </div>
             )}
 
