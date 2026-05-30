@@ -22,6 +22,8 @@ interface Discount {
 
 interface ClientResult { id: string; nickname: string }
 
+interface MenuItem { id: string; name: string }
+
 type ClientTier = 'guest' | 'resident' | 'student'
 
 interface TierRule {
@@ -36,7 +38,7 @@ interface TierRule {
 const TIER_LABELS: Record<ClientTier, string> = { guest: 'Гость', resident: 'Резидент', student: 'Студент' }
 const TIER_ORDER: ClientTier[] = ['guest', 'resident', 'student']
 
-const emptyForm = { name: '', type: 'percent' as 'percent' | 'fixed', value: '', isActive: true, isAuto: false, minQuantity: '', clientId: '', clientSearch: '', clientNickname: '' }
+const emptyForm = { name: '', type: 'percent' as 'percent' | 'fixed', value: '', isActive: true, isAuto: false, minQuantity: '', itemId: '', itemName: '', clientId: '', clientSearch: '', clientNickname: '' }
 
 export default function DiscountsPage() {
   const qc = useQueryClient()
@@ -55,6 +57,12 @@ export default function DiscountsPage() {
 
   const discounts = data?.discounts ?? []
   const invalidate = () => qc.invalidateQueries({ queryKey: ['discounts'] })
+
+  const { data: menuData } = useQuery<{ items: MenuItem[] }>({
+    queryKey: ['menu', 'items', 'all'],
+    queryFn: () => api.get('/menu/items/all'),
+  })
+  const menuItems = menuData?.items ?? []
 
   const createMut = useMutation({
     mutationFn: (body: object) => api.post('/discounts', body),
@@ -108,7 +116,7 @@ export default function DiscountsPage() {
   function openCreate() { setSelected(null); setForm(emptyForm); setClientResults([]); setShowCreate(true) }
   function openEdit(d: Discount) {
     setSelected(d)
-    setForm({ name: d.name, type: d.type, value: String(d.value), isActive: d.isActive, isAuto: d.isAuto, minQuantity: d.minQuantity != null ? String(d.minQuantity) : '', clientId: d.clientId ?? '', clientSearch: '', clientNickname: '' })
+    setForm({ name: d.name, type: d.type, value: String(d.value), isActive: d.isActive, isAuto: d.isAuto, minQuantity: d.minQuantity != null ? String(d.minQuantity) : '', itemId: d.itemId ?? '', itemName: '', clientId: d.clientId ?? '', clientSearch: '', clientNickname: '' })
     setClientResults([])
     setShowCreate(true)
   }
@@ -128,8 +136,14 @@ export default function DiscountsPage() {
     const body: any = { name: form.name.trim(), type: form.type, value: parseFloat(form.value) || 0, isActive: form.isActive, isAuto: form.isAuto }
     if (form.minQuantity) body.minQuantity = parseInt(form.minQuantity) || undefined
     if (form.clientId) body.clientId = form.clientId
-    if (selected) updateMut.mutate({ id: selected.id, ...body })
-    else createMut.mutate(body)
+    if (selected) {
+      // На редактировании отправляем itemId всегда: '' → null очищает привязку.
+      body.itemId = form.itemId || null
+      updateMut.mutate({ id: selected.id, ...body })
+    } else {
+      if (form.itemId) body.itemId = form.itemId
+      createMut.mutate(body)
+    }
   }
 
   return (
@@ -271,6 +285,15 @@ export default function DiscountsPage() {
           <div><label style={LBL}>Мин. количество (необязательно)</label><input style={INP} type="number" min="1" value={form.minQuantity} onChange={e => setForm(f => ({ ...f, minQuantity: e.target.value }))} placeholder="от X шт" /></div>
 
           <div>
+            <label style={LBL}>Привязка к товару (необязательно)</label>
+            <select style={SEL} value={form.itemId} onChange={e => setForm(f => ({ ...f, itemId: e.target.value }))}>
+              <option value="">Любой товар</option>
+              {menuItems.map(it => <option key={it.id} value={it.id}>{it.name}</option>)}
+            </select>
+            <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: '4px 0 0' }}>Скидка применится к этой позиции при достижении мин. количества</p>
+          </div>
+
+          <div>
             <label style={LBL}>Привязка к клиенту (необязательно)</label>
             {form.clientId && form.clientNickname ? (
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', borderRadius: 12, border: '1px solid rgba(139,92,246,0.3)', background: 'rgba(139,92,246,0.08)' }}>
@@ -303,6 +326,7 @@ export default function DiscountsPage() {
               <Icon name="auto_awesome" size={16} />Авто
             </button>
           </div>
+          <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: '-6px 0 0' }}>«Авто» — скидка применяется на кассе автоматически (по товару/количеству/клиенту). Без «Авто» — доступна вручную.</p>
 
           <Button fullWidth size="lg" loading={createMut.isPending || updateMut.isPending} disabled={!form.name.trim() || !form.value} onClick={handleSubmit}>{selected ? 'Сохранить' : 'Создать'}</Button>
           {selected && <Button variant="danger" fullWidth onClick={() => setConfirmDelete(true)}>Удалить скидку</Button>}

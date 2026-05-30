@@ -43,6 +43,7 @@ interface CheckData {
   spaceStartAt?: string | null
   spaceEndAt?: string | null
   spaceHourlyRate?: string | null
+  discounts?: { id: string; name: string; type: string; value: string; amount: string; discountId: string | null }[]
 }
 
 interface PlayerProfile {
@@ -160,6 +161,10 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
   const [showRentalEdit, setShowRentalEdit] = useState(false)
   const [editStart, setEditStart] = useState('')
   const [editEnd, setEditEnd] = useState('')
+  // Ручная скидка на чек
+  const [showDiscount, setShowDiscount] = useState(false)
+  const [discType, setDiscType] = useState<'percent' | 'fixed'>('percent')
+  const [discValue, setDiscValue] = useState('')
 
   // Payment drawer state
   const [payScreen, setPayScreen] = useState<PayScreen>('methods')
@@ -354,6 +359,24 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
     mutationFn: (body: { spaceStartAt?: string; spaceEndAt?: string | null }) =>
       api.patch<{ check: CheckData }>(`/pos/checks/${checkId}`, body),
     onSuccess: (res) => { writeCheck(res); setShowRentalEdit(false) },
+    onError: toastError,
+  })
+
+  // Ручная скидка на чек (percent/fixed). Бэкенд пересчитывает total.
+  const applyDiscount = useMutation({
+    mutationFn: (body: { type: 'percent' | 'fixed'; value: number }) =>
+      api.post<{ check: CheckData }>(`/pos/checks/${checkId}/discount`, {
+        name: body.type === 'percent' ? `Скидка ${body.value}%` : `Скидка ${body.value} ₽`,
+        type: body.type,
+        value: body.value,
+        target: 'check',
+      }),
+    onSuccess: (res) => { writeCheck(res); setShowDiscount(false); setDiscValue('') },
+    onError: toastError,
+  })
+  const removeDiscount = useMutation({
+    mutationFn: (discountId: string) => api.delete<{ check: CheckData }>(`/pos/checks/${checkId}/discount/${discountId}`),
+    onSuccess: writeCheck,
     onError: toastError,
   })
 
@@ -634,6 +657,20 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
                 </span>
               </button>
             )}
+            {(check?.discounts ?? []).map(d => (
+              <div key={d.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, gap: 8 }}>
+                <span style={{ fontSize: 12, color: 'var(--on-surface-variant)', display: 'flex', alignItems: 'center', gap: 5, minWidth: 0 }}>
+                  <Icon name="sell" size={14} color="#34D399" />
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.name}</span>
+                  {d.discountId === null
+                    ? <button type="button" onClick={() => removeDiscount.mutate(d.id)} disabled={removeDiscount.isPending} aria-label="Снять скидку" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--on-surface-variant)', display: 'flex', padding: 0, flexShrink: 0 }}><Icon name="close" size={13} /></button>
+                    : <span style={{ fontSize: 9, fontWeight: 700, color: '#a78bfa', textTransform: 'uppercase', flexShrink: 0 }}>авто</span>}
+                </span>
+                <span style={{ fontSize: 13, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: '#34D399', flexShrink: 0 }}>
+                  −{Math.round(parseFloat(d.amount)).toLocaleString('ru')} ₽
+                </span>
+              </div>
+            ))}
             <div className="check-pay-row" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
               <div>
                 <p className="check-pay-label" style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--on-surface-variant)', margin: '0 0 4px' }}>
@@ -657,6 +694,19 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
                 >
                   <Icon name="add" size={18} />
                   <span className="check-pay-add-label">Добавить</span>
+                </button>
+                <button
+                  onClick={() => { setDiscType('percent'); setDiscValue(''); setShowDiscount(true) }}
+                  className="check-pay-add"
+                  aria-label="Добавить скидку"
+                  title="Скидка"
+                  style={{
+                    padding: '14px 16px', borderRadius: 16, border: '1px solid rgba(52,211,153,0.35)',
+                    cursor: 'pointer', background: 'rgba(52,211,153,0.1)', color: '#34D399',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  }}
+                >
+                  <Icon name="sell" size={18} />
                 </button>
                 <button
                   onClick={openPaymentDrawer}
@@ -757,6 +807,42 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
             </div>
           </div>
         </>
+      )}
+
+      {/* Manual discount editor */}
+      {showDiscount && (
+        <div
+          onClick={e => { if (e.target === e.currentTarget && !applyDiscount.isPending) setShowDiscount(false) }}
+          style={{ position: 'absolute', inset: 0, zIndex: 60, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(13,21,38,0.8)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)', padding: 16 }}
+        >
+          <div className="glass-l1" style={{ borderRadius: 24, padding: 24, width: 'min(420px,100%)', boxShadow: '0 24px 80px rgba(0,0,0,0.6)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 18 }}>
+              <Icon name="sell" size={22} color="#34D399" />
+              <h2 style={{ fontSize: 18, fontWeight: 900, fontStyle: 'italic', textTransform: 'uppercase', margin: 0 }}>Скидка на чек</h2>
+            </div>
+            <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
+              <button type="button" onClick={() => setDiscType('percent')} style={{ flex: 1, padding: '12px 0', borderRadius: 12, border: `1px solid ${discType === 'percent' ? 'rgba(52,211,153,0.5)' : 'rgba(255,255,255,0.1)'}`, background: discType === 'percent' ? 'rgba(52,211,153,0.12)' : 'rgba(255,255,255,0.04)', color: discType === 'percent' ? '#34D399' : 'var(--on-surface-variant)', fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>Процент %</button>
+              <button type="button" onClick={() => setDiscType('fixed')} style={{ flex: 1, padding: '12px 0', borderRadius: 12, border: `1px solid ${discType === 'fixed' ? 'rgba(52,211,153,0.5)' : 'rgba(255,255,255,0.1)'}`, background: discType === 'fixed' ? 'rgba(52,211,153,0.12)' : 'rgba(255,255,255,0.04)', color: discType === 'fixed' ? '#34D399' : 'var(--on-surface-variant)', fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>Сумма ₽</button>
+            </div>
+            <label style={{ display: 'block', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--on-surface-variant)', marginBottom: 6 }}>{discType === 'percent' ? 'Процент скидки' : 'Сумма скидки (₽)'}</label>
+            <input
+              type="number" inputMode="decimal" min="0" max={discType === 'percent' ? '100' : undefined} autoFocus
+              value={discValue} onChange={e => setDiscValue(e.target.value)}
+              placeholder={discType === 'percent' ? 'например 10' : 'например 200'}
+              className="glass-l2"
+              style={{ width: '100%', padding: '14px 16px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.1)', color: 'var(--on-surface)', fontSize: 18, fontWeight: 700, background: 'rgba(255,255,255,0.04)', boxSizing: 'border-box', marginBottom: 18 }}
+            />
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button type="button" onClick={() => setShowDiscount(false)} disabled={applyDiscount.isPending} style={{ flex: 1, padding: '13px 0', borderRadius: 14, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.04)', color: 'var(--on-surface)', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>Отмена</button>
+              <button
+                type="button"
+                onClick={() => { const v = parseFloat(discValue); if (v > 0) applyDiscount.mutate({ type: discType, value: discType === 'percent' ? Math.min(v, 100) : v }) }}
+                disabled={applyDiscount.isPending || !(parseFloat(discValue) > 0)}
+                style={{ flex: 1, padding: '13px 0', borderRadius: 14, border: 'none', background: 'linear-gradient(135deg, #34D399, #10B981)', color: '#fff', fontSize: 13, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.06em', cursor: 'pointer', opacity: (applyDiscount.isPending || !(parseFloat(discValue) > 0)) ? 0.5 : 1 }}
+              >{applyDiscount.isPending ? '...' : 'Применить'}</button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Rental time editor */}

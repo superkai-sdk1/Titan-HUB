@@ -673,6 +673,21 @@ posRouter.post('/checks/:id/discount', requireRole('owner', 'staff'), zValidator
   return c.json({ check: data })
 })
 
+// Снятие ручной скидки с чека. Только ручные строки (discountId IS NULL) —
+// авто/тир-скидки пересоздаются recalcCheckTotal и удалять их вручную нельзя.
+posRouter.delete('/checks/:id/discount/:discountRowId', requireRole('owner', 'staff'), async (c) => {
+  const checkId = c.req.param('id')
+  const rowId = c.req.param('discountRowId')
+  const [check] = await db.select().from(checks).where(eq(checks.id, checkId))
+  if (!check || check.status !== 'open') return c.json({ error: 'Check not open' }, 400)
+  await db.delete(checkDiscounts).where(
+    and(eq(checkDiscounts.id, rowId), eq(checkDiscounts.checkId, checkId), isNull(checkDiscounts.discountId)),
+  )
+  await recalcCheckTotal(checkId)
+  const data = await getCheckWithItems(checkId)
+  return c.json({ check: data })
+})
+
 posRouter.post('/checks/:id/qr', requireRole('owner', 'staff'), async (c) => {
   const checkId = c.req.param('id')
   const merchantId = process.env['PLATEGA_MERCHANT_ID']
