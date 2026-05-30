@@ -962,17 +962,19 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
                 )}
               </div>
               <button
-                onClick={openPaymentDrawer}
-                disabled={total === 0}
+                // При total=0 (например, скидка обнулила сумму) платить нечего —
+                // закрываем чек напрямую пустым набором платежей (бэкенд проводит 0₽).
+                onClick={total <= 0 ? () => pay.mutate({ payments: [], playerId: check?.playerId ?? undefined }) : openPaymentDrawer}
+                disabled={pay.isPending}
                 className="check-pay-go"
                 style={{
                   padding: '14px 28px', borderRadius: 16, border: 'none', cursor: 'pointer',
                   background: 'linear-gradient(135deg, #8B5CF6, #4cd7f6)',
                   color: '#fff', fontSize: 13, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.06em',
-                  boxShadow: '0 4px 20px rgba(139,92,246,0.35)', opacity: total === 0 ? 0.4 : 1,
+                  boxShadow: '0 4px 20px rgba(139,92,246,0.35)', opacity: pay.isPending ? 0.5 : 1, whiteSpace: 'nowrap',
                 }}
               >
-                К ОПЛАТЕ
+                {total <= 0 ? (pay.isPending ? 'ЗАКРЫВАЕМ…' : 'ЗАКРЫТЬ · 0 ₽') : 'К ОПЛАТЕ'}
               </button>
             </div>
           </div>

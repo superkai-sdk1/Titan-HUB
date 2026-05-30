@@ -258,12 +258,12 @@ clientsRouter.post('/:id/balance', requireRole('owner', 'staff'), zValidator('js
   const [client] = await db.select().from(profiles).where(eq(profiles.id, c.req.param('id')))
   if (!client) return c.json({ error: 'Not found' }, 404)
 
-  // Лимит долга из app_settings (max_client_debt)
+  // Лимит долга из app_settings (max_client_debt): >0 → ограничение; 0/пусто → без лимита.
   const newBalance = parseFloat(client.balance) + amount
   if (amount < 0) {
     const maxDebtRow = await db.execute(sql`SELECT value FROM app_settings WHERE key = 'max_client_debt'`)
-    const maxDebt = parseFloat(((maxDebtRow as any).rows?.[0]?.value ?? (maxDebtRow as any)[0]?.value) ?? '5000')
-    if (newBalance < -maxDebt) {
+    const maxDebt = parseFloat(((maxDebtRow as any).rows?.[0]?.value ?? (maxDebtRow as any)[0]?.value) ?? '0') || 0
+    if (maxDebt > 0 && newBalance < -maxDebt) {
       return c.json({ error: `Превышен лимит долга (${maxDebt}₽). Запрошенный баланс: ${newBalance.toFixed(2)}₽` }, 400)
     }
   }

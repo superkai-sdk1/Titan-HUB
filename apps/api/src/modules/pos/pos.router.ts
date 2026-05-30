@@ -53,10 +53,12 @@ const AddItemSchema = z.object({
 })
 
 const PaySchema = z.object({
+  // min(0): чек на 0₽ (например, скидка обнулила сумму) закрывается пустым набором —
+  // платить нечего. Бэкенд при пустом наборе подставляет cash на сумму total (=0).
   payments: z.array(z.object({
     method: z.enum(['cash', 'card', 'transfer', 'bonus', 'deposit', 'debt', 'split', 'certificate']),
     amount: z.number().positive(),
-  })).min(1),
+  })).min(0),
   certificateCode: z.string().optional(),
   bonusAmount: z.number().min(0).optional(),
   playerId: z.string().uuid().optional(),
@@ -996,10 +998,11 @@ posRouter.post('/checks/:id/pay', requireRole('owner', 'staff'), zValidator('jso
       // Оплата в долг: проверка лимита + списание баланса клиента в минус
       if (debtAmount > 0) {
         if (!body.playerId || !player) throw new Error('DEBT_NO_PLAYER')
+        // Лимит долга: max_client_debt > 0 → ограничение; 0/пусто → без лимита.
         const maxDebtRow = await tx.select().from(appSettings).where(eq(appSettings.key, 'max_client_debt'))
-        const maxDebt = parseFloat(maxDebtRow[0]?.value ?? '5000')
+        const maxDebt = parseFloat(maxDebtRow[0]?.value ?? '0') || 0
         const newBalance = round2(parseFloat(player.balance) - debtAmount)
-        if (newBalance < -maxDebt) throw new Error('DEBT_LIMIT')
+        if (maxDebt > 0 && newBalance < -maxDebt) throw new Error('DEBT_LIMIT')
         await tx.update(profiles).set({ balance: String(newBalance) }).where(eq(profiles.id, body.playerId))
         await tx.insert(transactions).values({
           type: 'withdrawal',
