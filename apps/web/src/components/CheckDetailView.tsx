@@ -553,13 +553,16 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
 
         <button
           onClick={() => setConfirmCancel(true)}
+          aria-label="Отменить чек"
+          title="Отменить чек"
           style={{
-            padding: '9px 14px', borderRadius: 10, border: '1px solid rgba(251,113,133,0.25)',
+            width: 38, height: 38, borderRadius: 10, border: '1px solid rgba(251,113,133,0.25)',
             cursor: 'pointer', background: 'rgba(251,113,133,0.08)',
-            color: 'var(--danger)', fontSize: 12, fontWeight: 600, flexShrink: 0,
+            color: 'var(--danger)', flexShrink: 0,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
           }}
         >
-          Отменить
+          <Icon name="delete" size={18} />
         </button>
       </div>
 
