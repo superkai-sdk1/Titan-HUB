@@ -82,8 +82,6 @@ salaryRouter.post('/pay', requireRole('owner'), zValidator('json', PaySalarySche
   // создаём cashOperation type='salary' за текущую смену, иначе сверка кассы
   // (getShiftCashBalance вычитает salary-операции) её не увидит и касса
   // «переполнится». Делаем в одной транзакции с записью о выплате.
-  const shift = body.paymentMethod === 'cash' ? await getCurrentShift() : null
-
   const payment = await db.transaction(async (tx) => {
     const [pay] = await tx.insert(salaryPayments).values({
       ...body,
@@ -94,16 +92,23 @@ salaryRouter.post('/pay', requireRole('owner'), zValidator('json', PaySalarySche
     // Дубликат по ключу (ретрай/двойной клик) — прерываем, cashOp не создаём.
     if (!pay) return null
 
-    if (body.paymentMethod === 'cash' && shift) {
-      await tx.insert(cashOperations).values({
-        type: 'salary',
-        amount: String(body.amount),
-        description: `Зарплата${body.note ? ' · ' + body.note : ''}`,
-        shiftId: shift.id,
-        createdBy: user.sub,
-        // Производный ключ от ключа выплаты — ретрай не задвоит и cashOp.
-        idempotencyKey: body.idempotencyKey ? `${body.idempotencyKey}:salary-cashop` : undefined,
-      }).onConflictDoNothing({ target: cashOperations.idempotencyKey })
+    if (body.paymentMethod === 'cash') {
+      // Открытую смену читаем ВНУТРИ транзакции, прямо перед записью cashOp:
+      // если смена закрылась между приёмом запроса и коммитом, cashOperation
+      // не должна лечь на устаревший shiftId. Если открытой смены нет — выплату
+      // фиксируем, но кассовую операцию не создаём (как и раньше при shift=null).
+      const shift = await getCurrentShift()
+      if (shift) {
+        await tx.insert(cashOperations).values({
+          type: 'salary',
+          amount: String(body.amount),
+          description: `Зарплата${body.note ? ' · ' + body.note : ''}`,
+          shiftId: shift.id,
+          createdBy: user.sub,
+          // Производный ключ от ключа выплаты — ретрай не задвоит и cashOp.
+          idempotencyKey: body.idempotencyKey ? `${body.idempotencyKey}:salary-cashop` : undefined,
+        }).onConflictDoNothing({ target: cashOperations.idempotencyKey })
+      }
     }
 
     return pay

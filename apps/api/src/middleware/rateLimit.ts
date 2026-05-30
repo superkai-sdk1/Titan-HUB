@@ -36,12 +36,16 @@ export const rateLimit = createMiddleware(async (c, next) => {
   let key: string
   let limit: number
 
-  // Определяем identifier: userId или IP
+  // Определяем identifier: userId или IP.
+  // Токен берём из Authorization: Bearer ИЛИ из ?token= (requireAuth тоже
+  // принимает query-token для EventSource/wallet-ссылок). Без этого token-in-query
+  // запросы валятся в общий per-IP bucket и фактически не лимитируются по аккаунту.
   const auth = c.req.header('Authorization')
+  const token = auth?.startsWith('Bearer ') ? auth.slice(7) : c.req.query('token')
   let userId: string | null = null
-  if (auth?.startsWith('Bearer ')) {
+  if (token) {
     try {
-      const payload = await verifyToken(auth.slice(7))
+      const payload = await verifyToken(token)
       userId = payload.sub
     } catch {}
   }

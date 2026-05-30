@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
-import { db, profiles, transactions, eq, and, isNull, inArray, desc } from '@titan/database'
+import { db, profiles, transactions, bonusLots, eq, and, isNull, inArray, desc, gt, sql } from '@titan/database'
 // @ts-ignore
 import { passkeys } from '@titan/database'
 import { signToken, verifyPin, verifyPassword, hashPassword, hashPin, isPlaintext, verifyTelegramInitData } from '@titan/auth'
@@ -33,8 +33,19 @@ export const authRouter = new Hono<AppEnv>()
 const PIN_MAX_ATTEMPTS = 5
 const PIN_WINDOW_SECONDS = 900
 
+// ЖЁСТКИЙ глобальный потолок для пути БЕЗ userId (перебор по всем staff/owner).
+// Этот путь сверяет один 4-значный PIN со ВСЕМИ профилями staff/owner, поэтому
+// реальное пространство ключей крошечное, а per-IP лимит подделывается (см. ниже).
+// Счётчик висит на фиксированном ключе, который клиент НЕ контролирует, поэтому
+// ограничивает суммарное число неудачных fan-out попыток по всему деплою за окно,
+// независимо от IP. Это и есть настоящий backstop против brute-force PIN.
+const PIN_GLOBAL_FAIL_KEY = 'pin:fail:global'
+const PIN_GLOBAL_MAX = 50 // суммарных неудачных попыток без userId за окно
+
 // Реальный IP клиента. nginx ставит X-Real-IP = $remote_addr (подделать нельзя).
-// Первый элемент X-Forwarded-For задаётся клиентом (spoofable) — его НЕ используем.
+// ДОВЕРИЕ: оба заголовка (X-Real-IP и X-Forwarded-For) в общем случае подделываемы
+// клиентом, поэтому per-IP bucket — лишь "вежливый" троттлинг. Для security-решений
+// на нём НЕ полагаемся: реальную защиту даёт глобальный потолок PIN_GLOBAL_FAIL_KEY.
 function clientIp(c: any): string {
   return c.req.header('x-real-ip')
     ?? c.req.header('x-forwarded-for')?.split(',').pop()?.trim()
@@ -60,6 +71,20 @@ authRouter.post('/login/pin', zValidator('json', LoginPinSchema), async (c) => {
       }, 429)
     }
 
+    // ЖЁСТКИЙ глобальный backstop ТОЛЬКО для опасного fan-out пути (без userId):
+    // он сверяет один PIN со всеми staff/owner, поэтому per-IP лимит (подделываемый)
+    // не защищает. Глобальный счётчик не зависит от заголовков клиента и ограничивает
+    // суммарное число неудачных попыток по всему деплою за окно.
+    if (!userId) {
+      const globalFails = parseInt((await redis.get(PIN_GLOBAL_FAIL_KEY)) ?? '0')
+      if (globalFails >= PIN_GLOBAL_MAX) {
+        const ttl = await redis.ttl(PIN_GLOBAL_FAIL_KEY)
+        return c.json({
+          error: `Слишком много попыток. Попробуйте через ${Math.ceil(Math.max(ttl, 0) / 60)} мин.`,
+        }, 429)
+      }
+    }
+
     // PIN-вход доступен только персоналу/владельцу (клиенты/планшеты входят иначе).
     // Без userId перебираем ТОЛЬКО staff/owner — не всех и не client/tablet.
     const staffOnly = inArray(profiles.role, ['owner', 'staff'])
@@ -78,9 +103,15 @@ authRouter.post('/login/pin', zValidator('json', LoginPinSchema), async (c) => {
       }
     }
 
-    // Инкремент счётчика неудач + TTL
+    // Инкремент счётчика неудач + TTL (мягкий per-IP bucket).
     await redis.incr(key)
     await redis.expire(key, PIN_WINDOW_SECONDS)
+    // Для fan-out пути (без userId) дополнительно бьём ЖЁСТКИЙ глобальный счётчик —
+    // это и есть реальный потолок против brute-force 4-значного PIN по всем staff.
+    if (!userId) {
+      await redis.incr(PIN_GLOBAL_FAIL_KEY)
+      await redis.expire(PIN_GLOBAL_FAIL_KEY, PIN_WINDOW_SECONDS)
+    }
     const remaining = PIN_MAX_ATTEMPTS - (fails + 1)
     return c.json({
       error: remaining > 0
@@ -254,6 +285,21 @@ authRouter.get('/me', requireAuth, async (c) => {
   if (!profile) return c.json({ error: 'Not found' }, 404)
   const { pin, passwordHash, ...safe } = profile
   return c.json(safe)
+})
+
+// Свои активные бонус-лоты (для экрана сгорания бонусов в кошельке) — строго по
+// своему профилю (user.sub === bonusLots.profileId); id клиента из запроса НЕ берём.
+// Возвращаем лоты с остатком, сначала ближайшие к сгоранию; бессрочные (NULL) — в конце.
+authRouter.get('/me/bonus-lots', requireAuth, async (c) => {
+  const user = c.get('user')
+  const lots = await db.select({
+    amount: bonusLots.amount,
+    remaining: bonusLots.remaining,
+    expiresAt: bonusLots.expiresAt,
+  }).from(bonusLots)
+    .where(and(eq(bonusLots.profileId, user.sub), gt(bonusLots.remaining, '0')))
+    .orderBy(sql`${bonusLots.expiresAt} ASC NULLS LAST`)
+  return c.json({ lots })
 })
 
 // Свои транзакции (для клиентского кошелька) — строго по своему профилю.

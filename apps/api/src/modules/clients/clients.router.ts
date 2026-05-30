@@ -7,6 +7,7 @@ import {
   eq, and, isNull, ilike, or, desc, sql,
 } from '@titan/database'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
+import { accrueBonusLot, getBonusExpiryDays } from '../../lib/bonusLots.js'
 import { hashPassword } from '@titan/auth'
 
 const CreateClientSchema = z.object({
@@ -185,7 +186,7 @@ clientsRouter.post('/:id/balance', requireRole('owner', 'staff'), zValidator('js
 })
 
 clientsRouter.post('/:id/bonus', requireRole('owner', 'staff'), zValidator('json', z.object({
-  amount: z.number(),
+  amount: z.number().min(-1_000_000).max(1_000_000),
   reason: z.string().min(3, 'Причина обязательна (минимум 3 символа)'),
 })), async (c) => {
   const { amount, reason } = c.req.valid('json')
@@ -193,35 +194,53 @@ clientsRouter.post('/:id/bonus', requireRole('owner', 'staff'), zValidator('json
   const [client] = await db.select().from(profiles).where(eq(profiles.id, c.req.param('id')))
   if (!client) return c.json({ error: 'Not found' }, 404)
 
-  // Атомарный апдейт: при списании проверяем достаточность через условие в SQL
-  let updateResult: any
-  if (amount < 0) {
-    updateResult = await db.execute(sql`
-      UPDATE profiles
-      SET bonus_points = bonus_points + ${amount}
-      WHERE id = ${client.id} AND bonus_points >= ${Math.abs(amount)}
-      RETURNING bonus_points
-    `)
-  } else {
-    updateResult = await db.execute(sql`
-      UPDATE profiles
-      SET bonus_points = bonus_points + ${amount}
-      WHERE id = ${client.id}
-      RETURNING bonus_points
-    `)
-  }
-  const rows = updateResult.rows ?? updateResult
-  if (!rows || rows.length === 0) {
+  // Апдейт баланса + лот в одной транзакции: положительное ручное начисление
+  // должно создавать лот, чтобы сгорать как любое начисление. Отрицательное
+  // списание лоты НЕ трогает — за это отвечает clamp в expireBonuses.
+  let newBonus = 0
+  let insufficient = false
+  await db.transaction(async (tx) => {
+    let updateResult: any
+    if (amount < 0) {
+      // Атомарный апдейт: при списании проверяем достаточность через условие в SQL
+      updateResult = await tx.execute(sql`
+        UPDATE profiles
+        SET bonus_points = bonus_points + ${amount}
+        WHERE id = ${client.id} AND bonus_points >= ${Math.abs(amount)}
+        RETURNING bonus_points
+      `)
+    } else {
+      updateResult = await tx.execute(sql`
+        UPDATE profiles
+        SET bonus_points = bonus_points + ${amount}
+        WHERE id = ${client.id}
+        RETURNING bonus_points
+      `)
+    }
+    const rows = updateResult.rows ?? updateResult
+    if (!rows || rows.length === 0) {
+      insufficient = true
+      return
+    }
+    newBonus = parseFloat(String(rows[0].bonus_points ?? rows[0].bonusPoints ?? 0))
+
+    await tx.insert(bonusHistory).values({
+      profileId: client.id,
+      amount: String(amount),
+      balanceAfter: String(newBonus),
+      reason: `[${user.nickname ?? user.sub}] ${reason}`,
+    })
+
+    // Лот только для положительного начисления (списание клампится в cron).
+    if (amount > 0) {
+      const expiryDays = await getBonusExpiryDays(tx)
+      await accrueBonusLot(tx, client.id, amount, expiryDays)
+    }
+  })
+
+  if (insufficient) {
     return c.json({ error: 'Insufficient bonus points' }, 400)
   }
-  const newBonus = parseFloat(String(rows[0].bonus_points ?? rows[0].bonusPoints ?? 0))
-
-  await db.insert(bonusHistory).values({
-    profileId: client.id,
-    amount: String(amount),
-    balanceAfter: String(newBonus),
-    reason: `[${user.nickname ?? user.sub}] ${reason}`,
-  })
 
   return c.json({ bonusPoints: newBonus })
 })

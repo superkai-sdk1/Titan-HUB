@@ -1,9 +1,11 @@
 import type { AppEnv } from '../../types.js'
 import { Hono } from 'hono'
+import { zValidator } from '@hono/zod-validator'
+import { z } from 'zod'
 import {
   db, checks, checkItems, checkPayments, inventory, profiles, shifts, expenses,
   supplies, supplyItems, salaryPayments,
-  eq, and, gte, lte, lt, desc, asc, sql, sum, count, avg, isNull, ne,
+  eq, and, gte, lte, lt, desc, asc, sql, sum, count, avg, isNull, ne, inArray,
 } from '@titan/database'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
 
@@ -14,6 +16,28 @@ analyticsRouter.use('*', requireAuth, requireRole('owner', 'staff'))
 function parseNum(v: unknown) {
   return parseFloat(String(v ?? 0)) || 0
 }
+
+// ─── Date-range query validation ───────────────────────────────────────────────
+// from/to — необязательные строки YYYY-MM-DD. Раньше значения из query шли прямо в
+// new Date()/границы окна без проверки, и мусор («», «abc», «2026-13-99») давал
+// Invalid Date → NaN-границы → пустые/нулевые витрины (прежний баг с 0/NaN).
+// Здесь: регэксп пропускает только корректный календарный YYYY-MM-DD, всё прочее
+// отбрасывается (становится undefined) и эндпоинт берёт значения по умолчанию.
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/
+function isValidDateStr(s: string): boolean {
+  if (!ISO_DATE_RE.test(s)) return false
+  const t = Date.parse(`${s}T00:00:00+03:00`)
+  if (Number.isNaN(t)) return false
+  // Защита от «2026-02-31» и подобных: JS-Date нормализует такие даты, поэтому
+  // сверяем, что строка совпадает с обратной сериализацией компонентов.
+  const d = new Date(t)
+  const back = new Date(d.getTime() + MSK_OFFSET_MS).toISOString().split('T')[0]
+  return back === s
+}
+const dateRangeQuerySchema = z.object({
+  from: z.string().optional().transform(v => (v && isValidDateStr(v) ? v : undefined)),
+  to: z.string().optional().transform(v => (v && isValidDateStr(v) ? v : undefined)),
+})
 
 // Все витрины считаются по календарю Москвы (UTC+3), а не UTC, иначе около
 // полуночи «сегодня/вчера/30 дней» съезжают, а expenseDate (text-дата в местном
@@ -167,12 +191,15 @@ analyticsRouter.get('/dashboard', async (c) => {
 })
 
 // ─── Revenue by day ───────────────────────────────────────────────────────────
-analyticsRouter.get('/revenue', async (c) => {
+analyticsRouter.get('/revenue', zValidator('query', dateRangeQuerySchema), async (c) => {
   // Период по МСК. from/to — YYYY-MM-DD (включительно). Окно по timestamptz —
   // полуоткрытое [fromStart, toEndExclusive) на границах полуночи МСК; так чек,
   // созданный в 23:30 МСК последнего дня, попадает в нужные сутки, а не в UTC-день.
-  const from = c.req.query('from') ?? mskDateStr(30)
-  const to = c.req.query('to') ?? mskDateStr(0)
+  // from/to валидированы (см. dateRangeQuerySchema): мусорные/Invalid даты уже
+  // отброшены в undefined, поэтому здесь надёжно падаем на дефолты.
+  const q = c.req.valid('query')
+  const from = q.from ?? mskDateStr(30)
+  const to = q.to ?? mskDateStr(0)
   const fromStart = mskBoundary(from)
   // следующий день после `to` в 00:00 МСК (верхняя граница, исключающая)
   const toEndExclusive = new Date(mskBoundary(to).getTime() + 86400000)
@@ -226,10 +253,12 @@ analyticsRouter.get('/revenue', async (c) => {
 })
 
 // ─── Products ABC ─────────────────────────────────────────────────────────────
-analyticsRouter.get('/products', async (c) => {
+analyticsRouter.get('/products', zValidator('query', dateRangeQuerySchema), async (c) => {
   // Период по МСК, полуоткрытое окно [fromStart, toEndExclusive) — как в /revenue.
-  const from = c.req.query('from') ?? mskDateStr(30)
-  const to = c.req.query('to') ?? mskDateStr(0)
+  // from/to валидированы (dateRangeQuerySchema), мусор отброшен → дефолты.
+  const q = c.req.valid('query')
+  const from = q.from ?? mskDateStr(30)
+  const to = q.to ?? mskDateStr(0)
   const fromStart = mskBoundary(from)
   const toEndExclusive = new Date(mskBoundary(to).getTime() + 86400000)
 
@@ -312,10 +341,20 @@ analyticsRouter.get('/clients', async (c) => {
   const retainedCount = [...prevSet].filter(id => id && currentSet.has(id)).length
   const retentionRate = prevSet.size > 0 ? Math.round((retainedCount / prevSet.size) * 100) : 0
 
-  // Player segments: new / active / sleeping
-  // New = registered < 30d ago AND has < 3 checks
-  // Active = has check in last 14d
-  // Sleeping = has checks but last check > 14d ago
+  // Сегменты игроков: new / active / sleeping
+  // New = регистрация < 30 дней назад (берётся отдельным запросом ниже)
+  // Active = есть закрытый чек за последние 14 дней
+  // Sleeping = есть чеки, но последний — более 14 дней назад
+  //
+  // ОКНО 90 ДНЕЙ (а не all-time): этот агрегат раньше сканировал ВСЕ закрытые чеки
+  // за всю историю (один ряд на каждого игрока, когда-либо что-то купившего), и
+  // объём рос безгранично. Для сегментации это избыточно: «active» — это последние
+  // 14 дней, а «sleeping» имеет смысл только как «недавно был активен, но затих».
+  // Игроки без единого закрытого чека за 90 дней считаются ушедшими и в эти два
+  // сегмента не попадают (для них есть отдельные витрины retention/тиров). Окно
+  // опирается на индекс по checks.created_at и режет скан до свежих данных.
+  // Форма ответа не меняется — наполняем те же segments.active / segments.sleeping.
+  const segmentsWindowStart = new Date(now.getTime() - 90 * 86400000)
 
   const visitCounts = await db
     .select({
@@ -324,7 +363,10 @@ analyticsRouter.get('/clients', async (c) => {
       lastVisit: sql<string>`max(${checks.createdAt})::text`,
     })
     .from(checks)
-    .where(eq(checks.status, 'closed'))
+    .where(and(
+      eq(checks.status, 'closed'),
+      gte(checks.createdAt, segmentsWindowStart),
+    ))
     .groupBy(checks.playerId)
 
   const segments = { new: 0, active: 0, sleeping: 0 }
@@ -384,26 +426,68 @@ analyticsRouter.get('/shifts', async (c) => {
     .orderBy(desc(shifts.openedAt))
     .limit(30)
 
-  const enriched = await Promise.all(rows.map(async (r: any) => {
-    const [stats] = await db
-      .select({ revenue: sum(checks.totalAmount), cnt: count() })
-      .from(checks)
-      .where(and(eq(checks.shiftId, r.shift.id), eq(checks.status, 'closed')))
+  // Раньше тут был N+1: для каждой из 30 смен выполнялись 2 отдельных запроса
+  // (выручка/кол-во чеков + разбивка платежей) → 1 + 2×30 = 61 запрос. Теперь —
+  // ровно 3 запроса на весь список: список смен (выше) + 2 агрегата, сгруппированных
+  // по shift_id и ограниченных набором id текущей страницы через inArray, а сшивку
+  // выполняем в JS по shiftId. Форма ответа не изменилась.
+  const shiftIds = rows.map((r: any) => r.shift.id)
 
-    const payments = await db
-      .select({ method: checkPayments.method, total: sum(checkPayments.amount) })
-      .from(checkPayments)
-      .leftJoin(checks, eq(checks.id, checkPayments.checkId))
-      .where(eq(checks.shiftId, r.shift.id))
-      .groupBy(checkPayments.method)
+  // Агрегат по чекам: выручка и число закрытых чеков на смену (одним запросом).
+  // Пустой набор id обрабатываем явно, чтобы не строить inArray по пустому массиву.
+  const statsRows = shiftIds.length
+    ? await db
+        .select({
+          shiftId: checks.shiftId,
+          revenue: sum(checks.totalAmount),
+          cnt: count(),
+        })
+        .from(checks)
+        .where(and(inArray(checks.shiftId, shiftIds), eq(checks.status, 'closed')))
+        .groupBy(checks.shiftId)
+    : []
 
+  // Разбивка платежей по способу оплаты на смену (одним запросом, группировка по
+  // shift_id + method). join к checks нужен, т.к. shift_id живёт в checks, а не в
+  // check_payments. Поведение прежней per-shift версии сохранено: фильтра по
+  // status здесь не было — оставляем как есть, чтобы суммы платежей совпадали.
+  const paymentRows = shiftIds.length
+    ? await db
+        .select({
+          shiftId: checks.shiftId,
+          method: checkPayments.method,
+          total: sum(checkPayments.amount),
+        })
+        .from(checkPayments)
+        .leftJoin(checks, eq(checks.id, checkPayments.checkId))
+        .where(inArray(checks.shiftId, shiftIds))
+        .groupBy(checks.shiftId, checkPayments.method)
+    : []
+
+  // Индексируем агрегаты по shiftId для O(1)-сшивки.
+  const statsByShift = new Map<string, { revenue: unknown; cnt: number }>()
+  for (const s of statsRows) {
+    statsByShift.set(s.shiftId as string, { revenue: s.revenue, cnt: s.cnt })
+  }
+  // Платежи: на каждую смену — массив { method, total } той же формы, что отдавала
+  // прежняя per-shift выборка (поля method/total сохранены дословно).
+  const paymentsByShift = new Map<string, { method: string; total: unknown }[]>()
+  for (const p of paymentRows) {
+    const key = p.shiftId as string
+    const list = paymentsByShift.get(key) ?? []
+    list.push({ method: p.method, total: p.total })
+    paymentsByShift.set(key, list)
+  }
+
+  const enriched = rows.map((r: any) => {
+    const stats = statsByShift.get(r.shift.id)
     return {
       ...r,
       revenue: parseNum(stats?.revenue),
       checksCount: stats?.cnt ?? 0,
-      payments,
+      payments: paymentsByShift.get(r.shift.id) ?? [],
     }
-  }))
+  })
 
   return c.json({ shifts: enriched })
 })

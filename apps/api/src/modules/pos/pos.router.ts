@@ -190,6 +190,9 @@ async function applyAutoDiscounts(exec: DbOrTx, checkId: string) {
 
   // 2. Скидки по тиру: активное правило для тира клиента → связанная активная скидка
   //    (применяется в силу правила, независимо от флага isAuto самой скидки).
+  //    Если на тир настроено НЕСКОЛЬКО активных правил — применяем ТОЛЬКО ОДНО,
+  //    с максимальным эффектом (а не стопку), чтобы скидки не складывались сверх
+  //    замысла. Эффект оцениваем на сумме позиций (check-level база).
   if (check.playerId) {
     const [player] = await exec.select({ tier: profiles.clientTier }).from(profiles).where(eq(profiles.id, check.playerId))
     if (player?.tier) {
@@ -201,7 +204,15 @@ async function applyAutoDiscounts(exec: DbOrTx, checkId: string) {
           eq(clientDiscountRules.clientTier, player.tier),
           eq(discounts.isActive, true),
         ))
-      for (const row of tierRows) pushDiscount(row.d)
+      const effect = (d: typeof discounts.$inferSelect) => {
+        const base = d.itemId
+          ? items.filter(i => i.itemId === d.itemId).reduce((s, i) => s + parseFloat(i.priceAtTime) * i.quantity, 0)
+          : itemsSum
+        return d.type === 'percent' ? base * (parseFloat(d.value) / 100) : Math.min(parseFloat(d.value), base)
+      }
+      const best = tierRows.map(r => r.d).filter(d => !applied.has(d.id))
+        .sort((a, b) => effect(b) - effect(a))[0]
+      if (best) pushDiscount(best)
     }
   }
 
@@ -223,6 +234,31 @@ async function recalcCheckTotal(checkId: string, exec: DbOrTx = db) {
     discountTotal: String(discountTotal),
   }).where(eq(checks.id, checkId))
   return total
+}
+
+// Аренда зоны на момент now (или до spaceEndAt): ceil(минуты/60) × ставка.
+// Тем же правилом считают /pay и вебхук Platega — держать синхронно.
+async function computeRentalForCheck(exec: DbOrTx, check: typeof checks.$inferSelect): Promise<number> {
+  if (!check.spaceId || !check.spaceStartAt) return 0
+  const [space] = await exec.select({ hourlyRate: spaces.hourlyRate }).from(spaces).where(eq(spaces.id, check.spaceId))
+  if (!space?.hourlyRate) return 0
+  const endMs = check.spaceEndAt ? new Date(check.spaceEndAt).getTime() : Date.now()
+  const mins = Math.max(0, (endMs - new Date(check.spaceStartAt).getTime()) / 60000)
+  return Math.ceil(mins / 60) * parseFloat(space.hourlyRate)
+}
+
+// Авторитетный итог чека к оплате = позиции+модификаторы−скидки + аренда.
+// Используется для QR (сумма НЕ берётся с клиента) и сверки.
+async function computeCheckGrandTotal(exec: DbOrTx, check: typeof checks.$inferSelect): Promise<number> {
+  const items = await exec.select().from(checkItems).where(eq(checkItems.checkId, check.id))
+  const ids = items.map(i => i.id)
+  const mods = ids.length
+    ? await exec.select().from(checkItemModifiers).where(inArray(checkItemModifiers.checkItemId, ids))
+    : []
+  const discountRows = await exec.select().from(checkDiscounts).where(eq(checkDiscounts.checkId, check.id))
+  const { total: itemsTotal } = computeTotals(items, mods, discountRows)
+  const rental = await computeRentalForCheck(exec, check)
+  return round2(itemsTotal + rental)
 }
 
 posRouter.get('/players/search', async (c) => {
@@ -400,6 +436,13 @@ posRouter.get('/checks/closed', requireRole('owner', 'staff'), async (c) => {
 posRouter.get('/checks/:id', requireRole('owner', 'staff', 'tablet'), async (c) => {
   const data = await getCheckWithItems(c.req.param('id'))
   if (!data) return c.json({ error: 'Not found' }, 404)
+  // IDOR-защита для планшета: планшет видит только чеки СВОЕЙ зоны
+  // (linkedSpaceId), а не любой чек по id. owner/staff — без ограничений.
+  const user = c.get('user')
+  if (user.role === 'tablet') {
+    const [me] = await db.select({ spaceId: profiles.linkedSpaceId }).from(profiles).where(eq(profiles.id, user.sub))
+    if (!me?.spaceId || data.spaceId !== me.spaceId) return c.json({ error: 'Forbidden' }, 403)
+  }
   return c.json({ check: data })
 })
 
@@ -630,15 +673,21 @@ posRouter.post('/checks/:id/discount', requireRole('owner', 'staff'), zValidator
   return c.json({ check: data })
 })
 
-posRouter.post('/checks/:id/qr', requireRole('owner', 'staff'), zValidator('json', z.object({ amount: z.number().positive() })), async (c) => {
+posRouter.post('/checks/:id/qr', requireRole('owner', 'staff'), async (c) => {
   const checkId = c.req.param('id')
-  const { amount } = c.req.valid('json')
   const merchantId = process.env['PLATEGA_MERCHANT_ID']
   const secret = process.env['PLATEGA_SECRET']
   if (!merchantId || !secret) return c.json({ error: 'Platega не настроен' }, 503)
 
   const [check] = await db.select().from(checks).where(eq(checks.id, checkId))
   if (!check || check.status !== 'open') return c.json({ error: 'Check not open' }, 400)
+
+  // Сумма QR считается на СЕРВЕРЕ из чека (позиции−скидки+аренда), а НЕ берётся
+  // с клиента — иначе можно выставить QR на произвольную сумму. Сначала
+  // пересчитываем авто/тир-скидки, затем берём авторитетный итог.
+  await recalcCheckTotal(checkId)
+  const amount = await computeCheckGrandTotal(db, check)
+  if (amount < 0.01) return c.json({ error: 'Сумма чека равна нулю' }, 400)
 
   const createRes = await fetch('https://app.platega.io/transaction/process', {
     method: 'POST',

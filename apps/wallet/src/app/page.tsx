@@ -19,8 +19,7 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'https://titanpos.ru'
 
 interface UserProfile {
   id: string
-  name: string
-  nickname?: string
+  nickname: string
   balance: number
   bonusPoints: number
   tier: string
@@ -32,6 +31,14 @@ interface Transaction {
   description: string
   amount: number
   createdAt: string
+}
+
+// Лот бонусов с серверного эндпоинта /auth/me/bonus-lots.
+// expiresAt === null означает бессрочный лот (никогда не сгорает).
+interface BonusLot {
+  amount: number
+  remaining: number
+  expiresAt: string | null
 }
 
 type AppState = 'loading' | 'error' | 'main'
@@ -90,11 +97,33 @@ function isPositive(type: string): boolean {
   return type === 'deposit' || type === 'refund' || type === 'bonus_accrual'
 }
 
+// Ближайший к сгоранию лот: только с положительным остатком и валидной будущей
+// датой. Лоты без срока (expiresAt === null) и уже истёкшие игнорируем.
+// Возвращает { remaining, expiresAt } ближайшего лота или null, если сгорать нечему.
+function nearestExpiringLot(lots: BonusLot[]): { remaining: number; expiresAt: Date } | null {
+  const now = Date.now()
+  let best: { remaining: number; expiresAt: Date } | null = null
+  for (const lot of lots) {
+    if (!lot || !(Number(lot.remaining) > 0) || !lot.expiresAt) continue
+    const ts = new Date(lot.expiresAt).getTime()
+    if (!Number.isFinite(ts) || ts <= now) continue
+    if (!best || ts < best.expiresAt.getTime()) {
+      best = { remaining: Number(lot.remaining), expiresAt: new Date(ts) }
+    }
+  }
+  return best
+}
+
+function formatExpiryDate(date: Date): string {
+  return new Intl.DateTimeFormat('ru-RU', { day: '2-digit', month: '2-digit' }).format(date)
+}
+
 export default function WalletPage() {
   const [appState, setAppState] = useState<AppState>('loading')
   const [token, setToken] = useState<string | null>(null)
   const [profile, setProfile] = useState<UserProfile | null>(null)
   const [transactions, setTransactions] = useState<Transaction[]>([])
+  const [bonusLots, setBonusLots] = useState<BonusLot[]>([])
   const [showTransactions, setShowTransactions] = useState(false)
   const [errorMsg, setErrorMsg] = useState<string>('')
 
@@ -142,8 +171,7 @@ export default function WalletPage() {
         const me = await meRes.json() as Record<string, any>
         setProfile({
           id: me.id,
-          name: me.nickname ?? '',
-          nickname: me.nickname ?? undefined,
+          nickname: (me.nickname ?? '').trim(),
           balance: parseFloat(me.balance ?? '0') || 0,
           bonusPoints: parseFloat(me.bonusPoints ?? '0') || 0,
           tier: me.clientTier ?? 'guest',
@@ -160,6 +188,25 @@ export default function WalletPage() {
           amount: Number(t.amount) || 0,
           createdAt: t.createdAt,
         })))
+
+        // Лоты бонусов для подсказки о сгорании — best-effort: сбой эндпоинта
+        // (например, он ещё не задеплоен) НЕ должен ломать экран кошелька.
+        try {
+          const lotsRes = await fetch(`${API_URL}/api/auth/me/bonus-lots`, {
+            headers: { Authorization: `Bearer ${authToken}` },
+          })
+          if (lotsRes.ok) {
+            const lotsData = (await lotsRes.json()) as { lots?: any[] }
+            setBonusLots((lotsData.lots ?? []).map((l) => ({
+              amount: Number(l.amount) || 0,
+              remaining: Number(l.remaining) || 0,
+              expiresAt: l.expiresAt ?? null,
+            })))
+          }
+        } catch {
+          /* подсказка о сгорании необязательна — игнорируем */
+        }
+
         setAppState('main')
       } catch (err) {
         setErrorMsg(err instanceof Error ? err.message : 'Ошибка авторизации')
@@ -200,15 +247,16 @@ export default function WalletPage() {
   // ─── Main ────────────────────────────────────────────────────────────────────
   const tierColor = TIER_COLORS[profile?.tier ?? 'guest'] ?? '#94A3B8'
   const tierLabel = TIER_LABELS[profile?.tier ?? 'guest'] ?? 'Гость'
+  const expiringBonus = nearestExpiringLot(bonusLots)
 
   return (
     <div style={styles.root}>
       {/* Header */}
       <header style={styles.header}>
         <h1 style={styles.title}>Titan Wallet</h1>
-        <p style={styles.subtitle}>
-          {profile?.nickname ? `@${profile.nickname}` : profile?.name ?? ''}
-        </p>
+        {profile?.nickname ? (
+          <p style={styles.subtitle}>@{profile.nickname}</p>
+        ) : null}
       </header>
 
       {/* Balance Card */}
@@ -226,23 +274,27 @@ export default function WalletPage() {
             {profile?.bonusPoints ?? 0} бонусных баллов
           </span>
         </div>
+        {expiringBonus && (
+          <p style={styles.bonusExpiry}>
+            🔥 {Math.round(expiringBonus.remaining)} бонусов сгорают {formatExpiryDate(expiringBonus.expiresAt)}
+          </p>
+        )}
       </div>
+
+      {/* Пополнение — только через администратора (онлайн-пополнения нет),
+          поэтому показываем некликабельную подсказку вместо «мёртвой» кнопки. */}
+      <p style={styles.topupNote}>
+        Пополнение баланса — через администратора
+      </p>
 
       {/* Action Buttons */}
       <div style={styles.actionsRow}>
-        <button
-          style={styles.actionBtn('primary')}
-          onClick={() => alert('Обратитесь к администратору')}
-        >
-          <span style={{ fontSize: 18 }}>＋</span>
-          <span>Пополнить</span>
-        </button>
         <button
           style={styles.actionBtn(showTransactions ? 'active' : 'secondary')}
           onClick={() => setShowTransactions(v => !v)}
         >
           <span style={{ fontSize: 18 }}>🕐</span>
-          <span>История</span>
+          <span>{showTransactions ? 'Скрыть историю' : 'История операций'}</span>
         </button>
       </div>
 
@@ -366,6 +418,18 @@ const styles = {
     color: '#4cd7f6',
     fontSize: 13,
     fontWeight: 500,
+  },
+  bonusExpiry: {
+    color: '#fbbf24',
+    fontSize: 12,
+    fontWeight: 600,
+    margin: '10px 0 0',
+  },
+  topupNote: {
+    color: '#94A3B8',
+    fontSize: 13,
+    textAlign: 'center' as const,
+    margin: '0 0 16px',
   },
   actionsRow: {
     display: 'flex',

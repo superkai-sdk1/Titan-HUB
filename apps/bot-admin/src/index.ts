@@ -1,5 +1,5 @@
 import { Bot, InlineKeyboard } from 'grammy'
-import { db, profiles, shifts, checks, eq, and, desc, sum, count, gte, isNull } from '@titan/database'
+import { db, profiles, shifts, checks, inventory, events, eq, and, desc, asc, sum, count, gte, isNull, inArray, sql } from '@titan/database'
 
 const token = process.env['ADMIN_BOT_TOKEN']
 if (!token) throw new Error('ADMIN_BOT_TOKEN is not set')
@@ -147,12 +147,92 @@ bot.callbackQuery('salary_estimate', async (ctx) => {
 
 bot.callbackQuery('stock_alert', async (ctx) => {
   await ctx.answerCallbackQuery()
-  await ctx.reply('📦 Используйте кассу для проверки остатков')
+  const tgId = String(ctx.from?.id)
+  if (!(await isAllowed(tgId))) return
+
+  try {
+    // Низкий сток: только позиции с учётом остатка (trackStock), у которых
+    // остаток <= порога. Порог может быть NULL → считаем за 0 (COALESCE).
+    // Удалённые (deletedAt) исключаем.
+    const lowStock = await db
+      .select({
+        name: inventory.name,
+        stockQuantity: inventory.stockQuantity,
+        minThreshold: inventory.minThreshold,
+      })
+      .from(inventory)
+      .where(
+        and(
+          eq(inventory.trackStock, true),
+          isNull(inventory.deletedAt),
+          sql`${inventory.stockQuantity} <= COALESCE(${inventory.minThreshold}, 0)`,
+        ),
+      )
+      .orderBy(asc(inventory.stockQuantity))
+      .limit(30)
+
+    if (!lowStock.length) {
+      await ctx.reply('✅ Все остатки в норме')
+      return
+    }
+
+    const text = lowStock
+      .map((p) => `• ${p.name} — *${p.stockQuantity}* шт. (мин. ${p.minThreshold ?? 0})`)
+      .join('\n')
+    await ctx.reply(`📦 *Низкий сток (${lowStock.length})*\n\n${text}`, { parse_mode: 'Markdown' })
+  } catch (err) {
+    console.error('[bot-admin] stock_alert query failed:', err)
+    await ctx.reply('❌ Не удалось получить остатки. Попробуйте позже.')
+  }
 })
 
 bot.callbackQuery('list_events', async (ctx) => {
   await ctx.answerCallbackQuery()
-  await ctx.reply('📅 Откройте кассу для управления событиями')
+  const tgId = String(ctx.from?.id)
+  if (!(await isAllowed(tgId))) return
+
+  try {
+    // Предстоящие события: статус planned/active (completed/cancelled скрываем).
+    // date/startTime хранятся как текст (ISO-подобный) — сортируем лексикографически.
+    const upcoming = await db
+      .select({
+        title: events.title,
+        date: events.date,
+        startTime: events.startTime,
+        status: events.status,
+        attendeesCount: events.attendeesCount,
+        maxGuests: events.maxGuests,
+      })
+      .from(events)
+      .where(inArray(events.status, ['planned', 'active']))
+      .orderBy(asc(events.date), asc(events.startTime))
+      .limit(10)
+
+    if (!upcoming.length) {
+      await ctx.reply('📅 Предстоящих событий нет')
+      return
+    }
+
+    const STATUS_LABEL: Record<string, string> = { planned: 'запланировано', active: 'идёт' }
+    const text = upcoming
+      .map((e) => {
+        const title = e.title?.trim() || 'Без названия'
+        const when = `${e.date}${e.startTime ? ` ${e.startTime}` : ''}`
+        const guests =
+          e.maxGuests != null
+            ? ` · ${e.attendeesCount}/${e.maxGuests}`
+            : e.attendeesCount
+              ? ` · гостей: ${e.attendeesCount}`
+              : ''
+        const status = STATUS_LABEL[e.status] ? ` (${STATUS_LABEL[e.status]})` : ''
+        return `• *${title}*${status}\n  ${when}${guests}`
+      })
+      .join('\n')
+    await ctx.reply(`📅 *Предстоящие события (${upcoming.length})*\n\n${text}`, { parse_mode: 'Markdown' })
+  } catch (err) {
+    console.error('[bot-admin] list_events query failed:', err)
+    await ctx.reply('❌ Не удалось получить события. Попробуйте позже.')
+  }
 })
 
 bot.on('message:text', async (ctx) => {

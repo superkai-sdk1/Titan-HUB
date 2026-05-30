@@ -7,6 +7,7 @@ import {
   checkPayments, transactions, profiles, bonusHistory, appSettings,
   eq, inArray,
 } from '@titan/database'
+import { accrueBonusLot, getBonusExpiryDays } from '../../lib/bonusLots.js'
 
 const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100
 
@@ -157,6 +158,10 @@ plategaRouter.post('/webhook', async (c) => {
                 balanceAfter: String(newBonus),
                 reason: `${Math.round(accrualRate * 100)}% начисление за чек (СБП)`,
               })
+              // Лот для сгорания бонусов: expiresAt = now + bonus_expiry_days (либо null).
+              // Зеркало pos.router.ts /pay — иначе СБП-бонусы никогда не сгорают.
+              const expiryDays = await getBonusExpiryDays(tx)
+              await accrueBonusLot(tx, check.playerId, earned, expiryDays)
             }
           }
         }

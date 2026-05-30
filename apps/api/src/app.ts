@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
-import { logger } from 'hono/logger'
+import type { MiddlewareHandler } from 'hono'
 import { secureHeaders } from 'hono/secure-headers'
 import { prettyJSON } from 'hono/pretty-json'
 import { bodyLimit } from 'hono/body-limit'
@@ -31,7 +31,54 @@ import { plategaRouter } from './modules/platega/platega.router.js'
 
 const app = new Hono()
 
-app.use('*', logger())
+// ── Логгер запросов с маскированием секретов в URL ───────────────────────────
+// SSE-эндпоинты (/notifications/stream, /api/pos/checks/:id/events) принимают JWT
+// через query-параметр ?token=<...>, потому что браузерный EventSource не умеет
+// слать заголовок Authorization. Штатный hono/logger печатает строку из c.req.url
+// (полный путь С query) → токен утекал бы в логи как валидный токен доступа.
+// Поэтому используем собственный логгер того же формата ("  <-- METHOD path" и
+// "  --> METHOD path status Nms"), но с БЕЗОПАСНЫМ путём: token / authorization /
+// любые *token*-ключи в query маскируются в REDACTED. Метод, путь (без секретов),
+// статус и тайминг сохраняются.
+function redactUrlPath(rawUrl: string): string {
+  // Берём pathname + search из полного URL; на нестандартном вводе — строка как есть.
+  let pathWithQuery: string
+  try {
+    const u = new URL(rawUrl)
+    pathWithQuery = u.pathname + u.search
+  } catch {
+    pathWithQuery = rawUrl
+  }
+  const qIdx = pathWithQuery.indexOf('?')
+  if (qIdx === -1) return pathWithQuery
+  const path = pathWithQuery.slice(0, qIdx)
+  const params = new URLSearchParams(pathWithQuery.slice(qIdx + 1))
+  let changed = false
+  for (const key of Array.from(params.keys())) {
+    // Любой ключ, содержащий "token" (token, access_token…), и явный
+    // authorization/auth маскируем целиком, не раскрывая длину/префикс секрета.
+    const lk = key.toLowerCase()
+    if (lk.includes('token') || lk === 'authorization' || lk === 'auth') {
+      params.set(key, 'REDACTED')
+      changed = true
+    }
+  }
+  if (!changed) return pathWithQuery
+  const qs = params.toString()
+  return qs ? `${path}?${qs}` : path
+}
+
+const requestLogger: MiddlewareHandler = async (c, next) => {
+  const method = c.req.method
+  // c.req.raw.url — полный URL запроса, в нём и живёт query с токеном.
+  const safePath = redactUrlPath(c.req.raw.url)
+  console.log(`  <-- ${method} ${safePath}`)
+  const start = Date.now()
+  await next()
+  console.log(`  --> ${method} ${safePath} ${c.res.status} ${Date.now() - start}ms`)
+}
+
+app.use('*', requestLogger)
 app.use('*', secureHeaders())
 app.use(
   '*',

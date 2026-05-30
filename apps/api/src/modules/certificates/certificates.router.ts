@@ -13,7 +13,8 @@ function generateCode(): string {
 }
 
 const CertSchema = z.object({
-  nominal: z.number().positive(),
+  // Верхняя граница: защищает numeric(10,2) от переполнения и блокирует абуз.
+  nominal: z.number().positive().max(1_000_000),
 })
 
 export const certificatesRouter = new Hono<AppEnv>()

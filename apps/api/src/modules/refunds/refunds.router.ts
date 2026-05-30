@@ -4,6 +4,7 @@ import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import { db, refunds, checks, inventory, checkItems, checkPayments, transactions, profiles, bonusHistory, certificates, eq, desc } from '@titan/database'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
+import { accrueBonusLot, getBonusExpiryDays } from '../../lib/bonusLots.js'
 
 const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100
 
@@ -132,6 +133,10 @@ refundsRouter.post('/', requireRole('owner', 'staff'), zValidator('json', Refund
               profileId: check.playerId, amount: String(bonusCredit), balanceAfter: String(bonus),
               reason: 'Возврат бонусов',
             })
+            // Лот для сгорания: re-credited бонусы должны сгорать как любые
+            // начисленные (зеркало pos.router.ts /pay). Сумму возврата не трогаем.
+            const expiryDays = await getBonusExpiryDays(tx)
+            await accrueBonusLot(tx, check.playerId, bonusCredit, expiryDays)
           }
           await tx.update(profiles).set({ balance: String(bal), bonusPoints: String(bonus) }).where(eq(profiles.id, check.playerId))
         }
