@@ -229,7 +229,8 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
   const clientTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   // Тарифный шаг (как на кассе): после выбора плательщика предлагаем выбрать тариф.
   const [tariffStep, setTariffStep] = useState(false)
-  const [pendingPlayer, setPendingPlayer] = useState<{ id: string; nickname: string; clientTier: string } | null>(null)
+  // asGuest=true → добавляем доп. участника (имя в guestNames на подтверждении).
+  const [pendingPlayer, setPendingPlayer] = useState<{ id?: string; nickname: string; clientTier: string; asGuest?: boolean } | null>(null)
   const [selectedTariffId, setSelectedTariffId] = useState<string | null>(null)
 
   const check = checkData
@@ -498,33 +499,42 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
     setSelectedTariffId(null); setClientQuery(''); setClientResults([]); setGuestNameInput('')
   }
 
-  // Подтверждение тарифного шага: добавляем выбранный тариф позицией в чек (или без).
+  // Подтверждение тарифного шага: если добавляем доп. участника — сперва пишем его
+  // имя в guestNames, затем (для всех) добавляем выбранный тариф позицией в чек.
   const confirmTariff = async () => {
-    if (selectedTariffId) { try { await addItem.mutateAsync(selectedTariffId) } catch { /* toastError в мутации */ } }
+    if (pendingPlayer?.asGuest) {
+      const names = check?.guestNames ?? []
+      if (!names.includes(pendingPlayer.nickname)) {
+        try { await setGuests.mutateAsync([...names, pendingPlayer.nickname]) } catch { /* toastError */ }
+      }
+    }
+    if (selectedTariffId) { try { await addItem.mutateAsync(selectedTariffId) } catch { /* toastError */ } }
     closeClient()
   }
 
-  // Выбор клиента в шторке: если плательщика нет — ставим его и показываем тарифный
-  // шаг (как при открытии нового чека). Иначе добавляем как доп. человека (по нику):
-  // «один платит за двоих» — плательщик = тот, кто платит.
+  // Выбор клиента в шторке. Нет плательщика → он становится плательщиком; иначе —
+  // доп. участник («один платит за двоих»). В обоих случаях показываем тарифный
+  // шаг (как при открытии нового чека), тариф добавляется позицией в чек.
   const pickClient = (cl: { id: string; nickname: string; clientTier: string }) => {
     setClientQuery(''); setClientResults([])
     if (!check?.playerId) {
       setPlayer.mutate(cl.id)
-      setPendingPlayer(cl)
-      setSelectedTariffId(null)
-      setTariffStep(true)
-    } else if (cl.id !== check.playerId) {
-      const names = check.guestNames ?? []
-      if (!names.includes(cl.nickname)) setGuests.mutate([...names, cl.nickname])
+      setPendingPlayer({ ...cl, asGuest: false })
+    } else {
+      if (cl.id === check.playerId) return
+      setPendingPlayer({ nickname: cl.nickname, clientTier: cl.clientTier, asGuest: true })
     }
+    setSelectedTariffId(null)
+    setTariffStep(true)
   }
+  // Доп. участник по имени (без профиля) — тоже через тарифный шаг.
   const addGuestName = () => {
     const name = guestNameInput.trim()
     if (!name) return
-    const names = check?.guestNames ?? []
-    if (!names.includes(name)) setGuests.mutate([...names, name])
     setGuestNameInput('')
+    setPendingPlayer({ nickname: name, clientTier: '', asGuest: true })
+    setSelectedTariffId(null)
+    setTariffStep(true)
   }
   const removeGuestName = (name: string) => {
     setGuests.mutate((check?.guestNames ?? []).filter(n => n !== name))
@@ -1231,7 +1241,7 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
                   </div>
                   <div style={{ flex: 1 }}>
                     <p style={{ fontSize: 14, fontWeight: 700, margin: 0, color: 'var(--on-surface)' }}>{pendingPlayer.nickname}</p>
-                    <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: '2px 0 0' }}>{TIER_LABELS[pendingPlayer.clientTier] ?? pendingPlayer.clientTier}</p>
+                    <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: '2px 0 0' }}>{pendingPlayer.asGuest ? 'Доп. участник' : (TIER_LABELS[pendingPlayer.clientTier] ?? pendingPlayer.clientTier)}</p>
                   </div>
                 </div>
 
@@ -1265,9 +1275,9 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
                     </div>
                   </button>
 
-                  <button type="button" onClick={confirmTariff} disabled={addItem.isPending}
-                    style={{ gridColumn: '1 / -1', marginTop: 4, width: '100%', padding: '15px 0', borderRadius: 16, border: 'none', cursor: 'pointer', background: 'linear-gradient(135deg, #38BDF8, #0EA5E9)', color: '#fff', fontSize: 14, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.06em', opacity: addItem.isPending ? 0.7 : 1 }}>
-                    {addItem.isPending ? 'Добавляем…' : 'Готово'}
+                  <button type="button" onClick={confirmTariff} disabled={addItem.isPending || setGuests.isPending}
+                    style={{ gridColumn: '1 / -1', marginTop: 4, width: '100%', padding: '15px 0', borderRadius: 16, border: 'none', cursor: 'pointer', background: 'linear-gradient(135deg, #38BDF8, #0EA5E9)', color: '#fff', fontSize: 14, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.06em', opacity: (addItem.isPending || setGuests.isPending) ? 0.7 : 1 }}>
+                    {(addItem.isPending || setGuests.isPending) ? 'Добавляем…' : 'Готово'}
                   </button>
                 </div>
 
