@@ -5,8 +5,7 @@ import { z } from 'zod'
 import { db, refunds, checks, inventory, checkItems, checkPayments, transactions, profiles, bonusHistory, certificates, eq, desc } from '@titan/database'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
 import { accrueBonusLot, getBonusExpiryDays } from '../../lib/bonusLots.js'
-
-const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100
+import { round2 } from '../../lib/money.js'
 
 const TENDER_METHODS = ['cash', 'card', 'transfer', 'deposit', 'bonus', 'certificate', 'debt'] as const
 

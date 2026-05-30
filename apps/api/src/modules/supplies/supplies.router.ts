@@ -4,8 +4,7 @@ import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import { db, supplies, supplyItems, inventory, stockMovements, eq, desc } from '@titan/database'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
-
-const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100
+import { round2 } from '../../lib/money.js'
 
 const SupplySchema = z.object({
   note: z.string().optional(),

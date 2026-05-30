@@ -8,6 +8,13 @@ node_modules
 dist
 build
 out
+
+# Next.js auto-generated type shim (регенерится на каждой сборке)
+next-env.d.ts
+
+# Локальный pnpm-store / бэкап-папки (мусор деплоя)
+.pnpm-store/
+*.bak/
 .turbo
 
 # Environment
