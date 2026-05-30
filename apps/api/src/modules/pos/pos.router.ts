@@ -794,12 +794,23 @@ posRouter.post('/checks/:id/qr', requireRole('owner', 'staff'), async (c) => {
   const [check] = await db.select().from(checks).where(eq(checks.id, checkId))
   if (!check || check.status !== 'open') return c.json({ error: 'Check not open' }, 400)
 
-  // Сумма QR считается на СЕРВЕРЕ из чека (позиции−скидки+аренда), а НЕ берётся
-  // с клиента — иначе можно выставить QR на произвольную сумму. Сначала
-  // пересчитываем авто/тир-скидки, затем берём авторитетный итог.
+  // Опциональная эквайринговая надбавка 8% — её платит КЛИЕНТ поверх товарной
+  // суммы (комиссия за перевод). Это НЕ выручка магазина: при подтверждении
+  // (см. platega webhook) чек закрывается на БАЗОВУЮ товарную сумму, а надбавка
+  // лишь увеличивает сумму к оплате в QR. Эндпоинт раньше тела не читал — читаем
+  // его опционально, чтобы не ломать клиентов, шлющих пустой/отсутствующий body.
+  const body = await c.req.json().catch(() => ({})) as { surcharge8?: boolean } | null
+  const surcharge8 = body?.surcharge8 === true
+
+  // Сумма QR считается на СЕРВЕРЕ из чека (позиции−скидки+аренда+база события),
+  // а НЕ берётся с клиента — иначе можно выставить QR на произвольную сумму.
+  // Сначала пересчитываем авто/тир-скидки, затем берём авторитетный итог.
   await recalcCheckTotal(checkId)
-  const amount = await computeCheckGrandTotal(db, check)
-  if (amount < 0.01) return c.json({ error: 'Сумма чека равна нулю' }, 400)
+  const baseAmount = await computeCheckGrandTotal(db, check)
+  if (baseAmount < 0.01) return c.json({ error: 'Сумма чека равна нулю' }, 400)
+  // amount — сумма к оплате в QR (с надбавкой, если запрошена). baseAmount —
+  // товарная сумма, на которую webhook закроет чек.
+  const amount = surcharge8 ? round2(baseAmount * 1.08) : baseAmount
 
   const createRes = await fetch('https://app.platega.io/transaction/process', {
     method: 'POST',
@@ -845,7 +856,16 @@ posRouter.post('/checks/:id/qr', requireRole('owner', 'staff'), async (c) => {
   const svgString = await QRCode.toString(qrString, { type: 'svg', width: 280, margin: 1 })
   const qrDataUrl = `data:image/svg+xml;base64,${Buffer.from(svgString).toString('base64')}`
 
-  return c.json({ transactionId, qrDataUrl, expiresIn: createData['expiresIn'] as string | undefined })
+  return c.json({
+    transactionId,
+    qrDataUrl,
+    expiresIn: createData['expiresIn'] as string | undefined,
+    // chargedAmount — сумма в QR (с надбавкой 8%, если запрошена); baseAmount —
+    // товарная сумма, на которую закроется чек. surcharge8 — была ли надбавка.
+    chargedAmount: amount,
+    baseAmount,
+    surcharge8,
+  })
 })
 
 posRouter.get('/checks/:id/qr/:transactionId/status', requireRole('owner', 'staff'), async (c) => {

@@ -72,18 +72,26 @@ interface SplitPart {
   label?: string
 }
 
-type PayScreen = 'methods' | 'bonus' | 'deposit' | 'certificate' | 'split' | 'qr'
+type PayScreen = 'methods' | 'bonus' | 'deposit' | 'certificate' | 'split' | 'qr' | 'sbp_surcharge'
 
 const METHOD_CONFIGS: Record<string, { label: string; icon: string; color: string; rgb: string }> = {
   cash: { label: 'Наличные', icon: 'payments', color: 'var(--pay-cash)', rgb: '16,185,129' },
-  card: { label: 'Карта', icon: 'credit_card', color: 'var(--pay-card)', rgb: '59,130,246' },
-  transfer: { label: 'СБП/QR', icon: 'qr_code_2', color: 'var(--pay-split)', rgb: '139,92,246' },
+  // «Перевод» = перевод на карту (DB enum остаётся card).
+  card: { label: 'Перевод', icon: 'credit_card', color: 'var(--pay-card)', rgb: '59,130,246' },
+  // «СБП» = Platega QR (DB enum остаётся transfer).
+  transfer: { label: 'СБП', icon: 'qr_code_2', color: 'var(--pay-split)', rgb: '139,92,246' },
   bonus: { label: 'Бонусы', icon: 'stars', color: 'var(--pay-bonus)', rgb: '245,158,11' },
   deposit: { label: 'Депозит', icon: 'account_balance_wallet', color: 'var(--pay-deposit)', rgb: '6,182,212' },
   debt: { label: 'В долг', icon: 'person_pin', color: 'var(--pay-debt, #f43f5e)', rgb: '244,63,94' },
-  certificate: { label: 'Сертификат', icon: 'card_membership', color: 'var(--pay-cert)', rgb: '251,191,36' },
   split: { label: 'Раздельная', icon: 'call_split', color: 'var(--on-surface-variant)', rgb: '148,163,184' },
 }
+
+// Сертификат больше не в сетке методов (вход — кнопка на event-чеке), но
+// метку/иконку/цвет всё ещё нужно отрисовывать в списке сплит-частей.
+const CERT_CONFIG = { label: 'Сертификат', icon: 'card_membership', color: 'var(--pay-cert)', rgb: '251,191,36' }
+
+// Методы, доступные как ручной tender внутри «Раздельной» (без QR-СБП).
+const SPLIT_MANUAL_METHODS = ['cash', 'card', 'deposit', 'debt', 'bonus'] as const
 
 function getInitials(name?: string | null): string {
   if (!name) return 'Г'
@@ -99,14 +107,17 @@ function toLocalInput(iso?: string | null): string {
 }
 
 function methodColor(m: string): string {
+  if (m === 'certificate') return CERT_CONFIG.color
   return METHOD_CONFIGS[m]?.color ?? 'var(--on-surface-variant)'
 }
 
 function methodLabel(m: string): string {
+  if (m === 'certificate') return CERT_CONFIG.label
   return METHOD_CONFIGS[m]?.label ?? m
 }
 
 function methodIcon(m: string): string {
+  if (m === 'certificate') return CERT_CONFIG.icon
   return METHOD_CONFIGS[m]?.icon ?? 'payments'
 }
 
@@ -188,6 +199,12 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
   const [qrError, setQrError] = useState('')
   const [qrRedirectUrl, setQrRedirectUrl] = useState<string | null>(null)
   const [qrAmount, setQrAmount] = useState(0)
+  const [qrSurcharge8, setQrSurcharge8] = useState(false)
+  const [qrBaseAmount, setQrBaseAmount] = useState(0)
+
+  // Split-композитор: выбранный метод и сумма для следующего добавляемого tender'а.
+  const [splitMethod, setSplitMethod] = useState<string>('cash')
+  const [splitAmtInput, setSplitAmtInput] = useState('')
 
   const check = checkData
   // Имя в заголовке: реальное имя клиента/гостя, иначе смешная заглушка (по id чека).
@@ -250,6 +267,10 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
     setQrDataUrl(null)
     setQrStatus('pending')
     setQrError('')
+    setQrSurcharge8(false)
+    setQrBaseAmount(0)
+    setSplitMethod('cash')
+    setSplitAmtInput('')
     setShowPayment(true)
   }
 
@@ -266,9 +287,12 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
     updateRental.mutate(body)
   }
 
-  async function startQrPayment() {
+  async function startQrPayment(surcharge8: boolean) {
     const amount = remaining > 0 ? remaining : total
-    setQrAmount(amount)
+    setQrSurcharge8(surcharge8)
+    setQrBaseAmount(amount)
+    // Предварительная сумма (с комиссией) до ответа сервера — сервер вернёт точное chargedAmount.
+    setQrAmount(surcharge8 ? Math.round(amount * 1.08) : amount)
     setQrLoading(true)
     setQrError('')
     setQrRedirectUrl(null)
@@ -277,12 +301,16 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
     setQrDataUrl(null)
     setPayScreen('qr')
     try {
-      const res = await api.post<{ transactionId: string; qrDataUrl: string; expiresIn?: string }>(
+      const res = await api.post<{ transactionId: string; qrDataUrl: string; chargedAmount?: number; baseAmount?: number; surcharge8?: boolean; expiresIn?: string }>(
         `/pos/checks/${checkId}/qr`,
-        { amount }
+        { amount, surcharge8 }
       )
       setQrTransactionId(res.transactionId)
       setQrDataUrl(res.qrDataUrl)
+      // Сервер — источник истины по суммам (chargedAmount = к оплате incl. комиссия).
+      if (typeof res.chargedAmount === 'number') setQrAmount(res.chargedAmount)
+      if (typeof res.baseAmount === 'number') setQrBaseAmount(res.baseAmount)
+      if (typeof res.surcharge8 === 'boolean') setQrSurcharge8(res.surcharge8)
     } catch (err) {
       const data = err instanceof ApiError ? err.data : undefined
       const redirect = data?.['redirectUrl'] as string | undefined
@@ -329,7 +357,7 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
             // не смогли свериться — продолжаем обычным путём ниже
           }
           // Чек ещё открыт (частичная оплата/сплит или webhook не успел) — обычная финализация.
-          addSplitPart({ method: 'transfer', amount: qrAmount, label: 'СБП / QR (Platega)' })
+          addSplitPart({ method: 'transfer', amount: qrAmount, label: 'СБП (Platega)' })
           setPayScreen('split')
         } else if (res.status === 'CANCELED') {
           setQrStatus('canceled')
@@ -457,14 +485,31 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
       setPayScreen('bonus')
     } else if (method === 'deposit') {
       setPayScreen('deposit')
-    } else if (method === 'certificate') {
-      setPayScreen('certificate')
     } else if (method === 'transfer') {
-      startQrPayment()
+      // СБП → сперва спросить про комиссию эквайринга 8%.
+      setPayScreen('sbp_surcharge')
+    } else if (method === 'split') {
+      // «Раздельная» — открываем композитор tender'ов пустым (без авто-дампа).
+      setSplitMethod('cash')
+      setSplitAmtInput(String(remaining > 0 ? Math.round(remaining) : Math.round(total)))
+      setPayScreen('split')
     } else {
+      // Быстрый одиночный метод (Наличные / Перевод / Долг): добавить весь остаток,
+      // на split-экране сумму можно отредактировать (удалить и добавить заново).
       addSplitPart({ method, amount: remaining > 0 ? remaining : total, label: METHOD_CONFIGS[method]?.label })
+      setSplitMethod(method)
       setPayScreen('split')
     }
+  }
+
+  // Добавить tender из композитора (split-экран) с введённой суммой.
+  function addComposerPart() {
+    const amt = Math.round(parseFloat(splitAmtInput.replace(',', '.')) || 0)
+    if (amt <= 0) return
+    addSplitPart({ method: splitMethod, amount: amt, label: METHOD_CONFIGS[splitMethod]?.label })
+    // Подготовить следующий ввод на оставшийся остаток.
+    const nextRemaining = Math.max(0, total - (splitSum + amt))
+    setSplitAmtInput(nextRemaining > 0 ? String(nextRemaining) : '')
   }
 
   async function finishPayment() {
@@ -472,7 +517,7 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
     setIsProcessing(true)
     try {
       await pay.mutateAsync({
-        payments: splitParts,
+        payments: splitParts.map(p => ({ method: p.method, amount: p.amount })),
         bonusAmount: bonusAmount > 0 ? bonusAmount : undefined,
         certificateCode: certInfo?.code,
         playerId: check?.playerId ?? undefined,
@@ -759,6 +804,22 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
                 >
                   <Icon name="sell" size={18} />
                 </button>
+                {/* Сертификат — только для чеков мероприятия (вход в существующий cert-флоу). */}
+                {check?.linkedEventId && (
+                  <button
+                    onClick={() => { openPaymentDrawer(); setPayScreen('certificate') }}
+                    className="check-pay-add"
+                    aria-label="Оплата сертификатом"
+                    title="Сертификат"
+                    style={{
+                      padding: '14px 16px', borderRadius: 16, border: '1px solid rgba(251,191,36,0.35)',
+                      cursor: 'pointer', background: 'rgba(251,191,36,0.1)', color: '#fbbf24',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    }}
+                  >
+                    <Icon name="card_membership" size={18} />
+                  </button>
+                )}
               </div>
               <button
                 onClick={openPaymentDrawer}
@@ -1040,6 +1101,7 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
                   {Object.entries(METHOD_CONFIGS).map(([id, cfg]) => {
                     const disabled = id === 'debt' && !check?.playerId
+                    const wide = id === 'split' // «Раздельная» — широкая плитка во всю строку
                     return (
                       <button
                         key={id}
@@ -1047,19 +1109,31 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
                         disabled={disabled}
                         className="glass-l2"
                         style={{
-                          padding: '14px 10px', borderRadius: 14, border: 'none', cursor: disabled ? 'not-allowed' : 'pointer', textAlign: 'left',
-                          background: 'rgba(255,255,255,0.04)',
-                          boxShadow: `inset 0 0 0 1px rgba(255,255,255,0.07)`,
-                          transition: 'all 0.2s',
-                          display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 10,
+                          gridColumn: wide ? '1 / -1' : undefined,
+                          minHeight: 96, padding: '14px 12px', borderRadius: 16, border: 'none',
+                          cursor: disabled ? 'not-allowed' : 'pointer', textAlign: 'left',
+                          background: `rgba(${cfg.rgb},0.06)`,
+                          boxShadow: `inset 0 0 0 1px rgba(${cfg.rgb},0.18)`,
+                          transition: 'all 0.18s',
+                          display: 'flex',
+                          flexDirection: wide ? 'row' : 'column',
+                          alignItems: wide ? 'center' : 'flex-start',
+                          justifyContent: wide ? 'center' : 'space-between',
+                          gap: wide ? 10 : 8,
                           opacity: disabled ? 0.35 : 1,
                         }}
-                        onMouseEnter={e => { if (!disabled) { e.currentTarget.style.background = `rgba(${cfg.rgb},0.12)`; e.currentTarget.style.boxShadow = `0 0 20px rgba(${cfg.rgb},0.2), inset 0 0 0 1px rgba(${cfg.rgb},0.35)` } }}
-                        onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; e.currentTarget.style.boxShadow = 'inset 0 0 0 1px rgba(255,255,255,0.07)' }}
+                        onMouseEnter={e => { if (!disabled) { e.currentTarget.style.background = `rgba(${cfg.rgb},0.16)`; e.currentTarget.style.boxShadow = `0 0 22px rgba(${cfg.rgb},0.22), inset 0 0 0 1px rgba(${cfg.rgb},0.45)` } }}
+                        onMouseLeave={e => { e.currentTarget.style.background = `rgba(${cfg.rgb},0.06)`; e.currentTarget.style.boxShadow = `inset 0 0 0 1px rgba(${cfg.rgb},0.18)` }}
                       >
-                        <Icon name={cfg.icon} size={22} color={cfg.color} />
+                        <div style={{
+                          width: 40, height: 40, borderRadius: 12, flexShrink: 0,
+                          background: `rgba(${cfg.rgb},0.16)`,
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        }}>
+                          <Icon name={cfg.icon} size={22} color={cfg.color} />
+                        </div>
                         <div>
-                          <p style={{ fontSize: 12, fontWeight: 600, color: 'var(--on-surface)', margin: 0 }}>{cfg.label}</p>
+                          <p style={{ fontSize: 13, fontWeight: 700, color: 'var(--on-surface)', margin: 0 }}>{cfg.label}</p>
                           {id === 'bonus' && player && <p style={{ fontSize: 10, color: 'var(--pay-bonus)', margin: '2px 0 0', fontVariantNumeric: 'tabular-nums' }}>{playerBonus.toLocaleString('ru')} б.</p>}
                           {id === 'deposit' && player && <p style={{ fontSize: 10, color: 'var(--pay-deposit)', margin: '2px 0 0', fontVariantNumeric: 'tabular-nums' }}>{playerBalance.toLocaleString('ru')} ₽</p>}
                         </div>
@@ -1204,6 +1278,46 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
               </div>
             )}
 
+            {/* ===== SCREEN: SBP SURCHARGE (8% эквайринг) ===== */}
+            {payScreen === 'sbp_surcharge' && (() => {
+              const sbpBase = remaining > 0 ? remaining : total
+              const sbpWith = Math.round(sbpBase * 1.08)
+              return (
+                <div style={{ padding: '28px 28px 32px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
+                    <button onClick={() => setPayScreen('methods')} style={{ width: 36, height: 36, borderRadius: 10, border: 'none', cursor: 'pointer', background: 'rgba(255,255,255,0.06)', color: 'var(--on-surface-variant)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                      <Icon name="arrow_back" size={18} />
+                    </button>
+                    <h2 style={{ fontSize: 18, fontWeight: 900, fontStyle: 'italic', textTransform: 'uppercase', margin: 0, color: 'var(--on-surface)' }}>СБП — ЭКВАЙРИНГ</h2>
+                  </div>
+
+                  <div className="glass-l2" style={{ textAlign: 'center', padding: '20px 16px', borderRadius: 16, marginBottom: 20, border: '1px solid rgba(139,92,246,0.2)' }}>
+                    <Icon name="qr_code_2" size={32} color="#A78BFA" style={{ marginBottom: 8 }} />
+                    <p style={{ fontSize: 15, fontWeight: 700, color: 'var(--on-surface)', margin: '0 0 6px' }}>Добавить комиссию эквайринга 8%?</p>
+                    <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: 0 }}>
+                      Без комиссии: {sbpBase.toLocaleString('ru')} ₽ · С комиссией: {sbpWith.toLocaleString('ru')} ₽
+                    </p>
+                  </div>
+
+                  <div style={{ display: 'flex', gap: 10 }}>
+                    <button
+                      onClick={() => startQrPayment(false)}
+                      className="glass-l2"
+                      style={{ flex: 1, padding: '16px 0', borderRadius: 14, border: '1px solid rgba(255,255,255,0.1)', cursor: 'pointer', background: 'rgba(255,255,255,0.04)', color: 'var(--on-surface)', fontSize: 14, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.06em' }}
+                    >
+                      Нет
+                    </button>
+                    <button
+                      onClick={() => startQrPayment(true)}
+                      style={{ flex: 1, padding: '16px 0', borderRadius: 14, border: 'none', cursor: 'pointer', background: 'linear-gradient(135deg, #8B5CF6, #4cd7f6)', color: '#fff', fontSize: 14, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.06em', boxShadow: '0 4px 20px rgba(139,92,246,0.35)' }}
+                    >
+                      Да (+8%)
+                    </button>
+                  </div>
+                </div>
+              )
+            })()}
+
             {/* ===== SCREEN: QR (Platega SBP) ===== */}
             {payScreen === 'qr' && (
               <div style={{ padding: '28px 28px 32px' }}>
@@ -1237,7 +1351,7 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
                     </p>
                     <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
                       <button
-                        onClick={startQrPayment}
+                        onClick={() => startQrPayment(qrSurcharge8)}
                         style={{ padding: '10px 20px', borderRadius: 10, border: 'none', cursor: 'pointer', background: 'rgba(139,92,246,0.2)', color: '#A78BFA', fontSize: 12, fontWeight: 700 }}
                       >
                         Попробовать снова
@@ -1297,6 +1411,11 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
                       <p style={{ fontSize: 24, fontWeight: 900, fontStyle: 'italic', fontVariantNumeric: 'tabular-nums', color: '#A78BFA', margin: 0 }}>
                         {qrAmount.toLocaleString('ru')} ₽
                       </p>
+                      {qrSurcharge8 && (
+                        <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: '6px 0 0' }}>
+                          Сумма с комиссией 8%: {qrAmount.toLocaleString('ru')} ₽ (товары {qrBaseAmount.toLocaleString('ru')} ₽)
+                        </p>
+                      )}
                     </div>
 
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, color: 'var(--on-surface-variant)', fontSize: 13 }}>
@@ -1350,20 +1469,71 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
                   ))}
                 </div>
 
+                {/* Композитор tender'ов: метод + сумма + «Добавить». Показываем пока есть остаток. */}
                 {remaining > 0.01 && (
-                  <div style={{ textAlign: 'center', padding: '10px 0 14px', color: '#8B5CF6', fontSize: 13, fontWeight: 600 }}>
-                    Ещё нужно: {remaining.toLocaleString('ru')} ₽
+                  <div className="glass-l2" style={{ padding: '14px', borderRadius: 16, marginBottom: 16, border: '1px solid rgba(255,255,255,0.08)' }}>
+                    <p style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--on-surface-variant)', margin: '0 0 10px' }}>
+                      Добавить оплату · остаток {remaining.toLocaleString('ru')} ₽
+                    </p>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(72px, 1fr))', gap: 6, marginBottom: 10 }}>
+                      {SPLIT_MANUAL_METHODS.map(m => {
+                        const cfg = METHOD_CONFIGS[m]
+                        const mDisabled = m === 'debt' && !check?.playerId
+                        const selected = splitMethod === m
+                        return (
+                          <button
+                            key={m}
+                            onClick={() => !mDisabled && setSplitMethod(m)}
+                            disabled={mDisabled}
+                            style={{
+                              display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
+                              padding: '8px 4px', borderRadius: 10, cursor: mDisabled ? 'not-allowed' : 'pointer',
+                              border: `1px solid ${selected ? `rgba(${cfg.rgb},0.5)` : 'rgba(255,255,255,0.08)'}`,
+                              background: selected ? `rgba(${cfg.rgb},0.14)` : 'rgba(255,255,255,0.03)',
+                              opacity: mDisabled ? 0.35 : 1,
+                            }}
+                          >
+                            <Icon name={cfg.icon} size={18} color={cfg.color} />
+                            <span style={{ fontSize: 10, fontWeight: 700, color: selected ? 'var(--on-surface)' : 'var(--on-surface-variant)' }}>{cfg.label}</span>
+                          </button>
+                        )
+                      })}
+                    </div>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <input
+                        type="number" inputMode="decimal" min="0"
+                        value={splitAmtInput}
+                        onChange={e => setSplitAmtInput(e.target.value)}
+                        placeholder={`${Math.round(remaining)}`}
+                        className="glass-l2"
+                        style={{ flex: 1, minWidth: 0, padding: '12px 14px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.1)', color: 'var(--on-surface)', fontSize: 16, fontWeight: 700, fontVariantNumeric: 'tabular-nums', background: 'rgba(255,255,255,0.04)', boxSizing: 'border-box', outline: 'none' }}
+                      />
+                      <button
+                        onClick={() => setSplitAmtInput(String(Math.round(remaining)))}
+                        className="glass-l2"
+                        style={{ padding: '0 14px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.1)', cursor: 'pointer', background: 'rgba(255,255,255,0.04)', color: 'var(--on-surface-variant)', fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap' }}
+                      >
+                        Весь
+                      </button>
+                      <button
+                        onClick={addComposerPart}
+                        disabled={!(parseFloat((splitAmtInput || '').replace(',', '.')) > 0)}
+                        style={{ padding: '0 18px', borderRadius: 12, border: 'none', cursor: 'pointer', background: 'rgba(139,92,246,0.2)', color: '#A78BFA', fontSize: 13, fontWeight: 800, whiteSpace: 'nowrap', opacity: !(parseFloat((splitAmtInput || '').replace(',', '.')) > 0) ? 0.5 : 1 }}
+                      >
+                        Добавить
+                      </button>
+                    </div>
                   </div>
                 )}
 
                 <div style={{ display: 'flex', gap: 10 }}>
                   <button onClick={() => setPayScreen('methods')} className="glass-l2" style={{ flex: 1, padding: '13px 0', borderRadius: 14, border: '1px solid rgba(255,255,255,0.08)', cursor: 'pointer', color: 'var(--on-surface-variant)', fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                    + МЕТОД
+                    НАЗАД
                   </button>
                   <button
                     onClick={finishPayment}
-                    disabled={remaining > 0.01 || isProcessing || pay.isPending}
-                    style={{ flex: 2, padding: '13px 0', borderRadius: 14, border: 'none', cursor: 'pointer', background: 'linear-gradient(135deg, #8B5CF6, #4cd7f6)', color: '#fff', fontSize: 13, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.06em', boxShadow: '0 4px 20px rgba(139,92,246,0.35)', opacity: (remaining > 0.01 || isProcessing || pay.isPending) ? 0.5 : 1 }}
+                    disabled={remaining > 0.01 || splitParts.length === 0 || isProcessing || pay.isPending}
+                    style={{ flex: 2, padding: '13px 0', borderRadius: 14, border: 'none', cursor: 'pointer', background: 'linear-gradient(135deg, #8B5CF6, #4cd7f6)', color: '#fff', fontSize: 13, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.06em', boxShadow: '0 4px 20px rgba(139,92,246,0.35)', opacity: (remaining > 0.01 || splitParts.length === 0 || isProcessing || pay.isPending) ? 0.5 : 1 }}
                   >
                     {pay.isPending || isProcessing ? 'ПРОВОДИМ...' : 'ЗАВЕРШИТЬ ОПЛАТУ'}
                   </button>

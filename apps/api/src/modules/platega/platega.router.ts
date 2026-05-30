@@ -103,11 +103,24 @@ plategaRouter.post('/webhook', async (c) => {
         const [space] = await tx.select({ hourlyRate: spaces.hourlyRate }).from(spaces).where(eq(spaces.id, check.spaceId))
         rental = computeRental(check.spaceStartAt, check.spaceEndAt, space?.hourlyRate, Date.now())
       }
-      const total = round2(itemsTotal + rental)
+      // База события (фиксированная стоимость мероприятия) входит в авторитетный
+      // итог так же, как в pos.router.ts computeCheckGrandTotal. Раньше webhook её
+      // не учитывал → QR-оплата event-чека падала с AMOUNT_MISMATCH.
+      const eventBase = parseFloat(check.eventBaseAmount ?? '0') || 0
+      const total = round2(itemsTotal + rental + eventBase)
 
-      // Сверка суммы (если провайдер её прислал).
-      if (reportedAmount != null && !Number.isNaN(reportedAmount) && Math.abs(reportedAmount - total) > 0.01) {
-        throw new Error('AMOUNT_MISMATCH')
+      // Сверка суммы (если провайдер её прислал). Допускаем переплату до +8% —
+      // это опциональная эквайринговая надбавка, которую заплатил клиент (см.
+      // /checks/:id/qr surcharge8). Надбавка НЕ является выручкой магазина:
+      // ниже чек закрывается и платёж пишется по БАЗОВОМУ total (товары),
+      // поэтому сверка смен/выручка остаются корректными. Недоплата
+      // (reportedAmount < total) по-прежнему отклоняется.
+      if (reportedAmount != null && !Number.isNaN(reportedAmount)) {
+        const tooLow = reportedAmount < total - 0.01
+        const tooHigh = reportedAmount > round2(total * 1.08) + 1
+        if (tooLow || tooHigh) {
+          throw new Error('AMOUNT_MISMATCH')
+        }
       }
 
       await tx.insert(checkPayments).values({
