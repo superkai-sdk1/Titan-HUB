@@ -637,25 +637,48 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
                 <p style={{ fontSize: 13 }}>Добавьте товары из меню →</p>
               </div>
             )}
+
+            {/* Применённые скидки — все, и ручные, и авто/тир (видны на ПК и телефоне). */}
+            {(check?.discounts?.length ?? 0) > 0 && (
+              <div style={{ marginTop: 8, padding: '12px 14px', borderRadius: 14, background: 'rgba(52,211,153,0.06)', border: '1px solid rgba(52,211,153,0.18)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#34D399', display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <Icon name="sell" size={14} color="#34D399" />
+                    Скидки
+                  </span>
+                  <span style={{ fontSize: 13, fontWeight: 800, fontVariantNumeric: 'tabular-nums', color: '#34D399' }}>
+                    −{Math.round((check?.discounts ?? []).reduce((s, d) => s + parseFloat(d.amount), 0)).toLocaleString('ru')} ₽
+                  </span>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {(check?.discounts ?? []).map(d => (
+                    <div key={d.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, fontSize: 13, color: 'var(--on-surface)' }}>
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.name}</span>
+                        {d.discountId !== null && (
+                          <span style={{ fontSize: 9, fontWeight: 700, color: '#a78bfa', textTransform: 'uppercase', flexShrink: 0, padding: '1px 5px', borderRadius: 5, background: 'rgba(167,139,250,0.15)' }}>авто</span>
+                        )}
+                      </span>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                        <span style={{ fontSize: 13, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: '#34D399' }}>
+                          −{Math.round(parseFloat(d.amount)).toLocaleString('ru')} ₽
+                        </span>
+                        {d.discountId === null && (
+                          <button type="button" onClick={() => removeDiscount.mutate(d.id)} disabled={removeDiscount.isPending} aria-label="Снять скидку" style={{ width: 26, height: 26, borderRadius: 8, border: '1px solid rgba(244,63,94,0.2)', background: 'rgba(244,63,94,0.08)', color: '#F87171', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                            <Icon name="close" size={14} />
+                          </button>
+                        )}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Payment footer — на телефоне превращается в плавающий «остров»
               с точными размерами/позицией нижней навигации (см. <style> ниже). */}
           <div className="check-pay-bar glass-l1" style={{ padding: 16, paddingBottom: 'calc(16px + env(safe-area-inset-bottom))', borderLeft: 'none', borderRight: 'none', borderBottom: 'none', borderRadius: 0 }}>
-            {(check?.discounts ?? []).map(d => (
-              <div key={d.id} className="check-pay-line" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, gap: 8 }}>
-                <span style={{ fontSize: 12, color: 'var(--on-surface-variant)', display: 'flex', alignItems: 'center', gap: 5, minWidth: 0 }}>
-                  <Icon name="sell" size={14} color="#34D399" />
-                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.name}</span>
-                  {d.discountId === null
-                    ? <button type="button" onClick={() => removeDiscount.mutate(d.id)} disabled={removeDiscount.isPending} aria-label="Снять скидку" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--on-surface-variant)', display: 'flex', padding: 0, flexShrink: 0 }}><Icon name="close" size={13} /></button>
-                    : <span style={{ fontSize: 9, fontWeight: 700, color: '#a78bfa', textTransform: 'uppercase', flexShrink: 0 }}>авто</span>}
-                </span>
-                <span style={{ fontSize: 13, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: '#34D399', flexShrink: 0 }}>
-                  −{Math.round(parseFloat(d.amount)).toLocaleString('ru')} ₽
-                </span>
-              </div>
-            ))}
             <div className="check-pay-row">
               <div className="check-pay-money">
                 <p className="check-pay-label" style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--on-surface-variant)', margin: '0 0 4px' }}>
@@ -1341,9 +1364,8 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
             -webkit-backdrop-filter: blur(24px) saturate(180%) !important;
             box-shadow: 0 10px 30px rgba(0,0,0,0.45), 0 2px 8px rgba(0,0,0,0.25) !important;
           }
-          /* Строки аренды/скидок не дублируем в островке — таймер-кнопка и сумма
-             уже всё показывают; иначе остров разрастается. */
-          .check-pay-line { display: none !important; }
+          /* Скидки показаны секцией в теле чека (видны на ПК и телефоне), а не в
+             компактном островке — он остаётся двухуровневым. */
           /* Грид: row 1 — инструменты, row 2 — сумма + оплата. */
           .check-pay-row {
             display: grid !important;
