@@ -38,7 +38,7 @@ const clean = (v: string | undefined): string => (v ?? '').trim().replace(/^["']
 const POLZA_BASE = clean(process.env['POLZA_BASE_URL']) || 'https://polza.ai/api/v1'
 const POLZA_KEY = clean(process.env['POLZA_API_KEY'])
 // id модели на Polza: с префиксом провайдера и точкой в версии
-const POLZA_MODEL = clean(process.env['POLZA_MODEL']) || 'anthropic/claude-sonnet-4.6'
+const POLZA_MODEL = clean(process.env['POLZA_MODEL']) || 'google/gemini-3.1-flash-lite'
 
 async function callAI(systemPrompt: string, userMessage: string): Promise<string> {
   const res = await fetch(`${POLZA_BASE}/chat/completions`, {
