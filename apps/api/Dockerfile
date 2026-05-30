@@ -25,14 +25,15 @@ RUN pnpm --filter @titan/types build
 RUN pnpm --filter @titan/database build
 RUN pnpm --filter @titan/auth build
 RUN pnpm --filter @titan/api build
-RUN pnpm --filter @titan/api deploy --legacy --prod --offline /deploy/api
+# Без `pnpm deploy` (он пере-резолвит весь граф из npm-реестра и виснет на
+# флакающей сети). Копируем уже собранный workspace целиком — pnpm-симлинки
+# относительные, резолв модулей и dist/migrations/sql сохраняются. Без сети.
 
 FROM base AS runner
-WORKDIR /app
 ENV NODE_ENV=production
-
-COPY --from=builder /deploy/api ./
-COPY --from=builder /app/apps/api/dist ./dist
+WORKDIR /app
+COPY --from=builder /app /app
+WORKDIR /app/apps/api
 
 EXPOSE 3001
 CMD ["node", "dist/index.js"]
