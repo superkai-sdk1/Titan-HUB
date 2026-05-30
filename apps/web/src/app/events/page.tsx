@@ -27,7 +27,6 @@ const TYPES: Record<string, [string, string, string]> = {
 
 const PAY_TYPES: Record<string, string> = {
   fixed:    'Фиксированная',
-  per_head: 'С головы',
   free:     'Бесплатно',
 }
 
@@ -44,10 +43,9 @@ const BLANK = {
   date: new Date().toISOString().split('T')[0],
   startTime: '18:00',
   endTime: '',
-  paymentType: 'fixed' as 'fixed' | 'per_head' | 'free',
+  paymentType: 'fixed' as 'fixed' | 'free',
   billingMode: 'amount' as 'amount' | 'hourly',
   fixedAmount: '',
-  perHeadAmount: '',
   manualAmount: '',
   maxGuests: '',
   responsibleStaffId: '',
@@ -78,6 +76,9 @@ export default function EventsPage() {
   const [form, setForm] = useState<any>(BLANK)
   const [analyticsId, setAnalyticsId] = useState<string | null>(null)
   const [formError, setFormError] = useState<string | null>(null)
+  // Автоподбор заказчика: результаты + какое поле сейчас активно (под ним дропдаун)
+  const [custResults, setCustResults] = useState<any[]>([])
+  const [custFocus, setCustFocus] = useState<'name' | 'phone' | null>(null)
 
   const { data } = useQuery({ queryKey: ['events'], queryFn: () => api.get<any>('/events') })
   const allEvents: any[] = data?.events ?? []
@@ -154,6 +155,8 @@ export default function EventsPage() {
     setForm(BLANK)
     setEditId(null)
     setFormError(null)
+    setCustResults([])
+    setCustFocus(null)
     setShowForm(true)
   }
 
@@ -169,7 +172,6 @@ export default function EventsPage() {
       paymentType: ev.paymentType ?? 'fixed',
       billingMode: ev.billingMode ?? 'amount',
       fixedAmount: ev.fixedAmount != null ? String(ev.fixedAmount) : '',
-      perHeadAmount: ev.perHeadAmount != null ? String(ev.perHeadAmount) : '',
       manualAmount: ev.manualAmount != null ? String(ev.manualAmount) : '',
       maxGuests: ev.maxGuests != null ? String(ev.maxGuests) : '',
       responsibleStaffId: ev.responsibleStaffId ?? '',
@@ -185,6 +187,21 @@ export default function EventsPage() {
 
   function startEvent(ev: any) {
     update.mutate({ id: ev.id, status: 'active' })
+  }
+
+  // Автоподбор заказчика из справочника /customers?q=
+  async function searchCustomers(q: string) {
+    if (!q.trim()) { setCustResults([]); return }
+    try {
+      const res = await api.get<{ customers: any[] }>(`/customers?q=${encodeURIComponent(q)}`)
+      setCustResults(res.customers ?? [])
+    } catch { setCustResults([]) }
+  }
+  // Клик по подсказке — заполняем оба поля и закрываем дропдаун
+  function pickCustomer(c: any) {
+    setForm((p: any) => ({ ...p, customerName: c.name ?? '', customerPhone: c.phone ?? '' }))
+    setCustResults([])
+    setCustFocus(null)
   }
 
   function submitForm() {
@@ -216,7 +233,6 @@ export default function EventsPage() {
     }
     // Amounts: when hourly, charged per zone rate — clear manual/fixed overrides
     payload.fixedAmount = !hourly && form.paymentType === 'fixed' && form.fixedAmount ? parseFloat(form.fixedAmount) : null
-    payload.perHeadAmount = form.paymentType === 'per_head' && form.perHeadAmount ? parseFloat(form.perHeadAmount) : null
     payload.manualAmount = !hourly && form.manualAmount ? parseFloat(form.manualAmount) : null
 
     if (editId) saveEdit.mutate({ id: editId, ...payload })
@@ -299,8 +315,6 @@ export default function EventsPage() {
                 ? `${parseFloat(ev.manualAmount).toLocaleString('ru')} ₽`
                 : ev.paymentType === 'fixed' && ev.fixedAmount != null
                 ? `${parseFloat(ev.fixedAmount).toLocaleString('ru')} ₽`
-                : ev.paymentType === 'per_head' && ev.perHeadAmount != null
-                ? `${parseFloat(ev.perHeadAmount).toLocaleString('ru')} ₽/чел`
                 : null
               return (
                 <div key={ev.id} className="glass-l2" onClick={() => setSelected(ev)}
@@ -405,8 +419,51 @@ export default function EventsPage() {
 
           {/* ── Заказчик ── */}
           <FormSection title="Заказчик">
-            <div><label style={LBL}>Имя заказчика</label><input value={form.customerName} onChange={e => setForm((p: any) => ({ ...p, customerName: e.target.value }))} placeholder="Имя контактного лица" style={INP} /></div>
-            <div><label style={LBL}>Телефон</label><input type="tel" inputMode="tel" value={form.customerPhone} onChange={e => setForm((p: any) => ({ ...p, customerPhone: e.target.value }))} placeholder="+7 900 000-00-00" style={INP} /></div>
+            <div style={{ position: 'relative' }}>
+              <label style={LBL}>Имя заказчика</label>
+              <input
+                value={form.customerName}
+                onChange={e => { setForm((p: any) => ({ ...p, customerName: e.target.value })); searchCustomers(e.target.value) }}
+                onFocus={() => setCustFocus('name')}
+                onBlur={() => setTimeout(() => setCustFocus(f => (f === 'name' ? null : f)), 150)}
+                placeholder="Имя контактного лица" style={INP}
+              />
+              {custFocus === 'name' && custResults.length > 0 && (
+                <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 50, background: 'rgba(29,26,36,0.98)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 12, marginTop: 4, overflow: 'hidden', boxShadow: '0 8px 24px rgba(0,0,0,0.4)' }}>
+                  {custResults.map((c) => (
+                    <button key={c.id} type="button" onMouseDown={e => e.preventDefault()} onClick={() => pickCustomer(c)}
+                      style={{ width: '100%', padding: '10px 14px', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: 8, color: 'var(--on-surface)', fontSize: 14 }}>
+                      <Icon name="person" size={16} color="#a78bfa" />
+                      <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.name || 'Без имени'}</span>
+                      {c.phone && <span style={{ fontSize: 12, color: 'var(--on-surface-variant)', fontVariantNumeric: 'tabular-nums' }}>{c.phone}</span>}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div style={{ position: 'relative' }}>
+              <label style={LBL}>Телефон</label>
+              <input
+                type="tel" inputMode="tel"
+                value={form.customerPhone}
+                onChange={e => { setForm((p: any) => ({ ...p, customerPhone: e.target.value })); searchCustomers(e.target.value) }}
+                onFocus={() => setCustFocus('phone')}
+                onBlur={() => setTimeout(() => setCustFocus(f => (f === 'phone' ? null : f)), 150)}
+                placeholder="+7 900 000-00-00" style={INP}
+              />
+              {custFocus === 'phone' && custResults.length > 0 && (
+                <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 50, background: 'rgba(29,26,36,0.98)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 12, marginTop: 4, overflow: 'hidden', boxShadow: '0 8px 24px rgba(0,0,0,0.4)' }}>
+                  {custResults.map((c) => (
+                    <button key={c.id} type="button" onMouseDown={e => e.preventDefault()} onClick={() => pickCustomer(c)}
+                      style={{ width: '100%', padding: '10px 14px', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: 8, color: 'var(--on-surface)', fontSize: 14 }}>
+                      <Icon name="person" size={16} color="#a78bfa" />
+                      <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.name || 'Без имени'}</span>
+                      {c.phone && <span style={{ fontSize: 12, color: 'var(--on-surface-variant)', fontVariantNumeric: 'tabular-nums' }}>{c.phone}</span>}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           </FormSection>
 
           {/* ── Дата и время ── */}
@@ -462,10 +519,7 @@ export default function EventsPage() {
                 {form.paymentType === 'fixed' && (
                   <div><label style={LBL}>Сумма (₽)</label><input type="number" inputMode="numeric" value={form.fixedAmount} onChange={e => setForm((p: any) => ({ ...p, fixedAmount: e.target.value }))} placeholder="0" style={INP} /></div>
                 )}
-                {form.paymentType === 'per_head' && (
-                  <div><label style={LBL}>Сумма с гостя (₽)</label><input type="number" inputMode="numeric" value={form.perHeadAmount} onChange={e => setForm((p: any) => ({ ...p, perHeadAmount: e.target.value }))} placeholder="0" style={INP} /></div>
-                )}
-                {(form.paymentType === 'per_head' || form.paymentType === 'free') && (
+                {form.paymentType === 'free' && (
                   <div>
                     <label style={LBL}>Итоговая сумма вручную (₽)</label>
                     <input type="number" inputMode="numeric" value={form.manualAmount} onChange={e => setForm((p: any) => ({ ...p, manualAmount: e.target.value }))} placeholder="Необязательно" style={INP} />
@@ -518,8 +572,6 @@ export default function EventsPage() {
                     ? `${parseFloat(selected.manualAmount).toLocaleString('ru')} ₽`
                     : selected.paymentType === 'fixed' && selected.fixedAmount
                     ? `${parseFloat(selected.fixedAmount).toLocaleString('ru')} ₽`
-                    : selected.paymentType === 'per_head' && selected.perHeadAmount
-                    ? `${parseFloat(selected.perHeadAmount).toLocaleString('ru')} ₽/чел`
                     : '—'],
                   ['Гостей', selected.maxGuests
                     ? `${selected.attendeesCount ?? 0} / ${selected.maxGuests}`

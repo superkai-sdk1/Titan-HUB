@@ -3,7 +3,7 @@ import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import {
-  db, events, checks, checkItems, checkPayments, inventory,
+  db, events, checks, checkItems, checkPayments, inventory, customers,
   eq, and, gte, lte, desc, sql, or, ne,
 } from '@titan/database'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
@@ -17,10 +17,9 @@ const EventSchema = z.object({
   date: z.string(),
   startTime: z.string(),
   endTime: z.string().optional().nullable(),
-  paymentType: z.enum(['fixed', 'per_head', 'free']).default('fixed'),
+  paymentType: z.enum(['fixed', 'free']).default('fixed'),
   billingMode: z.enum(['amount', 'hourly']).default('amount'),
   fixedAmount: z.number().optional().nullable(),
-  perHeadAmount: z.number().optional().nullable(),
   manualAmount: z.number().optional().nullable(),
   maxGuests: z.number().int().positive().optional().nullable(),
   status: z.enum(['planned', 'needs_clarification', 'active', 'completed', 'cancelled']).default('planned'),
@@ -32,7 +31,7 @@ const EventSchema = z.object({
 })
 
 // Базовая сумма события для чека (billingMode=amount): ручная сумма приоритетна,
-// иначе фикс; для free/per_head без ручной — 0. hourly → база 0 (платим арендой зоны).
+// иначе фикс; для free без ручной — 0. hourly → база 0 (платим арендой зоны).
 function eventBaseAmount(ev: {
   billingMode: string; paymentType: string
   manualAmount: string | null; fixedAmount: string | null
@@ -129,7 +128,6 @@ eventsRouter.post('/', requireRole('owner', 'staff'), zValidator('json', EventSc
     paymentType: body.paymentType,
     billingMode: body.billingMode,
     fixedAmount: body.fixedAmount != null ? String(body.fixedAmount) : null,
-    perHeadAmount: body.perHeadAmount != null ? String(body.perHeadAmount) : null,
     manualAmount: body.manualAmount != null ? String(body.manualAmount) : null,
     maxGuests: body.maxGuests ?? null,
     status: body.status,
@@ -140,6 +138,22 @@ eventsRouter.post('/', requireRole('owner', 'staff'), zValidator('json', EventSc
     customerPhone: body.customerPhone ?? null,
     createdBy: user.sub,
   }).returning()
+
+  // Автосохранение заказчика в справочник (для автоподбора в следующих событиях).
+  // Не блокирует создание события — любые ошибки гасим.
+  if (body.customerName || body.customerPhone) {
+    try {
+      let exists = false
+      if (body.customerPhone) {
+        const found = await db.select().from(customers).where(eq(customers.phone, body.customerPhone)).limit(1)
+        exists = found.length > 0
+      }
+      if (!exists) {
+        await db.insert(customers).values({ name: body.customerName ?? null, phone: body.customerPhone ?? null })
+      }
+    } catch { /* non-fatal */ }
+  }
+
   return c.json({ event }, 201)
 })
 
@@ -180,7 +194,6 @@ eventsRouter.patch('/:id', requireRole('owner', 'staff'), zValidator('json', Eve
 
   const update: Record<string, any> = { ...body }
   if (body.fixedAmount !== undefined) update.fixedAmount = body.fixedAmount != null ? String(body.fixedAmount) : null
-  if (body.perHeadAmount !== undefined) update.perHeadAmount = body.perHeadAmount != null ? String(body.perHeadAmount) : null
   if (body.manualAmount !== undefined) update.manualAmount = body.manualAmount != null ? String(body.manualAmount) : null
 
   // При финализации (completed/cancelled) приводим attendeesCount к фактическому

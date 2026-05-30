@@ -534,6 +534,12 @@ posRouter.delete('/checks/:id', requireRole('owner', 'staff'), async (c) => {
       await tx.update(events)
         .set({ attendeesCount: sql`GREATEST(${events.attendeesCount} - 1, 0)` })
         .where(eq(events.id, ch.linkedEventId))
+
+      // Удаление чека мероприятия → возвращаем событие в «Запланировано»
+      // (если оно не отменено), сбрасывая привязку к чеку.
+      await tx.update(events)
+        .set({ checkId: null, status: 'planned' })
+        .where(and(eq(events.id, ch.linkedEventId), ne(events.status, 'cancelled')))
     }
     return ch
   })
