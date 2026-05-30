@@ -388,8 +388,13 @@ function PosPageInner() {
     }
   }
 
+  // paddingBottom:0 на корне перебивает глобальное правило
+  // `.layout-content > :last-child { padding-bottom: --bottom-nav-clear }`: для
+  // height:100% flex-контейнера этот отступ укорачивал видимую область и создавал
+  // «мёртвую» полосу, перекрывавшую чеки. Клиренс под плавающую нижнюю навигацию
+  // перенесён на саму сетку карточек (.pos-cards-grid, прокручиваемый контент).
   return (
-    <div style={{ height: '100%', display: 'flex', flexDirection: 'row', overflow: 'hidden' }}>
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'row', overflow: 'hidden', paddingBottom: 0 }}>
       {/* Left panel — список чеков (всегда виден) */}
       <div className="pos-left-panel" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
 
@@ -454,7 +459,10 @@ function PosPageInner() {
             display: grid;
             grid-template-columns: repeat(2, 1fr);
             gap: 8px;
-            padding-bottom: 16px;
+            /* Клиренс под плавающую нижнюю навигацию кладём на сам прокручиваемый
+               контент: последние карточки доезжают выше панели, без «мёртвой» полосы.
+               На десктопе --bottom-nav-clear=0 (панель скрыта) → остаётся 16px. */
+            padding-bottom: calc(16px + var(--bottom-nav-clear, 0px));
           }
           .pos-check-card { padding: 10px; }
           .pos-check-card .card-avatar { width: 28px; height: 28px; font-size: 11px; }
