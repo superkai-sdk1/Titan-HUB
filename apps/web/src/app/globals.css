@@ -94,35 +94,18 @@ html {
   margin: 0; padding: 0;
   overflow: hidden;
   height: 100dvh;
-  /* Базовый цвет корневого холста = фон приложения. В standalone-PWA нижняя
-     safe-area (под home indicator) красится цветом холста/манифеста — если он
-     отличался (#0a0e1a в манифесте vs #15121b в приложении), внизу была тёмная
-     полоса другого оттенка. Держим один цвет везде, чтобы зона сливалась. */
-  background-color: #15121b;
-  /* iOS Safari: prevent bounce scroll on the root */
-  overscroll-behavior: none;
-}
-/* Полноэкранный слой фона: html/body = 100dvh, который в standalone-PWA может НЕ
-   включать нижнюю safe-area (под home indicator) → там оставалась тёмная полоса
-   (цвет холста/манифеста). Этот фиксированный слой высотой 100lvh (= вся физическая
-   высота экрана при viewport-fit=cover) принудительно закрашивает ВЕСЬ экран,
-   включая нижнюю зону, фоном приложения. Лежит позади контента (z-index:-1). */
-/* Единый фон приложения — фиксированный слой на ВСЮ физическую высоту экрана
-   (100lvh), включая нижнюю зону home indicator. Меш (цвет + радиальные градиенты)
-   живёт здесь, а body прозрачный (.bg-mesh ниже). Так нет стыка между body (100dvh)
-   и зоной ниже: нижняя зона прозрачно показывает тот же сплошной фон, без полосы.
-   Градиент `at 100% 100%` теперь приходится на реальный низ экрана. */
-html::before {
-  content: '';
-  position: fixed;
-  left: 0; right: 0; top: 0;
-  height: 100lvh;
+  /* Фон-меш кладём НА html. Фон корневого элемента распространяется на весь холст
+     вьюпорта (canvas) — т.е. на ВСЮ физическую высоту экрана, включая нижнюю
+     safe-area под home indicator, независимо от overflow/height:100dvh. Раньше меш
+     был на body (100dvh), а safe-area ниже оставалась плоским #15121b без градиента
+     → тёмная полоса. Теперь фон сквозной до самого низа. body прозрачный (.bg-mesh
+     ниже), чтобы не перекрывать распространение фона html. */
   background-color: #15121b;
   background-image:
     radial-gradient(at 0% 0%, rgba(139, 92, 246, 0.15) 0px, transparent 50%),
     radial-gradient(at 100% 100%, rgba(59, 130, 246, 0.1) 0px, transparent 50%);
-  z-index: -1;
-  pointer-events: none;
+  /* iOS Safari: prevent bounce scroll on the root */
+  overscroll-behavior: none;
 }
 body {
   margin: 0; padding: 0;
