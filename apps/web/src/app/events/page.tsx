@@ -33,6 +33,7 @@ const BILLING_MODES: Record<string, string> = {
 const BLANK = {
   type: 'titan',
   title: '',
+  location: '',
   spaceId: '',
   date: new Date().toISOString().split('T')[0],
   startTime: '18:00',
@@ -48,6 +49,16 @@ const BLANK = {
 }
 
 const MONTHS_SHORT = ['', 'янв', 'фев', 'мар', 'апр', 'май', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек']
+
+// Секция формы с заголовком — группирует поля для читаемости модалки.
+function FormSection({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <p style={{ fontSize: 11, fontWeight: 700, fontFamily: "'JetBrains Mono',monospace", textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--on-surface-variant)', margin: 0 }}>{title}</p>
+      {children}
+    </div>
+  )
+}
 
 export default function EventsPage() {
   const qc = useQueryClient()
@@ -142,6 +153,7 @@ export default function EventsPage() {
     setForm({
       type: ev.type ?? 'titan',
       title: ev.title ?? '',
+      location: ev.location ?? '',
       spaceId: ev.spaceId ?? '',
       date: ev.date ?? new Date().toISOString().split('T')[0],
       startTime: ev.startTime ?? '18:00',
@@ -179,6 +191,7 @@ export default function EventsPage() {
     const payload: any = {
       type: form.type,
       title: form.title || null,
+      location: form.type === 'exit' ? (form.location || null) : null,
       spaceId: form.type === 'titan' ? (form.spaceId || null) : null,
       date: form.date,
       startTime: form.startTime,
@@ -337,95 +350,127 @@ export default function EventsPage() {
 
       {/* Create / Edit sheet */}
       <Sheet open={showForm} onClose={() => { setShowForm(false); setEditId(null) }} title={editId ? 'Редактировать мероприятие' : 'Новое мероприятие'}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          <div>
-            <label style={LBL}>Тип</label>
-            <div style={{ display: 'flex', gap: 8 }}>
-              {Object.entries(TYPES).map(([k, [l, icon, c]]) => (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+
+          {/* ── Тип мероприятия — крупные карточки ── */}
+          <div style={{ display: 'flex', gap: 10 }}>
+            {Object.entries(TYPES).map(([k, [l, icon, c]]) => {
+              const active = form.type === k
+              return (
                 <button key={k} onClick={() => setForm((p: any) => ({ ...p, type: k, billingMode: k === 'exit' ? 'amount' : p.billingMode }))}
-                  style={{ flex: 1, padding: '12px', borderRadius: 12, border: `1px solid ${form.type === k ? c : 'rgba(255,255,255,0.1)'}`, background: form.type === k ? `${c}22` : 'rgba(255,255,255,0.04)', color: form.type === k ? c : 'var(--on-surface-variant)', fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-                  <Icon name={icon} size={16} />{l}
+                  style={{ flex: 1, padding: '16px 12px', borderRadius: 16, border: `1.5px solid ${active ? c : 'rgba(255,255,255,0.1)'}`, background: active ? `${c}1f` : 'rgba(255,255,255,0.03)', color: active ? c : 'var(--on-surface-variant)', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, transition: 'all 0.15s', boxShadow: active ? `0 0 18px ${c}25` : 'none' }}>
+                  <Icon name={icon} size={26} />
+                  <span style={{ fontSize: 13, fontWeight: 700 }}>{l}</span>
+                  <span style={{ fontSize: 10, opacity: 0.7, textAlign: 'center' }}>{k === 'titan' ? 'в клубе, с зоной' : 'на выезде'}</span>
                 </button>
-              ))}
-            </div>
+              )
+            })}
           </div>
-          <div><label style={LBL}>Название</label><input value={form.title} onChange={e => setForm((p: any) => ({ ...p, title: e.target.value }))} placeholder="Например: Турнир по покеру" style={INP} /></div>
-          {form.type === 'titan' && spacesList.length > 0 && (
+
+          {/* ── Основное ── */}
+          <FormSection title="Основное">
+            <div><label style={LBL}>Название</label><input value={form.title} onChange={e => setForm((p: any) => ({ ...p, title: e.target.value }))} placeholder="Например: Турнир по покеру" style={INP} /></div>
+            {form.type === 'titan' && spacesList.length > 0 && (
+              <div>
+                <label style={LBL}>Пространство</label>
+                <select value={form.spaceId} onChange={e => setForm((p: any) => ({ ...p, spaceId: e.target.value }))} style={SEL}>
+                  <option value="">Без привязки</option>
+                  {spacesList.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                </select>
+              </div>
+            )}
+            {form.type === 'exit' && (
+              <div><label style={LBL}>Локация</label><input value={form.location ?? ''} onChange={e => setForm((p: any) => ({ ...p, location: e.target.value }))} placeholder="Адрес или место выезда" style={INP} /></div>
+            )}
             <div>
-              <label style={LBL}>Пространство</label>
-              <select value={form.spaceId} onChange={e => setForm((p: any) => ({ ...p, spaceId: e.target.value }))} style={INP}>
-                <option value="">Без привязки</option>
-                {spacesList.map((s) => (
-                  <option key={s.id} value={s.id}>{s.name}</option>
-                ))}
+              <label style={LBL}>Ответственный{form.type === 'exit' ? ' *' : ''}</label>
+              <select value={form.responsibleStaffId} onChange={e => setForm((p: any) => ({ ...p, responsibleStaffId: e.target.value }))} style={SEL}>
+                <option value="">{form.type === 'exit' ? 'Выберите сотрудника' : 'Не назначен'}</option>
+                {staffList.map((s) => <option key={s.id} value={s.id}>{s.nickname}</option>)}
               </select>
             </div>
-          )}
-          {form.type === 'titan' && (
-            <div>
-              <label style={LBL}>Тариф зоны</label>
-              <div style={{ display: 'flex', gap: 8 }}>
-                {Object.entries(BILLING_MODES).map(([k, l]) => (
-                  <button key={k} onClick={() => setForm((p: any) => ({ ...p, billingMode: k }))}
-                    style={{ flex: 1, padding: '11px 8px', borderRadius: 12, border: `1px solid ${form.billingMode === k ? '#8B5CF6' : 'rgba(255,255,255,0.1)'}`, background: form.billingMode === k ? 'rgba(139,92,246,0.15)' : 'rgba(255,255,255,0.04)', color: form.billingMode === k ? '#a78bfa' : 'var(--on-surface-variant)', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
-                    {l}
-                  </button>
-                ))}
+          </FormSection>
+
+          {/* ── Дата и время ── */}
+          <FormSection title="Дата и время">
+            <div><label style={LBL}>Дата</label><input type="date" value={form.date} onChange={e => setForm((p: any) => ({ ...p, date: e.target.value }))} style={INP} /></div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              <div><label style={LBL}>Начало</label><TimeInput24 value={form.startTime} onChange={v => setForm((p: any) => ({ ...p, startTime: v }))} /></div>
+              <div><label style={LBL}>Конец</label><TimeInput24 value={form.endTime} onChange={v => setForm((p: any) => ({ ...p, endTime: v }))} /></div>
+            </div>
+          </FormSection>
+
+          {/* ── Оплата ── */}
+          <FormSection title="Оплата">
+            {/* Тариф зоны — только titan */}
+            {form.type === 'titan' && (
+              <div>
+                <label style={LBL}>Как берём основу</label>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  {Object.entries(BILLING_MODES).map(([k, l]) => {
+                    const active = form.billingMode === k
+                    return (
+                      <button key={k} onClick={() => setForm((p: any) => ({ ...p, billingMode: k }))}
+                        style={{ flex: 1, padding: '12px 8px', borderRadius: 12, border: `1px solid ${active ? '#8B5CF6' : 'rgba(255,255,255,0.1)'}`, background: active ? 'rgba(139,92,246,0.15)' : 'rgba(255,255,255,0.04)', color: active ? '#a78bfa' : 'var(--on-surface-variant)', fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                        <Icon name={k === 'hourly' ? 'schedule' : 'sell'} size={15} />{l}
+                      </button>
+                    )
+                  })}
+                </div>
               </div>
-            </div>
-          )}
-          <div><label style={LBL}>Дата</label><input type="date" value={form.date} onChange={e => setForm((p: any) => ({ ...p, date: e.target.value }))} style={INP} /></div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-            <div><label style={LBL}>Начало</label><TimeInput24 value={form.startTime} onChange={v => setForm((p: any) => ({ ...p, startTime: v }))} /></div>
-            <div><label style={LBL}>Конец</label><TimeInput24 value={form.endTime} onChange={v => setForm((p: any) => ({ ...p, endTime: v }))} /></div>
-          </div>
-          <div>
-            <label style={LBL}>Ответственный{form.type === 'exit' ? ' *' : ''}</label>
-            <select value={form.responsibleStaffId} onChange={e => setForm((p: any) => ({ ...p, responsibleStaffId: e.target.value }))} style={SEL}>
-              <option value="">{form.type === 'exit' ? 'Выберите сотрудника' : 'Не назначен'}</option>
-              {staffList.map((s) => (
-                <option key={s.id} value={s.id}>{s.nickname}</option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label style={LBL}>Оплата</label>
-            <div style={{ display: 'flex', gap: 6 }}>
-              {Object.entries(PAY_TYPES).map(([k, v]) => (
-                <button key={k} onClick={() => setForm((p: any) => ({ ...p, paymentType: k }))}
-                  style={{ flex: 1, padding: '10px 4px', borderRadius: 10, border: `1px solid ${form.paymentType === k ? '#8B5CF6' : 'rgba(255,255,255,0.1)'}`, background: form.paymentType === k ? 'rgba(139,92,246,0.15)' : 'rgba(255,255,255,0.04)', color: form.paymentType === k ? '#a78bfa' : 'var(--on-surface-variant)', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>
-                  {v}
-                </button>
-              ))}
-            </div>
-          </div>
-          {form.type === 'titan' && form.billingMode === 'hourly' ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 14px', borderRadius: 12, background: 'rgba(139,92,246,0.08)', border: '1px solid rgba(139,92,246,0.2)' }}>
-              <Icon name="schedule" size={18} color="#a78bfa" />
-              <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: 0 }}>Оплата по почасовой ставке зоны</p>
-            </div>
-          ) : (
-            <>
-              {form.paymentType === 'fixed' && (
-                <div><label style={LBL}>Сумма (₽)</label><input type="number" value={form.fixedAmount} onChange={e => setForm((p: any) => ({ ...p, fixedAmount: e.target.value }))} style={INP} /></div>
-              )}
-              {form.paymentType === 'per_head' && (
-                <div><label style={LBL}>Сумма с гостя (₽)</label><input type="number" value={form.perHeadAmount} onChange={e => setForm((p: any) => ({ ...p, perHeadAmount: e.target.value }))} style={INP} /></div>
-              )}
-              {(form.paymentType === 'per_head' || form.paymentType === 'free') && (
-                <div><label style={LBL}>Сумма вручную (₽)</label><input type="number" value={form.manualAmount} onChange={e => setForm((p: any) => ({ ...p, manualAmount: e.target.value }))} placeholder="Необязательно" style={INP} /></div>
-              )}
-            </>
-          )}
-          <div><label style={LBL}>Максимум гостей (опционально)</label><input type="number" value={form.maxGuests} onChange={e => setForm((p: any) => ({ ...p, maxGuests: e.target.value }))} placeholder="Без ограничения" style={INP} /></div>
-          <div><label style={LBL}>Комментарий</label><input value={form.comment} onChange={e => setForm((p: any) => ({ ...p, comment: e.target.value }))} placeholder="Необязательно" style={INP} /></div>
+            )}
+
+            {form.type === 'titan' && form.billingMode === 'hourly' ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '13px 14px', borderRadius: 12, background: 'rgba(139,92,246,0.08)', border: '1px solid rgba(139,92,246,0.2)' }}>
+                <Icon name="schedule" size={18} color="#a78bfa" />
+                <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: 0 }}>Оплата по почасовой ставке зоны — сумма посчитается на кассе по времени.</p>
+              </div>
+            ) : (
+              <>
+                <div>
+                  <label style={LBL}>Тип оплаты</label>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    {Object.entries(PAY_TYPES).map(([k, v]) => {
+                      const active = form.paymentType === k
+                      return (
+                        <button key={k} onClick={() => setForm((p: any) => ({ ...p, paymentType: k }))}
+                          style={{ flex: 1, padding: '11px 4px', borderRadius: 10, border: `1px solid ${active ? '#8B5CF6' : 'rgba(255,255,255,0.1)'}`, background: active ? 'rgba(139,92,246,0.15)' : 'rgba(255,255,255,0.04)', color: active ? '#a78bfa' : 'var(--on-surface-variant)', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>
+                          {v}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+                {form.paymentType === 'fixed' && (
+                  <div><label style={LBL}>Сумма (₽)</label><input type="number" inputMode="numeric" value={form.fixedAmount} onChange={e => setForm((p: any) => ({ ...p, fixedAmount: e.target.value }))} placeholder="0" style={INP} /></div>
+                )}
+                {form.paymentType === 'per_head' && (
+                  <div><label style={LBL}>Сумма с гостя (₽)</label><input type="number" inputMode="numeric" value={form.perHeadAmount} onChange={e => setForm((p: any) => ({ ...p, perHeadAmount: e.target.value }))} placeholder="0" style={INP} /></div>
+                )}
+                {(form.paymentType === 'per_head' || form.paymentType === 'free') && (
+                  <div>
+                    <label style={LBL}>Итоговая сумма вручную (₽)</label>
+                    <input type="number" inputMode="numeric" value={form.manualAmount} onChange={e => setForm((p: any) => ({ ...p, manualAmount: e.target.value }))} placeholder="Необязательно" style={INP} />
+                    <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: '6px 0 0' }}>Если указать — ляжет в чек как база события; иначе основа = 0, платим только за допы.</p>
+                  </div>
+                )}
+              </>
+            )}
+          </FormSection>
+
+          {/* ── Дополнительно ── */}
+          <FormSection title="Дополнительно">
+            <div><label style={LBL}>Максимум гостей</label><input type="number" inputMode="numeric" value={form.maxGuests} onChange={e => setForm((p: any) => ({ ...p, maxGuests: e.target.value }))} placeholder="Без ограничения" style={INP} /></div>
+            <div><label style={LBL}>Комментарий</label><input value={form.comment} onChange={e => setForm((p: any) => ({ ...p, comment: e.target.value }))} placeholder="Необязательно" style={INP} /></div>
+          </FormSection>
+
           {formError && (
-            <div style={{ padding: '10px 14px', borderRadius: 10, background: 'rgba(244,63,94,0.1)', border: '1px solid rgba(244,63,94,0.3)', color: '#F87171', fontSize: 12 }}>
-              {formError}
+            <div style={{ padding: '11px 14px', borderRadius: 10, background: 'rgba(244,63,94,0.1)', border: '1px solid rgba(244,63,94,0.3)', color: '#F87171', fontSize: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Icon name="error" size={15} />{formError}
             </div>
           )}
           <button onClick={submitForm} disabled={saving}
-            style={{ width: '100%', padding: '14px 0', borderRadius: 14, border: 'none', background: 'linear-gradient(135deg, #8B5CF6, #4cd7f6)', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer', marginTop: 4 }}>
+            style={{ width: '100%', padding: '15px 0', borderRadius: 14, border: 'none', background: 'linear-gradient(135deg, #8B5CF6, #4cd7f6)', color: '#fff', fontSize: 14, fontWeight: 800, letterSpacing: '0.02em', cursor: 'pointer', opacity: saving ? 0.6 : 1, boxShadow: '0 4px 18px rgba(139,92,246,0.3)' }}>
             {saving ? 'Сохраняем…' : editId ? 'Сохранить изменения' : 'Создать мероприятие'}
           </button>
         </div>

@@ -124,6 +124,30 @@ const ICONS: Record<string, React.ReactNode> = {
       <circle cx="12" cy="15.5" r="2" />
     </>
   ),
+  play_arrow: (
+    <polygon points="7 4 20 12 7 20 7 4" fill="currentColor" />
+  ),
+  play_circle: (
+    <>
+      <circle cx="12" cy="12" r="10" />
+      <polygon points="10 8 16 12 10 16 10 8" fill="currentColor" stroke="none" />
+    </>
+  ),
+  home: (
+    <>
+      <path d="M3 10.5L12 3l9 7.5" />
+      <path d="M5 9.5V20a1 1 0 001 1h12a1 1 0 001-1V9.5" />
+      <path d="M9 21v-6h6v6" />
+    </>
+  ),
+  directions_car: (
+    <>
+      <path d="M5 11l1.5-4.5A2 2 0 018.4 5h7.2a2 2 0 011.9 1.5L19 11" />
+      <path d="M3 11h18v6a1 1 0 01-1 1h-1a1 1 0 01-1-1v-1H6v1a1 1 0 01-1 1H4a1 1 0 01-1-1v-6z" />
+      <circle cx="7.5" cy="14.5" r="1" />
+      <circle cx="16.5" cy="14.5" r="1" />
+    </>
+  ),
   print: (
     <>
       <polyline points="6 9 6 2 18 2 18 9" />
