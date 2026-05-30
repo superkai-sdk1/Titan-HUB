@@ -115,7 +115,15 @@ async function getCheckWithItems(checkId: string) {
     guestName = check.guestNames[0] ?? null
   }
 
-  return { ...check, items: itemsWithMods, payments, discounts: discountRows, spaceHourlyRate, guestName }
+  // Снятые с чека авто/тир-скидки (excludedDiscountIds) — с именами, чтобы фронт
+  // мог предложить их вернуть. Берём только ещё существующие активные скидки.
+  const excludedIds = check.excludedDiscountIds ?? []
+  const excludedDiscounts = excludedIds.length
+    ? (await db.select({ id: discounts.id, name: discounts.name, type: discounts.type, value: discounts.value })
+        .from(discounts).where(inArray(discounts.id, excludedIds)))
+    : []
+
+  return { ...check, items: itemsWithMods, payments, discounts: discountRows, excludedDiscounts, spaceHourlyRate, guestName }
 }
 
 // Авто-скидки из справочника `discounts` (isActive && isAuto) применяются к чеку
@@ -749,6 +757,20 @@ posRouter.delete('/checks/:id/discount/:discountRowId', requireRole('owner', 'st
     await db.delete(checkDiscounts).where(and(eq(checkDiscounts.id, rowId), eq(checkDiscounts.checkId, checkId)))
   }
 
+  await recalcCheckTotal(checkId)
+  const data = await getCheckWithItems(checkId)
+  return c.json({ check: data })
+})
+
+// Вернуть ранее снятую авто/тир-скидку: убираем её discountId из исключений чека,
+// recalc применит её заново (если она всё ещё подходит чеку).
+posRouter.post('/checks/:id/discount/:discountId/restore', requireRole('owner', 'staff'), async (c) => {
+  const checkId = c.req.param('id')
+  const discountId = c.req.param('discountId')
+  const [check] = await db.select().from(checks).where(eq(checks.id, checkId))
+  if (!check || check.status !== 'open') return c.json({ error: 'Check not open' }, 400)
+  const next = (check.excludedDiscountIds ?? []).filter(id => id !== discountId)
+  await db.update(checks).set({ excludedDiscountIds: next }).where(eq(checks.id, checkId))
   await recalcCheckTotal(checkId)
   const data = await getCheckWithItems(checkId)
   return c.json({ check: data })

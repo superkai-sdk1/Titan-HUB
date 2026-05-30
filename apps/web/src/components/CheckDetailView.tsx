@@ -44,6 +44,7 @@ interface CheckData {
   spaceEndAt?: string | null
   spaceHourlyRate?: string | null
   discounts?: { id: string; name: string; type: string; value: string; amount: string; discountId: string | null }[]
+  excludedDiscounts?: { id: string; name: string; type: string; value: string }[]
 }
 
 interface PlayerProfile {
@@ -378,6 +379,12 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
   })
   const removeDiscount = useMutation({
     mutationFn: (discountId: string) => api.delete<{ check: CheckData }>(`/pos/checks/${checkId}/discount/${discountId}`),
+    onSuccess: writeCheck,
+    onError: toastError,
+  })
+  // Вернуть снятую авто/тир-скидку (по discountId из excludedDiscounts).
+  const restoreDiscount = useMutation({
+    mutationFn: (discountId: string) => api.post<{ check: CheckData }>(`/pos/checks/${checkId}/discount/${discountId}/restore`),
     onSuccess: writeCheck,
     onError: toastError,
   })
@@ -867,6 +874,36 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
                 style={{ flex: 1, padding: '13px 0', borderRadius: 14, border: 'none', background: 'linear-gradient(135deg, #34D399, #10B981)', color: '#fff', fontSize: 13, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.06em', cursor: 'pointer', opacity: (applyDiscount.isPending || !(parseFloat(discValue) > 0)) ? 0.5 : 1 }}
               >{applyDiscount.isPending ? '...' : 'Применить'}</button>
             </div>
+
+            {/* Снятые авто/тир-скидки — отдельным блоком, можно вернуть. */}
+            {(check?.excludedDiscounts?.length ?? 0) > 0 && (
+              <div style={{ marginTop: 20, paddingTop: 18, borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+                <p style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--on-surface-variant)', margin: '0 0 10px', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <Icon name="undo" size={14} />
+                  Снятые скидки
+                </p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {(check?.excludedDiscounts ?? []).map(d => (
+                    <div key={d.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '10px 12px', borderRadius: 12, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
+                      <span style={{ fontSize: 13, color: 'var(--on-surface)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>
+                        {d.name}
+                        <span style={{ color: 'var(--on-surface-variant)', marginLeft: 6 }}>
+                          {d.type === 'percent' ? `${parseFloat(d.value)}%` : `${parseFloat(d.value).toLocaleString('ru')} ₽`}
+                        </span>
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => restoreDiscount.mutate(d.id)}
+                        disabled={restoreDiscount.isPending}
+                        style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 5, padding: '7px 12px', borderRadius: 10, border: '1px solid rgba(52,211,153,0.35)', background: 'rgba(52,211,153,0.1)', color: '#34D399', fontSize: 12, fontWeight: 700, cursor: 'pointer', opacity: restoreDiscount.isPending ? 0.5 : 1 }}
+                      >
+                        <Icon name="undo" size={14} /> Вернуть
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
