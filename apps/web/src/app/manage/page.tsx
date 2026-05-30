@@ -79,6 +79,7 @@ const NAV: NavGroup[] = [
     title: 'Система',
     icon: 'settings',
     items: [
+      { href: '/manage/security', label: 'Мой Passkey',  icon: 'fingerprint', color: '#A78BFA', bg: 'rgba(167,139,250,0.15)', roles: ['owner','staff'] },
       { href: '/manage/ai',       label: 'AI Помощник', icon: 'psychology', color: '#4cd7f6', bg: 'rgba(76,215,246,0.15)',   roles: ['owner','staff'] },
       { href: '/manage/settings', label: 'Настройки',   icon: 'settings',   color: '#94A3B8', bg: 'rgba(148,163,184,0.15)', roles: ['owner'] },
       { href: '/manage/about',    label: 'О системе',   icon: 'info',       color: '#94A3B8', bg: 'rgba(148,163,184,0.15)', roles: ['owner'] },
