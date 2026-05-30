@@ -1,5 +1,5 @@
 import { pgTable, uuid, text, numeric, boolean, integer, timestamp, pgEnum, jsonb } from 'drizzle-orm/pg-core'
-import { profiles, clientTierEnum } from './profiles.js'
+import { profiles } from './profiles.js'
 import { inventory } from './menu.js'
 import { checks, paymentMethodEnum, discountTypeEnum } from './checks.js'
 
@@ -20,7 +20,8 @@ export const discounts = pgTable('discounts', {
 export const clientDiscountRules = pgTable('client_discount_rules', {
   id: uuid('id').primaryKey().defaultRandom(),
   name: text('name').notNull(),
-  clientTier: clientTierEnum('client_tier').notNull(),
+  // text + справочник client_tiers (статусы динамические, миграция 021).
+  clientTier: text('client_tier').notNull(),
   discountId: uuid('discount_id').references(() => discounts.id),
   isActive: boolean('is_active').notNull().default(true),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

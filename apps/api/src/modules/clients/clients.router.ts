@@ -3,8 +3,8 @@ import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import {
-  db, profiles, transactions, bonusHistory,
-  eq, and, isNull, ilike, or, desc, sql,
+  db, profiles, transactions, bonusHistory, clientTiers,
+  eq, and, isNull, ilike, or, desc, asc, sql, count,
 } from '@titan/database'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
 import { accrueBonusLot, getBonusExpiryDays } from '../../lib/bonusLots.js'
@@ -16,7 +16,7 @@ const CreateClientSchema = z.object({
   fullName: z.string().nullable().optional(),
   phone: z.string().optional(),
   birthday: z.string().optional(),
-  clientTier: z.enum(['guest', 'resident', 'student']).default('guest'),
+  clientTier: z.string().min(1).default('guest'),
   password: z.string().optional(),
   tgId: z.string().optional(),
   tgUsername: z.string().optional(),
@@ -28,7 +28,7 @@ const UpdateClientSchema = z.object({
   fullName: z.string().nullable().optional(),
   phone: z.string().optional(),
   birthday: z.string().optional(),
-  clientTier: z.enum(['guest', 'resident', 'student']).optional(),
+  clientTier: z.string().min(1).optional(),
   photoUrl: z.string().optional(),
   searchTags: z.array(z.string()).optional(),
   isResident: z.boolean().optional(),
@@ -90,6 +90,59 @@ clientsRouter.get('/', async (c) => {
     .where(where)
 
   return c.json({ clients, total, page, limit })
+})
+
+// ─── Статусы клиентов (справочник) ─────────────────────────────────────────────
+// Регистрируем ДО '/:id', иначе GET '/tiers' попал бы в обработчик '/:id'.
+
+// Транслит ключа из метки (латиница-слаг). Ключ хранится в profiles.client_tier.
+const RU_SLUG: Record<string, string> = {
+  а:'a',б:'b',в:'v',г:'g',д:'d',е:'e',ё:'e',ж:'zh',з:'z',и:'i',й:'y',к:'k',л:'l',м:'m',
+  н:'n',о:'o',п:'p',р:'r',с:'s',т:'t',у:'u',ф:'f',х:'h',ц:'c',ч:'ch',ш:'sh',щ:'sch',
+  ъ:'',ы:'y',ь:'',э:'e',ю:'yu',я:'ya',
+}
+function slugifyTierKey(label: string): string {
+  const base = label.toLowerCase().split('').map(ch => RU_SLUG[ch] ?? ch).join('')
+    .replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 32)
+  return base || `tier_${Date.now().toString(36)}`
+}
+
+clientsRouter.get('/tiers', async (c) => {
+  const tiers = await db.select().from(clientTiers).orderBy(asc(clientTiers.sortOrder), asc(clientTiers.key))
+  return c.json({ tiers })
+})
+
+const CreateTierSchema = z.object({
+  label: z.string().min(1).max(40),
+  color: z.string().min(1).max(40).optional(),
+  key: z.string().min(1).max(32).optional(),
+})
+clientsRouter.post('/tiers', requireRole('owner'), zValidator('json', CreateTierSchema), async (c) => {
+  const body = c.req.valid('json')
+  let key = (body.key && body.key.trim()) ? slugifyTierKey(body.key) : slugifyTierKey(body.label)
+  // Уникальность ключа: если занят — добавляем суффикс.
+  const existing = await db.select({ key: clientTiers.key }).from(clientTiers)
+  const taken = new Set(existing.map(t => t.key))
+  if (taken.has(key)) { let i = 2; while (taken.has(`${key}_${i}`)) i++; key = `${key}_${i}` }
+  const [maxRow] = await db.select({ m: sql<number>`coalesce(max(${clientTiers.sortOrder}), 0)::int` }).from(clientTiers)
+  const [tier] = await db.insert(clientTiers).values({
+    key, label: body.label.trim(), color: body.color?.trim() || '#8B5CF6',
+    sortOrder: (maxRow?.m ?? 0) + 1, isSystem: false,
+  }).returning()
+  return c.json({ tier }, 201)
+})
+
+clientsRouter.delete('/tiers/:key', requireRole('owner'), async (c) => {
+  const key = c.req.param('key')
+  const [tier] = await db.select().from(clientTiers).where(eq(clientTiers.key, key))
+  if (!tier) return c.json({ error: 'Not found' }, 404)
+  if (tier.isSystem) return c.json({ error: 'Системный статус нельзя удалить' }, 400)
+  // Клиентов с этим статусом переводим в 'guest', затем удаляем статус.
+  const [used] = await db.select({ n: count() }).from(profiles).where(eq(profiles.clientTier, key))
+  const reassigned = used?.n ?? 0
+  if (reassigned > 0) await db.update(profiles).set({ clientTier: 'guest' }).where(eq(profiles.clientTier, key))
+  await db.delete(clientTiers).where(eq(clientTiers.key, key))
+  return c.json({ ok: true, reassigned })
 })
 
 clientsRouter.post('/', requireRole('owner', 'staff'), zValidator('json', CreateClientSchema), async (c) => {

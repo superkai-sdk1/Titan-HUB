@@ -60,7 +60,9 @@ discountsRouter.post(
 // ВАЖНО: эти роуты объявлены ДО `/:id` PATCH/DELETE ниже, иначе путь
 // `tier-rules` был бы перехвачен параметром `:id`.
 
-const RU_TIER_LABEL: Record<'guest' | 'resident' | 'student', string> = {
+// Статусы теперь динамические (справочник client_tiers). Для подписи правила по
+// умолчанию знаем системные метки; для кастомных — fallback на сам ключ.
+const RU_TIER_LABEL: Record<string, string> = {
   guest: 'Гость',
   resident: 'Резидент',
   student: 'Студент',
@@ -103,7 +105,7 @@ discountsRouter.post(
   requireRole('owner', 'staff'),
   zValidator('json', z.object({
     name: z.string().min(1).optional(),
-    clientTier: z.enum(['guest', 'resident', 'student']),
+    clientTier: z.string().min(1),
     discountId: z.string().uuid(),
     isActive: z.boolean().optional().default(true),
   })),
@@ -115,7 +117,7 @@ discountsRouter.post(
     if (!linked) return c.json({ error: 'Скидка не найдена' }, 400)
 
     // Имя необязательно: по умолчанию — название скидки, иначе метка тира.
-    const name = body.name?.trim() || linked.name || RU_TIER_LABEL[body.clientTier]
+    const name = body.name?.trim() || linked.name || RU_TIER_LABEL[body.clientTier] || body.clientTier
 
     const [row] = await db.insert(clientDiscountRules).values({
       name,
@@ -133,7 +135,7 @@ discountsRouter.patch(
   requireRole('owner', 'staff'),
   zValidator('json', z.object({
     name: z.string().min(1).optional(),
-    clientTier: z.enum(['guest', 'resident', 'student']).optional(),
+    clientTier: z.string().min(1).optional(),
     discountId: z.string().uuid().optional(),
     isActive: z.boolean().optional(),
   })),

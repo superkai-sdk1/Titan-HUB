@@ -19,6 +19,8 @@ const TIER_LABELS: Record<string, string> = {
   bronze: 'Бронза', silver: 'Серебро', gold: 'Золото', platinum: 'Платина',
 }
 
+type TierRow = { key: string; label: string; color: string; sortOrder: number; isSystem: boolean }
+
 function parseNum(v: unknown) { return parseFloat(String(v ?? 0)) || 0 }
 function fmt(n: number) { return n.toLocaleString('ru', { maximumFractionDigits: 0 }) }
 
@@ -32,8 +34,10 @@ export default function ClientsPage() {
   const [selected, setSelected] = useState<any>(null)
   const [mode, setMode] = useState<'view' | 'edit'>('view')
   const [tab, setTab] = useState<'info' | 'tx'>('info')
-  const [form, setForm] = useState({ nickname: '', phone: '', birthday: '', clientTier: 'guest', password: '' })
+  const [form, setForm] = useState({ nickname: '', fullName: '', phone: '', birthday: '', clientTier: 'guest', password: '' })
   const [editForm, setEditForm] = useState<any>(null)
+  const [showTiers, setShowTiers] = useState(false)
+  const [newTier, setNewTier] = useState({ label: '', color: '#8B5CF6' })
   const [tagsInput, setTagsInput] = useState('')
   const [tgQr, setTgQr] = useState<{ deepLink: string; qrDataUrl: string } | null>(null)
   const [topUpBon, setTopUpBon] = useState('')
@@ -77,7 +81,17 @@ export default function ClientsPage() {
   const { data, isLoading } = pageQueries
   const { data: txData } = useQuery({ queryKey: ['clients', selected?.id, 'tx'], queryFn: () => api.get<any>(`/clients/${selected.id}/transactions`), enabled: !!selected?.id && tab === 'tx' })
 
-  const create = useMutation({ mutationFn: (b: any) => api.post('/clients', b), onSuccess: () => { qc.invalidateQueries({ queryKey: ['clients'] }); setShowCreate(false); setForm({ nickname: '', phone: '', birthday: '', clientTier: 'guest', password: '' }) }, onError: () => show('Не удалось создать клиента', 'error') })
+  // Справочник статусов (динамический). Фоллбек на встроенные метки/цвета, если
+  // справочник ещё не загрузился, чтобы UI не «прыгал».
+  const { data: tiersData } = useQuery({ queryKey: ['client-tiers'], queryFn: () => api.get<{ tiers: TierRow[] }>('/clients/tiers') })
+  const tierList: TierRow[] = tiersData?.tiers ?? Object.keys(TIER_LABELS).map((k, i) => ({ key: k, label: TIER_LABELS[k], color: TIER_COLORS[k] ?? '#8B5CF6', sortOrder: i, isSystem: ['guest', 'resident', 'student'].includes(k) }))
+  const labelOf = (k: string) => tierList.find(t => t.key === k)?.label ?? TIER_LABELS[k] ?? k
+  const colorOf = (k: string) => tierList.find(t => t.key === k)?.color ?? TIER_COLORS[k] ?? '#8B5CF6'
+
+  const createTier = useMutation({ mutationFn: (b: { label: string; color: string }) => api.post('/clients/tiers', b), onSuccess: () => { qc.invalidateQueries({ queryKey: ['client-tiers'] }); setNewTier({ label: '', color: '#8B5CF6' }) }, onError: () => show('Не удалось создать статус', 'error') })
+  const deleteTier = useMutation({ mutationFn: (key: string) => api.delete(`/clients/tiers/${key}`), onSuccess: (res: any) => { qc.invalidateQueries({ queryKey: ['client-tiers'] }); qc.invalidateQueries({ queryKey: ['clients'] }); if (res?.reassigned > 0) show(`Статус удалён, ${res.reassigned} клиент(ов) переведены в «Гость»`, 'success') }, onError: () => show('Не удалось удалить статус', 'error') })
+
+  const create = useMutation({ mutationFn: (b: any) => api.post('/clients', b), onSuccess: () => { qc.invalidateQueries({ queryKey: ['clients'] }); setShowCreate(false); setForm({ nickname: '', fullName: '', phone: '', birthday: '', clientTier: 'guest', password: '' }) }, onError: () => show('Не удалось создать клиента', 'error') })
   const update = useMutation({
     mutationFn: ({ id, ...b }: any) => api.patch(`/clients/${id}`, b),
     onSuccess: (res: any, vars: any) => {
@@ -102,7 +116,7 @@ export default function ClientsPage() {
   const isFetchingMore = pageQueries.isFetching && page > 1
 
   // Tier distribution
-  const tierCounts = Object.fromEntries(Object.keys(TIER_LABELS).map(k => [k, clients.filter(c => (c.clientTier ?? 'guest') === k).length]))
+  const tierCounts = Object.fromEntries(tierList.map(t => [t.key, clients.filter(c => (c.clientTier ?? 'guest') === t.key).length]))
 
   function openDetail(c: any) {
     setSelected(c)
@@ -157,12 +171,15 @@ export default function ClientsPage() {
             <Icon name="search" size={18} color="var(--on-surface-variant)" style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }} />
             <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Поиск по нику или телефону…" style={{ ...INP, paddingLeft: 42, borderRadius: 12 }} />
           </div>
-          <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 2 }}>
-            {Object.entries(TIER_LABELS).filter(([k]) => (tierCounts[k] ?? 0) > 0).map(([k, l]) => (
-              <span key={k} style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 8, background: `${TIER_COLORS[k]}22`, color: TIER_COLORS[k], whiteSpace: 'nowrap', fontFamily: "'JetBrains Mono',monospace" }}>
-                {l} {tierCounts[k]}
+          <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 2, alignItems: 'center' }}>
+            {tierList.filter(t => (tierCounts[t.key] ?? 0) > 0).map(t => (
+              <span key={t.key} style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 8, background: `${t.color}22`, color: t.color, whiteSpace: 'nowrap', fontFamily: "'JetBrains Mono',monospace" }}>
+                {t.label} {tierCounts[t.key]}
               </span>
             ))}
+            <button onClick={() => setShowTiers(true)} style={{ flexShrink: 0, marginLeft: 'auto', fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 8, border: '1px solid rgba(139,92,246,0.3)', background: 'rgba(139,92,246,0.1)', color: '#a78bfa', whiteSpace: 'nowrap', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              <Icon name="sell" size={13} /> Статусы
+            </button>
           </div>
         </div>
       </div>
@@ -176,7 +193,7 @@ export default function ClientsPage() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {clients.map((c: any) => {
               const tier = c.clientTier ?? 'guest'
-              const tierColor = TIER_COLORS[tier]
+              const tierColor = colorOf(tier)
               return (
                 <div key={c.id} className="glass-l2" onClick={() => openDetail(c)}
                   style={{ borderRadius: 14, padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 14, cursor: 'pointer', transition: 'border-color 0.2s' }}
@@ -188,7 +205,7 @@ export default function ClientsPage() {
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' as const, marginBottom: 4 }}>
                       <p style={{ fontSize: 14, fontWeight: 700, margin: 0 }}>{c.nickname}</p>
-                      <span style={{ fontSize: 10, fontWeight: 700, fontFamily: "'JetBrains Mono',monospace", padding: '2px 7px', borderRadius: 6, background: `${tierColor}22`, color: tierColor, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{TIER_LABELS[tier]}</span>
+                      <span style={{ fontSize: 10, fontWeight: 700, fontFamily: "'JetBrains Mono',monospace", padding: '2px 7px', borderRadius: 6, background: `${tierColor}22`, color: tierColor, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{labelOf(tier)}</span>
                     </div>
                     <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: 0 }}>{c.phone ?? 'Нет телефона'}</p>
                   </div>
@@ -222,10 +239,10 @@ export default function ClientsPage() {
       {/* Create sheet */}
       <Sheet open={showCreate} onClose={() => setShowCreate(false)} title="Новый клиент">
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          {([['Никнейм *', 'nickname', 'text'], ['Телефон', 'phone', 'tel'], ['День рождения', 'birthday', 'date'], ['Пароль', 'password', 'password']] as [string, string, string][]).map(([lbl, key, type]) => (
-            <div key={key}><label style={LBL}>{lbl}</label><input type={type} value={(form as any)[key]} onChange={e => setForm(p => ({ ...p, [key]: e.target.value }))} style={INP} /></div>
+          {([['Никнейм *', 'nickname', 'text'], ['Имя', 'fullName', 'text'], ['Телефон', 'phone', 'tel'], ['День рождения', 'birthday', 'date'], ['Пароль', 'password', 'password']] as [string, string, string][]).map(([lbl, key, type]) => (
+            <div key={key}><label style={LBL}>{lbl}</label><input type={type} value={(form as any)[key]} onChange={e => setForm(p => ({ ...p, [key]: e.target.value }))} style={INP} placeholder={key === 'fullName' ? 'Реальное имя' : undefined} /></div>
           ))}
-          <div><label style={LBL}>Уровень</label><select value={form.clientTier} onChange={e => setForm(p => ({ ...p, clientTier: e.target.value }))} style={{ ...INP, background: 'rgba(29,26,36,0.8)', cursor: 'pointer' } as React.CSSProperties}>{Object.entries(TIER_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></div>
+          <div><label style={LBL}>Статус</label><select value={form.clientTier} onChange={e => setForm(p => ({ ...p, clientTier: e.target.value }))} style={{ ...INP, background: 'rgba(29,26,36,0.8)', cursor: 'pointer' } as React.CSSProperties}>{tierList.map(t => <option key={t.key} value={t.key}>{t.label}</option>)}</select></div>
           <button onClick={() => create.mutate(form)} disabled={create.isPending || !form.nickname.trim()} style={{ width: '100%', padding: '14px 0', borderRadius: 14, border: 'none', background: 'linear-gradient(135deg, #8B5CF6, #4cd7f6)', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer', opacity: create.isPending || !form.nickname.trim() ? 0.6 : 1, marginTop: 4 }}>
             {create.isPending ? 'Создаём…' : 'Создать клиента'}
           </button>
@@ -236,7 +253,7 @@ export default function ClientsPage() {
       <Sheet open={!!selected} onClose={() => setSelected(null)} maxHeight="92vh">
         {selected && (() => {
           const tier = selected.clientTier ?? 'guest'
-          const tierColor = TIER_COLORS[tier]
+          const tierColor = colorOf(tier)
           const bal = parseNum(selected.balance)
           const debt = bal < 0 ? -bal : 0
           const isLinked = !!(selected.tgUsername || selected.tgId)
@@ -255,7 +272,7 @@ export default function ClientsPage() {
                 <div><label style={LBL}>Теги (через запятую)</label><input value={tagsInput} onChange={e => setTagsInput(e.target.value)} style={INP} placeholder="VIP, друг, постоянный" /></div>
                 <div><label style={LBL}>Телефон</label><input type="tel" value={editForm.phone} onChange={e => setEditForm((p: any) => ({ ...p, phone: e.target.value }))} style={INP} /></div>
                 <div><label style={LBL}>День рождения</label><input type="date" value={editForm.birthday} onChange={e => setEditForm((p: any) => ({ ...p, birthday: e.target.value }))} style={INP} /></div>
-                <div><label style={LBL}>Уровень</label><select value={editForm.clientTier} onChange={e => setEditForm((p: any) => ({ ...p, clientTier: e.target.value }))} style={{ ...INP, background: 'rgba(29,26,36,0.8)', cursor: 'pointer' } as React.CSSProperties}>{Object.entries(TIER_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></div>
+                <div><label style={LBL}>Статус</label><select value={editForm.clientTier} onChange={e => setEditForm((p: any) => ({ ...p, clientTier: e.target.value }))} style={{ ...INP, background: 'rgba(29,26,36,0.8)', cursor: 'pointer' } as React.CSSProperties}>{tierList.map(t => <option key={t.key} value={t.key}>{t.label}</option>)}</select></div>
 
                 {/* Привязка телеграма */}
                 <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 16 }}>
@@ -309,7 +326,7 @@ export default function ClientsPage() {
                 )}
                 <h2 style={{ fontSize: 18, fontWeight: 600, margin: '8px 0 0', textAlign: 'center' }}>{selected.nickname}</h2>
                 {selected.fullName ? <p style={{ fontSize: 13, color: 'var(--on-surface-variant)', margin: 0, textAlign: 'center' }}>{selected.fullName}</p> : null}
-                <span style={{ fontSize: 11, fontWeight: 700, fontFamily: "'JetBrains Mono',monospace", padding: '3px 8px', borderRadius: 6, background: `${tierColor}22`, color: tierColor, textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: 2 }}>{TIER_LABELS[tier]}</span>
+                <span style={{ fontSize: 11, fontWeight: 700, fontFamily: "'JetBrains Mono',monospace", padding: '3px 8px', borderRadius: 6, background: `${tierColor}22`, color: tierColor, textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: 2 }}>{labelOf(tier)}</span>
               </div>
 
               {/* Пилюли статистики + Редактировать */}
@@ -397,6 +414,41 @@ export default function ClientsPage() {
             </div>
           )
         })()}
+      </Sheet>
+
+      {/* Управление статусами */}
+      <Sheet open={showTiers} onClose={() => setShowTiers(false)} title="Статусы клиентов">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: 0 }}>Создавайте и удаляйте статусы клиентов. Системные статусы удалить нельзя.</p>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {tierList.map(t => (
+              <div key={t.key} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 12, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
+                <span style={{ width: 16, height: 16, borderRadius: '50%', background: t.color, flexShrink: 0, border: '1px solid rgba(255,255,255,0.2)' }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <p style={{ fontSize: 14, fontWeight: 700, margin: 0, color: 'var(--on-surface)' }}>{t.label}</p>
+                  <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: '1px 0 0', fontFamily: "'JetBrains Mono',monospace" }}>{t.key} · {tierCounts[t.key] ?? 0} клиент(ов)</p>
+                </div>
+                {t.isSystem ? (
+                  <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--on-surface-variant)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>систем.</span>
+                ) : (
+                  <IconButton icon="delete" ariaLabel="Удалить статус" variant="ghost" onClick={() => deleteTier.mutate(t.key)} />
+                )}
+              </div>
+            ))}
+          </div>
+
+          <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <p style={{ ...LBL, margin: 0 }}>Новый статус</p>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
+              <div style={{ flex: 1 }}><label style={LBL}>Название</label><input value={newTier.label} onChange={e => setNewTier(p => ({ ...p, label: e.target.value }))} style={INP} placeholder="напр. VIP" /></div>
+              <div><label style={LBL}>Цвет</label><input type="color" value={newTier.color.startsWith('#') ? newTier.color : '#8B5CF6'} onChange={e => setNewTier(p => ({ ...p, color: e.target.value }))} style={{ ...INP, padding: 4, width: 52, height: 44, cursor: 'pointer' } as React.CSSProperties} /></div>
+            </div>
+            <button onClick={() => createTier.mutate(newTier)} disabled={createTier.isPending || !newTier.label.trim()} style={{ width: '100%', padding: '12px 0', borderRadius: 12, border: 'none', background: 'linear-gradient(135deg, #8B5CF6, #4cd7f6)', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', opacity: (createTier.isPending || !newTier.label.trim()) ? 0.6 : 1 }}>
+              {createTier.isPending ? 'Создаём…' : 'Создать статус'}
+            </button>
+          </div>
+        </div>
       </Sheet>
 
       <ConfirmDialog
