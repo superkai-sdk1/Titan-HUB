@@ -656,8 +656,8 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
                 </span>
               </div>
             ))}
-            <div className="check-pay-row" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
-              <div>
+            <div className="check-pay-row">
+              <div className="check-pay-money">
                 <p className="check-pay-label" style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--on-surface-variant)', margin: '0 0 4px' }}>
                   Итого
                 </p>
@@ -710,20 +710,20 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
                 >
                   <Icon name="sell" size={18} />
                 </button>
-                <button
-                  onClick={openPaymentDrawer}
-                  disabled={total === 0}
-                  className="check-pay-go"
-                  style={{
-                    padding: '14px 28px', borderRadius: 16, border: 'none', cursor: 'pointer',
-                    background: 'linear-gradient(135deg, #8B5CF6, #4cd7f6)',
-                    color: '#fff', fontSize: 13, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.06em',
-                    boxShadow: '0 4px 20px rgba(139,92,246,0.35)', opacity: total === 0 ? 0.4 : 1,
-                  }}
-                >
-                  К ОПЛАТЕ
-                </button>
               </div>
+              <button
+                onClick={openPaymentDrawer}
+                disabled={total === 0}
+                className="check-pay-go"
+                style={{
+                  padding: '14px 28px', borderRadius: 16, border: 'none', cursor: 'pointer',
+                  background: 'linear-gradient(135deg, #8B5CF6, #4cd7f6)',
+                  color: '#fff', fontSize: 13, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.06em',
+                  boxShadow: '0 4px 20px rgba(139,92,246,0.35)', opacity: total === 0 ? 0.4 : 1,
+                }}
+              >
+                К ОПЛАТЕ
+              </button>
             </div>
           </div>
         </div>
@@ -1305,6 +1305,13 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
         .check-layout {
           position: relative;
         }
+        /* ПК: сумма слева (margin-right:auto), инструменты + «К оплате» справа. */
+        .check-pay-row {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+        }
+        .check-pay-money { margin-right: auto; }
         @keyframes spin {
           to { transform: rotate(360deg); }
         }
@@ -1317,13 +1324,16 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
            Точные размеры и позиция нижней панели: fixed, left/right 14,
            bottom = safe + 6 (+ standalone-смещение), радиус 28, то же стекло. */
         @media (max-width: 1023px) {
+          /* Двухуровневый «остров»: та же ширина/позиция/радиус, что у нав-панели
+             (left/right 14, bottom safe+6, radius 28), высотой ~2 уровня нав-панели.
+             Верх — инструменты (таймер/скидка/+), низ — сумма + «К оплате». */
           .check-pay-bar {
             position: fixed !important;
             left: 14px !important;
             right: 14px !important;
             bottom: calc(env(safe-area-inset-bottom) + 6px) !important;
             z-index: 30 !important;
-            padding: 7px 12px !important;
+            padding: 10px 14px !important;
             border: 1px solid rgba(255,255,255,0.12) !important;
             border-radius: 28px !important;
             background: rgba(24,20,32,0.6) !important;
@@ -1331,30 +1341,44 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
             -webkit-backdrop-filter: blur(24px) saturate(180%) !important;
             box-shadow: 0 10px 30px rgba(0,0,0,0.45), 0 2px 8px rgba(0,0,0,0.25) !important;
           }
-          /* Строки аренды/скидок в компактном острове — мельче и плотнее, но видны
-             (синхронно с ПК: те же редактор времени аренды и снятие скидок). */
-          .check-pay-line { margin-bottom: 4px !important; font-size: 11px !important; }
+          /* Строки аренды/скидок не дублируем в островке — таймер-кнопка и сумма
+             уже всё показывают; иначе остров разрастается. */
+          .check-pay-line { display: none !important; }
+          /* Грид: row 1 — инструменты, row 2 — сумма + оплата. */
+          .check-pay-row {
+            display: grid !important;
+            grid-template-columns: 1fr auto !important;
+            grid-template-areas: "tools tools" "money go" !important;
+            align-items: center !important;
+            gap: 8px 10px !important;
+          }
+          .check-pay-actions {
+            grid-area: tools !important;
+            display: flex !important; gap: 8px !important;
+            justify-content: flex-start !important;
+          }
+          .check-pay-money { grid-area: money !important; margin: 0 !important; }
+          .check-pay-go { grid-area: go !important; }
           .check-pay-label { font-size: 9px !important; letter-spacing: 0.06em !important; margin: 0 0 1px !important; }
-          .check-pay-amount { font-size: 18px !important; }
-          .check-pay-actions { gap: 6px !important; }
+          .check-pay-amount { font-size: 22px !important; }
           /* «Добавить» и «Скидка» → круглые иконки-кнопки (как FAB у навигации). */
           .check-pay-add {
             width: 44px !important; height: 44px !important;
             padding: 0 !important; border-radius: 50% !important; gap: 0 !important; flex-shrink: 0 !important;
           }
           .check-pay-add-label { display: none !important; }
-          /* Кнопка-таймер аренды: компактная капсула с иконкой+суммой (сумма видна). */
+          /* Кнопка-таймер аренды: капсула с иконкой+суммой (сумма видна). */
           .check-pay-timer {
-            height: 44px !important; padding: 0 10px !important;
-            font-size: 11px !important; border-radius: 14px !important; gap: 4px !important;
+            height: 44px !important; padding: 0 12px !important;
+            font-size: 12px !important; border-radius: 14px !important; gap: 5px !important;
           }
           .check-pay-go {
-            height: 44px !important; padding: 0 14px !important;
+            height: 46px !important; padding: 0 22px !important;
             display: flex !important; align-items: center !important; justify-content: center !important;
-            font-size: 12px !important; border-radius: 16px !important; flex-shrink: 0 !important;
+            font-size: 13px !important; border-radius: 16px !important; flex-shrink: 0 !important;
             white-space: nowrap !important;
           }
-          /* Контент чека докручивается выше плавающей плашки. */
+          /* Контент чека докручивается выше плавающей плашки (выше из-за 2 уровней). */
           .check-items { padding-bottom: var(--bottom-nav-clear, 96px) !important; }
         }
         /* iOS standalone: опускаем остров ровно как нав-панель (см. globals.css). */
