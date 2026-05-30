@@ -282,6 +282,11 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
   const player = playerData ?? null
 
   const playerBalance = parseFloat(player?.balance ?? '0') || 0
+  // Депозит и долг — две стороны одного баланса: плюс = предоплаченный депозит,
+  // минус = долг. В оплате их РАЗДЕЛЯЕМ: депозитом можно платить только из
+  // положительной части; при долге доступный депозит = 0 (нельзя «платить долгом»).
+  const availableDeposit = Math.max(0, playerBalance)
+  const playerDebt = Math.max(0, -playerBalance)
   const playerBonus = parseFloat(player?.bonusPoints ?? '0') || 0
 
   function openPaymentDrawer() {
@@ -1379,9 +1384,15 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
                       {getInitials(player.nickname)}
                     </div>
                     <span style={{ flex: 1, fontWeight: 700, fontSize: 14, color: 'var(--on-surface)' }}>{player.nickname}</span>
-                    <span style={{ fontSize: 11, fontWeight: 600, borderRadius: 6, padding: '3px 8px', background: playerBalance < 0 ? 'rgba(244,63,94,0.1)' : 'rgba(6,182,212,0.1)', color: playerBalance < 0 ? 'var(--danger)' : 'var(--pay-deposit)' }}>
-                      {playerBalance.toLocaleString('ru')} ₽
-                    </span>
+                    {playerDebt > 0 ? (
+                      <span style={{ fontSize: 11, fontWeight: 600, borderRadius: 6, padding: '3px 8px', background: 'rgba(244,63,94,0.1)', color: 'var(--danger)' }}>
+                        Долг {playerDebt.toLocaleString('ru')} ₽
+                      </span>
+                    ) : (
+                      <span style={{ fontSize: 11, fontWeight: 600, borderRadius: 6, padding: '3px 8px', background: 'rgba(6,182,212,0.1)', color: 'var(--pay-deposit)' }}>
+                        Депозит {availableDeposit.toLocaleString('ru')} ₽
+                      </span>
+                    )}
                     <span style={{ fontSize: 11, fontWeight: 600, borderRadius: 6, padding: '3px 8px', background: 'rgba(245,158,11,0.1)', color: 'var(--pay-bonus)' }}>
                       ★ {playerBonus.toLocaleString('ru')}
                     </span>
@@ -1405,7 +1416,8 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
 
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
                   {Object.entries(METHOD_CONFIGS).map(([id, cfg]) => {
-                    const disabled = id === 'debt' && !check?.playerId
+                    // «Депозит» доступен только при положительном депозите (не при долге).
+                    const disabled = (id === 'debt' && !check?.playerId) || (id === 'deposit' && availableDeposit <= 0)
                     const wide = id === 'split' // «Раздельная» — широкая плитка во всю строку
                     return (
                       <button
@@ -1440,7 +1452,7 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
                         <div>
                           <p style={{ fontSize: 13, fontWeight: 700, color: 'var(--on-surface)', margin: 0 }}>{cfg.label}</p>
                           {id === 'bonus' && player && <p style={{ fontSize: 10, color: 'var(--pay-bonus)', margin: '2px 0 0', fontVariantNumeric: 'tabular-nums' }}>{playerBonus.toLocaleString('ru')} б.</p>}
-                          {id === 'deposit' && player && <p style={{ fontSize: 10, color: 'var(--pay-deposit)', margin: '2px 0 0', fontVariantNumeric: 'tabular-nums' }}>{playerBalance.toLocaleString('ru')} ₽</p>}
+                          {id === 'deposit' && player && <p style={{ fontSize: 10, color: 'var(--pay-deposit)', margin: '2px 0 0', fontVariantNumeric: 'tabular-nums' }}>{availableDeposit.toLocaleString('ru')} ₽</p>}
                         </div>
                       </button>
                     )
@@ -1531,7 +1543,7 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
                       {getInitials(player.nickname)}
                     </div>
                     <span style={{ flex: 1, fontWeight: 700, fontSize: 14, color: 'var(--on-surface)' }}>{player.nickname}</span>
-                    <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--pay-deposit)' }}>{playerBalance.toLocaleString('ru')} ₽</span>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--pay-deposit)' }}>{availableDeposit.toLocaleString('ru')} ₽</span>
                   </div>
                 )}
                 {(() => {
@@ -1783,7 +1795,7 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(72px, 1fr))', gap: 6, marginBottom: 10 }}>
                       {SPLIT_MANUAL_METHODS.map(m => {
                         const cfg = METHOD_CONFIGS[m]
-                        const mDisabled = m === 'debt' && !check?.playerId
+                        const mDisabled = (m === 'debt' && !check?.playerId) || (m === 'deposit' && availableDeposit <= 0)
                         const selected = splitMethod === m
                         return (
                           <button
