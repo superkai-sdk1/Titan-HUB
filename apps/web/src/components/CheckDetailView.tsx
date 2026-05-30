@@ -640,23 +640,6 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
           {/* Payment footer — на телефоне превращается в плавающий «остров»
               с точными размерами/позицией нижней навигации (см. <style> ниже). */}
           <div className="check-pay-bar glass-l1" style={{ padding: 16, paddingBottom: 'calc(16px + env(safe-area-inset-bottom))', borderLeft: 'none', borderRight: 'none', borderBottom: 'none', borderRadius: 0 }}>
-            {check?.spaceId && (
-              <button
-                type="button"
-                onClick={openRentalEdit}
-                className="check-pay-rental check-pay-line"
-                style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}
-              >
-                <span style={{ fontSize: 12, color: 'var(--on-surface-variant)', display: 'flex', alignItems: 'center', gap: 5 }}>
-                  <Icon name="meeting_room" size={14} />
-                  Аренда {check.spaceEndAt ? '(фикс.)' : '(живой счётчик)'}
-                  <Icon name="edit" size={12} />
-                </span>
-                <span style={{ fontSize: 13, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: '#A78BFA' }}>
-                  +{spaceRental.toLocaleString('ru')} ₽
-                </span>
-              </button>
-            )}
             {(check?.discounts ?? []).map(d => (
               <div key={d.id} className="check-pay-line" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, gap: 8 }}>
                 <span style={{ fontSize: 12, color: 'var(--on-surface-variant)', display: 'flex', alignItems: 'center', gap: 5, minWidth: 0 }}>
@@ -681,6 +664,23 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
                 </p>
               </div>
               <div className="check-pay-actions" style={{ display: 'flex', gap: 10 }}>
+                {check?.spaceId && (
+                  <button
+                    onClick={openRentalEdit}
+                    className="check-pay-timer"
+                    aria-label="Аренда — редактировать время"
+                    title={check.spaceEndAt ? 'Аренда (фикс.)' : 'Аренда (живой счётчик)'}
+                    style={{
+                      padding: '14px 14px', borderRadius: 16, border: '1px solid rgba(167,139,250,0.35)',
+                      cursor: 'pointer', background: 'rgba(167,139,250,0.1)', color: '#A78BFA',
+                      fontSize: 13, fontWeight: 800, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, flexShrink: 0,
+                    }}
+                  >
+                    <Icon name={check.spaceEndAt ? 'schedule' : 'timer'} size={18} />
+                    {spaceRental.toLocaleString('ru')} ₽
+                  </button>
+                )}
                 <button
                   onClick={() => setShowMenuDrawer(true)}
                   className="check-pay-add"
@@ -1341,8 +1341,13 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
             padding: 0 !important; border-radius: 50% !important; gap: 0 !important; flex-shrink: 0 !important;
           }
           .check-pay-add-label { display: none !important; }
+          /* Кнопка-таймер аренды: компактная капсула с иконкой+суммой (сумма видна). */
+          .check-pay-timer {
+            height: 44px !important; padding: 0 10px !important;
+            font-size: 11px !important; border-radius: 14px !important; gap: 4px !important;
+          }
           .check-pay-go {
-            height: 44px !important; padding: 0 16px !important;
+            height: 44px !important; padding: 0 14px !important;
             display: flex !important; align-items: center !important; justify-content: center !important;
             font-size: 12px !important; border-radius: 16px !important; flex-shrink: 0 !important;
             white-space: nowrap !important;
