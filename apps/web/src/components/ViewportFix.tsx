@@ -7,52 +7,57 @@ import { useEffect } from 'react'
  * Симптом: на запуске под home indicator остаётся тёмная полоса; стоит повернуть
  * телефон в ландшафт и обратно — полоса исчезает и всё корректно.
  *
- * Причина: при холодном старте PWA iOS отдаёт веб-вью ЗАНИЖЕННУЮ высоту вьюпорта
- * (без нижней safe-area), и `height:100dvh` фиксируется на этом значении. Когда
- * система «доустаканивает» вьюпорт, авто-пересчёта не происходит (мешает жёсткий
- * height + overflow:hidden), поэтому низ не докрашивается. Поворот экрана шлёт
- * resize/orientationchange — WebKit пересчитывает dvh и полоса уходит.
+ * Причина: при холодном старте PWA iOS отдаёт веб-вью ЗАНИЖЕННУЮ высоту вьюпорта и
+ * не пересчитывает safe-area/viewport-fit, пока не произойдёт реальная переоценка
+ * вьюпорта (как при смене ориентации). Простой пересчёт layout не помогает — нужно
+ * заставить WebKit ПЕРЕОЦЕНИТЬ сам вьюпорт.
  *
- * Решение: programmatically повторяем этот пересчёт — несколько раз после запуска
- * (пока вьюпорт устаканивается) и на каждое реальное изменение вьюпорта «нуджим»
- * высоту корня (ставим px от innerHeight и в следующем кадре возвращаем к 100dvh),
- * что форсирует релейаут против АКТУАЛЬНОГО вьюпорта — как при повороте.
+ * Решение: программно «перетряхиваем» мета-вьюпорт — на короткое время меняем
+ * viewport-fit=cover → auto и обратно. Смена значения заставляет WebKit заново
+ * вычислить вьюпорт и safe-area-insets — ровно то, что делает поворот экрана.
+ * Делаем это несколько раз после старта (пока система устаканивает вьюпорт) и на
+ * каждое реальное изменение вьюпорта. Доп. страховка — нудж высоты корня.
  */
+const VP_COVER = 'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover'
+const VP_AUTO = 'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=auto'
+
 export function ViewportFix() {
   useEffect(() => {
+    const meta = document.querySelector('meta[name="viewport"]') as HTMLMetaElement | null
     const el = document.documentElement
     let raf = 0
 
-    const relayout = () => {
+    const reevaluate = () => {
       cancelAnimationFrame(raf)
-      const h = (window.visualViewport?.height ?? window.innerHeight)
-      if (h > 0) {
-        // Нудж к измеренной высоте — форсирует пересчёт layout/safe-area.
-        el.style.height = `${h}px`
-        raf = requestAnimationFrame(() => {
-          // Возврат к CSS-значению (100dvh) — теперь оно пересчитывается верно.
-          el.style.height = ''
-        })
+      if (meta) {
+        // Смена viewport-fit форсирует переоценку вьюпорта и safe-area (как поворот).
+        meta.setAttribute('content', VP_AUTO)
       }
+      // Нудж высоты корня — дополнительный форс релейаута.
+      const h = window.visualViewport?.height ?? window.innerHeight
+      if (h > 0) el.style.height = `${h}px`
+
+      raf = requestAnimationFrame(() => {
+        if (meta) meta.setAttribute('content', VP_COVER)
+        el.style.height = ''
+      })
     }
 
-    // iOS «доустаканивает» вьюпорт не мгновенно — повторяем несколько раз.
-    const timers = [0, 80, 250, 600, 1200].map((d) => window.setTimeout(relayout, d))
+    // iOS «доустаканивает» вьюпорт не мгновенно — повторяем несколько раз после старта.
+    const timers = [0, 100, 300, 700, 1400].map((d) => window.setTimeout(reevaluate, d))
 
-    window.addEventListener('orientationchange', relayout)
-    window.addEventListener('pageshow', relayout)
-    window.addEventListener('focus', relayout)
-    document.addEventListener('visibilitychange', relayout)
-    window.visualViewport?.addEventListener('resize', relayout)
+    window.addEventListener('orientationchange', reevaluate)
+    window.addEventListener('pageshow', reevaluate)
+    document.addEventListener('visibilitychange', reevaluate)
+    window.visualViewport?.addEventListener('resize', reevaluate)
 
     return () => {
       timers.forEach(clearTimeout)
       cancelAnimationFrame(raf)
-      window.removeEventListener('orientationchange', relayout)
-      window.removeEventListener('pageshow', relayout)
-      window.removeEventListener('focus', relayout)
-      document.removeEventListener('visibilitychange', relayout)
-      window.visualViewport?.removeEventListener('resize', relayout)
+      window.removeEventListener('orientationchange', reevaluate)
+      window.removeEventListener('pageshow', reevaluate)
+      document.removeEventListener('visibilitychange', reevaluate)
+      window.visualViewport?.removeEventListener('resize', reevaluate)
     }
   }, [])
 
