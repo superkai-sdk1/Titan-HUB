@@ -429,7 +429,10 @@ export function Sheet({
                   overscrollBehavior: 'contain',
                   WebkitOverflowScrolling: 'touch',
                   touchAction: 'pan-y',
-                  padding: '18px 22px calc(24px + env(safe-area-inset-bottom))',
+                  // Нижний отступ учитывает плавающую нижнюю навигацию (--bottom-nav-clear),
+                  // иначе последний элемент (кнопка «Сохранить») оставался под панелью и
+                  // его нельзя было домотать/нажать.
+                  padding: '18px 22px calc(24px + var(--bottom-nav-clear, 96px))',
                 }}
               >
                 {children}
