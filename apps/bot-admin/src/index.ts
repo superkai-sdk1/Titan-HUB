@@ -7,6 +7,13 @@ if (!token) throw new Error('ADMIN_BOT_TOKEN is not set')
 const API_URL = process.env['API_URL'] ?? 'http://api:3001'
 const ALLOWED_TG_IDS = (process.env['ADMIN_TG_IDS'] ?? '').split(',').filter(Boolean)
 
+// Экранирование спецсимволов legacy-Markdown (parse_mode:'Markdown'). Без него
+// пользовательские значения (ник, примечание чека, имя товара, название события)
+// с _ * [ ` ломают всё сообщение: Telegram возвращает 400 и сообщение не уходит.
+function escapeMd(s: string): string {
+  return s.replace(/[\\_*[`]/g, '\\$&')
+}
+
 export const bot = new Bot(token)
 
 const mainKeyboard = new InlineKeyboard()
@@ -38,25 +45,30 @@ bot.callbackQuery('report_today', async (ctx) => {
   const tgId = String(ctx.from?.id)
   if (!(await isAllowed(tgId))) return
 
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
+  try {
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
 
-  const [stats] = await db
-    .select({ revenue: sum(checks.totalAmount), cnt: count() })
-    .from(checks)
-    .where(and(eq(checks.status, 'closed'), gte(checks.createdAt, today)))
+    const [stats] = await db
+      .select({ revenue: sum(checks.totalAmount), cnt: count() })
+      .from(checks)
+      .where(and(eq(checks.status, 'closed'), gte(checks.createdAt, today)))
 
-  const revenue = parseFloat(String(stats?.revenue ?? 0)) || 0
-  const cnt = stats?.cnt ?? 0
-  const avg = cnt ? revenue / cnt : 0
+    const revenue = parseFloat(String(stats?.revenue ?? 0)) || 0
+    const cnt = stats?.cnt ?? 0
+    const avg = cnt ? revenue / cnt : 0
 
-  await ctx.reply(
-    `📊 *Итог за сегодня*\n\n` +
-    `💰 Выручка: *${revenue.toLocaleString('ru')} ₽*\n` +
-    `🧾 Чеков: *${cnt}*\n` +
-    `📈 Средний чек: *${avg.toFixed(0)} ₽*`,
-    { parse_mode: 'Markdown' }
-  )
+    await ctx.reply(
+      `📊 *Итог за сегодня*\n\n` +
+      `💰 Выручка: *${revenue.toLocaleString('ru')} ₽*\n` +
+      `🧾 Чеков: *${cnt}*\n` +
+      `📈 Средний чек: *${avg.toFixed(0)} ₽*`,
+      { parse_mode: 'Markdown' }
+    )
+  } catch (err) {
+    console.error('[bot-admin] report_today query failed:', err)
+    await ctx.reply('❌ Не удалось получить данные, попробуйте позже')
+  }
 })
 
 bot.callbackQuery('shift_status', async (ctx) => {
@@ -64,34 +76,39 @@ bot.callbackQuery('shift_status', async (ctx) => {
   const tgId = String(ctx.from?.id)
   if (!(await isAllowed(tgId))) return
 
-  const [shift] = await db
-    .select({
-      openedAt: shifts.openedAt,
-      cashStart: shifts.cashStart,
-      openedByNick: profiles.nickname,
-    })
-    .from(shifts)
-    .leftJoin(profiles, eq(profiles.id, shifts.openedBy))
-    .where(eq(shifts.status, 'open'))
-    .limit(1)
+  try {
+    const [shift] = await db
+      .select({
+        openedAt: shifts.openedAt,
+        cashStart: shifts.cashStart,
+        openedByNick: profiles.nickname,
+      })
+      .from(shifts)
+      .leftJoin(profiles, eq(profiles.id, shifts.openedBy))
+      .where(eq(shifts.status, 'open'))
+      .limit(1)
 
-  if (!shift) {
-    await ctx.reply('⚠️ Смена не открыта')
-    return
+    if (!shift) {
+      await ctx.reply('⚠️ Смена не открыта')
+      return
+    }
+
+    const openedAt = new Date(shift.openedAt)
+    const elapsed = Math.floor((Date.now() - openedAt.getTime()) / 60000)
+    const hours = Math.floor(elapsed / 60)
+    const minutes = elapsed % 60
+
+    await ctx.reply(
+      `🕐 *Смена открыта*\n\n` +
+      `👤 Открыл: ${shift.openedByNick ? escapeMd(shift.openedByNick) : '—'}\n` +
+      `⏱ Длительность: ${hours}ч ${minutes}м\n` +
+      `💵 Касса: ${parseFloat(String(shift.cashStart)).toLocaleString('ru')} ₽`,
+      { parse_mode: 'Markdown' }
+    )
+  } catch (err) {
+    console.error('[bot-admin] shift_status query failed:', err)
+    await ctx.reply('❌ Не удалось получить данные, попробуйте позже')
   }
-
-  const openedAt = new Date(shift.openedAt)
-  const elapsed = Math.floor((Date.now() - openedAt.getTime()) / 60000)
-  const hours = Math.floor(elapsed / 60)
-  const minutes = elapsed % 60
-
-  await ctx.reply(
-    `🕐 *Смена открыта*\n\n` +
-    `👤 Открыл: ${shift.openedByNick}\n` +
-    `⏱ Длительность: ${hours}ч ${minutes}м\n` +
-    `💵 Касса: ${parseFloat(String(shift.cashStart)).toLocaleString('ru')} ₽`,
-    { parse_mode: 'Markdown' }
-  )
 })
 
 bot.callbackQuery('open_checks', async (ctx) => {
@@ -112,7 +129,7 @@ bot.callbackQuery('open_checks', async (ctx) => {
   }
 
   const text = openChecks.map((c, i) =>
-    `${i + 1}. ${parseFloat(c.totalAmount).toLocaleString('ru')} ₽${c.note ? ` · ${c.note}` : ''}`
+    `${i + 1}. ${parseFloat(c.totalAmount).toLocaleString('ru')} ₽${c.note ? ` · ${escapeMd(c.note)}` : ''}`
   ).join('\n')
 
   await ctx.reply(`🧾 *Открытые чеки (${openChecks.length})*\n\n${text}`, { parse_mode: 'Markdown' })
@@ -123,26 +140,31 @@ bot.callbackQuery('salary_estimate', async (ctx) => {
   const tgId = String(ctx.from?.id)
   if (!(await isAllowed(tgId))) return
 
-  const [profile] = await db.select().from(profiles).where(eq(profiles.tgId, tgId))
-  if (!profile) return
+  try {
+    const [profile] = await db.select().from(profiles).where(eq(profiles.tgId, tgId))
+    if (!profile) return
 
-  const today = new Date()
-  const monthStart = new Date(today.getFullYear(), today.getMonth(), 1)
+    const today = new Date()
+    const monthStart = new Date(today.getFullYear(), today.getMonth(), 1)
 
-  const [stats] = await db
-    .select({ revenue: sum(checks.totalAmount) })
-    .from(checks)
-    .where(and(eq(checks.staffId, profile.id), eq(checks.status, 'closed'), gte(checks.createdAt, monthStart)))
+    const [stats] = await db
+      .select({ revenue: sum(checks.totalAmount) })
+      .from(checks)
+      .where(and(eq(checks.staffId, profile.id), eq(checks.status, 'closed'), gte(checks.createdAt, monthStart)))
 
-  const revenue = parseFloat(String(stats?.revenue ?? 0)) || 0
-  const salary = revenue <= 7000 ? 700 : 700 + Math.ceil((revenue - 7000) / 1000) * 100
+    const revenue = parseFloat(String(stats?.revenue ?? 0)) || 0
+    const salary = revenue <= 7000 ? 700 : 700 + Math.ceil((revenue - 7000) / 1000) * 100
 
-  await ctx.reply(
-    `💵 *Расчёт зарплаты*\n\n` +
-    `Выручка за месяц: *${revenue.toLocaleString('ru')} ₽*\n` +
-    `Зарплата: *${salary.toLocaleString('ru')} ₽*`,
-    { parse_mode: 'Markdown' }
-  )
+    await ctx.reply(
+      `💵 *Расчёт зарплаты*\n\n` +
+      `Выручка за месяц: *${revenue.toLocaleString('ru')} ₽*\n` +
+      `Зарплата: *${salary.toLocaleString('ru')} ₽*`,
+      { parse_mode: 'Markdown' }
+    )
+  } catch (err) {
+    console.error('[bot-admin] salary_estimate query failed:', err)
+    await ctx.reply('❌ Не удалось получить данные, попробуйте позже')
+  }
 })
 
 bot.callbackQuery('stock_alert', async (ctx) => {
@@ -177,7 +199,7 @@ bot.callbackQuery('stock_alert', async (ctx) => {
     }
 
     const text = lowStock
-      .map((p) => `• ${p.name} — *${p.stockQuantity}* шт. (мин. ${p.minThreshold ?? 0})`)
+      .map((p) => `• ${escapeMd(p.name)} — *${p.stockQuantity}* шт. (мин. ${p.minThreshold ?? 0})`)
       .join('\n')
     await ctx.reply(`📦 *Низкий сток (${lowStock.length})*\n\n${text}`, { parse_mode: 'Markdown' })
   } catch (err) {
@@ -216,7 +238,7 @@ bot.callbackQuery('list_events', async (ctx) => {
     const STATUS_LABEL: Record<string, string> = { planned: 'запланировано', active: 'идёт' }
     const text = upcoming
       .map((e) => {
-        const title = e.title?.trim() || 'Без названия'
+        const title = escapeMd(e.title?.trim() || 'Без названия')
         const when = `${e.date}${e.startTime ? ` ${e.startTime}` : ''}`
         const guests =
           e.maxGuests != null

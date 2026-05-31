@@ -53,7 +53,11 @@ certificatesRouter.get('/validate/:code', requireRole('owner', 'staff'), async (
   const [cert] = await db.select().from(certificates).where(eq(certificates.code, c.req.param('code')))
   if (!cert) return c.json({ error: 'Not found' }, 404)
   if (cert.isUsed) return c.json({ error: 'Already used' }, 400)
-  return c.json({ certificate: cert })
+  // Исчерпанный сертификат (баланс <= 0) тоже отклоняем — иначе на кассе можно
+  // применить «нулевой» сертификат и получить 0-скидку с видимостью успеха.
+  const remaining = Number(cert.balance)
+  if (remaining <= 0) return c.json({ error: 'Depleted' }, 400)
+  return c.json({ certificate: cert, remaining })
 })
 
 certificatesRouter.get('/:id', requireRole('owner', 'staff'), async (c) => {

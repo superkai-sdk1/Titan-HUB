@@ -1,5 +1,5 @@
 'use client'
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { Icon } from '@/components/Icon'
@@ -25,8 +25,12 @@ export default function BonusesPage() {
     queryFn: () => api.get('/system/settings'),
   })
 
+  // Сидируем форму данными сервера ТОЛЬКО один раз: фоновые рефетчи
+  // (focus/invalidation) не должны затирать несохранённые правки.
+  const seeded = useRef(false)
   useEffect(() => {
-    if (!data?.settings) return
+    if (!data?.settings || seeded.current) return
+    seeded.current = true
     const map = data.settings
     if (map.bonus_enabled !== undefined) setEnabled(map.bonus_enabled !== 'false')
     if (map.bonus_accrual_rate) setRate(map.bonus_accrual_rate)

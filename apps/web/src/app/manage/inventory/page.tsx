@@ -48,6 +48,10 @@ export default function InventoryPage() {
     return result
   }, [allItems, filter, search])
 
+  // Какие позиции сейчас в процессе inline-обновления (по id).
+  // Защищает от двойного тапа по ОДНОЙ позиции, не блокируя другие строки.
+  const [pendingIds, setPendingIds] = useState<Set<string>>(new Set())
+
   const patchMut = useMutation({
     mutationFn: (body: { id: string; stockQuantity?: number; adjustDelta?: number; minThreshold?: number; reason?: string }) =>
       api.patch(`/inventory/${body.id}`, { stockQuantity: body.stockQuantity, adjustDelta: body.adjustDelta, minThreshold: body.minThreshold, reason: body.reason }),
@@ -56,8 +60,18 @@ export default function InventoryPage() {
   })
 
   function adjustInline(item: MenuItem, delta: number) {
-    if (patchMut.isPending) return // защита от двойного тапа / гонки потерянного обновления
-    patchMut.mutate({ id: item.id, adjustDelta: delta })
+    if (pendingIds.has(item.id)) return // защита от двойного тапа по той же позиции
+    setPendingIds(prev => new Set(prev).add(item.id))
+    patchMut.mutate(
+      { id: item.id, adjustDelta: delta },
+      {
+        onSettled: () => setPendingIds(prev => {
+          const next = new Set(prev)
+          next.delete(item.id)
+          return next
+        }),
+      },
+    )
   }
 
   function openEdit(item: MenuItem) { setSelected(item); setNewQty(String(item.stockQuantity)); setNewThreshold(String(item.minThreshold ?? 0)); setNote('') }

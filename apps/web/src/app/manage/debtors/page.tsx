@@ -82,7 +82,10 @@ export default function DebtorsPage() {
     const v = parseFloat(amount)
     if (!(v > 0)) return
     // «Добавить долг» → баланс в минус; «Списать долг» → баланс к нулю.
-    const signed = opMode === 'add' ? -v : v
+    // Списание ограничиваем текущим долгом, чтобы клиент не ушёл в депозит.
+    const curDebt = parseNum(selected.balance) < 0 ? -parseNum(selected.balance) : 0
+    const signed = opMode === 'add' ? -v : Math.min(v, curDebt)
+    if (opMode === 'writeoff' && !(signed > 0)) return
     adjust.mutate({ id: selected.id, amount: signed, reason: note.trim() || (opMode === 'add' ? 'Долг (ручное начисление)' : 'Списание долга') })
   }
 

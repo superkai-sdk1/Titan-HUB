@@ -15,6 +15,13 @@ if (!LINK_SECRET || LINK_SECRET.length < 32) {
 
 const WEBAPP_URL = process.env['WALLET_WEBAPP_URL'] ?? 'https://titanpos.ru/wallet'
 
+// Экранирование спецсимволов legacy-Markdown (parse_mode:'Markdown'). Без него
+// пользовательские значения (ник, описание) с _ * [ ` ломают всё сообщение:
+// Telegram возвращает 400 и сообщение не отправляется (тихий «нет ответа»).
+function escapeMd(s: string): string {
+  return s.replace(/[\\_*[`]/g, '\\$&')
+}
+
 // ── Подписанный диплинк привязки аккаунта ───────────────────────────────────
 // Раньше payload был сырым `link_<profileId>`: ссылка plaintext и расшаривается,
 // поэтому любой, кто её увидел, мог привязать ЧУЖОЙ непривязанный профиль к себе
@@ -146,10 +153,29 @@ bot.command('start', async (ctx) => {
       await ctx.reply('✅ Telegram уже привязан к этому профилю')
       return
     }
-    await db.insert(tgLinkRequests).values({ profileId, tgId, tgUsername: tgUsername ?? null, status: 'approved' })
-    await db.update(profiles).set({ tgId, tgUsername: tgUsername ?? null }).where(eq(profiles.id, profileId))
+    // profiles.tg_id — UNIQUE. Если текущий Telegram уже привязан к ДРУГОМУ
+    // профилю, вставка/обновление упадёт на нарушении уникальности (и тихо
+    // проглотится bot.catch, оставив осиротевший tg_link_requests). Проверяем
+    // заранее и отвечаем понятно.
+    const [existingByTg] = await db.select().from(profiles).where(eq(profiles.tgId, tgId))
+    if (existingByTg && existingByTg.id !== profileId) {
+      await ctx.reply('❌ Этот Telegram уже привязан к другому профилю')
+      return
+    }
+    try {
+      await db.transaction(async (tx) => {
+        await tx.insert(tgLinkRequests).values({ profileId, tgId, tgUsername: tgUsername ?? null, status: 'approved' })
+        await tx.update(profiles).set({ tgId, tgUsername: tgUsername ?? null }).where(eq(profiles.id, profileId))
+      })
+    } catch (err) {
+      // Гонка: тот же tgId мог быть привязан между проверкой и вставкой →
+      // нарушение UNIQUE. Отвечаем понятно, а не падаем молча.
+      console.error('[bot-wallet] link failed:', err)
+      await ctx.reply('❌ Этот Telegram уже привязан к другому профилю')
+      return
+    }
     await ctx.reply(
-      `✅ Telegram привязан к профилю *${profile.nickname}*!\n\nТеперь вы можете проверять баланс прямо здесь.`,
+      `✅ Telegram привязан к профилю *${escapeMd(profile.nickname)}*!\n\nТеперь вы можете проверять баланс прямо здесь.`,
       { parse_mode: 'Markdown', reply_markup: walletKeyboard }
     )
     return
@@ -164,7 +190,7 @@ bot.command('start', async (ctx) => {
   }
 
   await ctx.reply(
-    `👋 Привет, *${profile.nickname}*!`,
+    `👋 Привет, *${escapeMd(profile.nickname)}*!`,
     { parse_mode: 'Markdown', reply_markup: walletKeyboard }
   )
 })
@@ -178,7 +204,7 @@ bot.callbackQuery('balance', async (ctx) => {
     return
   }
   await ctx.reply(
-    `💰 *Кошелёк ${profile.nickname}*\n\n` +
+    `💰 *Кошелёк ${escapeMd(profile.nickname)}*\n\n` +
     `Баланс: *${parseFloat(profile.balance).toLocaleString('ru')} ₽*\n` +
     `Бонусы: *${parseFloat(profile.bonusPoints).toFixed(0)} ⭐*`,
     { parse_mode: 'Markdown' }
@@ -212,7 +238,7 @@ bot.callbackQuery('history', async (ctx) => {
   }
 
   const text = txs.map(t =>
-    `${TYPE_EMOJI[t.type] ?? '•'} ${parseFloat(t.amount).toLocaleString('ru')} ₽${t.description ? ` — ${t.description}` : ''}`
+    `${TYPE_EMOJI[t.type] ?? '•'} ${parseFloat(t.amount).toLocaleString('ru')} ₽${t.description ? ` — ${escapeMd(t.description)}` : ''}`
   ).join('\n')
 
   await ctx.reply(`📋 *Последние транзакции*\n\n${text}`, { parse_mode: 'Markdown' })

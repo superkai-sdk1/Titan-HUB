@@ -2,7 +2,7 @@ import type { AppEnv } from '../../types.js'
 import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
-import { db, salaryPayments, shifts, checks, checkPayments, cashOperations, profiles, eq, and, desc, sum, gte, lte } from '@titan/database'
+import { db, salaryPayments, shifts, checks, checkPayments, cashOperations, profiles, eq, and, desc, sum, gte, lte, lt } from '@titan/database'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
 import { getCurrentShift } from '../shifts/shifts.service.js'
 
@@ -60,9 +60,13 @@ salaryRouter.get('/estimate', requireRole('owner', 'staff'), async (c) => {
   const to = c.req.query('to')
   const staffId = c.req.query('staffId') ?? c.get('user').sub
 
+  // Границы периода строим по календарю МСК (как аналитика): from — 00:00 МСК
+  // указанной даты, to — эксклюзивная верхняя граница (следующие сутки 00:00 МСК),
+  // иначе new Date('YYYY-MM-DD') трактовалось как UTC и окно съезжало на 3ч,
+  // а чек последнего дня после 21:00 МСК выпадал из расчёта.
   const conditions = [eq(checks.staffId, staffId), eq(checks.status, 'closed')]
-  if (from) conditions.push(gte(checks.createdAt, new Date(from)))
-  if (to) conditions.push(lte(checks.createdAt, new Date(to)))
+  if (from) conditions.push(gte(checks.createdAt, new Date(`${from}T00:00:00+03:00`)))
+  if (to) conditions.push(lt(checks.createdAt, new Date(new Date(`${to}T00:00:00+03:00`).getTime() + 86400000)))
 
   const [result] = await db
     .select({ revenue: sum(checks.totalAmount) })

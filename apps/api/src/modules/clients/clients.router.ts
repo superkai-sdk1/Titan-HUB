@@ -3,7 +3,7 @@ import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import {
-  db, profiles, transactions, bonusHistory, clientTiers,
+  db, profiles, transactions, bonusHistory, clientTiers, clientDiscountRules,
   eq, and, isNull, ilike, or, desc, asc, sql, count,
 } from '@titan/database'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
@@ -158,6 +158,9 @@ clientsRouter.delete('/tiers/:key', requireRole('owner'), async (c) => {
   const [used] = await db.select({ n: count() }).from(profiles).where(eq(profiles.clientTier, key))
   const reassigned = used?.n ?? 0
   if (reassigned > 0) await db.update(profiles).set({ clientTier: 'guest' }).where(eq(profiles.clientTier, key))
+  // Правила скидок, ссылающиеся на удаляемый статус, переводим на 'guest', чтобы
+  // не оставлять висячих ссылок на несуществующий тир.
+  await db.update(clientDiscountRules).set({ clientTier: 'guest' }).where(eq(clientDiscountRules.clientTier, key))
   await db.delete(clientTiers).where(eq(clientTiers.key, key))
   return c.json({ ok: true, reassigned })
 })
@@ -255,40 +258,56 @@ clientsRouter.post('/:id/balance', requireRole('owner', 'staff'), zValidator('js
     return c.json({ error: 'Необходимо указать причину изменения баланса (description или reason)' }, 400)
   }
   const user = c.get('user')
-  const [client] = await db.select().from(profiles).where(eq(profiles.id, c.req.param('id')))
-  if (!client) return c.json({ error: 'Not found' }, 404)
+  const clientId = c.req.param('id')
 
-  // Лимит долга из app_settings (max_client_debt): >0 → ограничение; 0/пусто → без лимита.
-  const newBalance = parseFloat(client.balance) + amount
-  if (amount < 0) {
-    const maxDebtRow = await db.execute(sql`SELECT value FROM app_settings WHERE key = 'max_client_debt'`)
-    const maxDebt = parseFloat(((maxDebtRow as any).rows?.[0]?.value ?? (maxDebtRow as any)[0]?.value) ?? '0') || 0
-    if (maxDebt > 0 && newBalance < -maxDebt) {
-      return c.json({ error: `Превышен лимит долга (${maxDebt}₽). Запрошенный баланс: ${newBalance.toFixed(2)}₽` }, 400)
+  // Обновление баланса и запись транзакции — в ОДНОЙ транзакции БД, с блокировкой
+  // строки клиента (SELECT … FOR UPDATE). Иначе параллельные списания читали
+  // устаревший баланс и могли пробить лимит долга / разъехаться с историей.
+  type Result =
+    | { kind: 'not_found' }
+    | { kind: 'limit'; maxDebt: number; newBalance: number }
+    | { kind: 'ok'; newBalance: number }
+
+  const result = await db.transaction<Result>(async (tx) => {
+    // Блокируем строку клиента до конца транзакции.
+    const lockRes = await tx.execute(sql`
+      SELECT balance FROM profiles WHERE id = ${clientId} FOR UPDATE
+    `)
+    const lockRows = (lockRes as any).rows ?? lockRes
+    if (!lockRows || lockRows.length === 0) return { kind: 'not_found' }
+
+    const currentBalance = parseFloat(String(lockRows[0].balance))
+    const newBalance = currentBalance + amount
+
+    // Лимит долга из app_settings (max_client_debt): >0 → ограничение; 0/пусто → без лимита.
+    if (amount < 0) {
+      const maxDebtRow = await tx.execute(sql`SELECT value FROM app_settings WHERE key = 'max_client_debt'`)
+      const maxDebt = parseFloat(((maxDebtRow as any).rows?.[0]?.value ?? (maxDebtRow as any)[0]?.value) ?? '0') || 0
+      if (maxDebt > 0 && newBalance < -maxDebt) {
+        return { kind: 'limit', maxDebt, newBalance }
+      }
     }
-  }
 
-  // Атомарное обновление баланса с условием равенства старого значения (optimistic lock)
-  const updateResult = await db.execute(sql`
-    UPDATE profiles
-    SET balance = ${String(newBalance)}
-    WHERE id = ${client.id} AND balance = ${client.balance}
-    RETURNING balance
-  `)
-  const rows = (updateResult as any).rows ?? updateResult
-  if (!rows || rows.length === 0) {
-    return c.json({ error: 'Баланс был изменён другим запросом. Повторите попытку.' }, 409)
-  }
+    await tx.execute(sql`
+      UPDATE profiles SET balance = ${String(newBalance)} WHERE id = ${clientId}
+    `)
 
-  await db.insert(transactions).values({
-    type: amount >= 0 ? 'deposit' : 'withdrawal',
-    amount: String(Math.abs(amount)),
-    playerId: client.id,
-    createdBy: user.sub,
-    description: note,
+    await tx.insert(transactions).values({
+      type: amount >= 0 ? 'deposit' : 'withdrawal',
+      amount: String(Math.abs(amount)),
+      playerId: clientId,
+      createdBy: user.sub,
+      description: note,
+    })
+
+    return { kind: 'ok', newBalance }
   })
 
-  return c.json({ balance: newBalance })
+  if (result.kind === 'not_found') return c.json({ error: 'Not found' }, 404)
+  if (result.kind === 'limit') {
+    return c.json({ error: `Превышен лимит долга (${result.maxDebt}₽). Запрошенный баланс: ${result.newBalance.toFixed(2)}₽` }, 400)
+  }
+  return c.json({ balance: result.newBalance })
 })
 
 clientsRouter.post('/:id/bonus', requireRole('owner', 'staff'), zValidator('json', z.object({

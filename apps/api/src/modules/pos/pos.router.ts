@@ -146,8 +146,17 @@ async function applyAutoDiscounts(exec: DbOrTx, checkId: string) {
   if (!check) return
 
   const items = await exec.select().from(checkItems).where(eq(checkItems.checkId, checkId))
-  // База для check-скидок — сумма позиций (без модификаторов, как у ручной /discount).
-  const itemsSum = items.reduce((s, i) => s + parseFloat(i.priceAtTime) * i.quantity, 0)
+  // База для check-скидок = позиции + платные модификаторы (та же база, что у
+  // computeTotals). Иначе сохранённый/отображаемый amount процентной check-скидки
+  // расходится со списываемой при наличии платных модификаторов.
+  const itemIds = items.map(i => i.id)
+  const mods = itemIds.length
+    ? await exec.select().from(checkItemModifiers).where(inArray(checkItemModifiers.checkItemId, itemIds))
+    : []
+  const qtyByItem = new Map(items.map(i => [i.id, i.quantity]))
+  const modsSum = mods.reduce((s, m) => s + parseFloat(m.priceAtTime) * (qtyByItem.get(m.checkItemId) ?? 1), 0)
+  const itemsOnlySum = items.reduce((s, i) => s + parseFloat(i.priceAtTime) * i.quantity, 0)
+  const itemsSum = itemsOnlySum + modsSum
 
   // Удаляем ранее применённые авто-скидки (по наличию discountId) перед пересчётом.
   await exec.delete(checkDiscounts).where(
@@ -510,8 +519,15 @@ posRouter.patch('/checks/:id', requireRole('owner', 'staff'), zValidator('json',
   const update: Record<string, any> = { ...rest }
   if (spaceStartAt !== undefined) update.spaceStartAt = new Date(spaceStartAt)
   if (spaceEndAt !== undefined) update.spaceEndAt = spaceEndAt === null ? null : new Date(spaceEndAt)
+  const [prev] = await db.select({ playerId: checks.playerId, spaceId: checks.spaceId })
+    .from(checks).where(eq(checks.id, checkId))
   const [updated] = await db.update(checks).set(update).where(eq(checks.id, checkId)).returning()
   if (!updated) return c.json({ error: 'Not found' }, 404)
+  // Смена клиента/зоны влияет на персональные/тировые авто-скидки и итог —
+  // пересчитываем сразу, чтобы фронт получил актуальные суммы.
+  if ((prev && updated.playerId !== prev.playerId) || (prev && updated.spaceId !== prev.spaceId)) {
+    await recalcCheckTotal(checkId)
+  }
   publishEvent('check:updated', { checkId })
   const data = await getCheckWithItems(checkId)
   return c.json({ check: data })
@@ -711,6 +727,10 @@ posRouter.post('/checks/:id/discount', requireRole('owner', 'staff'), zValidator
   value: z.number().positive(),
   target: z.enum(['check', 'item']).default('check'),
   itemId: z.string().uuid().optional(),
+}).refine((d) => d.type !== 'percent' || d.value <= 100, {
+  // Процентная скидка не может превышать 100%. Фиксированные — без верхней границы.
+  message: 'Процентная скидка не может превышать 100%',
+  path: ['value'],
 })), async (c) => {
   const checkId = c.req.param('id')
   const body = c.req.valid('json')
@@ -720,10 +740,18 @@ posRouter.post('/checks/:id/discount', requireRole('owner', 'staff'), zValidator
 
   // Считаем сумму позиций (без скидок) как базу — иначе процентные скидки
   // применённые последовательно дают каскадный эффект (10% + 10% != 19%).
+  // Для check-скидок база = позиции + платные модификаторы (та же база, что у
+  // computeTotals), чтобы сохранённый amount совпадал со списываемым.
   const items = await db.select().from(checkItems).where(eq(checkItems.checkId, checkId))
-  const itemsSum = items.reduce((s, i) => s + parseFloat(i.priceAtTime) * i.quantity, 0)
+  const itemIds = items.map(i => i.id)
+  const mods = itemIds.length
+    ? await db.select().from(checkItemModifiers).where(inArray(checkItemModifiers.checkItemId, itemIds))
+    : []
+  const qtyByItem = new Map(items.map(i => [i.id, i.quantity]))
+  const modsSum = mods.reduce((s, m) => s + parseFloat(m.priceAtTime) * (qtyByItem.get(m.checkItemId) ?? 1), 0)
+  const itemsSum = items.reduce((s, i) => s + parseFloat(i.priceAtTime) * i.quantity, 0) + modsSum
 
-  // Для itemDiscount базой служит цена позиции, для check — общая сумма позиций
+  // Для itemDiscount базой служит цена позиции, для check — позиции + модификаторы
   let baseAmount = itemsSum
   if (body.target === 'item' && body.itemId) {
     const [targetItem] = items.filter(i => i.id === body.itemId)

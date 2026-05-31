@@ -168,8 +168,10 @@ eventsRouter.patch('/:id', requireRole('owner', 'staff'), zValidator('json', Eve
   const eventId = c.req.param('id')
   const body = c.req.valid('json')
 
-  // Если меняется время/пространство — проверить пересечение
-  if (body.spaceId || body.startTime || body.endTime || body.date) {
+  // Если меняется время/пространство — проверить пересечение.
+  // Сравниваем с undefined (а не truthiness): очистка endTime в null — это тоже
+  // изменение времени и должно перезапускать проверку пересечений.
+  if (body.spaceId !== undefined || body.startTime !== undefined || body.endTime !== undefined || body.date !== undefined) {
     const [current] = await db.select().from(events).where(eq(events.id, eventId))
     if (current) {
       const merged = {

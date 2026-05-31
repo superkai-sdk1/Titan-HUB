@@ -2,9 +2,9 @@ import type { AppEnv } from '../../types.js'
 import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
-import { db, refunds, checks, inventory, checkItems, checkPayments, transactions, profiles, bonusHistory, certificates, eq, desc } from '@titan/database'
+import { db, refunds, checks, inventory, checkItems, checkPayments, transactions, profiles, bonusHistory, certificates, appSettings, eq, and, like, inArray, desc } from '@titan/database'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
-import { accrueBonusLot, getBonusExpiryDays } from '../../lib/bonusLots.js'
+import { accrueBonusLot, spendBonusLots, getBonusExpiryDays } from '../../lib/bonusLots.js'
 import { round2 } from '../../lib/money.js'
 
 const TENDER_METHODS = ['cash', 'card', 'transfer', 'deposit', 'bonus', 'certificate', 'debt'] as const
@@ -138,6 +138,54 @@ refundsRouter.post('/', requireRole('owner', 'staff'), zValidator('json', Refund
             await accrueBonusLot(tx, check.playerId, bonusCredit, expiryDays)
           }
           await tx.update(profiles).set({ balance: String(bal), bonusPoints: String(bonus) }).where(eq(profiles.id, check.playerId))
+        }
+      }
+
+      // Откат НАЧИСЛЕННЫХ бонусов (claw-back). При оплате чека клиенту начислили
+      // floor(totalChecka * rate) бонусов (pos.router.ts /pay). При возврате эти
+      // бонусы нужно списать пропорционально возвращённой сумме. Это ОТДЕЛЬНО от
+      // возврата ПОТРАЧЕННЫХ бонусов (bonusCredit выше) — две независимые величины.
+      const CLAWBACK_REASON = `Откат начисленных бонусов (возврат чека ${body.checkId})`
+      if (check.playerId) {
+        const checkTotal = parseFloat(check.totalAmount) || 0
+        if (checkTotal > 0) {
+          const settingsRows = await tx.select().from(appSettings)
+            .where(inArray(appSettings.key, ['bonus_accrual_rate']))
+          const settings = Object.fromEntries(settingsRows.map(r => [r.key, r.value]))
+          const accrualRate = parseFloat(settings['bonus_accrual_rate'] ?? '5') / 100
+          // Полная сумма начисления за чек (зеркало pos.router.ts /pay).
+          const accruedTotal = Math.floor(checkTotal * accrualRate)
+          if (accruedTotal > 0) {
+            // Кумулятивно возвращено по чеку (включая текущий возврат).
+            const refundedSoFar = prevRefunds.reduce((s, r) => s + (parseFloat(r.totalAmount) || 0), 0) + refundTotal
+            const cappedRefunded = Math.min(refundedSoFar, checkTotal)
+            // Целевой суммарный откат, пропорциональный возвращённой доле.
+            const targetClawback = Math.floor(accruedTotal * (cappedRefunded / checkTotal))
+            // Сколько уже откатили по этому чеку (защита от двойного отката
+            // при повторном частичном возврате).
+            const prevClawRows = await tx.select({ amount: bonusHistory.amount }).from(bonusHistory)
+              .where(and(eq(bonusHistory.profileId, check.playerId), like(bonusHistory.reason, CLAWBACK_REASON)))
+            const alreadyClawed = prevClawRows.reduce((s, r) => s + Math.abs(parseFloat(r.amount) || 0), 0)
+            const clawNow = Math.max(0, targetClawback - alreadyClawed)
+            if (clawNow > 0) {
+              const [player] = await tx.select().from(profiles).where(eq(profiles.id, check.playerId)).for('update')
+              if (player) {
+                const cur = parseFloat(player.bonusPoints) || 0
+                const burn = Math.min(clawNow, cur) // не уходим ниже 0
+                const after = round2(cur - burn)
+                await tx.update(profiles).set({ bonusPoints: String(after) }).where(eq(profiles.id, check.playerId))
+                // Записываем фактически списанную величину (для корректного учёта
+                // alreadyClawed при следующем частичном возврате используем clawNow,
+                // но списать ниже 0 нельзя — историю пишем по burn).
+                await tx.insert(bonusHistory).values({
+                  profileId: check.playerId, amount: String(-burn), balanceAfter: String(after),
+                  reason: CLAWBACK_REASON,
+                })
+                // Уменьшаем лоты сгорания на величину отката (зеркало списания).
+                await spendBonusLots(tx, check.playerId, burn)
+              }
+            }
+          }
         }
       }
 

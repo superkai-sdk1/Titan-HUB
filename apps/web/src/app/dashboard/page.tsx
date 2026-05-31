@@ -353,9 +353,11 @@ function ReportsTab() {
     queryFn: () => api.get<any>(`/analytics/products?from=${from}&to=${to}`),
     enabled: !!from && !!to && subTab === 'products',
   })
-  const { data: dashData } = useQuery({
-    queryKey: ['analytics', 'dashboard'],
-    queryFn: () => api.get<any>('/analytics/dashboard'),
+  // Платежи за выбранный период (тот же from/to, что и у под-вкладки «По дням»).
+  const { data: payData } = useQuery({
+    queryKey: ['analytics', 'payments', from, to],
+    queryFn: () => api.get<any>(`/analytics/payments?from=${from}&to=${to}`),
+    enabled: !!from && !!to && subTab === 'payments',
   })
 
   // /analytics/revenue → { revenue: [{date,revenue,count}], expenses: [{date,total}], cogs: [{date,total}] }
@@ -375,8 +377,8 @@ function ReportsTab() {
   // /analytics/products → { products: [...], totalRev }
   const products: any[] = prodData?.products ?? []
   const totalProdRev: number = parseNum(prodData?.totalRev)
-  // paymentBreakdown — МАССИВ [{ method, total }] (как в Overview/PayBreakdown).
-  const payBreakdown: any[] = dashData?.paymentBreakdown ?? []
+  // /analytics/payments → { breakdown: [{ method, total }] } за выбранный период.
+  const payBreakdown: any[] = payData?.breakdown ?? []
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>

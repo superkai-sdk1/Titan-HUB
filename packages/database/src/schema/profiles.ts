@@ -11,10 +11,11 @@ import {
 } from 'drizzle-orm/pg-core'
 
 export const roleEnum = pgEnum('role', ['owner', 'staff', 'tablet', 'client'])
-// client_tier остаётся pgEnum в БД (его использует client_discount_rules), но
-// profiles.client_tier теперь text (управляемый справочник client_tiers, миграция
-// 021) — статусы можно создавать/удалять. Значения по-прежнему строки.
-export const clientTierEnum = pgEnum('client_tier', ['guest', 'resident', 'student'])
+// client_tier больше НЕ enum: миграция 021 перевела обе колонки, использовавшие
+// этот тип (profiles.client_tier и client_discount_rules.client_tier), в text —
+// статусы стали управляемым справочником client_tiers (создаются/удаляются).
+// pgEnum здесь убран, чтобы drizzle-kit push не видел дрейф (живая БД — text).
+// Мёртвый Postgres-тип client_tier дропается миграцией 022.
 
 // Справочник статусов клиента (управляется владельцем: создание/удаление).
 export const clientTiers = pgTable('client_tiers', {

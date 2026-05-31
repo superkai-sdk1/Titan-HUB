@@ -158,7 +158,7 @@ plategaRouter.post('/webhook', async (c) => {
           if (earned > 0) {
             const [p] = await tx.select().from(profiles).where(eq(profiles.id, check.playerId)).for('update')
             if (p) {
-              const newBonus = parseFloat(p.bonusPoints) + earned
+              const newBonus = round2(parseFloat(p.bonusPoints) + earned)
               await tx.update(profiles).set({ bonusPoints: String(newBonus) }).where(eq(profiles.id, check.playerId))
               await tx.insert(bonusHistory).values({
                 profileId: check.playerId,

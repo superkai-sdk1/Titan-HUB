@@ -272,13 +272,14 @@ async function buildContext(action: string, payload?: Record<string, unknown>, q
       try {
         const rows = await db
           .select({
-            hour: sql<number>`extract(hour from ${checks.closedAt})::int`,
+            // Час берём в МСК, а не UTC — иначе «популярные часы» съезжают на 3ч.
+            hour: sql<number>`extract(hour from (${checks.closedAt} AT TIME ZONE 'Europe/Moscow'))::int`,
             cnt: count(),
             rev: sum(checks.totalAmount),
           })
           .from(checks)
           .where(and(eq(checks.status, 'closed'), gte(checks.createdAt, thirtyDays)))
-          .groupBy(sql`extract(hour from ${checks.closedAt})`)
+          .groupBy(sql`extract(hour from (${checks.closedAt} AT TIME ZONE 'Europe/Moscow'))`)
           .orderBy(desc(count()))
           .limit(8)
         if (!rows.length) return 'Нет данных о закрытых чеках за последние 30 дней.'

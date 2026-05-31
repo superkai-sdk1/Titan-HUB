@@ -198,10 +198,12 @@ analyticsRouter.get('/dashboard', async (c) => {
   // суммировать оба источника = двойной счёт). Так прибыль не зависит от того,
   // через какой экран провели зарплату. Здесь категорию 'salary' исключаем, а
   // фактический ФОТ берём ниже из salaryPayments.
+  // Фильтруем по expenseDate (text-дата YYYY-MM-DD), как /revenue, /checks и
+  // netBreakdown — иначе прибыль дашборда расходилась с детальными витринами.
   const [expensesRow] = await db
     .select({ total: sum(expenses.amount) })
     .from(expenses)
-    .where(and(gte(expenses.createdAt, thirtyDaysAgo), ne(expenses.category, 'salary')))
+    .where(and(gte(expenses.expenseDate, mskDateStr(30)), lte(expenses.expenseDate, mskDateStr(0)), ne(expenses.category, 'salary')))
 
   // Payroll this month — единый источник (таблица выплат ЗП).
   const [salaryRow] = await db
@@ -350,6 +352,31 @@ analyticsRouter.get('/revenue', zValidator('query', dateRangeQuerySchema), async
   return c.json({ revenue: rows, expenses: expRows, cogs: cogsRows })
 })
 
+// ─── Payments by method (period) ───────────────────────────────────────────────
+// Разбивка платежей по способу оплаты за период. Окно — то же полуоткрытое
+// [fromStart, toEndExclusive) по МСК, что и в /revenue; только закрытые чеки.
+// Потребляется вкладкой «Отчёты → Платежи» на фронте.
+analyticsRouter.get('/payments', zValidator('query', dateRangeQuerySchema), async (c) => {
+  const q = c.req.valid('query')
+  const from = q.from ?? mskDateStr(30)
+  const to = q.to ?? mskDateStr(0)
+  const fromStart = mskBoundary(from)
+  const toEndExclusive = new Date(mskBoundary(to).getTime() + 86400000)
+
+  const rows = await db
+    .select({ method: checkPayments.method, total: sum(checkPayments.amount) })
+    .from(checkPayments)
+    .leftJoin(checks, eq(checks.id, checkPayments.checkId))
+    .where(and(
+      eq(checks.status, 'closed'),
+      gte(checks.createdAt, fromStart),
+      lt(checks.createdAt, toEndExclusive),
+    ))
+    .groupBy(checkPayments.method)
+
+  return c.json({ breakdown: rows })
+})
+
 // ─── Products ABC ─────────────────────────────────────────────────────────────
 analyticsRouter.get('/products', zValidator('query', dateRangeQuerySchema), async (c) => {
   // Период по МСК, полуоткрытое окно [fromStart, toEndExclusive) — как в /revenue.
@@ -478,16 +505,20 @@ analyticsRouter.get('/clients', async (c) => {
       segments.sleeping++
     }
   }
-  // New clients with no visits yet
-  const [noVisit] = await db
-    .select({ count: count() })
+  // New clients with no visits yet — сегмент «new» делаем ВЗАИМОИСКЛЮЧАЮЩИМ с
+  // active/sleeping: клиент, зарегистрированный <30 дней назад, попадает в «new»
+  // только если у него НЕТ закрытого чека в окне визитов (т.е. его нет в
+  // visitCounts). Иначе он уже посчитан в active/sleeping и задваивался бы.
+  const visitedIds = new Set(visitCounts.map((r: any) => r.playerId).filter(Boolean))
+  const newClientRows = await db
+    .select({ id: profiles.id })
     .from(profiles)
     .where(and(
       eq(profiles.role, 'client'),
       isNull(profiles.deletedAt),
       gte(profiles.createdAt, thirtyDaysAgo),
     ))
-  segments.new = noVisit.count
+  segments.new = newClientRows.filter((r: any) => !visitedIds.has(r.id)).length
 
   // Top spenders (30d)
   const topSpenders = await db
