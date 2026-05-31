@@ -202,7 +202,7 @@ function Sheet({ title, subtitle, onClose, children }: { title: string; subtitle
       style={{ position: 'fixed', inset: 0, zIndex: 100, background: 'rgba(10,8,14,0.8)', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}
       onClick={e => { if (e.target === e.currentTarget) onClose() }}
     >
-      <div className="glass-l1 ti-slide-up" style={{ width: '100%', maxWidth: 480, maxHeight: '88dvh', overflowY: 'auto', borderRadius: '24px 24px 0 0', padding: '22px 22px 40px', boxSizing: 'border-box' }}>
+      <div className="glass-l1 ti-slide-up" style={{ width: '100%', maxWidth: 480, maxHeight: '88dvh', overflowY: 'auto', borderRadius: '24px 24px 0 0', padding: '22px 22px calc(24px + var(--bottom-nav-clear, 96px))', boxSizing: 'border-box' }}>
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 18 }}>
           <div>
             <h2 style={{ fontSize: 18, fontWeight: 800, margin: 0 }}>{title}</h2>
