@@ -818,7 +818,11 @@ function PosPageInner() {
           <div
             className="glass-l1"
             style={{
-              width: '100%', borderRadius: '32px 32px 0 0', padding: '24px 24px 40px',
+              width: '100%', borderRadius: '32px 32px 0 0',
+              // Нижний отступ учитывает плавающую навигацию (--bottom-nav-clear), иначе
+              // «Тип вечера» и кнопки уходят под панель; + скролл, если контент высокий.
+              padding: '24px 24px calc(24px + var(--bottom-nav-clear, 96px))',
+              maxHeight: '88dvh', overflowY: 'auto',
               boxShadow: 'var(--sh-drawer)',
             }}
           >
@@ -1367,7 +1371,7 @@ function PosPageInner() {
           style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(12px)', zIndex: 50, display: 'flex', alignItems: 'flex-end' }}
           onClick={e => { if (e.target === e.currentTarget) setShowCloseShift(false) }}
         >
-          <div className="glass-l1" style={{ width: '100%', borderRadius: '32px 32px 0 0', padding: '28px 28px 44px', boxShadow: 'var(--sh-drawer)' }}>
+          <div className="glass-l1" style={{ width: '100%', borderRadius: '32px 32px 0 0', padding: '28px 28px calc(28px + var(--bottom-nav-clear, 96px))', maxHeight: '88dvh', overflowY: 'auto', boxShadow: 'var(--sh-drawer)' }}>
             <div style={{ width: 36, height: 4, background: 'rgba(255,255,255,0.12)', borderRadius: 4, margin: '0 auto 24px' }} />
             <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 24 }}>
               <div style={{
