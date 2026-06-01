@@ -166,7 +166,10 @@ suppliesRouter.delete('/:id', requireRole('owner'), async (c) => {
   const id = c.req.param('id')
 
   const ok = await db.transaction(async (tx) => {
-    const [supply] = await tx.select().from(supplies).where(eq(supplies.id, id))
+    // FOR UPDATE на строке приёмки сериализует конкурентные удаления: второй
+    // вызов ждёт коммита первого, затем строки уже нет → выходим (без двойного
+    // отката стока при double-click/ретрае).
+    const [supply] = await tx.select().from(supplies).where(eq(supplies.id, id)).for('update')
     if (!supply) return false
 
     const lines = await tx.select().from(supplyItems).where(eq(supplyItems.supplyId, id))
