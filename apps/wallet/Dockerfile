@@ -34,6 +34,9 @@ RUN addgroup --system --gid 1001 nodejs && adduser --system --uid 1001 nextjs
 
 COPY --from=builder --chown=nextjs:nodejs /app/apps/wallet/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/apps/wallet/.next/static ./apps/wallet/.next/static
+# Next standalone НЕ включает public/ автоматически — копируем явно (иконки,
+# manifest). Раньше public у кошелька был пуст, поэтому строки не было.
+COPY --from=builder --chown=nextjs:nodejs /app/apps/wallet/public ./apps/wallet/public
 
 USER nextjs
 EXPOSE 3002
