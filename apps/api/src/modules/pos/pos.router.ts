@@ -15,6 +15,7 @@ import { maybePromoteToResident } from '../../lib/loyalty.js'
 import { accrueBonusLot, spendBonusLots, getBonusExpiryDays } from '../../lib/bonusLots.js'
 import { round2, computeRental } from '../../lib/money.js'
 import { Redis } from 'ioredis'
+import { streamSSE } from 'hono/streaming'
 
 function publishEvent(event: string, data: unknown) {
   const redis = new Redis(process.env['REDIS_URL'] ?? 'redis://redis:6379')
@@ -532,6 +533,34 @@ posRouter.get('/checks/:id', requireRole('owner', 'staff', 'tablet'), async (c) 
   return c.json({ check: data })
 })
 
+// SSE живого обновления чека: позиции добавлены/изменены, оплата прошла, чек
+// закрыт. Подписываемся на канал titan:updates и шлём только события ЭТОГО чека.
+// Планшет подключается с ?ticket= (см. /auth/sse-ticket). IDOR: только своя зона.
+posRouter.get('/checks/:id/events', requireRole('owner', 'staff', 'tablet'), async (c) => {
+  const checkId = c.req.param('id')
+  const user = c.get('user')
+  if (user.role === 'tablet') {
+    const [me] = await db.select({ spaceId: profiles.linkedSpaceId }).from(profiles).where(eq(profiles.id, user.sub))
+    const [chk] = await db.select({ spaceId: checks.spaceId }).from(checks).where(eq(checks.id, checkId))
+    if (!me?.spaceId || chk?.spaceId !== me.spaceId) return c.json({ error: 'Forbidden' }, 403)
+  }
+  return streamSSE(c, async (stream) => {
+    const redis = new Redis(process.env['REDIS_URL'] ?? 'redis://redis:6379')
+    let closed = false
+    await redis.subscribe('titan:updates').catch(() => {})
+    redis.on('message', async (_ch, msg) => {
+      if (closed) return
+      try {
+        const parsed = JSON.parse(msg)
+        if (parsed?.data?.checkId === checkId) await stream.writeSSE({ data: msg })
+      } catch { /* ignore malformed */ }
+    })
+    const hb = setInterval(() => { if (!closed) stream.writeSSE({ event: 'ping', data: '1' }).catch(() => {}) }, 25_000)
+    stream.onAbort(() => { closed = true; clearInterval(hb); redis.unsubscribe('titan:updates').catch(() => {}); redis.disconnect() })
+    await new Promise<void>((resolve) => { const t = setInterval(() => { if (closed) { clearInterval(t); resolve() } }, 1000) })
+  })
+})
+
 posRouter.patch('/checks/:id', requireRole('owner', 'staff'), zValidator('json', z.object({
   spaceId: z.string().uuid().optional(),
   // nullable: null снимает привязанного плательщика (можно исправить ошибочную привязку).
@@ -940,8 +969,9 @@ posRouter.post('/checks/:id/discount/:discountId/restore', requireRole('owner', 
   return c.json({ check: data })
 })
 
-posRouter.post('/checks/:id/qr', requireRole('owner', 'staff'), async (c) => {
+posRouter.post('/checks/:id/qr', requireRole('owner', 'staff', 'tablet'), async (c) => {
   const checkId = c.req.param('id')
+  const user = c.get('user')
   const merchantId = process.env['PLATEGA_MERCHANT_ID']
   const secret = process.env['PLATEGA_SECRET']
   if (!merchantId || !secret) return c.json({ error: 'Platega не настроен' }, 503)
@@ -949,13 +979,20 @@ posRouter.post('/checks/:id/qr', requireRole('owner', 'staff'), async (c) => {
   const [check] = await db.select().from(checks).where(eq(checks.id, checkId))
   if (!check || check.status !== 'open') return c.json({ error: 'Check not open' }, 400)
 
+  // Планшет может оплачивать ТОЛЬКО чек своего пространства (как и просмотр/заказ).
+  if (user.role === 'tablet') {
+    const [me] = await db.select({ spaceId: profiles.linkedSpaceId }).from(profiles).where(eq(profiles.id, user.sub))
+    if (!me?.spaceId || check.spaceId !== me.spaceId) return c.json({ error: 'Forbidden' }, 403)
+  }
+
   // Опциональная эквайринговая надбавка 8% — её платит КЛИЕНТ поверх товарной
   // суммы (комиссия за перевод). Это НЕ выручка магазина: при подтверждении
   // (см. platega webhook) чек закрывается на БАЗОВУЮ товарную сумму, а надбавка
   // лишь увеличивает сумму к оплате в QR. Эндпоинт раньше тела не читал — читаем
   // его опционально, чтобы не ломать клиентов, шлющих пустой/отсутствующий body.
   const body = await c.req.json().catch(() => ({})) as { surcharge8?: boolean } | null
-  const surcharge8 = body?.surcharge8 === true
+  // Гость (планшет) платит ровно сумму чека, без эквайринговой надбавки.
+  const surcharge8 = user.role !== 'tablet' && body?.surcharge8 === true
 
   // Сумма QR считается на СЕРВЕРЕ из чека (позиции−скидки+аренда+база события),
   // а НЕ берётся с клиента — иначе можно выставить QR на произвольную сумму.

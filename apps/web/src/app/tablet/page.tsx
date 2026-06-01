@@ -36,6 +36,8 @@ export default function TabletPage() {
   const { user } = useAuthStore()
   const [spaceRental, setSpaceRental] = useState(0)
   const [toastMsg, setToastMsg] = useState<string | null>(null)
+  const [qr, setQr] = useState<{ qrDataUrl: string; chargedAmount: number } | null>(null)
+  const [paid, setPaid] = useState(false)
 
   // Получаем профиль планшета (linkedSpaceId)
   const { data: profileData } = useQuery({
@@ -91,6 +93,13 @@ export default function TabletPage() {
     },
   })
 
+  // Оплата по QR (СБП) — гость платит сам, чек закрывается автоматически вебхуком.
+  const payQr = useMutation({
+    mutationFn: () => api.post<{ qrDataUrl: string; chargedAmount: number; baseAmount: number }>(`/pos/checks/${activeCheck!.id}/qr`, {}),
+    onSuccess: (r) => { setPaid(false); setQr({ qrDataUrl: r.qrDataUrl, chargedAmount: r.chargedAmount ?? r.baseAmount }) },
+    onError: (err: any) => { setToastMsg(err?.message ?? 'Не удалось создать QR'); setTimeout(() => setToastMsg(null), 3000) },
+  })
+
   // SSE для realtime обновлений
   const sseRef = useRef<EventSource | null>(null)
   useEffect(() => {
@@ -105,7 +114,11 @@ export default function TabletPage() {
       if (cancelled) { stream.close(); return }
       es = stream
       sseRef.current = stream
-      stream.onmessage = () => { refetch() }
+      stream.onmessage = (ev) => {
+        refetch()
+        // Оплата прошла / чек закрыт → показываем «Оплачено» на экране QR.
+        try { const m = JSON.parse(ev.data); if (m?.event === 'check:paid' || m?.event === 'check:closed') setPaid(true) } catch { /* ignore */ }
+      }
     }).catch(() => {})
     return () => { cancelled = true; es?.close() }
   }, [activeCheck?.id, refetch])
@@ -124,6 +137,39 @@ export default function TabletPage() {
 
   const baseTotal = parseFloat(activeCheck?.totalAmount ?? '0')
   const total = baseTotal + spaceRental
+
+  // QR-оплата — рендерим во ВСЕХ состояниях, иначе при закрытии чека (activeCheck
+  // станет null) экран «Оплачено» не успел бы показаться.
+  const qrOverlay = qr ? (
+    <div style={{ position: 'fixed', inset: 0, zIndex: 80, background: 'rgba(10,8,14,0.93)', backdropFilter: 'blur(14px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 32 }}>
+      <div style={{ textAlign: 'center', maxWidth: 480 }}>
+        {paid ? (
+          <>
+            <div style={{ width: 120, height: 120, borderRadius: '50%', background: 'rgba(16,185,129,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 24px' }}>
+              <Icon name="check_circle" size={72} color="#10B981" />
+            </div>
+            <h2 style={{ fontSize: 34, fontWeight: 900, color: '#10B981', margin: '0 0 8px' }}>Оплачено!</h2>
+            <p style={{ color: 'rgba(204,195,216,0.7)', fontSize: 16, margin: 0 }}>Спасибо! Счёт закрыт.</p>
+            <button onClick={() => { setQr(null); setPaid(false) }} style={{ marginTop: 28, padding: '16px 40px', borderRadius: 16, border: 'none', background: 'linear-gradient(135deg,#10B981,#4cd7f6)', color: '#fff', fontSize: 16, fontWeight: 800, cursor: 'pointer' }}>Готово</button>
+          </>
+        ) : (
+          <>
+            <h2 style={{ fontSize: 26, fontWeight: 900, fontStyle: 'italic', textTransform: 'uppercase', color: '#fff', margin: '0 0 8px' }}>Оплата по СБП</h2>
+            <p style={{ color: 'rgba(204,195,216,0.7)', fontSize: 16, margin: '0 0 24px' }}>Отсканируйте QR камерой или приложением банка</p>
+            <div style={{ background: '#fff', borderRadius: 24, padding: 18, display: 'inline-block' }}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={qr.qrDataUrl} alt="QR для оплаты" style={{ width: 300, height: 300, display: 'block' }} />
+            </div>
+            <p style={{ fontSize: 44, fontWeight: 900, fontStyle: 'italic', color: '#fff', margin: '24px 0 0', fontVariantNumeric: 'tabular-nums' }}>{qr.chargedAmount.toLocaleString('ru')} ₽</p>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 16, color: 'rgba(204,195,216,0.7)', fontSize: 15 }}>
+              <Icon name="hourglass_top" size={18} /> Ожидаем оплату…
+            </div>
+            <button onClick={() => setQr(null)} style={{ marginTop: 24, padding: '12px 28px', borderRadius: 14, border: '1px solid rgba(255,255,255,0.15)', background: 'transparent', color: 'rgba(204,195,216,0.7)', fontSize: 15, fontWeight: 600, cursor: 'pointer' }}>Отмена</button>
+          </>
+        )}
+      </div>
+    </div>
+  ) : null
 
   // ─── Ожидание открытия сессии ─────────────────────────────────────────────
   if (!isLoading && !activeCheck) {
@@ -161,6 +207,7 @@ export default function TabletPage() {
         </div>
 
         <style>{`@keyframes pulse-dot { 0%,100%{opacity:1;} 50%{opacity:0.3;} }`}</style>
+        {qrOverlay}
       </div>
     )
   }
@@ -171,6 +218,7 @@ export default function TabletPage() {
       <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <Icon name="refresh" size={36} color="rgba(204,195,216,0.3)" style={{ animation: 'spin 1s linear infinite' }} />
         <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+        {qrOverlay}
       </div>
     )
   }
@@ -319,21 +367,34 @@ export default function TabletPage() {
           </div>
         )}
 
-        {/* Кнопка "Запросить счёт" — внизу */}
-        {activeCheck.items.length > 0 && (
-          <div style={{ marginTop: 24, paddingBottom: 24 }}>
+        {/* Запросить счёт (позвать персонал) + Оплатить (QR СБП) */}
+        {total > 0 && (
+          <div style={{ marginTop: 24, paddingBottom: 24, display: 'flex', gap: 12 }}>
             <button
               onClick={() => requestBill.mutate()}
               disabled={requestBill.isPending}
               style={{
-                width: '100%', padding: '18px 0', borderRadius: 18, border: '1px solid rgba(16,185,129,0.3)', cursor: 'pointer',
-                background: 'rgba(16,185,129,0.08)',
-                color: '#10B981', fontSize: 15, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em',
-                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
+                flex: 1, padding: '18px 0', borderRadius: 18, border: '1px solid rgba(245,158,11,0.35)', cursor: 'pointer',
+                background: 'rgba(245,158,11,0.08)',
+                color: '#F59E0B', fontSize: 14, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.06em',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
               }}
             >
-              <Icon name="receipt_long" size={22} />
+              <Icon name="support_agent" size={20} />
               {requestBill.isPending ? 'Отправляем…' : 'Запросить счёт'}
+            </button>
+            <button
+              onClick={() => payQr.mutate()}
+              disabled={payQr.isPending}
+              style={{
+                flex: 1, padding: '18px 0', borderRadius: 18, border: 'none', cursor: 'pointer',
+                background: 'linear-gradient(135deg, #10B981, #4cd7f6)',
+                color: '#fff', fontSize: 14, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.06em',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, boxShadow: '0 4px 20px rgba(16,185,129,0.3)',
+              }}
+            >
+              <Icon name="qr_code_2" size={22} />
+              {payQr.isPending ? 'Готовим QR…' : 'Оплатить'}
             </button>
           </div>
         )}
@@ -355,6 +416,8 @@ export default function TabletPage() {
           {toastMsg}
         </div>
       )}
+
+      {qrOverlay}
     </div>
   )
 }
