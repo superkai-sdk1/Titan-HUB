@@ -48,6 +48,9 @@ export const profiles = pgTable('profiles', {
   searchTags: text('search_tags').array().default([]),
   isResident: boolean('is_resident').notNull().default(false),
   needsPinSetup: boolean('needs_pin_setup').notNull().default(false),
+  // Клиентские уведомления в Wallet-боте (начисление бонусов, депозит, долг).
+  // Клиент может отключить их прямо в боте. По умолчанию включены.
+  walletNotifyEnabled: boolean('wallet_notify_enabled').notNull().default(true),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
 })

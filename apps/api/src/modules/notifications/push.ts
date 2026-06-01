@@ -83,6 +83,36 @@ async function sendTelegram(tgId: string, text: string): Promise<void> {
   }
 }
 
+// ── Клиентские уведомления (Wallet-бот) ─────────────────────────────────────
+// Личные сообщения клиенту о ЕГО событиях (бонусы/депозит/долг) шлём из WALLET-бота
+// (его клиентский бот), а не из админского. Клиент может отключить (profiles.
+// wallet_notify_enabled). No-op без токена/привязки. Никогда не бросает.
+const WALLET_TOKEN = process.env['WALLET_BOT_TOKEN']
+async function sendWallet(tgId: string, text: string): Promise<void> {
+  if (!WALLET_TOKEN || !tgId) return
+  try {
+    await fetch(`https://api.telegram.org/bot${WALLET_TOKEN}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: tgId, text, disable_web_page_preview: true }),
+    })
+  } catch (err) {
+    console.warn('[push] wallet send error:', err)
+  }
+}
+
+export async function notifyClient(profileId: string, text: string): Promise<void> {
+  try {
+    const [p] = await db
+      .select({ tgId: profiles.tgId, on: profiles.walletNotifyEnabled })
+      .from(profiles)
+      .where(eq(profiles.id, profileId))
+    if (p?.tgId && p.on !== false) await sendWallet(p.tgId, text)
+  } catch (err) {
+    console.error('[push] notifyClient failed:', err)
+  }
+}
+
 // Слать ли в Telegram этому пользователю по этому типу: только если явно включено
 // (telegram=true) в настройках. По умолчанию Telegram-доставка ВЫКЛ (opt-in).
 function isTelegramEnabledForUser(

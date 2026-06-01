@@ -1,5 +1,5 @@
 import { Bot, InlineKeyboard } from 'grammy'
-import { db, profiles, tgLinkRequests, transactions, bonusHistory, eq, and, desc } from '@titan/database'
+import { db, profiles, tgLinkRequests, transactions, clientTiers, eq, desc } from '@titan/database'
 import { createHmac, timingSafeEqual } from 'node:crypto'
 
 const token = process.env['WALLET_BOT_TOKEN']
@@ -127,6 +127,7 @@ export const bot = new Bot(token)
 
 const walletKeyboard = new InlineKeyboard()
   .text('💰 Баланс', 'balance').text('📋 История', 'history').row()
+  .text('🔔 Уведомления', 'notif').row()
   .webApp('💳 Открыть кошелёк', WEBAPP_URL)
 
 bot.command('start', async (ctx) => {
@@ -203,12 +204,41 @@ bot.callbackQuery('balance', async (ctx) => {
     await ctx.reply('❌ Аккаунт не привязан. Используйте ссылку из кассы.')
     return
   }
-  await ctx.reply(
-    `💰 *Кошелёк ${escapeMd(profile.nickname)}*\n\n` +
-    `Баланс: *${parseFloat(profile.balance).toLocaleString('ru')} ₽*\n` +
-    `Бонусы: *${parseFloat(profile.bonusPoints).toFixed(0)} ⭐*`,
-    { parse_mode: 'Markdown' }
-  )
+  const [tier] = await db.select().from(clientTiers).where(eq(clientTiers.key, profile.clientTier))
+  const tierLabel = tier?.label ?? profile.clientTier
+  const bal = parseFloat(profile.balance) || 0
+  const deposit = Math.max(0, bal)
+  const debt = Math.max(0, -bal)
+  const lines = [
+    `💰 *Кошелёк ${escapeMd(profile.nickname)}*`,
+    ``,
+    `Статус: *${escapeMd(tierLabel)}*`,
+  ]
+  if (deposit > 0) lines.push(`Депозит: *${deposit.toLocaleString('ru')} ₽*`)
+  if (debt > 0) lines.push(`Долг: *${debt.toLocaleString('ru')} ₽*`)
+  if (deposit === 0 && debt === 0) lines.push(`Баланс: *0 ₽*`)
+  lines.push(`Бонусы: *${parseFloat(profile.bonusPoints).toFixed(0)} ⭐*`)
+  await ctx.reply(lines.join('\n'), { parse_mode: 'Markdown' })
+})
+
+// Уведомления клиента (начисление бонусов, депозит, долг) — вкл/выкл.
+bot.callbackQuery('notif', async (ctx) => {
+  await ctx.answerCallbackQuery()
+  const [profile] = await db.select().from(profiles).where(eq(profiles.tgId, String(ctx.from?.id)))
+  if (!profile) { await ctx.reply('❌ Аккаунт не привязан.'); return }
+  const on = profile.walletNotifyEnabled !== false
+  const kb = new InlineKeyboard().text(on ? '🔕 Выключить' : '🔔 Включить', on ? 'notif_off' : 'notif_on')
+  await ctx.reply(`🔔 Уведомления о бонусах, депозите и долге сейчас *${on ? 'включены' : 'выключены'}*.`, { parse_mode: 'Markdown', reply_markup: kb })
+})
+bot.callbackQuery('notif_off', async (ctx) => {
+  await ctx.answerCallbackQuery()
+  await db.update(profiles).set({ walletNotifyEnabled: false }).where(eq(profiles.tgId, String(ctx.from?.id)))
+  await ctx.reply('🔕 Уведомления выключены. Включить можно кнопкой «Уведомления».')
+})
+bot.callbackQuery('notif_on', async (ctx) => {
+  await ctx.answerCallbackQuery()
+  await db.update(profiles).set({ walletNotifyEnabled: true }).where(eq(profiles.tgId, String(ctx.from?.id)))
+  await ctx.reply('🔔 Уведомления включены.')
 })
 
 bot.callbackQuery('history', async (ctx) => {

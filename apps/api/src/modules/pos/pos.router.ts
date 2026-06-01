@@ -10,7 +10,7 @@ import {
 } from '@titan/database'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
 import { getCurrentShift } from '../shifts/shifts.service.js'
-import { notify } from '../notifications/push.js'
+import { notify, notifyClient } from '../notifications/push.js'
 import { accrueBonusLot, spendBonusLots, getBonusExpiryDays } from '../../lib/bonusLots.js'
 import { round2, computeRental } from '../../lib/money.js'
 import { Redis } from 'ioredis'
@@ -1240,6 +1240,7 @@ posRouter.post('/checks/:id/pay', requireRole('owner', 'staff'), zValidator('jso
       }
 
       // Начисление бонусов с учётом настроек app_settings (на полную сумму, включая аренду)
+      let bonusAwarded = 0
       if (body.playerId && player) {
         const settingsRows = await tx.select().from(appSettings)
           .where(inArray(appSettings.key, ['bonus_enabled', 'bonus_accrual_rate', 'bonus_min_purchase', 'bonus_accrual_on_debt']))
@@ -1252,6 +1253,7 @@ posRouter.post('/checks/:id/pay', requireRole('owner', 'staff'), zValidator('jso
 
         if (bonusEnabled && total >= minPurchase && !(debtAmount > 0 && !accrualOnDebt)) {
           const bonusEarned = Math.floor(total * accrualRate)
+          bonusAwarded = bonusEarned
           if (bonusEarned > 0) {
             const newBonus = round2(parseFloat(player.bonusPoints) + bonusEarned)
             await tx.update(profiles).set({ bonusPoints: String(newBonus) }).where(eq(profiles.id, body.playerId))
@@ -1268,7 +1270,7 @@ posRouter.post('/checks/:id/pay', requireRole('owner', 'staff'), zValidator('jso
         }
       }
 
-      return { closedCheck, certSent, debtAmount, playerId: body.playerId ?? null, completedEvent }
+      return { closedCheck, certSent, debtAmount, playerId: body.playerId ?? null, completedEvent, bonusAwarded }
     })
 
     const closedCheck = closed?.closedCheck
@@ -1307,6 +1309,15 @@ posRouter.post('/checks/:id/pay', requireRole('owner', 'staff'), zValidator('jso
         body: `${closed!.debtAmount} ₽`,
         meta: { checkId, playerId: closed!.playerId },
       }).catch(() => {})
+    }
+    // Личные уведомления клиенту в Wallet-бот (о ЕГО событиях).
+    if (closed?.playerId) {
+      if ((closed.bonusAwarded ?? 0) > 0) {
+        void notifyClient(closed.playerId, `⭐ Начислено ${Number(closed.bonusAwarded).toLocaleString('ru')} бонусов за покупку на ${paidTotal.toLocaleString('ru')} ₽`)
+      }
+      if ((closed.debtAmount ?? 0) > 0) {
+        void notifyClient(closed.playerId, `⚠️ Оплата в долг: ${Number(closed.debtAmount).toLocaleString('ru')} ₽`)
+      }
     }
     if (closed?.completedEvent) {
       void notify({

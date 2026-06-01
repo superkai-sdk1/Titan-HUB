@@ -13,7 +13,7 @@ const CLIENT_ROLES = ['client', 'staff', 'owner'] as const
 import { requireAuth, requireRole } from '../../middleware/auth.js'
 import { accrueBonusLot, getBonusExpiryDays } from '../../lib/bonusLots.js'
 import { hashPassword } from '@titan/auth'
-import { notify } from '../notifications/push.js'
+import { notify, notifyClient } from '../notifications/push.js'
 import { createHmac } from 'node:crypto'
 
 const CreateClientSchema = z.object({
@@ -331,6 +331,7 @@ clientsRouter.post('/:id/balance', requireRole('owner', 'staff'), zValidator('js
       body: `${amount} ₽`,
       meta: { clientId },
     }).catch(() => {})
+    void notifyClient(clientId, `💰 Депозит пополнен на ${amount.toLocaleString('ru')} ₽.\nБаланс: ${result.newBalance.toLocaleString('ru')} ₽`)
   }
   // Долг образовался: баланс только что ушёл в минус (раньше был неотрицателен).
   if (result.newBalance < 0 && result.prevBalance >= 0) {
@@ -340,6 +341,7 @@ clientsRouter.post('/:id/balance', requireRole('owner', 'staff'), zValidator('js
       body: `${result.newBalance.toFixed(2)} ₽`,
       meta: { clientId },
     }).catch(() => {})
+    void notifyClient(clientId, `⚠️ У вас образовался долг: ${Math.abs(result.newBalance).toLocaleString('ru')} ₽`)
   }
 
   return c.json({ balance: result.newBalance })
@@ -402,6 +404,11 @@ clientsRouter.post('/:id/bonus', requireRole('owner', 'staff'), zValidator('json
     return c.json({ error: 'Insufficient bonus points' }, 400)
   }
 
+  if (amount > 0) {
+    void notifyClient(client.id, `⭐ Вам начислено ${amount.toLocaleString('ru')} бонусов.\nВсего: ${Math.round(newBonus).toLocaleString('ru')} ⭐`)
+  } else if (amount < 0) {
+    void notifyClient(client.id, `💫 Списано ${Math.abs(amount).toLocaleString('ru')} бонусов.\nОстаток: ${Math.round(newBonus).toLocaleString('ru')} ⭐`)
+  }
   return c.json({ bonusPoints: newBonus })
 })
 
