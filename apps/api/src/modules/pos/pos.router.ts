@@ -5,7 +5,7 @@ import { z } from 'zod'
 import {
   db, checks, checkItems, checkItemModifiers, checkPayments, checkDiscounts,
   inventory, profiles, spaces, certificates, bonusHistory, transactions, modifiers as modifiersTable,
-  appSettings, events, discounts, clientDiscountRules,
+  appSettings, events, discounts, clientDiscountRules, stockMovements,
   eq, and, ne, inArray, desc, sql, isNull,
 } from '@titan/database'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
@@ -535,6 +535,7 @@ posRouter.patch('/checks/:id', requireRole('owner', 'staff'), zValidator('json',
 
 posRouter.delete('/checks/:id', requireRole('owner', 'staff'), async (c) => {
   const checkId = c.req.param('id')
+  const user = c.get('user')
   const check = await db.transaction(async (tx) => {
     const [ch] = await tx
       .update(checks)
@@ -547,9 +548,21 @@ posRouter.delete('/checks/:id', requireRole('owner', 'staff'), async (c) => {
     const lines = await tx.select({ itemId: checkItems.itemId, quantity: checkItems.quantity })
       .from(checkItems).where(eq(checkItems.checkId, checkId))
     for (const ln of lines) {
-      await tx.update(inventory)
+      const [upd] = await tx.update(inventory)
         .set({ stockQuantity: sql`${inventory.stockQuantity} + ${ln.quantity}` })
         .where(and(eq(inventory.id, ln.itemId), eq(inventory.trackStock, true)))
+        .returning({ stockQuantity: inventory.stockQuantity })
+      // Журнал движений склада: отмена чека возвращает сток (delta > 0). upd есть
+      // только для учётных товаров (прошедших trackStock-фильтр).
+      if (upd) {
+        await tx.insert(stockMovements).values({
+          itemId: ln.itemId,
+          delta: ln.quantity,
+          newQuantity: upd.stockQuantity ?? 0,
+          reason: `Отмена чека ${checkId}`,
+          createdBy: user.sub,
+        })
+      }
     }
 
     // Декрементим attendeesCount, если чек был привязан к событию
@@ -575,6 +588,7 @@ posRouter.delete('/checks/:id', requireRole('owner', 'staff'), async (c) => {
 posRouter.post('/checks/:id/items', requireRole('owner', 'staff', 'tablet'), zValidator('json', AddItemSchema), async (c) => {
   const { itemId, quantity, modifierIds } = c.req.valid('json')
   const checkId = c.req.param('id')
+  const user = c.get('user')
 
   // Атомарная транзакция: проверка чека + блокировка stock + списание + insert позиции
   try {
@@ -597,9 +611,18 @@ posRouter.post('/checks/:id/items', requireRole('owner', 'staff', 'tablet'), zVa
         throw new Error('INSUFFICIENT_STOCK')
       }
       if (item.trackStock) {
-        await tx.update(inventory)
+        const [upd] = await tx.update(inventory)
           .set({ stockQuantity: sql`${inventory.stockQuantity} - ${quantity}` })
           .where(eq(inventory.id, itemId))
+          .returning({ stockQuantity: inventory.stockQuantity })
+        // Журнал движений склада: продажа списывает сток (delta < 0).
+        await tx.insert(stockMovements).values({
+          itemId,
+          delta: -quantity,
+          newQuantity: upd?.stockQuantity ?? 0,
+          reason: `Продажа: чек ${checkId}`,
+          createdBy: user.sub,
+        })
       }
 
       // Мерж с существующей строкой того же товара БЕЗ модификаторов: повторное
@@ -667,9 +690,16 @@ posRouter.patch('/checks/:id/items/:itemId', requireRole('owner', 'staff', 'tabl
   const checkId = c.req.param('id')
   const itemId = c.req.param('itemId')
   const { quantity } = c.req.valid('json')
+  const user = c.get('user')
 
   try {
     await db.transaction(async (tx) => {
+      // Status-guard: правка позиций допустима только на открытом чеке. Иначе
+      // правка/удаление позиции на отменённом/закрытом чеке (отмена уже вернула
+      // сток, не удалив строки checkItems) вернула бы сток повторно.
+      const [check] = await tx.select().from(checks).where(eq(checks.id, checkId))
+      if (!check || check.status !== 'open') throw new Error('CHECK_NOT_OPEN')
+
       const [ci] = await tx.select().from(checkItems).where(and(eq(checkItems.id, itemId), eq(checkItems.checkId, checkId)))
       if (!ci) throw new Error('ITEM_NOT_FOUND')
       // delta > 0 → возвращаем на склад; delta < 0 → дополнительно списываем
@@ -681,9 +711,20 @@ posRouter.patch('/checks/:id/items/:itemId', requireRole('owner', 'staff', 'tabl
         const inv: any = rows.rows?.[0] ?? rows[0]
         if (inv?.trackStock) {
           if (delta < 0 && (inv.stockQuantity ?? 0) + delta < 0) throw new Error('INSUFFICIENT_STOCK')
-          await tx.update(inventory)
+          const [upd] = await tx.update(inventory)
             .set({ stockQuantity: sql`${inventory.stockQuantity} + ${delta}` })
             .where(eq(inventory.id, ci.itemId))
+            .returning({ stockQuantity: inventory.stockQuantity })
+          // Журнал движений склада: логируем только возврат позиции (delta > 0).
+          // Дополнительное списание (delta < 0) — продолжение продажи, фиксируем
+          // его тем же знаком/причиной для сверки ledger.
+          await tx.insert(stockMovements).values({
+            itemId: ci.itemId,
+            delta,
+            newQuantity: upd?.stockQuantity ?? 0,
+            reason: delta > 0 ? `Возврат позиции: чек ${checkId}` : `Продажа: чек ${checkId}`,
+            createdBy: user.sub,
+          })
         }
       }
       if (quantity === 0) {
@@ -693,6 +734,7 @@ posRouter.patch('/checks/:id/items/:itemId', requireRole('owner', 'staff', 'tabl
       }
     })
   } catch (err: any) {
+    if (err.message === 'CHECK_NOT_OPEN') return c.json({ error: 'Check not open' }, 400)
     if (err.message === 'ITEM_NOT_FOUND') return c.json({ error: 'Item not found' }, 404)
     if (err.message === 'INSUFFICIENT_STOCK') return c.json({ error: 'Insufficient stock' }, 400)
     console.error('PATCH /checks/:id/items/:itemId error:', err)
@@ -707,15 +749,40 @@ posRouter.patch('/checks/:id/items/:itemId', requireRole('owner', 'staff', 'tabl
 posRouter.delete('/checks/:id/items/:itemId', requireRole('owner', 'staff', 'tablet'), async (c) => {
   const checkId = c.req.param('id')
   const itemId = c.req.param('itemId')
-  await db.transaction(async (tx) => {
-    const [ci] = await tx.select().from(checkItems).where(and(eq(checkItems.id, itemId), eq(checkItems.checkId, checkId)))
-    if (!ci) return
-    // Возвращаем списанный сток для учётных товаров
-    await tx.update(inventory)
-      .set({ stockQuantity: sql`${inventory.stockQuantity} + ${ci.quantity}` })
-      .where(and(eq(inventory.id, ci.itemId), eq(inventory.trackStock, true)))
-    await tx.delete(checkItems).where(and(eq(checkItems.id, itemId), eq(checkItems.checkId, checkId)))
-  })
+  const user = c.get('user')
+  try {
+    await db.transaction(async (tx) => {
+      // Status-guard: удаление позиции допустимо только на открытом чеке. Иначе
+      // удаление позиции на отменённом/закрытом чеке (отмена уже вернула сток, не
+      // удалив строки checkItems) вернуло бы сток повторно.
+      const [check] = await tx.select().from(checks).where(eq(checks.id, checkId))
+      if (!check || check.status !== 'open') throw new Error('CHECK_NOT_OPEN')
+
+      const [ci] = await tx.select().from(checkItems).where(and(eq(checkItems.id, itemId), eq(checkItems.checkId, checkId)))
+      if (!ci) return
+      // Возвращаем списанный сток для учётных товаров
+      const [upd] = await tx.update(inventory)
+        .set({ stockQuantity: sql`${inventory.stockQuantity} + ${ci.quantity}` })
+        .where(and(eq(inventory.id, ci.itemId), eq(inventory.trackStock, true)))
+        .returning({ stockQuantity: inventory.stockQuantity })
+      // Журнал движений склада: возврат позиции (delta > 0). upd есть только если
+      // строка прошла trackStock-фильтр — для не-учётных товаров не логируем.
+      if (upd) {
+        await tx.insert(stockMovements).values({
+          itemId: ci.itemId,
+          delta: ci.quantity,
+          newQuantity: upd.stockQuantity ?? 0,
+          reason: `Возврат позиции: чек ${checkId}`,
+          createdBy: user.sub,
+        })
+      }
+      await tx.delete(checkItems).where(and(eq(checkItems.id, itemId), eq(checkItems.checkId, checkId)))
+    })
+  } catch (err: any) {
+    if (err.message === 'CHECK_NOT_OPEN') return c.json({ error: 'Check not open' }, 400)
+    console.error('DELETE /checks/:id/items/:itemId error:', err)
+    return c.json({ error: 'Internal error' }, 500)
+  }
   await recalcCheckTotal(checkId)
   const data = await getCheckWithItems(checkId)
   return c.json({ check: data })

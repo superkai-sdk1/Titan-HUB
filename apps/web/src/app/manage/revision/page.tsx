@@ -60,7 +60,10 @@ export default function RevisionPage() {
       for (const item of tracked) {
         const raw = entries[item.id]
         if (raw === '' || raw === undefined) continue
-        const actual = parseInt(raw) || 0
+        // FIX #14: не коэрсим мусорный ввод в 0 — это записало бы остаток в 0
+        // с большим отрицательным diff. Пропускаем невалидные строки.
+        const actual = parseInt(raw, 10)
+        if (!Number.isFinite(actual)) continue
         const diff = actual - item.stockQuantity
         // Пишем в результат только после успешного сохранения позиции.
         await patchMut.mutateAsync({ id: item.id, stockQuantity: actual })
@@ -162,7 +165,9 @@ export default function RevisionPage() {
             </p>
             {tracked.map(item => {
               const val = entries[item.id] ?? ''
-              const actual = val === '' ? null : parseInt(val) || 0
+              // FIX #14: невалидный ввод не превращаем в 0 — не показываем фиктивный diff.
+              const parsed = val === '' ? null : parseInt(val, 10)
+              const actual = parsed !== null && Number.isFinite(parsed) ? parsed : null
               const diff = actual !== null ? actual - item.stockQuantity : null
               return (
                 <div key={item.id} className="glass-l2" style={{ borderRadius: 16, padding: '14px 16px' }}>

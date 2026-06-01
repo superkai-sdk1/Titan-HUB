@@ -38,7 +38,9 @@ export default function InventoryPage() {
 
   const allItems = data?.items ?? []
   const lowStockCount = allItems.filter(i => i.trackStock && i.stockQuantity <= i.minThreshold).length
-  const maxQty = useMemo(() => Math.max(...allItems.map(i => i.stockQuantity), 1), [allItems])
+  // FIX #15: reduce вместо Math.max(...array) — спред падает на больших списках
+  // (превышение лимита аргументов).
+  const maxQty = useMemo(() => allItems.reduce((m, i) => Math.max(m, i.stockQuantity), 1), [allItems])
 
   const filtered = useMemo(() => {
     let result = allItems

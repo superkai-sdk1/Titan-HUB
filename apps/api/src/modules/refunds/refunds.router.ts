@@ -2,7 +2,7 @@ import type { AppEnv } from '../../types.js'
 import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
-import { db, refunds, checks, inventory, checkItems, checkPayments, transactions, profiles, bonusHistory, certificates, appSettings, eq, and, like, inArray, desc } from '@titan/database'
+import { db, refunds, checks, inventory, checkItems, checkPayments, transactions, profiles, bonusHistory, certificates, appSettings, stockMovements, eq, and, like, inArray, desc } from '@titan/database'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
 import { accrueBonusLot, spendBonusLots, getBonusExpiryDays } from '../../lib/bonusLots.js'
 import { round2 } from '../../lib/money.js'
@@ -200,19 +200,49 @@ refundsRouter.post('/', requireRole('owner', 'staff'), zValidator('json', Refund
         }
       }
 
-      // Restore stock — только по фактически проданным позициям и не больше проданного.
+      // Restore stock — только по фактически проданным позициям и не больше,
+      // чем (продано − уже восстановлено предыдущими возвратами). Иначе повторные
+      // частичные возвраты восстановили бы сток сверх проданного.
       const soldRows = await tx.select().from(checkItems).where(eq(checkItems.checkId, body.checkId))
       const soldByItem = new Map<string, number>()
       for (const s of soldRows) soldByItem.set(s.itemId, (soldByItem.get(s.itemId) ?? 0) + s.quantity)
+      // Уже восстановлено по каждому товару — сумма restoredItems всех прошлых
+      // возвратов этого чека (старые возвраты до миграции 023 имеют пустой массив).
+      const restoredByItem = new Map<string, number>()
+      for (const pr of prevRefunds) {
+        for (const ri of (pr.restoredItems ?? [])) {
+          restoredByItem.set(ri.itemId, (restoredByItem.get(ri.itemId) ?? 0) + (ri.quantity || 0))
+        }
+      }
+      const restoredNow: { itemId: string; quantity: number }[] = []
       for (const item of body.itemsToRestore) {
-        const qty = Math.min(item.quantity, soldByItem.get(item.itemId) ?? 0)
+        const sold = soldByItem.get(item.itemId) ?? 0
+        const alreadyRestored = restoredByItem.get(item.itemId) ?? 0
+        const qty = Math.max(0, Math.min(item.quantity, sold - alreadyRestored))
         if (qty <= 0) continue
         const [inv] = await tx.select().from(inventory).where(eq(inventory.id, item.itemId)).for('update')
         if (inv && inv.trackStock) {
+          const newQuantity = (inv.stockQuantity ?? 0) + qty
           await tx.update(inventory)
-            .set({ stockQuantity: (inv.stockQuantity ?? 0) + qty })
+            .set({ stockQuantity: newQuantity })
             .where(eq(inventory.id, item.itemId))
+          // Журнал движений склада: возврат чека возвращает сток (delta > 0).
+          await tx.insert(stockMovements).values({
+            itemId: item.itemId,
+            delta: qty,
+            newQuantity,
+            reason: `Возврат чека ${body.checkId}`,
+            createdBy: user.sub,
+          })
         }
+        // Фиксируем фактически восстановленное количество (в т.ч. для не-учётных
+        // товаров — чтобы лимит sold−alreadyRestored не сбрасывался повторными
+        // возвратами по одной и той же позиции).
+        restoredNow.push({ itemId: item.itemId, quantity: qty })
+      }
+      // Сохраняем восстановленное этим возвратом — для cap'а будущих возвратов.
+      if (restoredNow.length) {
+        await tx.update(refunds).set({ restoredItems: restoredNow }).where(eq(refunds.id, r!.id))
       }
 
       return r

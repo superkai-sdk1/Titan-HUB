@@ -55,10 +55,19 @@ export default function SuppliesPage() {
   }
 
   async function handleInventorySelect(key: number, itemId: string) {
+    // FIX #7: «— ввести вручную —» (пустой itemId) должен отвязать позицию от
+    // инвентаря, иначе закупка уйдёт против старого itemId.
+    if (!itemId) {
+      setItems(prev => prev.map(i => i._key === key ? { ...i, itemId: undefined, lastPrice: undefined } : i))
+      return
+    }
     const invItem = inventoryItems.find(i => i.id === itemId)
     if (!invItem) return
-    const lastPrice = itemId ? await fetchLastPrice(itemId) : undefined
-    setItems(prev => prev.map(i => i._key === key ? { ...i, itemId, name: invItem.name, lastPrice: lastPrice ?? undefined } : i))
+    setItems(prev => prev.map(i => i._key === key ? { ...i, itemId, name: invItem.name } : i))
+    const lastPrice = await fetchLastPrice(itemId)
+    // FIX #11: за время await пользователь мог переключить позицию — применяем
+    // результат только если в строке всё ещё выбран тот же itemId.
+    setItems(prev => prev.map(i => i._key === key && i.itemId === itemId ? { ...i, lastPrice: lastPrice ?? undefined } : i))
   }
 
   // Идемпотентный ключ: защита от двойного клика (двойной приход + COGS).
@@ -66,12 +75,31 @@ export default function SuppliesPage() {
   const create = useMutation({
     mutationFn: (body: { supplier: string; items: { itemId?: string; name: string; unit: string; quantity: number; costPerUnit: number }[] }) =>
       api.post('/supplies', { ...body, idempotencyKey: idemRef.current }),
-    onSuccess: () => { idemRef.current = crypto.randomUUID(); qc.invalidateQueries({ queryKey: ['supplies'] }); setShowModal(false); setSupplier(''); setItems([emptyItem()]) },
+    onSuccess: () => {
+      idemRef.current = crypto.randomUUID()
+      qc.invalidateQueries({ queryKey: ['supplies'] })
+      // Приход увеличил stockQuantity на сервере — обновляем «Остатки», «Ревизию»
+      // (['menu-items-inventory']) и выпадающий список инвентаря (['menu','items','all']),
+      // иначе показывают устаревший остаток и риск двойной коррекции.
+      qc.invalidateQueries({ queryKey: ['menu-items-inventory'] })
+      qc.invalidateQueries({ queryKey: ['menu', 'items', 'all'] })
+      setShowModal(false); setSupplier(''); setItems([emptyItem()])
+    },
     onError: () => show('Не удалось сохранить закупку', 'error'),
   })
 
   const supplies = [...(data?.supplies ?? [])].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
   const totalCost = items.reduce((s, i) => s + i.quantity * i.costPerUnit, 0)
+
+  // FIX #5 + #8: позиция невалидна, если нет названия, кол-во ≤ 0, либо у привязанной
+  // к инвентарю (tracked) позиции дробное количество — бэкенд требует целое.
+  function rowError(i: DraftItem): string | null {
+    if (!i.name.trim()) return 'Укажите название'
+    if (!(i.quantity > 0)) return 'Кол-во должно быть больше 0'
+    if (i.itemId && !Number.isInteger(i.quantity)) return 'Для складской позиции кол-во должно быть целым'
+    return null
+  }
+  const hasErrors = items.some(i => rowError(i) !== null)
 
   function updateItem(key: number, field: keyof SupplyItem, value: string | number) {
     setItems(prev => prev.map(i => (i._key === key ? { ...i, [field]: value } : i)))
@@ -164,10 +192,30 @@ export default function SuppliesPage() {
                     )}
                     <input placeholder="Название *" value={item.name} onChange={e => updateItem(item._key, 'name', e.target.value)} style={INP} />
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
-                      <div><label style={LBL}>Кол-во</label><input type="number" min={0} inputMode="decimal" value={item.quantity} onChange={e => updateItem(item._key, 'quantity', parseFloat(e.target.value) || 0)} style={INP} /></div>
+                      <div>
+                        <label style={LBL}>Кол-во{item.itemId ? ' (целое)' : ''}</label>
+                        {/* FIX #5: для складской (tracked) позиции кол-во должно быть целым (step=1),
+                            для затратных позиций без itemId — разрешаем дробное. */}
+                        <input
+                          type="number"
+                          min={0}
+                          step={item.itemId ? 1 : 'any'}
+                          inputMode={item.itemId ? 'numeric' : 'decimal'}
+                          value={item.quantity}
+                          onChange={e => {
+                            const raw = e.target.value
+                            const parsed = item.itemId ? parseInt(raw, 10) : parseFloat(raw)
+                            updateItem(item._key, 'quantity', Number.isFinite(parsed) ? parsed : 0)
+                          }}
+                          style={INP}
+                        />
+                      </div>
                       <div><label style={LBL}>Ед.</label><select value={item.unit} onChange={e => updateItem(item._key, 'unit', e.target.value)} style={SEL}>{UNITS.map(u => <option key={u} value={u}>{u}</option>)}</select></div>
                       <div><label style={{ ...LBL, display: 'flex', alignItems: 'center' }}>Цена/ед.<PriceDiff current={item.costPerUnit} last={item.lastPrice} /></label><input type="number" min={0} inputMode="decimal" value={item.costPerUnit} onChange={e => updateItem(item._key, 'costPerUnit', parseFloat(e.target.value) || 0)} style={INP} /></div>
                     </div>
+                    {rowError(item) && (
+                      <p style={{ margin: 0, fontSize: 11, fontWeight: 600, color: 'var(--danger)' }}>{rowError(item)}</p>
+                    )}
                   </div>
                 </div>
               ))}
@@ -179,7 +227,7 @@ export default function SuppliesPage() {
             <span style={{ fontSize: 18, fontWeight: 700, color: 'var(--on-surface)', fontVariantNumeric: 'tabular-nums' }}>{formatMoney(totalCost)}</span>
           </div>
 
-          <Button fullWidth size="lg" loading={create.isPending} disabled={items.some(i => !i.name.trim())} onClick={handleSubmit}>Сохранить закупку</Button>
+          <Button fullWidth size="lg" loading={create.isPending} disabled={hasErrors} onClick={handleSubmit}>Сохранить закупку</Button>
         </div>
       </Sheet>
     </div>

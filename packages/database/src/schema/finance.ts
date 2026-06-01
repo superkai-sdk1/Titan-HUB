@@ -165,6 +165,10 @@ export const refunds = pgTable('refunds', {
   note: text('note'),
   // Разбивка возврата по способам оплаты: [{ method, amount }]
   tenders: jsonb('tenders').$type<{ method: string; amount: number }[]>(),
+  // Фактически восстановленный на склад сток этим возвратом: [{ itemId, quantity }].
+  // Нужно, чтобы повторные частичные возвраты не восстанавливали сток сверх
+  // проданного (cap = sold − alreadyRestored по всем предыдущим возвратам чека).
+  restoredItems: jsonb('restored_items').$type<{ itemId: string; quantity: number }[]>().default([]),
   createdBy: uuid('created_by')
     .notNull()
     .references(() => profiles.id),

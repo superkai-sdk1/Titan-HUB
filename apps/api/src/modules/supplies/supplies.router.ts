@@ -10,7 +10,9 @@ const SupplySchema = z.object({
   note: z.string().optional(),
   supplier: z.string().optional(),
   paymentMethod: z.enum(['cash', 'card', 'transfer']).default('cash'),
-  idempotencyKey: z.string().max(80).optional(),
+  // Ключ идемпотентности обязателен: без него ретрай POST (двойной клик/сетевой
+  // повтор) задвоит приёмку — остаток и COGS уедут. Фронт всегда его шлёт.
+  idempotencyKey: z.string().min(1).max(80),
   items: z.array(z.object({
     // Привязка к карточке товара опциональна: сырьё без карточки можно
     // зафиксировать как затрату (без изменения остатка).
@@ -21,6 +23,11 @@ const SupplySchema = z.object({
     costPerUnit: z.number().min(0),
   }).refine(i => !!i.itemId || !!(i.name && i.name.trim()), {
     message: 'Нужно указать товар или название позиции',
+  }).refine(i => !i.itemId || Number.isInteger(i.quantity), {
+    // Остаток в inventory — целое. Дробное количество для позиции с карточкой
+    // рассинхронизирует остаток с себестоимостью (0.4 → 0 шт, но полная стоимость).
+    message: 'Для товара с карточкой количество должно быть целым',
+    path: ['quantity'],
   })).min(1),
 })
 
@@ -79,10 +86,21 @@ suppliesRouter.post('/', requireRole('owner', 'staff'), zValidator('json', Suppl
       if (!i.itemId) continue
       const [inv] = await tx.select().from(inventory).where(eq(inventory.id, i.itemId)).for('update')
       if (!inv) continue
-      const add = Math.round(i.quantity)
+      // Количество для карточек уже валидировано как целое — добавляем точно,
+      // без округления (округление рассинхронизировало бы остаток и стоимость).
+      const add = i.quantity
       if (add === 0) continue
-      const newQty = (inv.stockQuantity ?? 0) + add
-      await tx.update(inventory).set({ stockQuantity: newQty, updatedAt: new Date() }).where(eq(inventory.id, i.itemId))
+      const oldQty = inv.stockQuantity ?? 0
+      const newQty = oldQty + add
+      // Себестоимость по средневзвешенной: (старый_остаток×старая_цена +
+      // приход×цена_прихода) / новый_остаток. Считаем внутри блокировки строки.
+      const oldCost = parseFloat(String(inv.costPrice ?? 0))
+      const newUnitCost = i.costPerUnit
+      const set: Record<string, any> = { stockQuantity: newQty, updatedAt: new Date() }
+      if (newQty > 0) {
+        set.costPrice = String(round2((oldQty * oldCost + add * newUnitCost) / newQty))
+      }
+      await tx.update(inventory).set(set).where(eq(inventory.id, i.itemId))
       await tx.insert(stockMovements).values({
         itemId: i.itemId,
         delta: add,
@@ -136,4 +154,44 @@ suppliesRouter.get('/:id', async (c) => {
     costPerUnit: Number(r.supplyItem.costPerUnit),
   }))
   return c.json({ supply: { ...supply, date: supply.createdAt }, items })
+})
+
+// DELETE /supplies/:id — откат приёмки (только владелец). В транзакции:
+// для каждой позиции с карточкой снимаем принятое количество с остатка
+// (не уходя ниже 0) и пишем компенсирующее движение, затем удаляем приёмку
+// (supply_items уходят каскадом). Известное ограничение: средневзвешенную
+// себестоимость НЕ «разворачиваем» — costPrice остаётся как есть.
+suppliesRouter.delete('/:id', requireRole('owner'), async (c) => {
+  const user = c.get('user')
+  const id = c.req.param('id')
+
+  const ok = await db.transaction(async (tx) => {
+    const [supply] = await tx.select().from(supplies).where(eq(supplies.id, id))
+    if (!supply) return false
+
+    const lines = await tx.select().from(supplyItems).where(eq(supplyItems.supplyId, id))
+    for (const line of lines) {
+      if (!line.itemId) continue
+      const [inv] = await tx.select().from(inventory).where(eq(inventory.id, line.itemId)).for('update')
+      if (!inv) continue
+      const qty = Math.round(Number(line.quantity))
+      if (qty <= 0) continue
+      const newQty = Math.max(0, (inv.stockQuantity ?? 0) - qty)
+      const delta = newQty - (inv.stockQuantity ?? 0)
+      await tx.update(inventory).set({ stockQuantity: newQty, updatedAt: new Date() }).where(eq(inventory.id, line.itemId))
+      await tx.insert(stockMovements).values({
+        itemId: line.itemId,
+        delta,
+        newQuantity: newQty,
+        reason: `Откат закупки ${id}`,
+        createdBy: user.sub,
+      })
+    }
+
+    await tx.delete(supplies).where(eq(supplies.id, id))
+    return true
+  })
+
+  if (!ok) return c.json({ error: 'Not found' }, 404)
+  return c.json({ ok: true })
 })

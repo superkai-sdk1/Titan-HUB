@@ -19,7 +19,7 @@ const ItemSchema = z.object({
   category: z.string().uuid().optional(),
   price: z.number().min(0).default(0),
   costPrice: z.number().min(0).default(0),
-  stockQuantity: z.number().int().default(0),
+  stockQuantity: z.number().int().min(0).default(0),
   minThreshold: z.number().int().default(0),
   trackStock: z.boolean().default(false),
   isService: z.boolean().default(false),
@@ -145,6 +145,11 @@ menuRouter.patch('/items/reorder', requireAuth, requireRole('owner', 'staff'), z
 menuRouter.patch('/items/:id', requireAuth, requireRole('owner', 'staff'), zValidator('json', ItemSchema.partial()), async (c) => {
   const body = c.req.valid('json')
   const updateData: Record<string, any> = { ...body, updatedAt: new Date() }
+  // Остаток меняется ТОЛЬКО через аудируемый PATCH /inventory/:id (с блокировкой
+  // строки и записью движения). Здесь абсолютная перезапись затёрла бы
+  // параллельные продажи без аудита — поэтому stockQuantity не трогаем.
+  // minThreshold/trackStock — это конфигурация, их править можно.
+  delete updateData.stockQuantity
   if (body.price !== undefined) updateData.price = String(body.price)
   if (body.costPrice !== undefined) updateData.costPrice = String(body.costPrice)
   const [item] = await db.update(inventory).set(updateData).where(eq(inventory.id, c.req.param('id'))).returning()
