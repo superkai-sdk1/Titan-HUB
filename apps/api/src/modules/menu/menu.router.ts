@@ -16,7 +16,7 @@ const CategorySchema = z.object({
 
 const ItemSchema = z.object({
   name: z.string().min(1),
-  category: z.string().uuid().optional(),
+  category: z.string().uuid().nullable().optional(),
   price: z.number().min(0).default(0),
   costPrice: z.number().min(0).default(0),
   stockQuantity: z.number().int().min(0).default(0),
