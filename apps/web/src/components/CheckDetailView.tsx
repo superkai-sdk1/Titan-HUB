@@ -70,6 +70,22 @@ interface TariffOption {
   itemId?: string | null
 }
 
+// Привязанное мероприятие чека (GET /events/{id}). billingMode: 'amount' = Фикс,
+// 'hourly' = Почасовая. eventBaseAmount живёт на чеке, не здесь.
+interface LinkedEvent {
+  id: string
+  title?: string
+  billingMode: 'amount' | 'hourly'
+  plannedHours: number | null
+  fixedAmount: string | null
+}
+
+// Почасовой тариф мероприятия (GET /pricing/event-rates), hours 1..6.
+interface EventRate {
+  hours: number
+  price: string
+}
+
 interface CertificateInfo {
   id: string
   code: string
@@ -292,6 +308,28 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
   const splitSum = splitParts.reduce((s, p) => s + p.amount, 0)
   const remaining = Math.max(0, total - splitSum)
 
+  // Чек редактируем (можно менять позиции/мероприятие), пока он открыт.
+  const isEditable = check?.status === 'open'
+
+  // Привязанное мероприятие: для inline-редактирования планового времени / фикс-суммы.
+  const linkedEventId = check?.linkedEventId ?? null
+  const { data: eventData } = useQuery({
+    queryKey: ['event', linkedEventId],
+    queryFn: () => api.get<{ event: LinkedEvent }>(`/events/${linkedEventId}`).then(r => r.event),
+    enabled: !!linkedEventId,
+  })
+  const linkedEvent = eventData ?? null
+  // Почасовые тарифы мероприятия (1..6 ч) — для сетки кнопок.
+  const { data: eventRatesData } = useQuery({
+    queryKey: ['pricing', 'event-rates'],
+    queryFn: () => api.get<{ rates: EventRate[] }>('/pricing/event-rates'),
+    enabled: !!linkedEventId,
+  })
+  const eventRates = eventRatesData?.rates ?? []
+  // Локальное состояние редактора фикс-суммы (Фикс-мероприятие).
+  const [editEventAmount, setEditEventAmount] = useState(false)
+  const [eventAmountInput, setEventAmountInput] = useState('')
+
   const { data: playerData } = useQuery({
     queryKey: ['player', check?.playerId],
     queryFn: () => api.get<{ player: PlayerProfile }>(`/pos/players/${check!.playerId}`).then(r => r.player),
@@ -448,6 +486,20 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
     mutationFn: (body: { spaceStartAt?: string; spaceEndAt?: string | null }) =>
       api.patch<{ check: CheckData }>(`/pos/checks/${checkId}`, body),
     onSuccess: (res) => { writeCheck(res); setShowRentalEdit(false) },
+    onError: toastError,
+  })
+
+  // Редактирование мероприятия прямо из чека: плановые часы (почасовая) или
+  // фикс-сумма. Сервер пересчитывает eventBaseAmount привязанного чека — поэтому
+  // инвалидируем И сам чек ['check', checkId] (обновятся eventBase/итого), И событие.
+  const updateEvent = useMutation({
+    mutationFn: (body: { plannedHours: number } | { fixedAmount: number }) =>
+      api.patch<{ event: LinkedEvent }>(`/events/${linkedEventId}`, body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['check', checkId] })
+      qc.invalidateQueries({ queryKey: ['event', linkedEventId] })
+      setEditEventAmount(false)
+    },
     onError: toastError,
   })
 
@@ -841,16 +893,91 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
               </div>
             )}
 
-            {/* База мероприятия — фикс/ручная сумма события (помимо позиций/аренды). */}
-            {eventBase > 0 && (
-              <div style={{ marginTop: 8, padding: '12px 14px', borderRadius: 14, background: 'rgba(139,92,246,0.06)', border: '1px solid rgba(139,92,246,0.18)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-                <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--on-surface)', display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <Icon name="event" size={15} color="#A78BFA" />
-                  Мероприятие
-                </span>
-                <span style={{ fontSize: 14, fontWeight: 800, fontVariantNumeric: 'tabular-nums', color: '#A78BFA' }}>
-                  {eventBase.toLocaleString('ru')} ₽
-                </span>
+            {/* База мероприятия — фикс/ручная сумма события (помимо позиций/аренды).
+                Для привязанного мероприятия — inline-редактор планового времени /
+                фикс-суммы (сервер пересчитывает eventBaseAmount чека). */}
+            {linkedEventId && (eventBase > 0 || linkedEvent) && (
+              <div style={{ marginTop: 8, padding: '12px 14px', borderRadius: 14, background: 'rgba(139,92,246,0.06)', border: '1px solid rgba(139,92,246,0.18)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--on-surface)', display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                    <Icon name="event" size={15} color="#A78BFA" />
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {linkedEvent?.title || 'Мероприятие'}
+                    </span>
+                  </span>
+                  <span style={{ fontSize: 14, fontWeight: 800, fontVariantNumeric: 'tabular-nums', color: '#A78BFA', flexShrink: 0 }}>
+                    {eventBase.toLocaleString('ru')} ₽
+                  </span>
+                </div>
+
+                {/* Почасовая: сетка кнопок 1ч..6ч (с ценами), активна текущая plannedHours. */}
+                {isEditable && linkedEvent?.billingMode === 'hourly' && eventRates.length > 0 && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 10 }}>
+                    {eventRates.map(r => {
+                      const active = linkedEvent.plannedHours === r.hours
+                      return (
+                        <button
+                          key={r.hours}
+                          type="button"
+                          onClick={() => { if (!active) updateEvent.mutate({ plannedHours: r.hours }) }}
+                          disabled={updateEvent.isPending}
+                          style={{
+                            flex: '1 0 auto', minWidth: 64, padding: '8px 10px', borderRadius: 10,
+                            border: `1px solid ${active ? 'rgba(167,139,250,0.65)' : 'rgba(255,255,255,0.1)'}`,
+                            background: active ? 'rgba(139,92,246,0.22)' : 'rgba(255,255,255,0.04)',
+                            color: active ? '#A78BFA' : 'var(--on-surface-variant)',
+                            cursor: updateEvent.isPending ? 'not-allowed' : 'pointer',
+                            opacity: updateEvent.isPending ? 0.6 : 1,
+                            display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2,
+                          }}
+                        >
+                          <span style={{ fontSize: 13, fontWeight: 800 }}>{r.hours}ч</span>
+                          <span style={{ fontSize: 10, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{parseFloat(r.price).toLocaleString('ru')} ₽</span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
+
+                {/* Фикс: показать сумму с карандашом → числовой ввод + ОК. */}
+                {isEditable && linkedEvent?.billingMode === 'amount' && (
+                  editEventAmount ? (
+                    <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
+                      <input
+                        type="number" inputMode="decimal" min="0" autoFocus
+                        value={eventAmountInput}
+                        onChange={e => setEventAmountInput(e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Enter') { const v = parseFloat(eventAmountInput); if (v >= 0) updateEvent.mutate({ fixedAmount: v }) } }}
+                        placeholder="Сумма ₽"
+                        className="glass-l2"
+                        style={{ flex: 1, minWidth: 0, padding: '9px 12px', borderRadius: 10, border: '1px solid rgba(255,255,255,0.1)', color: 'var(--on-surface)', fontSize: 15, fontWeight: 700, background: 'rgba(255,255,255,0.04)', boxSizing: 'border-box' }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => { const v = parseFloat(eventAmountInput); if (v >= 0) updateEvent.mutate({ fixedAmount: v }) }}
+                        disabled={updateEvent.isPending || !(parseFloat(eventAmountInput) >= 0)}
+                        style={{ flexShrink: 0, padding: '0 16px', borderRadius: 10, border: 'none', background: 'linear-gradient(135deg, #8B5CF6, #4cd7f6)', color: '#fff', fontSize: 13, fontWeight: 800, cursor: 'pointer', opacity: (updateEvent.isPending || !(parseFloat(eventAmountInput) >= 0)) ? 0.5 : 1 }}
+                      >ОК</button>
+                      <button
+                        type="button"
+                        onClick={() => setEditEventAmount(false)}
+                        disabled={updateEvent.isPending}
+                        aria-label="Отмена"
+                        style={{ flexShrink: 0, width: 38, borderRadius: 10, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.04)', color: 'var(--on-surface-variant)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                      >
+                        <Icon name="close" size={14} />
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => { setEventAmountInput(linkedEvent.fixedAmount ?? String(eventBase || '')); setEditEventAmount(true) }}
+                      style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 6, padding: '7px 12px', borderRadius: 10, border: '1px solid rgba(167,139,250,0.35)', background: 'rgba(167,139,250,0.1)', color: '#A78BFA', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}
+                    >
+                      <Icon name="edit" size={14} /> Изменить сумму
+                    </button>
+                  )
+                )}
               </div>
             )}
 

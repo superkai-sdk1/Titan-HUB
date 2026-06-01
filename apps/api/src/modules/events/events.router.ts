@@ -3,7 +3,7 @@ import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import {
-  db, events, checks, checkItems, checkPayments, inventory, customers,
+  db, events, eventHourlyRates, checks, checkItems, checkPayments, inventory, customers,
   eq, and, gte, lte, desc, sql, or, ne,
 } from '@titan/database'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
@@ -19,9 +19,11 @@ const EventSchema = z.object({
   startTime: z.string(),
   endTime: z.string().optional().nullable(),
   paymentType: z.enum(['fixed', 'free']).default('fixed'),
+  // amount = «Фикс» (ручная сумма fixedAmount), hourly = «Почасовая» (plannedHours → тариф).
   billingMode: z.enum(['amount', 'hourly']).default('amount'),
   fixedAmount: z.number().optional().nullable(),
   manualAmount: z.number().optional().nullable(),
+  plannedHours: z.number().int().min(1).max(24).optional().nullable(),
   maxGuests: z.number().int().positive().optional().nullable(),
   status: z.enum(['planned', 'needs_clarification', 'active', 'completed', 'cancelled']).default('planned'),
   comment: z.string().optional().nullable(),
@@ -31,15 +33,21 @@ const EventSchema = z.object({
   customerPhone: z.string().optional().nullable(),
 })
 
-// Базовая сумма события для чека (billingMode=amount): ручная сумма приоритетна,
-// иначе фикс; для free без ручной — 0. hourly → база 0 (платим арендой зоны).
-function eventBaseAmount(ev: {
-  billingMode: string; paymentType: string
+// Базовая сумма события для чека. «Фикс» (amount) → ручная/фикс сумма; «Почасовая»
+// (hourly) → цена тарифа event_hourly_rates по plannedHours (за весь период).
+async function computeEventBase(ev: {
+  billingMode: string
   manualAmount: string | null; fixedAmount: string | null
-}): number {
-  if (ev.billingMode === 'hourly') return 0
+  plannedHours: number | null
+}): Promise<number> {
+  if (ev.billingMode === 'hourly') {
+    const h = ev.plannedHours ?? 0
+    if (!h) return 0
+    const [rate] = await db.select().from(eventHourlyRates).where(eq(eventHourlyRates.hours, h)).limit(1)
+    return rate ? (parseFloat(String(rate.price)) || 0) : 0
+  }
   if (ev.manualAmount != null) return parseFloat(ev.manualAmount) || 0
-  if (ev.paymentType === 'fixed' && ev.fixedAmount != null) return parseFloat(ev.fixedAmount) || 0
+  if (ev.fixedAmount != null) return parseFloat(ev.fixedAmount) || 0
   return 0
 }
 
@@ -130,6 +138,7 @@ eventsRouter.post('/', requireRole('owner', 'staff'), zValidator('json', EventSc
     billingMode: body.billingMode,
     fixedAmount: body.fixedAmount != null ? String(body.fixedAmount) : null,
     manualAmount: body.manualAmount != null ? String(body.manualAmount) : null,
+    plannedHours: body.plannedHours ?? null,
     maxGuests: body.maxGuests ?? null,
     status: body.status,
     comment: body.comment,
@@ -227,17 +236,17 @@ eventsRouter.patch('/:id', requireRole('owner', 'staff'), zValidator('json', Eve
     if (becomingActive && !prev.checkId) {
       const shift = await getCurrentShift()
       if (!shift) throw new Error('NO_SHIFT')
-      const isHourly = merged.billingMode === 'hourly' && merged.spaceId
-      const base = eventBaseAmount(merged as any)
+      // База события (фикс-сумма или цена почасового тарифа по plannedHours) кладётся
+      // в eventBaseAmount чека для ОБОИХ режимов — без отдельной аренды зоны.
+      const base = await computeEventBase(merged as any)
       const [chk] = await tx.insert(checks).values({
         staffId: (merged.responsibleStaffId as string) ?? user.sub,
         shiftId: shift.id,
         status: 'open',
         linkedEventId: eventId,
-        // hourly+зона → почасовая аренда (как обычный аренда-чек); иначе база события.
-        spaceId: isHourly ? (merged.spaceId as string) : null,
-        spaceStartAt: isHourly ? new Date() : null,
-        eventBaseAmount: isHourly ? null : String(base),
+        spaceId: null,
+        spaceStartAt: null,
+        eventBaseAmount: String(base),
         guestNames: merged.title ? [merged.title as string] : [],
         note: `Мероприятие: ${merged.title ?? ''}`.trim(),
         totalAmount: '0',
@@ -251,10 +260,10 @@ eventsRouter.patch('/:id', requireRole('owner', 'staff'), zValidator('json', Eve
     const checkId = (update.checkId as string) ?? prev.checkId
     if (checkId && !becomingActive) {
       const amountTouched = body.manualAmount !== undefined || body.fixedAmount !== undefined
-        || body.billingMode !== undefined || body.paymentType !== undefined
-      if (amountTouched && merged.billingMode !== 'hourly') {
+        || body.billingMode !== undefined || body.paymentType !== undefined || body.plannedHours !== undefined
+      if (amountTouched) {
         await tx.update(checks)
-          .set({ eventBaseAmount: String(eventBaseAmount(merged as any)) })
+          .set({ eventBaseAmount: String(await computeEventBase(merged as any)) })
           .where(and(eq(checks.id, checkId), eq(checks.status, 'open')))
       }
     }

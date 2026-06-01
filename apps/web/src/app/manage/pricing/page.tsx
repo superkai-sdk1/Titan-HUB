@@ -3,7 +3,7 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { useAuthStore } from '@/store/auth.store'
-import { PageHeader, Sheet, Button, ConfirmDialog, INP, LBL } from '@/components/manage/DesignSystem'
+import { PageHeader, Sheet, Button, ConfirmDialog, INP, LBL, formatMoney } from '@/components/manage/DesignSystem'
 import { StateView } from '@/components/StateView'
 import { useToast } from '@/components/Toast'
 import { Icon } from '@/components/Icon'
@@ -33,7 +33,12 @@ interface Space {
   isActive?: boolean
 }
 
-type Tab = 'tariffs' | 'evenings' | 'rental'
+interface EventRate {
+  hours: number
+  price: string | number
+}
+
+type Tab = 'tariffs' | 'evenings' | 'rental' | 'events'
 
 // Палитра для выбора цвета тарифа/типа вечера.
 const COLOR_PALETTE = [
@@ -179,10 +184,26 @@ export default function PricingPage() {
     return keys.map(k => ({ type: k, label: SPACE_TYPE_LABELS[k] ?? k, items: groups[k] }))
   })()
 
+  // ── МЕРОПРИЯТИЯ (почасовые тарифы) ────────────────────────────────────────
+  const { data: eventRatesData, isLoading: eventRatesLoading } = useQuery({
+    queryKey: ['pricing', 'event-rates'],
+    queryFn: () => api.get<{ rates: EventRate[] }>('/pricing/event-rates'),
+  })
+  const eventRates: EventRate[] = eventRatesData?.rates ?? []
+
+  const [eventRateEdit, setEventRateEdit] = useState<{ hours: number; price: string } | null>(null)
+  const saveEventRate = useMutation({
+    mutationFn: (b: { hours: number; price: number }) =>
+      api.patch(`/pricing/event-rates/${b.hours}`, { price: b.price }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['pricing', 'event-rates'] }); setEventRateEdit(null) },
+    onError: () => show('Не удалось сохранить тариф мероприятия', 'error'),
+  })
+
   const TABS: { key: Tab; label: string; icon: string }[] = [
     { key: 'tariffs', label: 'Тарифы', icon: 'confirmation_number' },
     { key: 'evenings', label: 'Типы вечеров', icon: 'celebration' },
     { key: 'rental', label: 'Аренда', icon: 'meeting_room' },
+    { key: 'events', label: 'Мероприятия', icon: 'schedule' },
   ]
 
   return (
@@ -343,6 +364,39 @@ export default function PricingPage() {
             </div>
           )
         )}
+
+        {/* ─── МЕРОПРИЯТИЯ ─── */}
+        {tab === 'events' && (
+          eventRatesLoading ? <StateView state="loading" />
+          : eventRates.length === 0 ? <StateView state="empty" icon="schedule" title="Нет тарифов" description="Почасовые тарифы мероприятий не настроены" />
+          : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: 0, paddingLeft: 4, lineHeight: 1.4 }}>
+                Цена за весь период по числу часов — основа чека для мероприятий с почасовой оплатой.
+              </p>
+              <div className="glass-l2" style={{ borderRadius: 18, overflow: 'hidden' }}>
+                {eventRates.map((r, i) => {
+                  const price = parseFloat(String(r.price ?? 0)) || 0
+                  return (
+                    <div
+                      key={r.hours}
+                      onClick={() => isOwner && setEventRateEdit({ hours: r.hours, price: String(price) })}
+                      style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px', cursor: isOwner ? 'pointer' : 'default', borderTop: i > 0 ? '1px solid rgba(255,255,255,0.05)' : 'none' }}
+                    >
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <p style={{ fontSize: 14, fontWeight: 600, margin: 0 }}>{r.hours} ч</p>
+                      </div>
+                      <span style={{ fontSize: 15, fontWeight: 800, fontStyle: 'italic', color: '#A78BFA', fontFamily: "'JetBrains Mono',monospace" }}>
+                        {formatMoney(price, { currency: false })} ₽
+                      </span>
+                      {isOwner && <Icon name="edit" size={16} color="var(--on-surface-variant)" />}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )
+        )}
       </div>
 
       {/* ─── Sheet: тариф ─── */}
@@ -412,6 +466,29 @@ export default function PricingPage() {
             fullWidth size="lg"
             loading={saveRate.isPending}
             onClick={() => rateEdit && saveRate.mutate({ id: rateEdit.id, hourlyRate: Number(rateEdit.rate) || 0 })}
+          >
+            Сохранить
+          </Button>
+        </div>
+      </Sheet>
+
+      {/* ─── Sheet: тариф мероприятия ─── */}
+      <Sheet open={!!eventRateEdit} onClose={() => setEventRateEdit(null)} title={eventRateEdit ? `${eventRateEdit.hours} ч` : 'Тариф'} desktopSize="sm">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div>
+            <label style={LBL}>Цена за период (₽)</label>
+            <input
+              type="number"
+              autoFocus
+              value={eventRateEdit?.price ?? ''}
+              onChange={e => setEventRateEdit(p => p ? { ...p, price: e.target.value } : p)}
+              style={INP}
+            />
+          </div>
+          <Button
+            fullWidth size="lg"
+            loading={saveEventRate.isPending}
+            onClick={() => eventRateEdit && saveEventRate.mutate({ hours: eventRateEdit.hours, price: Number(eventRateEdit.price) || 0 })}
           >
             Сохранить
           </Button>

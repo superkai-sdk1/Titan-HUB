@@ -27,6 +27,9 @@ export const events = pgTable('events', {
   billingMode: eventBillingModeEnum('billing_mode').notNull().default('amount'),
   fixedAmount: numeric('fixed_amount', { precision: 10, scale: 2 }),
   perHeadAmount: numeric('per_head_amount', { precision: 10, scale: 2 }),
+  // Плановое число часов для billingMode=hourly — основа = цена тарифа из
+  // event_hourly_rates по этому числу часов. Редактируется в карточке и в чеке.
+  plannedHours: integer('planned_hours'),
   // Ручная итоговая сумма основы события (для per_head/без фикс-цены) — задаётся
   // сотрудником, синхронизируется с чеком. Для billingMode=hourly не используется.
   manualAmount: numeric('manual_amount', { precision: 10, scale: 2 }),
@@ -51,3 +54,13 @@ export const events = pgTable('events', {
 
 export type Event = typeof events.$inferSelect
 export type NewEvent = typeof events.$inferInsert
+
+// Почасовые тарифы аренды для мероприятий (billingMode=hourly). Настраиваются в
+// разделе «Тарифы и аренда». Ключ — число часов (1..N), значение — цена за весь
+// этот период (не за час): 1ч=5000, 2ч=8000, 3ч=10000, 4ч=12000, 5ч=15000, 6ч=18000.
+export const eventHourlyRates = pgTable('event_hourly_rates', {
+  hours: integer('hours').primaryKey(),
+  price: numeric('price', { precision: 10, scale: 2 }).notNull().default('0'),
+})
+
+export type EventHourlyRate = typeof eventHourlyRates.$inferSelect

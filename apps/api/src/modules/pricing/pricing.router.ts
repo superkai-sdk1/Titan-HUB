@@ -3,7 +3,7 @@ import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import {
-  db, tariffs, eveningTypes, inventory, menuCategories,
+  db, tariffs, eveningTypes, eventHourlyRates, inventory, menuCategories,
   eq, asc, sql, like,
 } from '@titan/database'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
@@ -210,4 +210,24 @@ pricingRouter.delete('/evening-types/:key', requireRole('owner'), async (c) => {
   // Исторические смены сохраняют строковое значение key — это допустимо.
   await db.delete(eveningTypes).where(eq(eveningTypes.key, key))
   return c.json({ ok: true })
+})
+
+// ─── Почасовые тарифы мероприятий ────────────────────────────────────────────
+// Цена за весь период по числу часов (1ч=5000 … 6ч=18000). Используется при
+// billingMode=hourly: основа чека = цена тарифа по plannedHours события.
+pricingRouter.get('/event-rates', async (c) => {
+  const rows = await db.select().from(eventHourlyRates).orderBy(asc(eventHourlyRates.hours))
+  return c.json({ rates: rows })
+})
+
+pricingRouter.patch('/event-rates/:hours', requireRole('owner'), zValidator('json', z.object({ price: z.number().min(0) })), async (c) => {
+  const hours = parseInt(c.req.param('hours'), 10)
+  if (!Number.isInteger(hours) || hours < 1) return c.json({ error: 'Bad hours' }, 400)
+  const { price } = c.req.valid('json')
+  const [row] = await db
+    .insert(eventHourlyRates)
+    .values({ hours, price: String(price) })
+    .onConflictDoUpdate({ target: eventHourlyRates.hours, set: { price: String(price) } })
+    .returning()
+  return c.json({ rate: row })
 })
