@@ -8,6 +8,7 @@ import { Redis } from 'ioredis'
 import { randomInt } from 'crypto'
 import type { AppEnv } from '../../types.js'
 import { notify, NOTIFICATION_TYPES } from './push.js'
+import { round2, computeRental } from '../../lib/money.js'
 
 const NOTIF_CHANNEL = 'titan:staff-notifications'
 
@@ -118,16 +119,25 @@ notificationsRouter.post(
     const [check] = await db.select().from(checks).where(eq(checks.id, checkId))
     if (!check) return c.json({ error: 'Check not found' }, 404)
 
+    // Полная сумма к оплате = позиции−скидки (check.totalAmount) + аренда зоны +
+    // база события. totalAmount НЕ включает аренду/событие, поэтому раньше персонал
+    // видел сумму без аренды. Считаем так же, как computeCheckGrandTotal / webhook.
     let spaceName = ''
+    let rental = 0
     if (check.spaceId) {
       const [space] = await db.select().from(spaces).where(eq(spaces.id, check.spaceId))
       spaceName = space?.name ?? ''
+      rental = computeRental(check.spaceStartAt, check.spaceEndAt, space?.hourlyRate, Date.now())
     }
+    const itemsTotal = parseFloat(check.totalAmount) || 0
+    const eventBase = parseFloat(check.eventBaseAmount ?? '0') || 0
+    const grandTotal = round2(itemsTotal + rental + eventBase)
+    const rentalNote = rental > 0 ? ` (в т.ч. аренда ${rental.toLocaleString('ru')} ₽)` : ''
 
     const notification = await publishStaffNotification({
       type: 'request_bill',
       title: spaceName ? `Запрос счёта: ${spaceName}` : 'Запрос счёта',
-      body: `Сумма: ${parseFloat(check.totalAmount).toLocaleString('ru')} ₽`,
+      body: `Сумма: ${grandTotal.toLocaleString('ru')} ₽${rentalNote}`,
       meta: { checkId, spaceId: check.spaceId, fromTabletId: user.sub },
     })
 
