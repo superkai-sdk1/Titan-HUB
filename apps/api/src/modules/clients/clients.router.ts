@@ -4,8 +4,12 @@ import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import {
   db, profiles, transactions, bonusHistory, clientTiers, clientDiscountRules,
-  eq, and, isNull, ilike, or, desc, asc, sql, count,
+  eq, and, isNull, ilike, or, desc, asc, sql, count, inArray,
 } from '@titan/database'
+
+// Роли, видимые в разделе «Клиенты». Сотрудники/владельцы — тоже клиенты (имеют
+// депозит/бонусы/тариф в том же профиле). Исключаем только планшеты.
+const CLIENT_ROLES = ['client', 'staff', 'owner'] as const
 import { requireAuth, requireRole } from '../../middleware/auth.js'
 import { accrueBonusLot, getBonusExpiryDays } from '../../lib/bonusLots.js'
 import { hashPassword } from '@titan/auth'
@@ -59,7 +63,7 @@ clientsRouter.get('/', async (c) => {
       .select()
       .from(profiles)
       .where(and(
-        eq(profiles.role, 'client'),
+        inArray(profiles.role, CLIENT_ROLES),
         isNull(profiles.deletedAt),
         sql`${profiles.balance}::numeric < 0`,
       ))
@@ -74,7 +78,7 @@ clientsRouter.get('/', async (c) => {
       .select()
       .from(profiles)
       .where(and(
-        eq(profiles.role, 'client'),
+        inArray(profiles.role, CLIENT_ROLES),
         isNull(profiles.deletedAt),
         sql`${profiles.balance}::numeric > 0`,
       ))
@@ -84,7 +88,7 @@ clientsRouter.get('/', async (c) => {
   }
 
   const where = and(
-    eq(profiles.role, 'client'),
+    inArray(profiles.role, CLIENT_ROLES),
     isNull(profiles.deletedAt),
     search
       ? or(
@@ -107,7 +111,9 @@ clientsRouter.get('/', async (c) => {
     .from(profiles)
     .where(where)
 
-  return c.json({ clients, total, page, limit })
+  // Сотрудники теперь тоже в списке — НЕ отдаём их хеши (pin/passwordHash).
+  const safe = clients.map(({ pin, passwordHash, ...rest }) => rest)
+  return c.json({ clients: safe, total, page, limit })
 })
 
 // ─── Статусы клиентов (справочник) ─────────────────────────────────────────────
@@ -220,7 +226,7 @@ clientsRouter.post('/:id/telegram-link', requireRole('owner', 'staff'), async (c
   const [client] = await db
     .select()
     .from(profiles)
-    .where(and(eq(profiles.id, c.req.param('id')), eq(profiles.role, 'client'), isNull(profiles.deletedAt)))
+    .where(and(eq(profiles.id, c.req.param('id')), inArray(profiles.role, CLIENT_ROLES), isNull(profiles.deletedAt)))
   if (!client) return c.json({ error: 'Not found' }, 404)
 
   const jwtSecret = process.env['JWT_SECRET']

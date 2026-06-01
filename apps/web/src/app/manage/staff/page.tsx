@@ -15,6 +15,8 @@ interface StaffMember {
   role: 'owner' | 'staff'
   phone?: string
   permissions?: Record<string, boolean>
+  tgId?: string | null
+  tgUsername?: string | null
 }
 
 interface PasskeyRecord {
@@ -241,6 +243,14 @@ export default function StaffPage() {
     onError: () => show('Не удалось сохранить права', 'error'),
   })
 
+  // Привязка Telegram к админ-боту (диплинк + QR).
+  const [tgLink, setTgLink] = useState<{ deepLink: string; qrDataUrl: string } | null>(null)
+  const tgLinkMutation = useMutation({
+    mutationFn: (id: string) => api.post<{ deepLink: string; qrDataUrl: string }>(`/staff/${id}/telegram-link`),
+    onSuccess: (r) => setTgLink({ deepLink: r.deepLink, qrDataUrl: r.qrDataUrl }),
+    onError: () => show('Не удалось создать ссылку привязки', 'error'),
+  })
+
   // ── Form helpers ─────────────────────────────────────────────────────────
 
   function openCreate() {
@@ -404,7 +414,7 @@ export default function StaffPage() {
       )}
 
       {/* ─── Detail Sheet ──────────────────────────────────────────────────── */}
-      <Sheet open={!!selected} onClose={() => setSelected(null)} title={selected?.nickname}>
+      <Sheet open={!!selected} onClose={() => { setSelected(null); setTgLink(null) }} title={selected?.nickname}>
         {selected && (
           <div>
             {/* Avatar + role */}
@@ -452,6 +462,31 @@ export default function StaffPage() {
                 <Icon name="pin" size={18} />
                 Задать PIN
               </button>
+            </div>
+
+            {/* Telegram (админ-бот) */}
+            <div style={{ marginBottom: 20 }}>
+              <p style={{ ...LBL, marginBottom: 8 }}>Telegram (админ-бот)</p>
+              {selected.tgId ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', borderRadius: 12, background: 'rgba(34,158,217,0.08)', border: '1px solid rgba(34,158,217,0.2)' }}>
+                  <Icon name="send" size={18} color="#229ED9" />
+                  <span style={{ fontSize: 13, color: 'var(--on-surface)' }}>Привязан{selected.tgUsername ? ` · @${selected.tgUsername}` : ''}</span>
+                </div>
+              ) : tgLink ? (
+                <div style={{ padding: '14px', borderRadius: 12, background: 'rgba(34,158,217,0.06)', border: '1px solid rgba(34,158,217,0.2)', textAlign: 'center' }}>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={tgLink.qrDataUrl} alt="QR для привязки Telegram" width={180} height={180} style={{ borderRadius: 12, background: '#fff', padding: 6 }} />
+                  <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: '10px 0' }}>Откройте ссылку на телефоне сотрудника или отсканируйте QR. Ссылка действует 15 минут.</p>
+                  <a href={tgLink.deepLink} target="_blank" rel="noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '10px 18px', borderRadius: 12, background: 'linear-gradient(135deg,#229ED9,#4cd7f6)', color: '#fff', fontSize: 13, fontWeight: 700, textDecoration: 'none' }}>
+                    <Icon name="send" size={16} />Открыть в Telegram
+                  </a>
+                </div>
+              ) : (
+                <button onClick={() => tgLinkMutation.mutate(selected.id)} disabled={tgLinkMutation.isPending}
+                  style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '12px', borderRadius: 14, border: '1px solid rgba(34,158,217,0.4)', background: 'rgba(34,158,217,0.1)', color: '#229ED9', fontWeight: 600, fontSize: 14, cursor: 'pointer' }}>
+                  <Icon name="send" size={18} />{tgLinkMutation.isPending ? 'Создаём ссылку…' : 'Привязать Telegram'}
+                </button>
+              )}
             </div>
 
             {/* Passkeys section */}

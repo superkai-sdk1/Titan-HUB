@@ -1,6 +1,43 @@
 import { Bot, InlineKeyboard } from 'grammy'
 import { db, profiles, shifts, checks, inventory, events, tgLinkRequests, eq, and, desc, asc, isNull, inArray, sql } from '@titan/database'
 import { signToken } from '@titan/auth'
+import { createHmac, timingSafeEqual } from 'node:crypto'
+
+// ── Подписанные диплинки привязки (формат идентичен wallet-боту, секрет JWT_SECRET) ──
+const LINK_SECRET = process.env['JWT_SECRET']
+const LINK_TTL_SECONDS = 15 * 60
+function idB64ToUuid(idB64: string): string | null {
+  let buf: Buffer
+  try { buf = Buffer.from(idB64, 'base64url') } catch { return null }
+  if (buf.length !== 16) return null
+  const hex = buf.toString('hex')
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
+}
+function signLink(sigMsg: string): string {
+  return createHmac('sha256', LINK_SECRET!).update(sigMsg).digest().subarray(0, 12).toString('base64url')
+}
+type LinkVerify = { ok: true; profileId: string } | { ok: false }
+function verifyLink(raw: string): LinkVerify {
+  if (!LINK_SECRET) return { ok: false }
+  const parts = raw.split('_')
+  if (parts.length !== 3) return { ok: false }
+  const [idB64, expB36, sig] = parts
+  if (!idB64 || !expB36 || !sig) return { ok: false }
+  if (!/^[0-9a-z]+$/.test(expB36)) return { ok: false }
+  const exp = parseInt(expB36, 36)
+  if (!Number.isSafeInteger(exp) || exp <= 0 || exp.toString(36) !== expB36) return { ok: false }
+  const profileId = idB64ToUuid(idB64)
+  if (!profileId) return { ok: false }
+  let provided: Buffer, expected: Buffer
+  try {
+    provided = Buffer.from(sig, 'base64url')
+    expected = Buffer.from(signLink(`${idB64}_${expB36}`), 'base64url')
+  } catch { return { ok: false } }
+  if (provided.length !== expected.length || !timingSafeEqual(provided, expected)) return { ok: false }
+  const now = Math.floor(Date.now() / 1000)
+  if (exp < now || exp > now + LINK_TTL_SECONDS + 60) return { ok: false }
+  return { ok: true, profileId }
+}
 
 const token = process.env['ADMIN_BOT_TOKEN']
 if (!token) throw new Error('ADMIN_BOT_TOKEN is not set')
@@ -81,10 +118,36 @@ async function handleLinkCode(ctx: any, tgId: string, code: string): Promise<voi
   }
 }
 
+// Привязка по подписанному диплинку (t.me/<bot>?start=link_...) из приложения.
+async function handleDeepLink(ctx: any, tgId: string, raw: string): Promise<void> {
+  const v = verifyLink(raw)
+  if (!v.ok) { await ctx.reply('❌ Ссылка недействительна или устарела. Получите новую в приложении.'); return }
+  const [profile] = await db.select().from(profiles).where(eq(profiles.id, v.profileId))
+  if (!profile) { await ctx.reply('❌ Профиль не найден.'); return }
+  if (profile.tgId === tgId) { await ctx.reply('✅ Этот Telegram уже привязан к профилю.', { reply_markup: mainKeyboard }); return }
+  if (profile.tgId) { await ctx.reply('❌ К этому профилю уже привязан другой Telegram.'); return }
+  const [existing] = await db.select().from(profiles).where(eq(profiles.tgId, tgId))
+  if (existing && existing.id !== profile.id) { await ctx.reply('❌ Этот Telegram уже привязан к другому профилю.'); return }
+  try {
+    await db.transaction(async (tx) => {
+      await tx.insert(tgLinkRequests).values({ profileId: profile.id, tgId, tgUsername: ctx.from?.username ?? null, status: 'approved' })
+      await tx.update(profiles).set({ tgId, tgUsername: ctx.from?.username ?? null }).where(eq(profiles.id, profile.id))
+    })
+    const isStaff = ['owner', 'staff'].includes(profile.role)
+    await ctx.reply(`✅ Telegram привязан к *${escapeMd(profile.nickname)}*.`, { parse_mode: 'Markdown', ...(isStaff ? { reply_markup: mainKeyboard } : {}) })
+  } catch (err) {
+    console.error('[bot-admin] deep link failed:', err)
+    await ctx.reply('❌ Этот Telegram уже привязан к другому профилю.')
+  }
+}
+
 bot.command('start', async (ctx) => {
   pending.delete(ctx.chat.id)
-  const p = await getProfile(String(ctx.from?.id))
-  if (!p) { await ctx.reply('👋 Это админ-бот Titan HUB.\n\nЧтобы привязать аккаунт: откройте приложение → Настройки → Уведомления → «Привязать Telegram», получите 6-значный код и отправьте его сюда.'); return }
+  const tgId = String(ctx.from?.id)
+  const payload = ctx.match
+  if (typeof payload === 'string' && payload.startsWith('link_')) { await handleDeepLink(ctx, tgId, payload.slice(5)); return }
+  const p = await getProfile(tgId)
+  if (!p) { await ctx.reply('👋 Это админ-бот Titan HUB.\n\nЧтобы привязать аккаунт: откройте приложение → Персонал → ваш профиль → «Привязать Telegram» и перейдите по ссылке. Либо Настройки → Уведомления → код привязки.'); return }
   await ctx.reply(`👋 Titan HUB Admin · ${escapeMd(p.nickname)}`, { reply_markup: mainKeyboard, parse_mode: 'Markdown' })
 })
 

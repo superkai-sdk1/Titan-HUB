@@ -7,6 +7,22 @@ import { db, profiles, eq, and, isNull, desc } from '@titan/database'
 import { passkeys } from '@titan/database'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
 import { hashPassword, hashPin } from '@titan/auth'
+import { createHmac } from 'node:crypto'
+
+// Username админ-бота для диплинка привязки. Если не задан в env — берём через
+// getMe (кэшируем). Токен админ-бота доступен API через env_file (.env).
+let adminBotUsername: string | null = process.env['ADMIN_BOT_USERNAME']?.replace(/^@/, '') ?? null
+async function getAdminBotUsername(): Promise<string | null> {
+  if (adminBotUsername) return adminBotUsername
+  const token = process.env['ADMIN_BOT_TOKEN']
+  if (!token) return null
+  try {
+    const r = await fetch(`https://api.telegram.org/bot${token}/getMe`)
+    const j: any = await r.json()
+    adminBotUsername = j?.result?.username ?? null
+  } catch { /* ignore */ }
+  return adminBotUsername
+}
 
 const CreateStaffSchema = z.object({
   nickname: z.string().min(2),
@@ -35,6 +51,8 @@ staffRouter.get('/', async (c) => {
       phone: profiles.phone,
       role: profiles.role,
       permissions: profiles.permissions,
+      tgId: profiles.tgId,
+      tgUsername: profiles.tgUsername,
       createdAt: profiles.createdAt,
     })
     .from(profiles)
@@ -62,6 +80,27 @@ staffRouter.get('/:id', async (c) => {
 
   if (!profile) return c.json({ error: 'Not found' }, 404)
   return c.json({ staff: profile })
+})
+
+// Подписанный диплинк + QR для привязки Telegram сотрудника через АДМИН-бота.
+// Формат токена совпадает с wallet-привязкой (HMAC JWT_SECRET), бот его проверяет.
+staffRouter.post('/:id/telegram-link', async (c) => {
+  const [profile] = await db.select().from(profiles).where(and(eq(profiles.id, c.req.param('id')), isNull(profiles.deletedAt)))
+  if (!profile) return c.json({ error: 'Not found' }, 404)
+  const jwtSecret = process.env['JWT_SECRET']
+  if (!jwtSecret) return c.json({ error: 'JWT_SECRET is not configured' }, 500)
+  const username = await getAdminBotUsername()
+  if (!username) return c.json({ error: 'Админ-бот недоступен' }, 503)
+
+  const idB64 = Buffer.from(profile.id.replace(/-/g, ''), 'hex').toString('base64url')
+  const exp = Math.floor(Date.now() / 1000) + 15 * 60
+  const expB36 = exp.toString(36)
+  const sig = createHmac('sha256', jwtSecret).update(`${idB64}_${expB36}`).digest().subarray(0, 12).toString('base64url')
+  const deepLink = `https://t.me/${username}?start=link_${idB64}_${expB36}_${sig}`
+
+  const QRCode = await import('qrcode')
+  const qrDataUrl = await QRCode.toDataURL(deepLink, { margin: 1, width: 320 })
+  return c.json({ deepLink, qrDataUrl, expiresIn: 900, linked: !!profile.tgId, tgUsername: profile.tgUsername })
 })
 
 staffRouter.post('/', zValidator('json', CreateStaffSchema), async (c) => {
