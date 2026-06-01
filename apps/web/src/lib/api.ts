@@ -29,7 +29,13 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
         window.location.href = '/login'
       }
     }
-    throw new ApiError(res.status, body.error ?? res.statusText, body)
+    // body.error может быть строкой ИЛИ объектом (например, ZodError от
+    // zValidator). Приводим к читаемой строке, иначе message станет «[object Object]».
+    const err = (body as any)?.error
+    const message: string =
+      typeof err === 'string' ? err
+      : (err?.issues?.[0]?.message ?? err?.message ?? (body as any)?.message ?? res.statusText)
+    throw new ApiError(res.status, message, body)
   }
 
   if (res.status === 204) return undefined as T

@@ -12,8 +12,8 @@ import { notify } from '../notifications/push.js'
 
 const EventSchema = z.object({
   type: z.enum(['titan', 'exit']).default('titan'),
-  title: z.string().optional(),
-  location: z.string().optional(),
+  title: z.string().optional().nullable(),
+  location: z.string().optional().nullable(),
   spaceId: z.string().uuid().optional().nullable(),
   date: z.string(),
   startTime: z.string(),
