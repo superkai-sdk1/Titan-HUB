@@ -240,13 +240,25 @@ function TabletMain({ space, onLogout }: { space: TabletSpace; onLogout: () => v
   const [finished, setFinished] = useState<null | 'paid' | 'closed'>(null)
   const hadCheckRef = useRef(false)
 
-  // Открытый чек для этого пространства
-  const { data: checksData, isLoading, refetch } = useQuery({
+  // Шаг 1 — список открытых чеков зоны: даёт ТОЛЬКО id и факт открытого чека.
+  // ВАЖНО: /pos/checks не возвращает массив items (только itemCount), поэтому
+  // позиции берём отдельным детальным запросом (иначе activeCheck.items падал бы).
+  const { data: listData, isLoading: listLoading, refetch: refetchList } = useQuery({
     queryKey: ['tablet', 'space-check', space.id],
-    queryFn: () => api.get<{ checks: CheckData[] }>(`/pos/checks?spaceId=${space.id}`),
+    queryFn: () => api.get<{ checks: { id: string }[] }>(`/pos/checks?spaceId=${space.id}`),
     refetchInterval: 10_000,
   })
-  const activeCheck = checksData?.checks?.[0] ?? null
+  const openCheckId = listData?.checks?.[0]?.id ?? null
+
+  // Шаг 2 — полный чек с позициями/арендой/итогом (getCheckWithItems).
+  const { data: detailData, refetch: refetchDetail } = useQuery({
+    queryKey: ['tablet', 'check-detail', openCheckId],
+    queryFn: () => api.get<{ check: CheckData }>(`/pos/checks/${openCheckId}`).then((r) => r.check),
+    enabled: !!openCheckId,
+  })
+  const activeCheck = openCheckId ? (detailData ?? null) : null
+  // Грузимся, пока ищем чек ИЛИ пока id известен, но деталь ещё не пришла.
+  const isLoading = listLoading || (!!openCheckId && !detailData)
 
   // Активное событие для пространства
   const { data: eventData } = useQuery({
@@ -257,13 +269,15 @@ function TabletMain({ space, onLogout }: { space: TabletSpace; onLogout: () => v
   const activeEvent = eventData?.event ?? null
 
   // Закрытие чека (персоналом из кассы ИЛИ самооплатой) → завершаем сессию.
+  // Детектим по наличию id в списке, а не по детали (у детали есть переходный
+  // null, пока подгружается — иначе ложно срабатывал бы «закрыт»).
   useEffect(() => {
-    if (activeCheck) {
+    if (openCheckId) {
       hadCheckRef.current = true
     } else if (hadCheckRef.current && !finished) {
       setFinished('closed')
     }
-  }, [activeCheck, finished])
+  }, [openCheckId, finished])
 
   // Вызвать персонал
   const staffCall = useMutation({
@@ -288,16 +302,16 @@ function TabletMain({ space, onLogout }: { space: TabletSpace; onLogout: () => v
 
   // SSE для realtime
   useEffect(() => {
-    if (!activeCheck?.id) return
+    if (!openCheckId) return
     const token = useAuthStore.getState().token
     if (!token) return
     let cancelled = false
     let es: EventSource | null = null
-    openSse(`/pos/checks/${activeCheck.id}/events`).then((stream) => {
+    openSse(`/pos/checks/${openCheckId}/events`).then((stream) => {
       if (cancelled) { stream.close(); return }
       es = stream
       stream.onmessage = (ev) => {
-        refetch()
+        refetchList(); refetchDetail()
         try {
           const m = JSON.parse(ev.data)
           if (m?.event === 'check:paid') setFinished('paid')
@@ -306,7 +320,7 @@ function TabletMain({ space, onLogout }: { space: TabletSpace; onLogout: () => v
       }
     }).catch(() => {})
     return () => { cancelled = true; es?.close() }
-  }, [activeCheck?.id, refetch])
+  }, [openCheckId, refetchList, refetchDetail])
 
   // Счётчик аренды
   useEffect(() => {
@@ -486,13 +500,13 @@ function TabletMain({ space, onLogout }: { space: TabletSpace; onLogout: () => v
             </div>
             <div style={{ textAlign: 'right' }}>
               <p style={{ fontSize: 13, color: 'var(--on-surface-variant)', margin: '0 0 4px' }}>Позиций</p>
-              <p style={{ fontSize: 32, fontWeight: 900, color: 'var(--on-surface)', margin: 0 }}>{activeCheck.items.length}</p>
+              <p style={{ fontSize: 32, fontWeight: 900, color: 'var(--on-surface)', margin: 0 }}>{(activeCheck.items ?? []).length}</p>
             </div>
           </div>
         </div>
 
         {/* Items list */}
-        {activeCheck.items.length === 0 ? (
+        {(activeCheck.items ?? []).length === 0 ? (
           <div style={{ textAlign: 'center', padding: '48px 0', color: 'var(--on-surface-variant)' }}>
             <Icon name="shopping_cart" size={48} style={{ display: 'block', marginBottom: 16, opacity: 0.3 }} />
             <p style={{ fontSize: 16, margin: 0 }}>Нет позиций в счёте</p>
@@ -500,7 +514,7 @@ function TabletMain({ space, onLogout }: { space: TabletSpace; onLogout: () => v
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {activeCheck.items.map((ci) => (
+            {(activeCheck.items ?? []).map((ci) => (
               <div key={ci.checkItem.id} className="glass-l2" style={{ borderRadius: 16, padding: '16px 20px', display: 'flex', alignItems: 'center', gap: 16 }}>
                 <div style={{ width: 44, height: 44, borderRadius: 14, flexShrink: 0, background: 'rgba(139,92,246,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                   <Icon name="restaurant_menu" size={22} color="#A78BFA" />
