@@ -109,19 +109,28 @@ plategaRouter.post('/webhook', async (c) => {
       const eventBase = parseFloat(check.eventBaseAmount ?? '0') || 0
       const total = round2(itemsTotal + rental + eventBase)
 
-      // Сверка суммы (если провайдер её прислал). Допускаем переплату до +8% —
-      // это опциональная эквайринговая надбавка, которую заплатил клиент (см.
-      // /checks/:id/qr surcharge8). Надбавка НЕ является выручкой магазина:
-      // ниже чек закрывается и платёж пишется по БАЗОВОМУ total (товары),
-      // поэтому сверка смен/выручка остаются корректными. Недоплата
-      // (reportedAmount < total) по-прежнему отклоняется.
+      // Чаевые, запрошенные при генерации QR (см. /checks/:id/qr). Гость платит
+      // total + tip (опц. ×1.08 надбавка). Чаевые НЕ выручка: платёж/транзакция
+      // ниже пишутся по БАЗОВОМУ total, чаевые фиксируются отдельно на чеке.
+      const requestedTip = parseFloat(check.tipAmount ?? '0') || 0
+      const expectedWithTip = round2(total + requestedTip)
+
+      // Сверка суммы (если провайдер её прислал). Допускаем переплату до +8% от
+      // (товары+чаевые) — эквайринговая надбавка, которую заплатил клиент.
+      // Недоплата (reportedAmount < total) по-прежнему отклоняется.
       if (reportedAmount != null && !Number.isNaN(reportedAmount)) {
         const tooLow = reportedAmount < total - 0.01
-        const tooHigh = reportedAmount > round2(total * 1.08) + 1
+        const tooHigh = reportedAmount > round2(expectedWithTip * 1.08) + 1
         if (tooLow || tooHigh) {
           throw new Error('AMOUNT_MISMATCH')
         }
       }
+
+      // Фактически уплаченные чаевые: только если гость реально оплатил ≥ товары+чаевые
+      // (если провайдер сумму не прислал — доверяем запрошенным). Иначе чаевые = 0.
+      const tipPaid = requestedTip > 0 && (reportedAmount == null || Number.isNaN(reportedAmount) || reportedAmount >= expectedWithTip - 1)
+        ? requestedTip
+        : 0
 
       await tx.insert(checkPayments).values({
         checkId,
@@ -139,6 +148,8 @@ plategaRouter.post('/webhook', async (c) => {
         status: 'closed',
         paymentMethod: 'transfer',
         totalAmount: String(total),
+        // Фиксируем фактически уплаченные чаевые (или 0, если не оплачены).
+        tipAmount: String(tipPaid),
         // Фиксируем конец аренды при закрытии (зеркало pos.router.ts close).
         spaceEndAt: check.spaceEndAt ?? (check.spaceId ? new Date() : undefined),
         closedAt: new Date(),

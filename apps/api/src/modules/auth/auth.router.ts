@@ -369,7 +369,7 @@ authRouter.get('/me/checks/:id', requireAuth, async (c) => {
   const payments = await db.select({ method: checkPayments.method, amount: checkPayments.amount }).from(checkPayments).where(eq(checkPayments.checkId, id))
   const discounts = await db.select({ name: checkDiscounts.name, amount: checkDiscounts.amount }).from(checkDiscounts).where(eq(checkDiscounts.checkId, id))
   return c.json({
-    check: { id: check.id, totalAmount: parseFloat(String(check.totalAmount)) || 0, createdAt: check.createdAt, closedAt: check.closedAt },
+    check: { id: check.id, totalAmount: parseFloat(String(check.totalAmount)) || 0, tipAmount: parseFloat(String(check.tipAmount)) || 0, createdAt: check.createdAt, closedAt: check.closedAt },
     items: items.map(i => ({ name: i.name ?? '—', quantity: Number(i.quantity), priceAtTime: parseFloat(String(i.priceAtTime)) || 0, lineTotal: (parseFloat(String(i.priceAtTime)) || 0) * Number(i.quantity) })),
     payments: payments.map(p => ({ method: p.method, amount: parseFloat(String(p.amount)) || 0 })),
     discounts: discounts.map(d => ({ name: d.name, amount: parseFloat(String(d.amount)) || 0 })),

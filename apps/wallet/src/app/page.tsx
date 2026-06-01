@@ -37,7 +37,7 @@ interface BonusRow { id: string; amount: number; reason: string | null; createdA
 interface BonusLot { amount: number; remaining: number; expiresAt: string | null }
 interface VisitProgress { tier: string; visits: number; threshold: number; remaining: number; isResident: boolean }
 interface FeedItem { id: string; date: string; emoji: string; label: string; sign: 1 | -1; amount: number; unit: '₽' | '⭐'; checkId?: string | null }
-interface CheckDetail { check: { id: string; totalAmount: number; createdAt: string; closedAt: string | null }; items: { name: string; quantity: number; priceAtTime: number; lineTotal: number }[]; payments: { method: string; amount: number }[]; discounts: { name: string | null; amount: number }[] }
+interface CheckDetail { check: { id: string; totalAmount: number; tipAmount?: number; createdAt: string; closedAt: string | null }; items: { name: string; quantity: number; priceAtTime: number; lineTotal: number }[]; payments: { method: string; amount: number }[]; discounts: { name: string | null; amount: number }[] }
 
 type AppState = 'loading' | 'error' | 'main'
 
@@ -377,10 +377,16 @@ export default function WalletPage() {
                     ))}
                   </div>
                 )}
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: 12, marginBottom: 12 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: 12, marginBottom: (openCheck.check.tipAmount ?? 0) > 0 ? 6 : 12 }}>
                   <span style={{ fontSize: 14, color: '#94A3B8' }}>Итого</span>
                   <span style={{ fontSize: 20, fontWeight: 800, fontStyle: 'italic', color: '#fff' }}>{formatAmount(openCheck.check.totalAmount)} ₽</span>
                 </div>
+                {(openCheck.check.tipAmount ?? 0) > 0 && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                    <span style={{ fontSize: 13, color: '#34D399' }}>💚 Чаевые</span>
+                    <span style={{ fontSize: 14, fontWeight: 700, color: '#34D399' }}>+{formatAmount(openCheck.check.tipAmount ?? 0)} ₽</span>
+                  </div>
+                )}
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                   {openCheck.payments.map((p, i) => (
                     <span key={i} style={{ fontSize: 12, fontWeight: 600, padding: '5px 10px', borderRadius: 8, background: 'rgba(139,92,246,0.15)', color: '#a78bfa' }}>{PAY_LABELS[p.method] ?? p.method}: {formatAmount(p.amount)} ₽</span>

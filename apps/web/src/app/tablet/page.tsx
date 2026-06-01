@@ -235,7 +235,8 @@ function TabletMain({ space, onLogout }: { space: TabletSpace; onLogout: () => v
   const { user } = useAuthStore()
   const [spaceRental, setSpaceRental] = useState(0)
   const [toastMsg, setToastMsg] = useState<string | null>(null)
-  const [qr, setQr] = useState<{ qrDataUrl: string; chargedAmount: number } | null>(null)
+  const [qr, setQr] = useState<{ qrDataUrl: string; chargedAmount: number; tip: number } | null>(null)
+  const [tipOpen, setTipOpen] = useState(false)
   const [finished, setFinished] = useState<null | 'paid' | 'closed'>(null)
   const hadCheckRef = useRef(false)
 
@@ -278,10 +279,10 @@ function TabletMain({ space, onLogout }: { space: TabletSpace; onLogout: () => v
     onError: (err: any) => { setToastMsg(err?.message ?? 'Не удалось запросить счёт'); setTimeout(() => setToastMsg(null), 3000) },
   })
 
-  // Оплата по QR (СБП) — гость платит сам, чек закроется вебхуком.
+  // Оплата по QR (СБП) — гость платит сам (+опц. чаевые), чек закроется вебхуком.
   const payQr = useMutation({
-    mutationFn: () => api.post<{ qrDataUrl: string; chargedAmount: number; baseAmount: number }>(`/pos/checks/${activeCheck!.id}/qr`, {}),
-    onSuccess: (r) => { setQr({ qrDataUrl: r.qrDataUrl, chargedAmount: r.chargedAmount ?? r.baseAmount }) },
+    mutationFn: (tip: number) => api.post<{ qrDataUrl: string; chargedAmount: number; baseAmount: number; tip: number }>(`/pos/checks/${activeCheck!.id}/qr`, { tip }),
+    onSuccess: (r) => { setTipOpen(false); setQr({ qrDataUrl: r.qrDataUrl, chargedAmount: r.chargedAmount ?? r.baseAmount, tip: r.tip ?? 0 }) },
     onError: (err: any) => { setToastMsg(err?.message ?? 'Не удалось создать QR'); setTimeout(() => setToastMsg(null), 3000) },
   })
 
@@ -368,10 +369,53 @@ function TabletMain({ space, onLogout }: { space: TabletSpace; onLogout: () => v
           <img src={qr.qrDataUrl} alt="QR для оплаты" style={{ width: 300, height: 300, display: 'block' }} />
         </div>
         <p style={{ fontSize: 44, fontWeight: 900, fontStyle: 'italic', color: '#fff', margin: '24px 0 0', fontVariantNumeric: 'tabular-nums' }}>{qr.chargedAmount.toLocaleString('ru')} ₽</p>
+        {qr.tip > 0 && (
+          <p style={{ fontSize: 14, color: '#34D399', margin: '6px 0 0', fontWeight: 600 }}>в т.ч. чаевые {qr.tip.toLocaleString('ru')} ₽ 💚</p>
+        )}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 16, color: 'rgba(204,195,216,0.7)', fontSize: 15 }}>
           <Icon name="hourglass_top" size={18} /> Ожидаем оплату…
         </div>
         <button onClick={() => setQr(null)} style={{ marginTop: 24, padding: '12px 28px', borderRadius: 14, border: '1px solid rgba(255,255,255,0.15)', background: 'transparent', color: 'rgba(204,195,216,0.7)', fontSize: 15, fontWeight: 600, cursor: 'pointer' }}>Отмена</button>
+      </div>
+    </div>
+  ) : null
+
+  // Выбор чаевых перед генерацией QR. Пресеты — % от суммы счёта (округление до ₽).
+  const tipPresets = [0, 5, 10, 15]
+  const tipOverlay = tipOpen ? (
+    <div style={{ position: 'fixed', inset: 0, zIndex: 80, background: 'rgba(10,8,14,0.93)', backdropFilter: 'blur(14px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 32 }}>
+      <div style={{ textAlign: 'center', maxWidth: 440, width: '100%' }}>
+        <h2 style={{ fontSize: 26, fontWeight: 900, fontStyle: 'italic', textTransform: 'uppercase', color: '#fff', margin: '0 0 6px' }}>Добавить чаевые?</h2>
+        <p style={{ color: 'rgba(204,195,216,0.7)', fontSize: 15, margin: '0 0 6px' }}>Спасибо команде за вечер 💚</p>
+        <p style={{ color: 'rgba(204,195,216,0.5)', fontSize: 14, margin: '0 0 24px' }}>Счёт: {total.toLocaleString('ru')} ₽</p>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          {tipPresets.map((pct) => {
+            const tipRub = Math.round(total * pct / 100)
+            return (
+              <button
+                key={pct}
+                onClick={() => payQr.mutate(tipRub)}
+                disabled={payQr.isPending}
+                style={{
+                  padding: '20px 0', borderRadius: 18, cursor: 'pointer',
+                  border: pct === 0 ? '1px solid rgba(255,255,255,0.14)' : '1px solid rgba(16,185,129,0.4)',
+                  background: pct === 0 ? 'rgba(255,255,255,0.04)' : 'rgba(16,185,129,0.12)',
+                  color: pct === 0 ? 'rgba(204,195,216,0.85)' : '#34D399',
+                  display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'center',
+                }}
+              >
+                <span style={{ fontSize: 20, fontWeight: 900 }}>{pct === 0 ? 'Без чаевых' : `${pct}%`}</span>
+                {pct > 0 && <span style={{ fontSize: 15, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>+{tipRub.toLocaleString('ru')} ₽</span>}
+              </button>
+            )
+          })}
+        </div>
+        {payQr.isPending && (
+          <div style={{ marginTop: 20, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, color: 'rgba(204,195,216,0.7)', fontSize: 15 }}>
+            <Icon name="hourglass_top" size={18} /> Готовим QR…
+          </div>
+        )}
+        <button onClick={() => setTipOpen(false)} disabled={payQr.isPending} style={{ marginTop: 22, padding: '12px 28px', borderRadius: 14, border: '1px solid rgba(255,255,255,0.15)', background: 'transparent', color: 'rgba(204,195,216,0.7)', fontSize: 15, fontWeight: 600, cursor: 'pointer' }}>Отмена</button>
       </div>
     </div>
   ) : null
@@ -478,7 +522,7 @@ function TabletMain({ space, onLogout }: { space: TabletSpace; onLogout: () => v
               <Icon name="support_agent" size={20} />
               {requestBill.isPending ? 'Отправляем…' : 'Запросить счёт'}
             </button>
-            <button onClick={() => payQr.mutate()} disabled={payQr.isPending} style={{ flex: 1, padding: '18px 0', borderRadius: 18, border: 'none', cursor: 'pointer', background: 'linear-gradient(135deg, #10B981, #4cd7f6)', color: '#fff', fontSize: 14, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.06em', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, boxShadow: '0 4px 20px rgba(16,185,129,0.3)' }}>
+            <button onClick={() => setTipOpen(true)} disabled={payQr.isPending} style={{ flex: 1, padding: '18px 0', borderRadius: 18, border: 'none', cursor: 'pointer', background: 'linear-gradient(135deg, #10B981, #4cd7f6)', color: '#fff', fontSize: 14, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.06em', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, boxShadow: '0 4px 20px rgba(16,185,129,0.3)' }}>
               <Icon name="qr_code_2" size={22} />
               {payQr.isPending ? 'Готовим QR…' : 'Оплатить'}
             </button>
@@ -500,6 +544,7 @@ function TabletMain({ space, onLogout }: { space: TabletSpace; onLogout: () => v
         </div>
       )}
 
+      {tipOverlay}
       {qrOverlay}
     </div>
   )

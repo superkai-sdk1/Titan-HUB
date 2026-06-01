@@ -924,6 +924,7 @@ analyticsRouter.get('/checks/:id', async (c) => {
       bonusUsed: parseNum(check.bonusUsed),
       certificateUsed: parseNum(check.certificateUsed),
       eventBaseAmount: check.eventBaseAmount != null ? parseNum(check.eventBaseAmount) : null,
+      tipAmount: parseNum(check.tipAmount),
     },
     guestName,
     items: items.map((i: any) => ({ ...i, priceAtTime: parseNum(i.priceAtTime), lineTotal: parseNum(i.priceAtTime) * Number(i.quantity) })),

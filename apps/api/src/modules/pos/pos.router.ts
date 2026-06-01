@@ -990,7 +990,7 @@ posRouter.post('/checks/:id/qr', requireRole('owner', 'staff', 'tablet'), async 
   // (см. platega webhook) чек закрывается на БАЗОВУЮ товарную сумму, а надбавка
   // лишь увеличивает сумму к оплате в QR. Эндпоинт раньше тела не читал — читаем
   // его опционально, чтобы не ломать клиентов, шлющих пустой/отсутствующий body.
-  const body = await c.req.json().catch(() => ({})) as { surcharge8?: boolean } | null
+  const body = await c.req.json().catch(() => ({})) as { surcharge8?: boolean; tip?: number } | null
   // Гость (планшет) платит ровно сумму чека, без эквайринговой надбавки.
   const surcharge8 = user.role !== 'tablet' && body?.surcharge8 === true
 
@@ -1000,9 +1000,25 @@ posRouter.post('/checks/:id/qr', requireRole('owner', 'staff', 'tablet'), async 
   await recalcCheckTotal(checkId)
   const baseAmount = await computeCheckGrandTotal(db, check)
   if (baseAmount < 0.01) return c.json({ error: 'Сумма чека равна нулю' }, 400)
-  // amount — сумма к оплате в QR (с надбавкой, если запрошена). baseAmount —
+
+  // Чаевые: гость добровольно добавляет их ПОВЕРХ суммы чека. В отличие от базы,
+  // их МОЖНО взять с клиента — это его собственные деньги (риска «выставить QR на
+  // произвольную сумму в свою пользу» нет). Ограничиваем разумным потолком от
+  // случайного ввода. Чаевые НЕ выручка: webhook закроет чек на baseAmount, а
+  // факт чаевых зафиксирует отдельно в checks.tip_amount.
+  const rawTip = Number(body?.tip)
+  const tip = Number.isFinite(rawTip) && rawTip > 0
+    ? Math.min(round2(rawTip), round2(baseAmount * 3) + 100000)
+    : 0
+  // Сохраняем запрошенные чаевые на чеке — webhook по ним валидирует увеличенную
+  // сумму к оплате и зафиксирует факт. Перезаписываем всегда (повторная генерация
+  // QR с другими/нулевыми чаевыми корректно обновляет значение).
+  await db.update(checks).set({ tipAmount: String(tip) }).where(eq(checks.id, checkId))
+
+  // amount — сумма к оплате в QR (товары + чаевые, ×1.08 при надбавке). baseAmount —
   // товарная сумма, на которую webhook закроет чек.
-  const amount = surcharge8 ? round2(baseAmount * 1.08) : baseAmount
+  const beforeSurcharge = round2(baseAmount + tip)
+  const amount = surcharge8 ? round2(beforeSurcharge * 1.08) : beforeSurcharge
 
   const createRes = await fetch('https://app.platega.io/transaction/process', {
     method: 'POST',
@@ -1057,6 +1073,7 @@ posRouter.post('/checks/:id/qr', requireRole('owner', 'staff', 'tablet'), async 
     chargedAmount: amount,
     baseAmount,
     surcharge8,
+    tip,
   })
 })
 
@@ -1258,6 +1275,9 @@ posRouter.post('/checks/:id/pay', requireRole('owner', 'staff'), zValidator('jso
         status: 'closed',
         paymentMethod: primaryMethod.method as any,
         totalAmount: String(total),
+        // Закрытие из кассы (нал/карта/бонусы) — QR-чаевые не оплачивались;
+        // сбрасываем возможный «запрошенный» хвост от генерации QR.
+        tipAmount: '0',
         bonusUsed: String(body.bonusAmount ?? 0),
         certificateId: cert?.id ?? null,
         certificateUsed: cert ? String(certSent) : '0',

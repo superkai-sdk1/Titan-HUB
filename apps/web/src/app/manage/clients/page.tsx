@@ -547,10 +547,16 @@ export default function ClientsPage() {
                       ))}
                     </div>
                   )}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: 12, marginBottom: 12 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: 12, marginBottom: parseNum(ch.tipAmount) > 0 ? 6 : 12 }}>
                     <span style={{ fontSize: 14, color: 'var(--on-surface-variant)' }}>Итого</span>
                     <span style={{ fontSize: 20, fontWeight: 800, fontStyle: 'italic' }}>{fmt(parseNum(ch.totalAmount))} ₽</span>
                   </div>
+                  {parseNum(ch.tipAmount) > 0 && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                      <span style={{ fontSize: 13, color: '#34D399', display: 'flex', alignItems: 'center', gap: 5 }}>💚 Чаевые (СБП)</span>
+                      <span style={{ fontSize: 14, fontWeight: 700, color: '#34D399' }}>+{fmt(parseNum(ch.tipAmount))} ₽</span>
+                    </div>
+                  )}
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                     {(checkDetail.payments ?? []).map((p: any, i: number) => (
                       <span key={i} style={{ fontSize: 12, fontWeight: 600, padding: '5px 10px', borderRadius: 8, background: 'rgba(139,92,246,0.12)', color: '#a78bfa' }}>{PAY_LABELS[p.method] ?? p.method}: {fmt(p.amount)} ₽</span>

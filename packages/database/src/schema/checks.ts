@@ -53,6 +53,9 @@ export const checks = pgTable('checks', {
   // База события на чеке: фикс/ручная сумма мероприятия (помимо позиций и аренды).
   // Входит в «Итого», редактируется; синхронизируется при правке суммы события.
   eventBaseAmount: numeric('event_base_amount', { precision: 12, scale: 2 }),
+  // Чаевые по QR/СБП (поверх суммы товаров). Хранятся на чеке для валидации в
+  // webhook'е Platega и фиксации фактически уплаченных чаевых. См. 028_*.sql.
+  tipAmount: numeric('tip_amount', { precision: 12, scale: 2 }).notNull().default('0'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   closedAt: timestamp('closed_at', { withTimezone: true }),
 })
