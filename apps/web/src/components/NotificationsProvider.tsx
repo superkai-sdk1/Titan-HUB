@@ -50,15 +50,19 @@ interface NotificationsContextValue {
 const NotificationsContext = createContext<NotificationsContextValue | null>(null)
 
 // Важные типы — те, что вызывают тряску «колокольчика» до прочтения.
-const IMPORTANT_TYPES = new Set(['staff_call', 'request_bill'])
+const IMPORTANT_TYPES = new Set(['staff_call', 'request_bill', 'client_order', 'chat_message'])
 
 export const NOTIF_ICONS: Record<string, string> = {
   staff_call: 'support_agent',
   request_bill: 'receipt_long',
+  client_order: 'room_service',
+  chat_message: 'chat',
 }
 export const NOTIF_COLORS: Record<string, string> = {
   staff_call: '#F59E0B',
   request_bill: '#10B981',
+  client_order: '#8B5CF6',
+  chat_message: '#4cd7f6',
 }
 export function notifIcon(type: string) { return NOTIF_ICONS[type] ?? 'notifications' }
 export function notifColor(type: string) { return NOTIF_COLORS[type] ?? '#A78BFA' }

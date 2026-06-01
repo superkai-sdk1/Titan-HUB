@@ -39,6 +39,7 @@ export const NOTIFICATION_TYPES: NotificationTypeDef[] = [
   { key: 'staff_call', label: 'Вызов персонала', description: 'Гость вызывает персонал с планшета', defaultEnabled: true },
   { key: 'request_bill', label: 'Запрос счёта', description: 'Гость запрашивает счёт с планшета', defaultEnabled: true },
   { key: 'client_order', label: 'Заказ с планшета', description: 'Гость отправил заказ — ждёт подтверждения', defaultEnabled: true },
+  { key: 'chat_message', label: 'Сообщение в чате', description: 'Гость написал в чат с планшета', defaultEnabled: true },
   { key: 'shift_open', label: 'Открытие смены', description: 'Смена открыта', defaultEnabled: true },
   { key: 'shift_close', label: 'Закрытие смены', description: 'Смена закрыта', defaultEnabled: true },
   { key: 'cash_discrepancy', label: 'Расхождение в кассе', description: 'Излишек или недостача наличных', defaultEnabled: true },

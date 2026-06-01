@@ -3,7 +3,7 @@ import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import {
-  db, checks, checkItems, checkItemModifiers, checkPayments, checkDiscounts, pendingOrders,
+  db, checks, checkItems, checkItemModifiers, checkPayments, checkDiscounts, pendingOrders, chatMessages,
   inventory, profiles, spaces, certificates, bonusHistory, transactions, modifiers as modifiersTable,
   appSettings, events, discounts, clientDiscountRules, stockMovements,
   eq, and, ne, inArray, desc, sql, isNull,
@@ -904,6 +904,66 @@ posRouter.post('/orders/:orderId/cancel', requireRole('owner', 'staff', 'tablet'
     .where(and(eq(pendingOrders.id, orderId), eq(pendingOrders.status, 'pending')))
   publishEvent('order:resolved', { checkId: order.checkId, orderId, status: 'cancelled' })
   return c.json({ ok: true })
+})
+
+// ─── Чат гость (планшет) ↔ персонал (касса) в рамках чека ────────────────────
+
+const ChatSendSchema = z.object({
+  text: z.string().trim().min(1).max(1000),
+  // Кто пишет. Планшет-киоск ходит под staff-токеном, поэтому отправитель
+  // приходит явно из клиента ('guest' с планшета / 'staff' из кассы).
+  from: z.enum(['guest', 'staff']).optional(),
+})
+
+// GET /checks/:id/chat — история сообщений чека (по возрастанию времени).
+posRouter.get('/checks/:id/chat', requireRole('owner', 'staff', 'tablet'), async (c) => {
+  const checkId = c.req.param('id')
+  const rows = await db
+    .select()
+    .from(chatMessages)
+    .where(eq(chatMessages.checkId, checkId))
+    .orderBy(chatMessages.createdAt)
+    .limit(300)
+  return c.json({ messages: rows })
+})
+
+// POST /checks/:id/chat — отправить сообщение. На сообщение ГОСТЯ шлём уведомление
+// персоналу (тип chat_message, настраивается). Живое обновление — через SSE
+// (chat:message по titan:updates, фильтр по checkId).
+posRouter.post('/checks/:id/chat', requireRole('owner', 'staff', 'tablet'), zValidator('json', ChatSendSchema), async (c) => {
+  const checkId = c.req.param('id')
+  const user = c.get('user')
+  const body = c.req.valid('json')
+  const from = body.from ?? (user.role === 'tablet' ? 'guest' : 'staff')
+
+  const [check] = await db.select().from(checks).where(eq(checks.id, checkId))
+  if (!check || check.status !== 'open') return c.json({ error: 'Check not open' }, 400)
+
+  const [msg] = await db.insert(chatMessages).values({
+    checkId,
+    spaceId: check.spaceId ?? null,
+    sender: from,
+    senderId: user.sub,
+    text: body.text,
+  }).returning()
+
+  publishEvent('chat:message', { checkId, messageId: msg!.id, sender: from })
+
+  if (from === 'guest') {
+    let spaceName = ''
+    if (check.spaceId) {
+      const [sp] = await db.select({ name: spaces.name }).from(spaces).where(eq(spaces.id, check.spaceId))
+      spaceName = sp?.name ?? ''
+    }
+    void notify({
+      type: 'chat_message',
+      title: spaceName ? `Сообщение из «${spaceName}»` : 'Сообщение от гостя',
+      body: body.text.slice(0, 140),
+      meta: { checkId, spaceId: check.spaceId },
+    }).catch(() => {})
+  }
+
+  return c.json({ message: msg }, 201)
 })
 
 posRouter.patch('/checks/:id/items/:itemId', requireRole('owner', 'staff', 'tablet'), zValidator('json', z.object({ quantity: z.number().int().min(0) })), async (c) => {

@@ -29,6 +29,7 @@ const TYPE_ICONS: Record<string, string> = {
   staff_call: 'support_agent',
   request_bill: 'receipt_long',
   client_order: 'room_service',
+  chat_message: 'chat',
   payment: 'payments',
   shift: 'schedule',
   alert: 'warning',

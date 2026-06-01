@@ -8,6 +8,7 @@ import { Icon } from '@/components/Icon'
 import { useToast } from '@/components/Toast'
 import { ConfirmDialog } from '@/components/manage/DesignSystem'
 import { TimeInput24 } from '@/components/TimeInput24'
+import { CheckChat, type ChatMessage } from '@/components/CheckChat'
 
 interface InventoryItem {
   id: string
@@ -184,6 +185,8 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
     [show],
   )
   const [confirmCancel, setConfirmCancel] = useState(false)
+  const [chatOpen, setChatOpen] = useState(false)
+  const [chatSeenAt, setChatSeenAt] = useState(0)
 
   const { data: checkData, isLoading } = useQuery({
     queryKey: ['check', checkId],
@@ -491,6 +494,14 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
     onSuccess: () => qc.invalidateQueries({ queryKey: ['check', checkId] }),
     onError: toastError,
   })
+
+  // Чат с гостем: лёгкий запрос для бейджа непрочитанных (общий ключ с CheckChat).
+  const { data: chatMsgs } = useQuery({
+    queryKey: ['chat', checkId],
+    queryFn: () => api.get<{ messages: ChatMessage[] }>(`/pos/checks/${checkId}/chat`).then((r) => r.messages),
+    refetchInterval: 4000,
+  })
+  const chatUnread = chatOpen ? 0 : (chatMsgs ?? []).filter((m) => m.sender === 'guest' && new Date(m.createdAt).getTime() > chatSeenAt).length
 
   const updateQty = useMutation({
     mutationFn: ({ id, quantity }: { id: string; quantity: number }) =>
@@ -824,6 +835,22 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
         </div>
 
         <button
+          onClick={() => { setChatSeenAt(Date.now()); setChatOpen(true) }}
+          aria-label="Чат с гостем"
+          title="Чат с гостем"
+          style={{
+            position: 'relative', width: 38, height: 38, borderRadius: 10, border: '1px solid rgba(76,215,246,0.3)',
+            cursor: 'pointer', background: 'rgba(76,215,246,0.08)', color: '#4cd7f6', flexShrink: 0,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}
+        >
+          <Icon name="chat" size={18} />
+          {chatUnread > 0 && (
+            <span style={{ position: 'absolute', top: -5, right: -5, minWidth: 18, height: 18, padding: '0 4px', borderRadius: 9, background: '#f43f5e', color: '#fff', fontSize: 10, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{chatUnread}</span>
+          )}
+        </button>
+
+        <button
           onClick={() => setConfirmCancel(true)}
           aria-label="Отменить чек"
           title="Отменить чек"
@@ -837,6 +864,9 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
           <Icon name="delete" size={18} />
         </button>
       </div>
+      {chatOpen && (
+        <CheckChat checkId={checkId} as="staff" onClose={() => { setChatSeenAt(Date.now()); setChatOpen(false) }} />
+      )}
 
       {/* Split layout */}
       <div

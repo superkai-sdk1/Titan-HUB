@@ -1,12 +1,13 @@
 'use client'
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
-import { useQuery, useMutation } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { useAuthStore } from '@/store/auth.store'
 import { openSse } from '@/lib/sse'
 import { differenceInMinutes } from 'date-fns'
 import { Icon } from '@/components/Icon'
+import { CheckChat, type ChatMessage } from '@/components/CheckChat'
 import { getTabletSpace, setTabletSpace, clearTabletSpace, type TabletSpace } from '@/lib/tabletSession'
 
 interface CheckItem {
@@ -240,11 +241,14 @@ function FinishScreen({ kind, onDone }: { kind: 'paid' | 'closed'; onDone: () =>
 // ════════════════════════════════════════════════════════════════════════════
 function TabletMain({ space, onLogout }: { space: TabletSpace; onLogout: () => void }) {
   const router = useRouter()
+  const qc = useQueryClient()
   const { user } = useAuthStore()
   const [spaceRental, setSpaceRental] = useState(0)
   const [toastMsg, setToastMsg] = useState<string | null>(null)
   const [qr, setQr] = useState<{ qrDataUrl: string; chargedAmount: number; tip: number } | null>(null)
   const [tipOpen, setTipOpen] = useState(false)
+  const [chatOpen, setChatOpen] = useState(false)
+  const [chatSeenAt, setChatSeenAt] = useState(0)
   const [finished, setFinished] = useState<null | 'paid' | 'closed'>(null)
   const hadCheckRef = useRef(false)
 
@@ -275,6 +279,16 @@ function TabletMain({ space, onLogout }: { space: TabletSpace; onLogout: () => v
     refetchInterval: 60_000,
   })
   const activeEvent = eventData?.event ?? null
+
+  // Чат с персоналом: лёгкий запрос для бейджа непрочитанных (тот же ключ, что и
+  // у CheckChat — React Query дедуплицирует, сеть одна).
+  const { data: chatMsgs } = useQuery({
+    queryKey: ['chat', openCheckId],
+    queryFn: () => api.get<{ messages: ChatMessage[] }>(`/pos/checks/${openCheckId}/chat`).then((r) => r.messages),
+    enabled: !!openCheckId,
+    refetchInterval: 5000,
+  })
+  const chatUnread = chatOpen ? 0 : (chatMsgs ?? []).filter((m) => m.sender === 'staff' && new Date(m.createdAt).getTime() > chatSeenAt).length
 
   // Закрытие чека (персоналом из кассы ИЛИ самооплатой) → завершаем сессию.
   // Детектим по наличию id в списке, а не по детали (у детали есть переходный
@@ -329,7 +343,8 @@ function TabletMain({ space, onLogout }: { space: TabletSpace; onLogout: () => v
         refetchList(); refetchDetail()
         try {
           const m = JSON.parse(ev.data)
-          if (m?.event === 'check:paid') setFinished('paid')
+          if (m?.event === 'chat:message') qc.invalidateQueries({ queryKey: ['chat', openCheckId] })
+          else if (m?.event === 'check:paid') setFinished('paid')
           else if (m?.event === 'check:closed') setFinished((prev) => prev ?? 'closed')
           else if (m?.event === 'order:resolved') {
             // Подтверждён → позиции уже в чеке; отклонён → показываем гостю.
@@ -340,7 +355,7 @@ function TabletMain({ space, onLogout }: { space: TabletSpace; onLogout: () => v
       }
     }).catch(() => {})
     return () => { cancelled = true; es?.close() }
-  }, [openCheckId, refetchList, refetchDetail])
+  }, [openCheckId, refetchList, refetchDetail, qc])
 
   // Счётчик аренды
   useEffect(() => {
@@ -382,6 +397,12 @@ function TabletMain({ space, onLogout }: { space: TabletSpace; onLogout: () => v
             </button>
             <button onClick={() => router.push('/tablet/order')} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 18px', borderRadius: 14, border: 'none', cursor: 'pointer', background: 'linear-gradient(135deg, #8B5CF6, #4cd7f6)', color: '#fff', fontSize: 14, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.04em', boxShadow: '0 4px 20px rgba(139,92,246,0.35)' }}>
               <Icon name="add_shopping_cart" size={20} /> Заказать
+            </button>
+            <button onClick={() => { setChatOpen(true); setChatSeenAt(Date.now()) }} style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 6, padding: '12px 16px', borderRadius: 14, border: '1px solid rgba(76,215,246,0.4)', cursor: 'pointer', background: 'rgba(76,215,246,0.1)', color: '#4cd7f6', fontSize: 13, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+              <Icon name="chat" size={18} /> Чат
+              {chatUnread > 0 && (
+                <span style={{ position: 'absolute', top: -6, right: -6, minWidth: 20, height: 20, padding: '0 5px', borderRadius: 10, background: '#f43f5e', color: '#fff', fontSize: 11, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{chatUnread}</span>
+              )}
             </button>
           </>
         )}
@@ -606,6 +627,9 @@ function TabletMain({ space, onLogout }: { space: TabletSpace; onLogout: () => v
 
       {tipOverlay}
       {qrOverlay}
+      {chatOpen && openCheckId && (
+        <CheckChat checkId={openCheckId} as="guest" onClose={() => { setChatSeenAt(Date.now()); setChatOpen(false) }} />
+      )}
     </div>
   )
 }

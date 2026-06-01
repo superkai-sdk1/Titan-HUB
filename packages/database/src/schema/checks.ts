@@ -96,6 +96,20 @@ export const pendingOrders = pgTable('pending_orders', {
   resolvedAt: timestamp('resolved_at', { withTimezone: true }),
 })
 
+// Чат между гостем (планшет кабинки) и персоналом в рамках одного визита (чека).
+// sender: 'guest' (с планшета) | 'staff' (из кассы). См. 030_chat_messages.sql.
+export const chatMessages = pgTable('chat_messages', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  checkId: uuid('check_id')
+    .notNull()
+    .references(() => checks.id, { onDelete: 'cascade' }),
+  spaceId: uuid('space_id').references(() => spaces.id),
+  sender: text('sender').notNull(),
+  senderId: uuid('sender_id').references(() => profiles.id),
+  text: text('text').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+})
+
 export const checkItemModifiers = pgTable('check_item_modifiers', {
   id: uuid('id').primaryKey().defaultRandom(),
   checkItemId: uuid('check_item_id')
