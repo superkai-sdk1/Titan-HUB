@@ -1,10 +1,10 @@
 'use client'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/lib/api'
-import { useAuthStore } from '@/store/auth.store'
 import { Icon } from '@/components/Icon'
+import { getTabletSpace } from '@/lib/tabletSession'
 
 const CAT_COLOR_OPTIONS = [
   { name: 'violet',  hex: '#8B5CF6', light: 'rgba(139,92,246,0.12)',  border: 'rgba(139,92,246,0.25)',  text: '#A78BFA' },
@@ -45,13 +45,6 @@ interface MenuCategory {
   isTabletVisible: boolean
 }
 
-interface ProfileData {
-  id: string
-  nickname: string
-  role: string
-  linkedSpaceId?: string | null
-}
-
 interface CartItem {
   item: MenuItem
   quantity: number
@@ -59,7 +52,6 @@ interface CartItem {
 
 export default function TabletOrderPage() {
   const router = useRouter()
-  const { user } = useAuthStore()
 
   const [activeCat, setActiveCat] = useState<string | null>(null)
   const [search, setSearch] = useState('')
@@ -68,14 +60,13 @@ export default function TabletOrderPage() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [submitted, setSubmitted] = useState(false)
 
-  // Профиль планшета
-  const { data: profileData } = useQuery({
-    queryKey: ['tablet', 'profile'],
-    queryFn: () => api.get<{ player: ProfileData }>(`/pos/players/${user!.id}`).then(r => r.player),
-    enabled: !!user?.id,
-  })
-
-  const linkedSpaceId = profileData?.linkedSpaceId
+  // Пространство берём из локальной сессии планшета; нет — возвращаемся к выбору.
+  const [linkedSpaceId, setLinkedSpaceId] = useState<string | null>(null)
+  useEffect(() => {
+    const sp = getTabletSpace()
+    if (!sp) { router.replace('/tablet'); return }
+    setLinkedSpaceId(sp.id)
+  }, [router])
 
   // Активный чек пространства
   const { data: checksData } = useQuery({

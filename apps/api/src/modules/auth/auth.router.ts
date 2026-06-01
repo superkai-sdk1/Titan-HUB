@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
-import { db, profiles, transactions, bonusLots, bonusHistory, checks, checkItems, checkPayments, checkDiscounts, inventory, eq, and, isNull, inArray, desc, gt, sql } from '@titan/database'
+import { db, profiles, transactions, bonusLots, bonusHistory, checks, checkItems, checkPayments, checkDiscounts, inventory, spaces, eq, and, isNull, inArray, desc, gt, sql } from '@titan/database'
 import { visitProgress } from '../../lib/loyalty.js'
 // @ts-ignore
 import { passkeys } from '@titan/database'
@@ -49,6 +49,17 @@ const PIN_GLOBAL_MAX = 50 // суммарных неудачных попыто�
 // клиентом, поэтому per-IP bucket — лишь "вежливый" троттлинг. Для security-решений
 // на нём НЕ полагаемся: реальную защиту даёт глобальный потолок PIN_GLOBAL_FAIL_KEY.
 // clientIp — общий доверенный резолвер (apps/api/src/lib/clientIp.ts).
+
+// ── GET /auth/tablet-spaces — список пространств для выбора на планшете ──────
+// Публичный (без авторизации): планшет показывает выбор пространства ДО ввода
+// PIN сотрудника. Отдаём только id+name активных пространств — не чувствительно.
+authRouter.get('/tablet-spaces', async (c) => {
+  const rows = await db
+    .select({ id: spaces.id, name: spaces.name })
+    .from(spaces)
+    .where(eq(spaces.isActive, true))
+  return c.json({ spaces: rows })
+})
 
 authRouter.post('/login/pin', zValidator('json', LoginPinSchema), async (c) => {
   const { pin, userId } = c.req.valid('json')

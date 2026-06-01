@@ -1,25 +1,8 @@
 'use client'
-import { useEffect } from 'react'
-import { useRouter } from 'next/navigation'
-import { useAuthStore } from '@/store/auth.store'
 
 export default function TabletLayout({ children }: { children: React.ReactNode }) {
-  const router = useRouter()
-  const { token, user } = useAuthStore()
-
-  useEffect(() => {
-    if (!token) {
-      router.replace('/login')
-      return
-    }
-    if (user?.role !== 'tablet') {
-      // Не планшет — перенаправляем на POS
-      router.replace('/pos')
-    }
-  }, [token, user, router])
-
-  if (!token || user?.role !== 'tablet') return null
-
+  // Авторизацией планшета управляет сама страница /tablet (выбор пространства →
+  // PIN сотрудника). Layout лишь даёт полноэкранную тёмную обёртку-киоск.
   return (
     <>
       {/* Сбрасываем отступы layout-main и layout-content для планшета */}
