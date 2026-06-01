@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { Icon } from '@/components/Icon'
+import { CategoryIcon } from '@/components/CategoryIcon'
 import { getTabletSpace } from '@/lib/tabletSession'
 
 const CAT_COLOR_OPTIONS = [
@@ -276,7 +277,7 @@ export default function TabletOrderPage() {
                 transition: 'all 0.2s',
               }}
             >
-              <Icon name={cat.icon} size={16} />
+              <CategoryIcon icon={cat.icon} size={16} />
               {cat.name}
             </button>
           )
@@ -316,7 +317,7 @@ export default function TabletOrderPage() {
                     opacity: 0.07, position: 'absolute', inset: '-30%', color: 'white',
                   }}>
                     {Array.from({ length: 64 }).map((_, i) => (
-                      <Icon key={i} name={item.categoryIcon ?? 'restaurant_menu'} size={22} style={{ lineHeight: 1 }} />
+                      <CategoryIcon key={i} icon={item.categoryIcon ?? 'restaurant_menu'} size={22} />
                     ))}
                   </div>
                 </div>
@@ -328,7 +329,7 @@ export default function TabletOrderPage() {
                     background: colorObj.light,
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                   }}>
-                    <Icon name={item.categoryIcon ?? 'restaurant_menu'} size={28} color={colorObj.hex} />
+                    <CategoryIcon icon={item.categoryIcon ?? 'restaurant_menu'} size={28} color={colorObj.hex} />
                   </div>
 
                   {/* Name + price */}

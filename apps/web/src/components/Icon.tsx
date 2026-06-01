@@ -954,6 +954,135 @@ const ICONS: Record<string, React.ReactNode> = {
       <line x1="8" y1="14" x2="13" y2="14" />
     </>
   ),
+
+  /* ── Added: ранее рендерились квадратиком ─────────────────── */
+  chat: (
+    <>
+      <path d="M20 4H4a2 2 0 0 0-2 2v15l4-4h14a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2z" />
+      <line x1="7" y1="9.5" x2="17" y2="9.5" />
+      <line x1="7" y1="13" x2="13" y2="13" />
+    </>
+  ),
+  forum: (
+    <>
+      <path d="M8 13H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h11a1 1 0 0 1 1 1v2" />
+      <path d="M9 8h11a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1h-2v3l-4-3H9a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z" />
+    </>
+  ),
+  folder_open: (
+    <>
+      <path d="M4 19V6a1 1 0 0 1 1-1h4l2 2h7a1 1 0 0 1 1 1v2" />
+      <path d="M2.6 11h18a1 1 0 0 1 .95 1.32l-1.7 6A1.5 1.5 0 0 1 18.4 19H4a1.4 1.4 0 0 1-1.4-1.4V11z" />
+    </>
+  ),
+  grid_view: (
+    <>
+      <rect x="3" y="3" width="7" height="7" rx="1.5" />
+      <rect x="14" y="3" width="7" height="7" rx="1.5" />
+      <rect x="3" y="14" width="7" height="7" rx="1.5" />
+      <rect x="14" y="14" width="7" height="7" rx="1.5" />
+    </>
+  ),
+  room_service: (
+    <>
+      <path d="M4 16a8 8 0 0 1 16 0" />
+      <line x1="3" y1="16" x2="21" y2="16" />
+      <line x1="4.5" y1="19" x2="19.5" y2="19" />
+      <line x1="12" y1="8.5" x2="12" y2="6" />
+      <circle cx="12" cy="5" r="1.4" fill="currentColor" stroke="none" />
+    </>
+  ),
+  notifications_active: (
+    <>
+      <path d="M18 8.5a6 6 0 0 0-12 0c0 6-2.5 7.5-2.5 7.5h17S18 14.5 18 8.5" />
+      <path d="M13.7 19a2 2 0 0 1-3.4 0" />
+      <path d="M2.5 6a7 7 0 0 1 2-3" />
+      <path d="M21.5 6a7 7 0 0 0-2-3" />
+    </>
+  ),
+  remove_shopping_cart: (
+    <>
+      <path d="M3 3h2l2.4 12.2a1 1 0 0 0 1 .8h8.6a1 1 0 0 0 1-.8l1.1-5.7" />
+      <line x1="13.5" y1="6.5" x2="21" y2="6.5" />
+      <circle cx="9.5" cy="20" r="1.4" fill="currentColor" stroke="none" />
+      <circle cx="17.5" cy="20" r="1.4" fill="currentColor" stroke="none" />
+    </>
+  ),
+  backspace: (
+    <>
+      <path d="M21 5H8.5a2 2 0 0 0-1.6.8L3 12l3.9 6.2a2 2 0 0 0 1.6.8H21a1 1 0 0 0 1-1V6a1 1 0 0 0-1-1z" />
+      <line x1="17" y1="9.5" x2="12.5" y2="14.5" />
+      <line x1="12.5" y1="9.5" x2="17" y2="14.5" />
+    </>
+  ),
+  today: (
+    <>
+      <rect x="3" y="5" width="18" height="16" rx="2" />
+      <line x1="3" y1="9.5" x2="21" y2="9.5" />
+      <line x1="8" y1="3" x2="8" y2="6.5" />
+      <line x1="16" y1="3" x2="16" y2="6.5" />
+      <rect x="7" y="12.5" width="4.5" height="3.5" rx="0.6" fill="currentColor" stroke="none" />
+    </>
+  ),
+  celebration: (
+    <>
+      <path d="M2.5 21.5l6.5-15 8.5 8.5-15 6.5z" />
+      <line x1="9" y1="6.5" x2="17.5" y2="15" strokeOpacity="0.4" />
+      <path d="M15 3.5l.7 1.6 1.6.7-1.6.7-.7 1.6-.7-1.6-1.6-.7 1.6-.7z" />
+      <line x1="19.5" y1="9" x2="21.5" y2="9" />
+      <line x1="18" y1="3" x2="18" y2="5" />
+    </>
+  ),
+  workspace_premium: (
+    <>
+      <circle cx="12" cy="9" r="6" />
+      <path d="M8.5 13.5L7 21l5-3 5 3-1.5-7.5" />
+      <path d="M12 6l1 2 2.1.3-1.5 1.5.4 2.1L12 11l-2 1 .4-2.1-1.5-1.5L11 8z" />
+    </>
+  ),
+  campaign: (
+    <>
+      <path d="M3 10v4h3l6 4V6L6 10H3z" />
+      <path d="M16 9a4 4 0 0 1 0 6" />
+      <path d="M19 6.5a7.5 7.5 0 0 1 0 11" />
+    </>
+  ),
+  bolt: (
+    <path d="M13 2L4 14h6l-1 8 9-12h-6l1-8z" />
+  ),
+  build: (
+    <path d="M14.7 6.3a4 4 0 0 0-5.4 5.4l-6 6a1.5 1.5 0 0 0 0 2.1l.9.9a1.5 1.5 0 0 0 2.1 0l6-6a4 4 0 0 0 5.4-5.4l-2.6 2.6-2.1-.5-.5-2.1 2.7-2.5z" />
+  ),
+  sports_esports: (
+    <>
+      <path d="M6.5 8h11a3 3 0 0 1 2.95 2.46l1 5.5A2.4 2.4 0 0 1 16.8 17l-1.3-2h-7l-1.3 2a2.4 2.4 0 0 1-4.65-1.04l1-5.5A3 3 0 0 1 6.5 8z" />
+      <line x1="7" y1="11.5" x2="10" y2="11.5" />
+      <line x1="8.5" y1="10" x2="8.5" y2="13" />
+      <circle cx="15" cy="11" r="1" fill="currentColor" stroke="none" />
+      <circle cx="17" cy="13" r="1" fill="currentColor" stroke="none" />
+    </>
+  ),
+  vrpano: (
+    <>
+      <path d="M3 7c6-1.6 12-1.6 18 0v10c-6-1.6-12-1.6-18 0V7z" />
+      <path d="M7 14l2.5-2.5 2.5 2 3.5-3.5" />
+    </>
+  ),
+  door_front: (
+    <>
+      <rect x="6" y="3" width="12" height="18" rx="1" />
+      <line x1="4" y1="21" x2="20" y2="21" />
+      <circle cx="14.5" cy="12" r="1" fill="currentColor" stroke="none" />
+    </>
+  ),
+  warehouse: (
+    <>
+      <path d="M3 21V8.5l9-4.5 9 4.5V21" />
+      <line x1="2" y1="21" x2="22" y2="21" />
+      <rect x="8" y="13" width="8" height="8" />
+      <line x1="8" y1="17" x2="16" y2="17" />
+    </>
+  ),
 }
 
 export function Icon({ name, size = 24, color, style, className }: IconProps) {
