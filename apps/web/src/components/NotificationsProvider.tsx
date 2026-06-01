@@ -18,6 +18,7 @@
 import {
   createContext, useContext, useState, useEffect, useRef, useCallback, useMemo,
 } from 'react'
+import { usePathname } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useAuthStore } from '@/store/auth.store'
 import { api } from '@/lib/api'
@@ -79,12 +80,16 @@ function playChime() {
 
 export function NotificationsProvider({ children }: { children: React.ReactNode }) {
   const { token, user } = useAuthStore()
+  const pathname = usePathname()
   const [notifications, setNotifications] = useState<AppNotification[]>([])
   const [toasts, setToasts] = useState<TransientToast[]>([])
   // id уже виденных уведомлений — защита от дублей (load + SSE re-emit одного и того же).
   const seenRef = useRef<Set<string>>(new Set())
 
-  const isStaff = !!token && !!user && ['owner', 'staff'].includes(user.role)
+  // Планшет-киоск работает под staff-токеном, но это УСТРОЙСТВО ГОСТЯ — на нём
+  // не показываем уведомления персонала (это сам гость их и инициирует).
+  const isTablet = pathname?.startsWith('/tablet') ?? false
+  const isStaff = !!token && !!user && ['owner', 'staff'].includes(user.role) && !isTablet
 
   // ── Загрузка истории + открытие SSE-потока ──────────────────────────────
   useEffect(() => {
