@@ -153,8 +153,7 @@ export default function InventoryPage() {
                   onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12 }} onClick={() => openEdit(item)}>
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 2 }}>{item.name}</div>
-                      <div style={{ fontSize: 11, color: 'var(--on-surface-variant)' }}>{item.category ?? '—'}</div>
+                      <div style={{ fontWeight: 700, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.name}</div>
                     </div>
                     {item.trackStock && lbl && (
                       <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 6, background: `${color}15`, color, fontFamily: "'JetBrains Mono',monospace", flexShrink: 0 }}>{lbl}</span>

@@ -1,235 +1,398 @@
 'use client'
-import React, { useState, useRef } from 'react'
+import React, { useState, useRef, useMemo, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { format } from 'date-fns'
 import { ru } from 'date-fns/locale'
 import { Icon } from '@/components/Icon'
-import { PageHeader, Sheet, Button, IconButton, INP, SEL, LBL, formatMoney } from '@/components/manage/DesignSystem'
+import { PageHeader, Sheet, INP, formatMoney, ConfirmDialog } from '@/components/manage/DesignSystem'
 import { StateView } from '@/components/StateView'
 import { useToast } from '@/components/Toast'
+import { useAuthStore } from '@/store/auth.store'
 
-const UNITS = ['кг', 'г', 'л', 'мл', 'шт']
+const round2 = (n: number) => Math.round(n * 100) / 100
+const num = (s: string) => { const n = parseFloat(String(s).replace(',', '.')); return Number.isFinite(n) ? n : 0 }
 
-interface SupplyItem { name: string; quantity: number; unit: string; costPerUnit: number }
-interface Supply { id: string; date: string; supplier?: string; items: SupplyItem[] }
-interface DraftItem extends SupplyItem { _key: number; itemId?: string; lastPrice?: number }
+interface SupplyItemDto { itemId?: string | null; name: string; unit: string; quantity: number; costPerUnit: number }
+interface Supply { id: string; date: string; totalCost?: string; items: SupplyItemDto[] }
+interface InvItem { id: string; name: string; stockQuantity: number }
 
-function emptyItem(): DraftItem {
-  return { _key: Date.now() + Math.random(), name: '', quantity: 1, unit: 'шт', costPerUnit: 0 }
+interface DraftItem {
+  _key: number
+  itemId?: string
+  name: string
+  quantity: string
+  costPerUnit: string
+  total: string
+  baseline?: number   // цена для сравнения: прошлая закупка (создание) или прежняя цена (правка)
 }
 
-function PriceDiff({ current, last }: { current: number; last: number | undefined }) {
-  if (!last || !current || last === current) return null
-  const diff = current - last
-  const isUp = diff > 0
+let keySeq = 1
+function newDraft(): DraftItem { return { _key: keySeq++, name: '', quantity: '1', costPerUnit: '', total: '' } }
+function draftFromItem(it: SupplyItemDto): DraftItem {
+  const q = it.quantity, c = it.costPerUnit
+  return {
+    _key: keySeq++,
+    itemId: it.itemId ?? undefined,
+    name: it.name && it.name !== '—' ? it.name : '',
+    quantity: String(q),
+    costPerUnit: c ? String(c) : '',
+    total: c ? String(round2(q * c)) : '',
+    baseline: c || undefined,
+  }
+}
+const lineTotal = (it: DraftItem) => num(it.total) || round2(num(it.quantity) * num(it.costPerUnit))
+
+const BTN_GRADIENT = 'linear-gradient(135deg, #8B5CF6, #4cd7f6)'
+
+function PriceNote({ current, baseline, isEdit }: { current: number; baseline?: number; isEdit: boolean }) {
+  if (!baseline || !current || current === baseline) return null
+  const diff = round2(current - baseline)
+  const up = diff > 0
+  const color = up ? '#F87171' : '#34D399'
+  const text = isEdit
+    ? `${up ? 'Подорожало' : 'Подешевело'} на ${formatMoney(Math.abs(diff))} (было ${formatMoney(baseline)})`
+    : `${up ? 'Подорожало' : 'Подешевело'} на ${formatMoney(Math.abs(diff))} с прошлой закупки`
   return (
-    <span style={{ fontSize: 10, fontWeight: 700, fontFamily: "'JetBrains Mono',monospace", padding: '2px 6px', borderRadius: 6, letterSpacing: '0.04em', marginLeft: 4, background: isUp ? 'rgba(251,113,133,0.15)' : 'rgba(16,185,129,0.15)', color: isUp ? 'var(--danger)' : 'var(--success)' }}>
-      {isUp ? '↑' : '↓'} {formatMoney(Math.abs(diff))}
-    </span>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 600, color, marginTop: 2 }}>
+      <Icon name={up ? 'trending_up' : 'trending_down'} size={14} color={color} />
+      {text}
+    </div>
   )
 }
 
+/* ─── Supply editor (создание + правка) ──────────────────────────── */
+function SupplyEditor({ open, supply, onClose, onSaved, onDelete }: {
+  open: boolean
+  supply: Supply | null
+  onClose: () => void
+  onSaved: () => void
+  onDelete?: () => void
+}) {
+  const { show } = useToast()
+  const isEdit = !!supply
+  const [items, setItems] = useState<DraftItem[]>([newDraft()])
+  const [focusedKey, setFocusedKey] = useState<number | null>(null)
+  const idemRef = useRef<string>('')
+
+  useEffect(() => {
+    if (!open) return
+    if (supply) {
+      setItems(supply.items.length ? supply.items.map(draftFromItem) : [newDraft()])
+    } else {
+      setItems([newDraft()])
+      idemRef.current = crypto.randomUUID()
+    }
+    setFocusedKey(null)
+  }, [open, supply])
+
+  const { data: invData } = useQuery({
+    queryKey: ['menu', 'items', 'all'],
+    queryFn: () => api.get<{ items: InvItem[] }>('/menu/items/all'),
+    enabled: open,
+  })
+  const invItems = invData?.items ?? []
+
+  const when = useMemo(() => (supply ? new Date(supply.date) : new Date()), [open, supply])
+  const dateStr = format(when, 'd MMMM yyyy', { locale: ru })
+  const timeStr = format(when, 'HH:mm', { locale: ru })
+
+  async function fetchLastPrice(itemId: string): Promise<number | null> {
+    try { const r = await api.get<{ lastPrice: number | null }>(`/supplies/items/${itemId}/last-price`); return r.lastPrice } catch { return null }
+  }
+
+  function patchItem(key: number, patch: Partial<DraftItem>) {
+    setItems(prev => prev.map(it => (it._key === key ? { ...it, ...patch } : it)))
+  }
+
+  // Синхронизация трёх полей: правка кол-ва/цены пересчитывает сумму;
+  // правка суммы пересчитывает цену за штуку (qty фиксирован).
+  function setQty(key: number, raw: string) {
+    setItems(prev => prev.map(it => {
+      if (it._key !== key) return it
+      const qn = num(raw), pn = num(it.costPerUnit), tn = num(it.total)
+      if (pn > 0) return { ...it, quantity: raw, total: qn ? String(round2(qn * pn)) : it.total }
+      if (tn > 0 && qn > 0) return { ...it, quantity: raw, costPerUnit: String(round2(tn / qn)) }
+      return { ...it, quantity: raw }
+    }))
+  }
+  function setPerUnit(key: number, raw: string) {
+    setItems(prev => prev.map(it => {
+      if (it._key !== key) return it
+      const qn = num(it.quantity), pn = num(raw)
+      return { ...it, costPerUnit: raw, total: qn && pn ? String(round2(qn * pn)) : it.total }
+    }))
+  }
+  function setTotal(key: number, raw: string) {
+    setItems(prev => prev.map(it => {
+      if (it._key !== key) return it
+      const qn = num(it.quantity), tn = num(raw)
+      return { ...it, total: raw, costPerUnit: qn > 0 ? String(round2(tn / qn)) : it.costPerUnit }
+    }))
+  }
+
+  function updateName(key: number, value: string) {
+    // Ручной ввод отвязывает позицию от карточки склада (становится свободной строкой).
+    patchItem(key, { name: value, itemId: undefined })
+  }
+
+  async function pickInv(key: number, inv: InvItem) {
+    setItems(prev => prev.map(it => (it._key === key ? { ...it, itemId: inv.id, name: inv.name } : it)))
+    setFocusedKey(null)
+    const last = await fetchLastPrice(inv.id)
+    setItems(prev => prev.map(it => {
+      if (it._key !== key || it.itemId !== inv.id) return it
+      if (last == null) return { ...it, baseline: undefined }
+      const hadPrice = num(it.costPerUnit) > 0
+      const cost = hadPrice ? it.costPerUnit : String(last)
+      const qn = num(it.quantity), cn = num(cost)
+      return { ...it, baseline: last, costPerUnit: cost, total: qn && cn ? String(round2(qn * cn)) : it.total }
+    }))
+  }
+
+  function rowError(it: DraftItem): string | null {
+    if (!it.name.trim()) return 'Укажите название'
+    const q = num(it.quantity)
+    if (!(q > 0)) return 'Количество должно быть больше 0'
+    if (it.itemId && !Number.isInteger(q)) return 'Для складской позиции количество должно быть целым'
+    return null
+  }
+  const hasErrors = items.length === 0 || items.some(it => rowError(it) !== null)
+  const grandTotal = items.reduce((s, it) => s + lineTotal(it), 0)
+
+  const save = useMutation({
+    mutationFn: (payload: any) => isEdit
+      ? api.patch(`/supplies/${supply!.id}`, payload)
+      : api.post('/supplies', { ...payload, idempotencyKey: idemRef.current }),
+    onSuccess: () => { if (!isEdit) idemRef.current = crypto.randomUUID(); onSaved() },
+    onError: () => show(isEdit ? 'Не удалось сохранить изменения' : 'Не удалось сохранить закупку', 'error'),
+  })
+
+  function submit() {
+    const payload = {
+      items: items.map(it => ({
+        itemId: it.itemId,
+        name: it.name.trim(),
+        unit: 'шт',
+        quantity: num(it.quantity),
+        costPerUnit: num(it.costPerUnit),
+      })),
+    }
+    save.mutate(payload)
+  }
+
+  return (
+    <Sheet open={open} onClose={onClose} title={isEdit ? 'Закупка' : 'Новая закупка'} desktopSize="lg">
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        {/* Дата = название закупки, время — подзаголовок */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', borderRadius: 14, background: 'rgba(139,92,246,0.1)', border: '1px solid rgba(139,92,246,0.2)' }}>
+          <div style={{ width: 42, height: 42, borderRadius: 12, background: 'rgba(139,92,246,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <Icon name="event" size={22} color="#a78bfa" />
+          </div>
+          <div>
+            <p style={{ fontSize: 16, fontWeight: 800, margin: 0, color: 'var(--on-surface)' }}>{dateStr}</p>
+            <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: '1px 0 0' }}>{isEdit ? 'Закупка' : 'Новая закупка'} · {timeStr}</p>
+          </div>
+        </div>
+
+        {/* Карточки позиций */}
+        {items.map((it, idx) => {
+          const err = rowError(it)
+          const sugg = (it.name.trim()
+            ? invItems.filter(inv => inv.name.toLowerCase().includes(it.name.toLowerCase()))
+            : invItems
+          ).filter(inv => inv.id !== it.itemId).slice(0, 6)
+          const showDrop = focusedKey === it._key && sugg.length > 0
+          return (
+            <div key={it._key} className="glass-l1" style={{ borderRadius: 14, padding: 12 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--on-surface-variant)' }}>
+                  Позиция {idx + 1}
+                  {it.itemId && <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 5, background: 'rgba(16,185,129,0.15)', color: '#34D399' }}>склад</span>}
+                </span>
+                {items.length > 1 && (
+                  <button onClick={() => setItems(prev => prev.filter(x => x._key !== it._key))} aria-label="Удалить позицию" style={{ width: 30, height: 30, borderRadius: 8, border: '1px solid rgba(244,63,94,0.2)', background: 'rgba(244,63,94,0.08)', color: '#F87171', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <Icon name="delete" size={15} />
+                  </button>
+                )}
+              </div>
+
+              {/* Название с автоподбором из склада */}
+              <div style={{ position: 'relative', marginBottom: 8 }}>
+                <input
+                  placeholder="Название позиции"
+                  value={it.name}
+                  onChange={e => updateName(it._key, e.target.value)}
+                  onFocus={() => setFocusedKey(it._key)}
+                  onBlur={() => setTimeout(() => setFocusedKey(k => (k === it._key ? null : k)), 150)}
+                  style={INP}
+                />
+                {showDrop && (
+                  <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, marginTop: 4, zIndex: 30, background: '#1d1a24', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 12, overflow: 'hidden', boxShadow: '0 12px 32px rgba(0,0,0,0.5)' }}>
+                    {sugg.map(inv => (
+                      <button
+                        key={inv.id}
+                        onMouseDown={e => { e.preventDefault(); pickInv(it._key, inv) }}
+                        style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '10px 12px', background: 'none', border: 'none', borderBottom: '1px solid rgba(255,255,255,0.05)', cursor: 'pointer', textAlign: 'left' }}
+                      >
+                        <span style={{ fontSize: 13, color: 'var(--on-surface)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{inv.name}</span>
+                        <span style={{ fontSize: 11, color: 'var(--on-surface-variant)', flexShrink: 0, fontFamily: "'JetBrains Mono',monospace" }}>{inv.stockQuantity} шт</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Количество · за штуку · общая (синхронизированы) */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+                <FieldBox label="Кол-во">
+                  <input type="number" min={0} step={it.itemId ? 1 : 'any'} inputMode={it.itemId ? 'numeric' : 'decimal'} value={it.quantity} onChange={e => setQty(it._key, e.target.value)} style={miniInp} />
+                </FieldBox>
+                <FieldBox label="За штуку, ₽">
+                  <input type="number" min={0} inputMode="decimal" value={it.costPerUnit} onChange={e => setPerUnit(it._key, e.target.value)} placeholder="0" style={miniInp} />
+                </FieldBox>
+                <FieldBox label="Сумма, ₽">
+                  <input type="number" min={0} inputMode="decimal" value={it.total} onChange={e => setTotal(it._key, e.target.value)} placeholder="0" style={miniInp} />
+                </FieldBox>
+              </div>
+
+              <PriceNote current={num(it.costPerUnit)} baseline={it.baseline} isEdit={isEdit} />
+              {err && <p style={{ margin: '6px 0 0', fontSize: 11, fontWeight: 600, color: '#F87171' }}>{err}</p>}
+            </div>
+          )
+        })}
+
+        {/* Добавить позицию (как «Новый чек» — градиент) */}
+        <button
+          onClick={() => setItems(prev => [...prev, newDraft()])}
+          style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, width: '100%', padding: '13px 0', borderRadius: 14, border: 'none', cursor: 'pointer', background: BTN_GRADIENT, color: '#fff', fontSize: 14, fontWeight: 700, boxShadow: '0 4px 16px rgba(139,92,246,0.4)' }}
+        >
+          <Icon name="add" size={18} color="#fff" /> Добавить позицию
+        </button>
+
+        {/* Итог */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', borderRadius: 14, background: 'rgba(255,255,255,0.05)' }}>
+          <span style={{ fontSize: 14, color: 'var(--on-surface-variant)' }}>Итого по закупке</span>
+          <span style={{ fontSize: 20, fontWeight: 800, color: 'var(--on-surface)', fontVariantNumeric: 'tabular-nums' }}>{formatMoney(grandTotal)}</span>
+        </div>
+
+        <button
+          onClick={submit}
+          disabled={hasErrors || save.isPending}
+          style={{ width: '100%', padding: '15px 0', borderRadius: 14, border: 'none', cursor: hasErrors ? 'not-allowed' : 'pointer', background: BTN_GRADIENT, color: '#fff', fontSize: 15, fontWeight: 700, opacity: hasErrors ? 0.5 : 1 }}
+        >
+          {save.isPending ? 'Сохраняем…' : isEdit ? 'Сохранить изменения' : 'Создать закупку'}
+        </button>
+
+        {isEdit && onDelete && (
+          <button
+            onClick={onDelete}
+            style={{ width: '100%', padding: '12px 0', borderRadius: 14, border: '1px solid rgba(244,63,94,0.25)', cursor: 'pointer', background: 'rgba(244,63,94,0.08)', color: '#F87171', fontSize: 14, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+          >
+            <Icon name="delete" size={16} color="#F87171" /> Удалить закупку
+          </button>
+        )}
+      </div>
+    </Sheet>
+  )
+}
+
+const miniInp: React.CSSProperties = { width: '100%', boxSizing: 'border-box', padding: '9px 8px', borderRadius: 10, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.04)', color: 'var(--on-surface)', fontSize: 14, fontWeight: 600, textAlign: 'center' }
+function FieldBox({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <p style={{ fontSize: 10, fontWeight: 600, color: 'var(--on-surface-variant)', margin: '0 0 4px', textAlign: 'center' }}>{label}</p>
+      {children}
+    </div>
+  )
+}
+
+/* ─── Page ───────────────────────────────────────────────────────── */
 export default function SuppliesPage() {
   const qc = useQueryClient()
   const { show } = useToast()
-  const [expanded, setExpanded] = useState<string | null>(null)
-  const [showModal, setShowModal] = useState(false)
-  const [supplier, setSupplier] = useState('')
-  const [items, setItems] = useState<DraftItem[]>([emptyItem()])
+  const isOwner = useAuthStore(s => s.user?.role) === 'owner'
 
-  const { data, isLoading } = useQuery({
-    queryKey: ['supplies'],
-    queryFn: () => api.get<{ supplies: Supply[] }>('/supplies'),
+  const [editorOpen, setEditorOpen] = useState(false)
+  const [editing, setEditing] = useState<Supply | null>(null)
+  const [confirmDel, setConfirmDel] = useState<Supply | null>(null)
+
+  const { data, isLoading } = useQuery({ queryKey: ['supplies'], queryFn: () => api.get<{ supplies: Supply[] }>('/supplies') })
+  const supplies = useMemo(
+    () => [...(data?.supplies ?? [])].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()),
+    [data],
+  )
+
+  function invalidateAll() {
+    qc.invalidateQueries({ queryKey: ['supplies'] })
+    qc.invalidateQueries({ queryKey: ['menu-items-inventory'] })
+    qc.invalidateQueries({ queryKey: ['menu', 'items', 'all'] })
+  }
+
+  const delMut = useMutation({
+    mutationFn: (id: string) => api.delete(`/supplies/${id}`),
+    onSuccess: () => { invalidateAll(); setConfirmDel(null) },
+    onError: () => { setConfirmDel(null); show('Не удалось удалить закупку', 'error') },
   })
 
-  const { data: inventoryData } = useQuery({
-    queryKey: ['menu', 'items', 'all'],
-    queryFn: () => api.get<{ items: { id: string; name: string; stockQuantity: number }[] }>('/menu/items/all'),
-    enabled: showModal,
-  })
-  const inventoryItems = inventoryData?.items ?? []
-
-  async function fetchLastPrice(itemId: string): Promise<number | null> {
-    try { const res = await api.get<{ lastPrice: number | null }>(`/supplies/items/${itemId}/last-price`); return res.lastPrice } catch { return null }
-  }
-
-  async function handleInventorySelect(key: number, itemId: string) {
-    // FIX #7: «— ввести вручную —» (пустой itemId) должен отвязать позицию от
-    // инвентаря, иначе закупка уйдёт против старого itemId.
-    if (!itemId) {
-      setItems(prev => prev.map(i => i._key === key ? { ...i, itemId: undefined, lastPrice: undefined } : i))
-      return
-    }
-    const invItem = inventoryItems.find(i => i.id === itemId)
-    if (!invItem) return
-    setItems(prev => prev.map(i => i._key === key ? { ...i, itemId, name: invItem.name } : i))
-    const lastPrice = await fetchLastPrice(itemId)
-    // FIX #11: за время await пользователь мог переключить позицию — применяем
-    // результат только если в строке всё ещё выбран тот же itemId.
-    setItems(prev => prev.map(i => i._key === key && i.itemId === itemId ? { ...i, lastPrice: lastPrice ?? undefined } : i))
-  }
-
-  // Идемпотентный ключ: защита от двойного клика (двойной приход + COGS).
-  const idemRef = useRef(crypto.randomUUID())
-  const create = useMutation({
-    mutationFn: (body: { supplier: string; items: { itemId?: string; name: string; unit: string; quantity: number; costPerUnit: number }[] }) =>
-      api.post('/supplies', { ...body, idempotencyKey: idemRef.current }),
-    onSuccess: () => {
-      idemRef.current = crypto.randomUUID()
-      qc.invalidateQueries({ queryKey: ['supplies'] })
-      // Приход увеличил stockQuantity на сервере — обновляем «Остатки», «Ревизию»
-      // (['menu-items-inventory']) и выпадающий список инвентаря (['menu','items','all']),
-      // иначе показывают устаревший остаток и риск двойной коррекции.
-      qc.invalidateQueries({ queryKey: ['menu-items-inventory'] })
-      qc.invalidateQueries({ queryKey: ['menu', 'items', 'all'] })
-      setShowModal(false); setSupplier(''); setItems([emptyItem()])
-    },
-    onError: () => show('Не удалось сохранить закупку', 'error'),
-  })
-
-  const supplies = [...(data?.supplies ?? [])].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-  const totalCost = items.reduce((s, i) => s + i.quantity * i.costPerUnit, 0)
-
-  // FIX #5 + #8: позиция невалидна, если нет названия, кол-во ≤ 0, либо у привязанной
-  // к инвентарю (tracked) позиции дробное количество — бэкенд требует целое.
-  function rowError(i: DraftItem): string | null {
-    if (!i.name.trim()) return 'Укажите название'
-    if (!(i.quantity > 0)) return 'Кол-во должно быть больше 0'
-    if (i.itemId && !Number.isInteger(i.quantity)) return 'Для складской позиции кол-во должно быть целым'
-    return null
-  }
-  const hasErrors = items.some(i => rowError(i) !== null)
-
-  function updateItem(key: number, field: keyof SupplyItem, value: string | number) {
-    setItems(prev => prev.map(i => (i._key === key ? { ...i, [field]: value } : i)))
-  }
-
-  function handleSubmit() {
-    create.mutate({ supplier, items: items.map(({ itemId, name, quantity, unit, costPerUnit }) => ({ itemId, name, quantity, unit, costPerUnit })) })
-  }
-
-  const pluralSupplyWord = supplies.length === 1 ? 'закупка' : supplies.length >= 2 && supplies.length <= 4 ? 'закупки' : 'закупок'
+  const pluralWord = supplies.length === 1 ? 'закупка' : supplies.length >= 2 && supplies.length <= 4 ? 'закупки' : 'закупок'
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100dvh' }}>
       <PageHeader
         title="Закупки"
-        subtitle={`${supplies.length} ${pluralSupplyWord}`}
-        action={{ label: 'Добавить', icon: 'add', onClick: () => setShowModal(true) }}
+        subtitle={`${supplies.length} ${pluralWord}`}
+        action={{ label: 'Новая', icon: 'add', onClick: () => { setEditing(null); setEditorOpen(true) } }}
       />
 
-      <div style={{ padding: '16px 16px var(--bottom-nav-clear, 24px)', display: 'flex', flexDirection: 'column', gap: 10, maxWidth: 680, margin: '0 auto', width: '100%' }}>
+      <div style={{ padding: '16px 16px var(--bottom-nav-clear, 24px)', display: 'flex', flexDirection: 'column', gap: 10, maxWidth: 680, margin: '0 auto', width: '100%', boxSizing: 'border-box' }}>
         {isLoading && !data ? (
           <StateView state="loading" />
         ) : supplies.length === 0 ? (
           <StateView state="empty" icon="inventory_2" title="Закупок нет" />
         ) : (
           supplies.map(supply => {
-            const total = supply.items.reduce((s, i) => s + i.quantity * i.costPerUnit, 0)
-            const isOpen = expanded === supply.id
+            const total = Number(supply.totalCost ?? 0) || supply.items.reduce((s, i) => s + i.quantity * i.costPerUnit, 0)
             return (
-              <div key={supply.id} className="glass-l2" style={{ borderRadius: 16, overflow: 'hidden' }}>
-                <button onClick={() => setExpanded(isOpen ? null : supply.id)} style={{ width: '100%', background: 'none', border: 'none', cursor: 'pointer', padding: '16px', display: 'flex', alignItems: 'center', gap: 12, textAlign: 'left' }}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                      <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--on-surface)' }}>{format(new Date(supply.date), 'd MMM yyyy', { locale: ru })}</span>
-                      <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 20, background: 'rgba(255,255,255,0.08)', color: 'var(--on-surface-variant)' }}>{supply.items.length} поз.</span>
-                    </div>
-                    {supply.supplier && <p style={{ margin: 0, fontSize: 12, color: 'var(--on-surface-variant)' }}>{supply.supplier}</p>}
-                  </div>
-                  <p style={{ margin: 0, fontSize: 16, fontWeight: 700, color: 'var(--on-surface)', flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>{formatMoney(total)}</p>
-                  <Icon name="expand_more" size={20} color="var(--on-surface-variant)" style={{ transform: isOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
-                </button>
-                {isOpen && (
-                  <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', padding: '12px 16px 16px' }}>
-                    {supply.items.map((item, idx) => (
-                      <div key={idx} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 0', borderBottom: idx < supply.items.length - 1 ? '1px solid rgba(255,255,255,0.04)' : 'none' }}>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <p style={{ margin: 0, fontSize: 13, fontWeight: 500, color: 'var(--on-surface)' }}>{item.name}</p>
-                          <p style={{ margin: '2px 0 0', fontSize: 11, color: 'var(--on-surface-variant)' }}>{item.quantity} {item.unit} × {formatMoney(item.costPerUnit)}</p>
-                        </div>
-                        <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--on-surface)', flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>{formatMoney(item.quantity * item.costPerUnit)}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
+              <button
+                key={supply.id}
+                onClick={() => { setEditing(supply); setEditorOpen(true) }}
+                className="glass-l2"
+                style={{ borderRadius: 16, padding: 16, display: 'flex', alignItems: 'center', gap: 12, textAlign: 'left', cursor: 'pointer', border: '1px solid rgba(255,255,255,0.08)', width: '100%' }}
+              >
+                <div style={{ width: 44, height: 44, borderRadius: 12, background: 'rgba(139,92,246,0.13)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  <Icon name="local_shipping" size={22} color="#a78bfa" />
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <p style={{ fontSize: 15, fontWeight: 700, margin: 0, color: 'var(--on-surface)' }}>{format(new Date(supply.date), 'd MMMM yyyy', { locale: ru })}</p>
+                  <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: '2px 0 0' }}>{format(new Date(supply.date), 'HH:mm', { locale: ru })} · {supply.items.length} поз.</p>
+                </div>
+                <p style={{ margin: 0, fontSize: 16, fontWeight: 800, color: 'var(--on-surface)', flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>{formatMoney(total)}</p>
+                <Icon name="chevron_right" size={20} color="var(--on-surface-variant)" />
+              </button>
             )
           })
         )}
       </div>
 
-      <Sheet open={showModal} onClose={() => setShowModal(false)} title="Новая закупка" desktopSize="lg">
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <div><label style={LBL}>Поставщик</label><input value={supplier} onChange={e => setSupplier(e.target.value)} placeholder="Название поставщика" style={INP} /></div>
+      <SupplyEditor
+        open={editorOpen}
+        supply={editing}
+        onClose={() => setEditorOpen(false)}
+        onSaved={() => { invalidateAll(); setEditorOpen(false) }}
+        onDelete={editing && isOwner ? () => { const s = editing; setEditorOpen(false); setConfirmDel(s) } : undefined}
+      />
 
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-              <label style={{ ...LBL, margin: 0 }}>Позиции</label>
-              <button onClick={() => setItems(prev => [...prev, emptyItem()])} style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'none', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 8, padding: '6px 10px', cursor: 'pointer', fontSize: 12, color: 'var(--on-surface)' }}>
-                <Icon name="add" size={14} />Добавить
-              </button>
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              {items.map((item, idx) => (
-                <div key={item._key} className="glass-l1" style={{ borderRadius: 12, padding: 12 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-                    <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--on-surface-variant)' }}>Позиция {idx + 1}</span>
-                    {items.length > 1 && (
-                      <IconButton icon="delete" ariaLabel="Удалить позицию" variant="danger" size={32} onClick={() => setItems(prev => prev.filter(i => i._key !== item._key))} />
-                    )}
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    {inventoryItems.length > 0 && (
-                      <div>
-                        <label style={LBL}>Из инвентаря (опционально)</label>
-                        <select value={item.itemId ?? ''} onChange={e => handleInventorySelect(item._key, e.target.value)} style={SEL}>
-                          <option value="">— ввести вручную —</option>
-                          {inventoryItems.map(inv => <option key={inv.id} value={inv.id}>{inv.name}</option>)}
-                        </select>
-                      </div>
-                    )}
-                    <input placeholder="Название *" value={item.name} onChange={e => updateItem(item._key, 'name', e.target.value)} style={INP} />
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
-                      <div>
-                        <label style={LBL}>Кол-во{item.itemId ? ' (целое)' : ''}</label>
-                        {/* FIX #5: для складской (tracked) позиции кол-во должно быть целым (step=1),
-                            для затратных позиций без itemId — разрешаем дробное. */}
-                        <input
-                          type="number"
-                          min={0}
-                          step={item.itemId ? 1 : 'any'}
-                          inputMode={item.itemId ? 'numeric' : 'decimal'}
-                          value={item.quantity}
-                          onChange={e => {
-                            const raw = e.target.value
-                            const parsed = item.itemId ? parseInt(raw, 10) : parseFloat(raw)
-                            updateItem(item._key, 'quantity', Number.isFinite(parsed) ? parsed : 0)
-                          }}
-                          style={INP}
-                        />
-                      </div>
-                      <div><label style={LBL}>Ед.</label><select value={item.unit} onChange={e => updateItem(item._key, 'unit', e.target.value)} style={SEL}>{UNITS.map(u => <option key={u} value={u}>{u}</option>)}</select></div>
-                      <div><label style={{ ...LBL, display: 'flex', alignItems: 'center' }}>Цена/ед.<PriceDiff current={item.costPerUnit} last={item.lastPrice} /></label><input type="number" min={0} inputMode="decimal" value={item.costPerUnit} onChange={e => updateItem(item._key, 'costPerUnit', parseFloat(e.target.value) || 0)} style={INP} /></div>
-                    </div>
-                    {rowError(item) && (
-                      <p style={{ margin: 0, fontSize: 11, fontWeight: 600, color: 'var(--danger)' }}>{rowError(item)}</p>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', borderRadius: 12, background: 'rgba(255,255,255,0.05)' }}>
-            <span style={{ fontSize: 13, color: 'var(--on-surface-variant)' }}>Итого</span>
-            <span style={{ fontSize: 18, fontWeight: 700, color: 'var(--on-surface)', fontVariantNumeric: 'tabular-nums' }}>{formatMoney(totalCost)}</span>
-          </div>
-
-          <Button fullWidth size="lg" loading={create.isPending} disabled={hasErrors} onClick={handleSubmit}>Сохранить закупку</Button>
-        </div>
-      </Sheet>
+      <ConfirmDialog
+        open={!!confirmDel}
+        onClose={() => setConfirmDel(null)}
+        onConfirm={() => confirmDel && delMut.mutate(confirmDel.id)}
+        title="Удалить закупку?"
+        message={confirmDel ? `Закупка от ${format(new Date(confirmDel.date), 'd MMMM yyyy', { locale: ru })} будет удалена, а принятый остаток снят со склада.` : undefined}
+        confirmLabel="Удалить"
+        danger
+        loading={delMut.isPending}
+      />
     </div>
   )
 }

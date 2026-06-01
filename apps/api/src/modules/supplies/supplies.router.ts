@@ -164,6 +164,93 @@ suppliesRouter.get('/:id', async (c) => {
   return c.json({ supply: { ...supply, date: supply.createdAt }, items })
 })
 
+// PATCH /supplies/:id — корректировка проведённой закупки (owner/staff). Остаток
+// пересчитываем по NET-дельте на карточку: delta = новое_кол-во − старое_кол-во,
+// применяем к stockQuantity (не ниже 0) и пишем аудит-движение «Корректировка
+// закупки». Операция ИДЕМПОТЕНТНА: повторный PATCH с тем же телом даёт дельту 0
+// (склад уже синхронизирован), поэтому ключ идемпотентности не нужен.
+// costPrice (средневзвешенную) при правке НЕ трогаем — пересчёт задним числом
+// повредил бы её при последующих закупках; то же ограничение, что и у удаления.
+const SupplyEditSchema = z.object({
+  note: z.string().optional(),
+  items: z.array(z.object({
+    itemId: z.string().uuid().optional(),
+    name: z.string().optional(),
+    unit: z.string().default('шт'),
+    quantity: z.number().positive(),
+    costPerUnit: z.number().min(0),
+  }).refine(i => !!i.itemId || !!(i.name && i.name.trim()), {
+    message: 'Нужно указать товар или название позиции',
+  }).refine(i => !i.itemId || Number.isInteger(i.quantity), {
+    message: 'Для товара с карточкой количество должно быть целым',
+    path: ['quantity'],
+  })).min(1),
+})
+
+suppliesRouter.patch('/:id', requireRole('owner', 'staff'), zValidator('json', SupplyEditSchema), async (c) => {
+  const user = c.get('user')
+  const id = c.req.param('id')
+  const body = c.req.valid('json')
+  const totalCost = round2(body.items.reduce((s, i) => s + i.quantity * i.costPerUnit, 0))
+
+  const result = await db.transaction(async (tx) => {
+    const [supply] = await tx.select().from(supplies).where(eq(supplies.id, id)).for('update')
+    if (!supply) return null
+
+    // Старые количества по карточкам (целые) — для расчёта дельты.
+    const oldLines = await tx.select().from(supplyItems).where(eq(supplyItems.supplyId, id))
+    const oldByItem = new Map<string, number>()
+    for (const l of oldLines) {
+      if (!l.itemId) continue
+      oldByItem.set(l.itemId, (oldByItem.get(l.itemId) ?? 0) + Math.round(Number(l.quantity)))
+    }
+
+    // Перезаписываем состав закупки.
+    await tx.delete(supplyItems).where(eq(supplyItems.supplyId, id))
+    await tx.insert(supplyItems).values(body.items.map(i => ({
+      supplyId: id,
+      itemId: i.itemId ?? null,
+      name: i.name ?? null,
+      unit: i.unit,
+      quantity: String(i.quantity),
+      costPerUnit: String(i.costPerUnit),
+    })))
+
+    const newByItem = new Map<string, number>()
+    for (const i of body.items) {
+      if (!i.itemId) continue
+      newByItem.set(i.itemId, (newByItem.get(i.itemId) ?? 0) + i.quantity)
+    }
+
+    // Сверяем остаток по каждой затронутой карточке (старые ∪ новые).
+    const allIds = new Set<string>([...oldByItem.keys(), ...newByItem.keys()])
+    for (const itemId of allIds) {
+      const delta = (newByItem.get(itemId) ?? 0) - (oldByItem.get(itemId) ?? 0)
+      if (delta === 0) continue
+      const [inv] = await tx.select().from(inventory).where(eq(inventory.id, itemId)).for('update')
+      if (!inv) continue
+      const oldQty = inv.stockQuantity ?? 0
+      const newQty = Math.max(0, oldQty + delta)
+      const actualDelta = newQty - oldQty
+      if (actualDelta === 0) continue
+      await tx.update(inventory).set({ stockQuantity: newQty, updatedAt: new Date() }).where(eq(inventory.id, itemId))
+      await tx.insert(stockMovements).values({
+        itemId,
+        delta: actualDelta,
+        newQuantity: newQty,
+        reason: 'Корректировка закупки',
+        createdBy: user.sub,
+      })
+    }
+
+    await tx.update(supplies).set({ totalCost: String(totalCost), note: body.note ?? supply.note }).where(eq(supplies.id, id))
+    return { ...supply, totalCost: String(totalCost) }
+  })
+
+  if (!result) return c.json({ error: 'Not found' }, 404)
+  return c.json({ supply: result })
+})
+
 // DELETE /supplies/:id — откат приёмки (только владелец). В транзакции:
 // для каждой позиции с карточкой снимаем принятое количество с остатка
 // (не уходя ниже 0) и пишем компенсирующее движение, затем удаляем приёмку
