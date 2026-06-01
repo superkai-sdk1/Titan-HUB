@@ -30,6 +30,9 @@ function pluralVisits(n: number) {
   if (b === 1) return 'посещение'
   return 'посещений'
 }
+function adjBtnStyle(color: string): React.CSSProperties {
+  return { flex: 1, padding: '12px 0', borderRadius: 12, border: `1px solid ${color}40`, background: `${color}14`, color, fontSize: 14, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6 }
+}
 
 export default function ClientsPage() {
   const qc = useQueryClient()
@@ -47,8 +50,10 @@ export default function ClientsPage() {
   const [newTier, setNewTier] = useState({ label: '', color: '#8B5CF6' })
   const [tagsInput, setTagsInput] = useState('')
   const [tgQr, setTgQr] = useState<{ deepLink: string; qrDataUrl: string } | null>(null)
-  const [topUpBon, setTopUpBon] = useState('')
-  const [adjBonVal, setAdjBonVal] = useState('')
+  // Модалка начисления/списания (баланс или бонусы).
+  const [adjModal, setAdjModal] = useState<{ kind: 'balance' | 'bonus'; op: 'add' | 'sub' } | null>(null)
+  const [adjAmount, setAdjAmount] = useState('')
+  const [adjComment, setAdjComment] = useState('')
   const [page, setPage] = useState(1)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -114,7 +119,19 @@ export default function ClientsPage() {
     onError: () => show('Не удалось сохранить изменения', 'error'),
   })
   const adjBal = useMutation({ mutationFn: ({ id, amount, reason }: any) => api.post(`/clients/${id}/balance`, { amount, reason: reason ?? 'Корректировка баланса' }), onSuccess: (_r, vars: any) => { qc.invalidateQueries({ queryKey: ['clients'] }); setSelected((s: any) => s ? { ...s, balance: parseNum(s.balance) + parseNum(vars.amount) } : s) }, onError: () => show('Не удалось изменить баланс', 'error') })
-  const adjBon = useMutation({ mutationFn: ({ id, amount, reason }: any) => api.post(`/clients/${id}/bonus`, { amount, reason: reason ?? 'Корректировка бонусов' }), onSuccess: (_r, vars: any) => { qc.invalidateQueries({ queryKey: ['clients'] }); setSelected((s: any) => s ? { ...s, bonusPoints: parseNum(s.bonusPoints) + parseNum(vars.amount) } : s); setTopUpBon(''); setAdjBonVal('') }, onError: () => show('Не удалось изменить бонусы', 'error') })
+  const adjBon = useMutation({ mutationFn: ({ id, amount, reason }: any) => api.post(`/clients/${id}/bonus`, { amount, reason: reason ?? 'Корректировка бонусов' }), onSuccess: (_r, vars: any) => { qc.invalidateQueries({ queryKey: ['clients'] }); setSelected((s: any) => s ? { ...s, bonusPoints: parseNum(s.bonusPoints) + parseNum(vars.amount) } : s) }, onError: () => show('Не удалось изменить бонусы', 'error') })
+
+  function openAdj(kind: 'balance' | 'bonus', op: 'add' | 'sub') { setAdjModal({ kind, op }); setAdjAmount(''); setAdjComment('') }
+  function confirmAdj() {
+    if (!selected || !adjModal) return
+    const amt = Math.abs(Number(adjAmount))
+    if (!(amt > 0) || adjComment.trim().length < 3) return
+    const signed = adjModal.op === 'add' ? amt : -amt
+    const args = { id: selected.id, amount: signed, reason: adjComment.trim() }
+    if (adjModal.kind === 'balance') adjBal.mutate(args)
+    else adjBon.mutate(args)
+    setAdjModal(null); setAdjAmount(''); setAdjComment('')
+  }
   const telegramLinkMut = useMutation({ mutationFn: (id: string) => api.post<any>(`/clients/${id}/telegram-link`, {}), onSuccess: (res: any) => { setTgQr({ deepLink: res.deepLink, qrDataUrl: res.qrDataUrl }) }, onError: () => show('Не удалось создать ссылку привязки', 'error') })
 
   const clients: any[] = data?.clients ?? []
@@ -131,7 +148,7 @@ export default function ClientsPage() {
     setMode('view')
     setTab('info')
     setTgQr(null)
-    setTopUpBon(''); setAdjBonVal('')
+    setAdjModal(null); setAdjAmount(''); setAdjComment('')
   }
 
   // Перевод в режим редактирования: заполняем форму из выбранного клиента.
@@ -366,20 +383,20 @@ export default function ClientsPage() {
 
               {tab === 'info' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                  {/* Пополнить бонусный баланс */}
+                  {/* Баланс — начислить / списать */}
                   <div>
-                    <p style={{ ...LBL, marginBottom: 10 }}>Пополнить бонусный баланс</p>
+                    <p style={{ ...LBL, marginBottom: 10 }}>Баланс (₽)</p>
                     <div style={{ display: 'flex', gap: 8 }}>
-                      <input type="number" value={topUpBon} onChange={e => setTopUpBon(e.target.value)} placeholder="Сумма начисления" style={{ ...INP, flex: 1 }} />
-                      <button onClick={() => adjBon.mutate({ id: selected.id, amount: Math.abs(Number(topUpBon)), reason: 'Начисление' })} disabled={!topUpBon || adjBon.isPending} style={{ padding: '12px 16px', borderRadius: 12, border: 'none', background: '#EAB308', color: '#000', fontSize: 13, fontWeight: 700, cursor: 'pointer', flexShrink: 0, opacity: !topUpBon ? 0.6 : 1 }}>Начислить</button>
+                      <button onClick={() => openAdj('balance', 'add')} style={adjBtnStyle('#10B981')}><Icon name="add" size={16} />Начислить</button>
+                      <button onClick={() => openAdj('balance', 'sub')} style={adjBtnStyle('#F43F5E')}><Icon name="remove" size={16} />Списать</button>
                     </div>
                   </div>
-                  {/* Изменить бонусный баланс (+/-) */}
+                  {/* Бонусы — начислить / списать */}
                   <div>
-                    <p style={{ ...LBL, marginBottom: 10 }}>Изменить бонусный баланс</p>
+                    <p style={{ ...LBL, marginBottom: 10 }}>Бонусы (⭐)</p>
                     <div style={{ display: 'flex', gap: 8 }}>
-                      <input type="number" value={adjBonVal} onChange={e => setAdjBonVal(e.target.value)} placeholder="+100 или -100" style={{ ...INP, flex: 1 }} />
-                      <button onClick={() => adjBon.mutate({ id: selected.id, amount: Number(adjBonVal), reason: 'Корректировка' })} disabled={!adjBonVal || adjBon.isPending} style={{ padding: '12px 16px', borderRadius: 12, border: 'none', background: '#8B5CF6', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', flexShrink: 0, opacity: !adjBonVal ? 0.6 : 1 }}>OK</button>
+                      <button onClick={() => openAdj('bonus', 'add')} style={adjBtnStyle('#EAB308')}><Icon name="add" size={16} />Начислить</button>
+                      <button onClick={() => openAdj('bonus', 'sub')} style={adjBtnStyle('#94A3B8')}><Icon name="remove" size={16} />Списать</button>
                     </div>
                   </div>
 
@@ -396,8 +413,8 @@ export default function ClientsPage() {
                   </div>
 
                   {/* Блокировка */}
-                  <button onClick={() => setConfirmBlock(true)} style={{ width: '100%', padding: '13px 0', borderRadius: 14, border: '1px solid rgba(244,63,94,0.3)', background: 'rgba(244,63,94,0.08)', color: 'var(--danger)', fontSize: 13, fontWeight: 600, cursor: 'pointer', marginTop: 4 }}>
-                    <Icon name="block" size={16} style={{ verticalAlign: 'middle', marginRight: 6 }} />Заблокировать
+                  <button onClick={() => setConfirmBlock(true)} style={{ width: '100%', padding: '13px 0', borderRadius: 14, border: '1px solid rgba(244,63,94,0.3)', background: 'rgba(244,63,94,0.08)', color: 'var(--danger)', fontSize: 13, fontWeight: 600, cursor: 'pointer', marginTop: 4, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                    <Icon name="block" size={16} />Заблокировать
                   </button>
                 </div>
               )}
@@ -478,6 +495,29 @@ export default function ClientsPage() {
           </div>
         </div>
       </Sheet>
+
+      {/* Модалка начисления/списания (баланс/бонусы) */}
+      {adjModal && (
+        <div onClick={e => { if (e.target === e.currentTarget) setAdjModal(null) }}
+          style={{ position: 'fixed', inset: 0, zIndex: 200, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div className="glass-l1" style={{ width: '100%', maxWidth: 380, borderRadius: 20, padding: 22 }}>
+            <h3 style={{ fontSize: 17, fontWeight: 800, margin: '0 0 16px' }}>
+              {adjModal.op === 'add' ? 'Начислить' : 'Списать'} {adjModal.kind === 'balance' ? '— баланс' : '— бонусы'}
+            </h3>
+            <label style={LBL}>Сумма {adjModal.kind === 'balance' ? '(₽)' : '(⭐)'}</label>
+            <input type="number" inputMode="numeric" value={adjAmount} onChange={e => setAdjAmount(e.target.value)} placeholder="0" autoFocus style={{ ...INP, marginBottom: 12 }} />
+            <label style={LBL}>Комментарий</label>
+            <input value={adjComment} onChange={e => setAdjComment(e.target.value)} placeholder="Причина (обязательно)" style={{ ...INP, marginBottom: 18 }} />
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button onClick={() => setAdjModal(null)} style={{ flex: 1, padding: '13px 0', borderRadius: 12, border: '1px solid rgba(255,255,255,0.1)', background: 'transparent', color: 'var(--on-surface-variant)', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>Отмена</button>
+              <button onClick={confirmAdj} disabled={!(Number(adjAmount) > 0) || adjComment.trim().length < 3}
+                style={{ flex: 2, padding: '13px 0', borderRadius: 12, border: 'none', background: adjModal.op === 'add' ? 'linear-gradient(135deg,#10B981,#4cd7f6)' : 'linear-gradient(135deg,#F43F5E,#DC2626)', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer', opacity: (!(Number(adjAmount) > 0) || adjComment.trim().length < 3) ? 0.5 : 1 }}>
+                {adjModal.op === 'add' ? 'Начислить' : 'Списать'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <ConfirmDialog
         open={confirmBlock}
