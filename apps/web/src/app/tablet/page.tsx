@@ -584,7 +584,7 @@ function TabletMain({ space, onLogout }: { space: TabletSpace; onLogout: () => v
             </button>
             <button onClick={() => setTipOpen(true)} disabled={payQr.isPending} style={{ flex: 1, padding: '18px 0', borderRadius: 18, border: 'none', cursor: 'pointer', background: 'linear-gradient(135deg, #10B981, #4cd7f6)', color: '#fff', fontSize: 14, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.06em', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, boxShadow: '0 4px 20px rgba(16,185,129,0.3)' }}>
               <Icon name="qr_code_2" size={22} />
-              {payQr.isPending ? 'Готовим QR…' : 'Оплатить'}
+              {payQr.isPending ? 'Готовим QR…' : 'Оплатить по QR'}
             </button>
           </div>
         )}
