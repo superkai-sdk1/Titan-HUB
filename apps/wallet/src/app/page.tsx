@@ -34,6 +34,7 @@ interface Transaction {
 }
 interface BonusRow { id: string; amount: number; reason: string | null; createdAt: string }
 interface BonusLot { amount: number; remaining: number; expiresAt: string | null }
+interface VisitProgress { tier: string; visits: number; threshold: number; remaining: number; isResident: boolean }
 interface FeedItem { id: string; date: string; emoji: string; label: string; sign: 1 | -1; amount: number; unit: '₽' | '⭐' }
 
 type AppState = 'loading' | 'error' | 'main'
@@ -81,6 +82,13 @@ function nearestExpiringLot(lots: BonusLot[]): { remaining: number; expiresAt: D
 function formatExpiryDate(date: Date): string {
   return new Intl.DateTimeFormat('ru-RU', { day: '2-digit', month: '2-digit' }).format(date)
 }
+function pluralVisits(n: number): string {
+  const a = Math.abs(n) % 100, b = a % 10
+  if (a > 10 && a < 20) return 'посещений'
+  if (b > 1 && b < 5) return 'посещения'
+  if (b === 1) return 'посещение'
+  return 'посещений'
+}
 
 export default function WalletPage() {
   const [appState, setAppState] = useState<AppState>('loading')
@@ -88,6 +96,7 @@ export default function WalletPage() {
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [bonusHist, setBonusHist] = useState<BonusRow[]>([])
   const [bonusLots, setBonusLots] = useState<BonusLot[]>([])
+  const [vp, setVp] = useState<VisitProgress | null>(null)
   const [errorMsg, setErrorMsg] = useState<string>('')
 
   // 3D-наклон карты за пальцем.
@@ -150,6 +159,11 @@ export default function WalletPage() {
             setBonusLots((lotsData.lots ?? []).map((l) => ({ amount: Number(l.amount) || 0, remaining: Number(l.remaining) || 0, expiresAt: l.expiresAt ?? null })))
           }
         } catch { /* подсказка о сгорании необязательна */ }
+
+        try {
+          const vpRes = await fetch(`${API_URL}/api/auth/me/visit-progress`, { headers: authHeaders })
+          if (vpRes.ok) setVp(await vpRes.json() as VisitProgress)
+        } catch { /* прогресс статуса необязателен */ }
 
         setAppState('main')
       } catch (err) {
@@ -271,6 +285,22 @@ export default function WalletPage() {
         </div>
       )}
 
+      {/* ─── Прогресс к статусу Резидент ─── */}
+      {vp && vp.tier === 'guest' && (
+        <div style={styles.progressCard}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+            <span style={{ fontSize: 13, fontWeight: 700, color: '#fff' }}>До статуса «Резидент»</span>
+            <span style={{ fontSize: 13, fontWeight: 800, color: '#4cd7f6', fontVariantNumeric: 'tabular-nums' }}>{vp.visits}/{vp.threshold}</span>
+          </div>
+          <div style={styles.progressTrack}>
+            <div style={{ ...styles.progressFill, width: `${Math.min(100, (vp.visits / vp.threshold) * 100)}%` }} />
+          </div>
+          <p style={styles.progressNote}>
+            {vp.remaining > 0 ? `Ещё ${vp.remaining} ${pluralVisits(vp.remaining)} — и вы Резидент 🎉` : 'Порог достигнут — статус повысится после следующего визита'}
+          </p>
+        </div>
+      )}
+
       {/* ─── Единый фид истории ─── */}
       <p style={styles.feedTitle}>История</p>
       <div style={styles.feed}>
@@ -325,6 +355,11 @@ const styles = {
   plate: (color: string) => ({ flex: 1, background: `${color}14`, border: `1px solid ${color}40`, borderRadius: 16, padding: '14px 16px' }),
   plateLabel: { color: '#94A3B8', fontSize: 12, margin: 0, textTransform: 'uppercase' as const, letterSpacing: '0.5px' },
   plateValue: (color: string) => ({ color, fontSize: 22, fontWeight: 800, fontStyle: 'italic' as const, margin: '4px 0 0', fontVariantNumeric: 'tabular-nums' as const }),
+
+  progressCard: { background: 'rgba(76,215,246,0.08)', border: '1px solid rgba(76,215,246,0.25)', borderRadius: 16, padding: '14px 16px', marginBottom: 22 },
+  progressTrack: { height: 9, borderRadius: 5, background: 'rgba(255,255,255,0.1)', overflow: 'hidden' as const },
+  progressFill: { height: '100%', borderRadius: 5, background: 'linear-gradient(90deg,#8B5CF6,#4cd7f6)', transition: 'width 0.5s ease' } as React.CSSProperties,
+  progressNote: { color: '#94A3B8', fontSize: 12, margin: '8px 0 0' },
 
   feedTitle: { color: '#94A3B8', fontSize: 12, fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: '1px', margin: '0 0 10px 4px' },
   feed: { background: 'rgba(29,26,36,0.8)', borderRadius: 18, border: '1px solid rgba(139,92,246,0.15)', overflow: 'hidden' },

@@ -23,6 +23,13 @@ type TierRow = { key: string; label: string; color: string; sortOrder: number; i
 
 function parseNum(v: unknown) { return parseFloat(String(v ?? 0)) || 0 }
 function fmt(n: number) { return n.toLocaleString('ru', { maximumFractionDigits: 0 }) }
+function pluralVisits(n: number) {
+  const a = Math.abs(n) % 100, b = a % 10
+  if (a > 10 && a < 20) return 'посещений'
+  if (b > 1 && b < 5) return 'посещения'
+  if (b === 1) return 'посещение'
+  return 'посещений'
+}
 
 export default function ClientsPage() {
   const qc = useQueryClient()
@@ -80,6 +87,7 @@ export default function ClientsPage() {
   })
   const { data, isLoading } = pageQueries
   const { data: txData } = useQuery({ queryKey: ['clients', selected?.id, 'tx'], queryFn: () => api.get<any>(`/clients/${selected.id}/transactions`), enabled: !!selected?.id && tab === 'tx' })
+  const { data: vpData } = useQuery({ queryKey: ['clients', selected?.id, 'visit'], queryFn: () => api.get<{ tier: string; visits: number; threshold: number; remaining: number; isResident: boolean }>(`/clients/${selected.id}/visit-progress`), enabled: !!selected?.id && tab === 'tx' })
 
   // Справочник статусов (динамический). Фоллбек на встроенные метки/цвета, если
   // справочник ещё не загрузился, чтобы UI не «прыгал».
@@ -395,6 +403,25 @@ export default function ClientsPage() {
 
               {tab === 'tx' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {vpData && (vpData.isResident ? (
+                    <div style={{ padding: '12px 14px', borderRadius: 12, background: 'rgba(139,92,246,0.1)', border: '1px solid rgba(139,92,246,0.25)', display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
+                      <Icon name="workspace_premium" size={18} color="#a78bfa" />
+                      <span style={{ fontSize: 13, fontWeight: 600 }}>Статус «Резидент» · {vpData.visits} посещений</span>
+                    </div>
+                  ) : vpData.tier === 'guest' ? (
+                    <div style={{ padding: 14, borderRadius: 12, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', marginBottom: 4 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                        <span style={{ fontSize: 13, fontWeight: 600 }}>Гость → Резидент</span>
+                        <span style={{ fontSize: 13, fontWeight: 700, color: '#a78bfa', fontFamily: "'JetBrains Mono',monospace" }}>{vpData.visits}/{vpData.threshold}</span>
+                      </div>
+                      <div style={{ height: 8, borderRadius: 4, background: 'rgba(255,255,255,0.08)', overflow: 'hidden' }}>
+                        <div style={{ height: '100%', width: `${Math.min(100, (vpData.visits / vpData.threshold) * 100)}%`, background: 'linear-gradient(90deg,#8B5CF6,#4cd7f6)', borderRadius: 4, transition: 'width 0.4s' }} />
+                      </div>
+                      <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: '8px 0 0' }}>
+                        {vpData.remaining > 0 ? `Осталось ${vpData.remaining} ${pluralVisits(vpData.remaining)} до статуса «Резидент»` : 'Порог достигнут — статус повысится после следующего визита'}
+                      </p>
+                    </div>
+                  ) : null)}
                   {!txData?.transactions?.length
                     ? <p style={{ fontSize: 13, color: 'rgba(204,195,216,0.4)', textAlign: 'center', padding: '24px 0' }}>Нет транзакций</p>
                     : txData.transactions.map((tx: any) => (

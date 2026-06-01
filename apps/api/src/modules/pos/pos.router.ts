@@ -11,6 +11,7 @@ import {
 import { requireAuth, requireRole } from '../../middleware/auth.js'
 import { getCurrentShift } from '../shifts/shifts.service.js'
 import { notify, notifyClient } from '../notifications/push.js'
+import { maybePromoteToResident } from '../../lib/loyalty.js'
 import { accrueBonusLot, spendBonusLots, getBonusExpiryDays } from '../../lib/bonusLots.js'
 import { round2, computeRental } from '../../lib/money.js'
 import { Redis } from 'ioredis'
@@ -1312,12 +1313,17 @@ posRouter.post('/checks/:id/pay', requireRole('owner', 'staff'), zValidator('jso
     }
     // Личные уведомления клиенту в Wallet-бот (о ЕГО событиях).
     if (closed?.playerId) {
+      const pid = closed.playerId
       if ((closed.bonusAwarded ?? 0) > 0) {
-        void notifyClient(closed.playerId, `⭐ Начислено ${Number(closed.bonusAwarded).toLocaleString('ru')} бонусов за покупку на ${paidTotal.toLocaleString('ru')} ₽`)
+        void notifyClient(pid, `⭐ Начислено ${Number(closed.bonusAwarded).toLocaleString('ru')} бонусов за покупку на ${paidTotal.toLocaleString('ru')} ₽`)
       }
       if ((closed.debtAmount ?? 0) > 0) {
-        void notifyClient(closed.playerId, `⚠️ Оплата в долг: ${Number(closed.debtAmount).toLocaleString('ru')} ₽`)
+        void notifyClient(pid, `⚠️ Оплата в долг: ${Number(closed.debtAmount).toLocaleString('ru')} ₽`)
       }
+      // Авто-повышение Гость→Резидент после 10 посещений (бизнес-дней с чеком).
+      void maybePromoteToResident(pid).then(r => {
+        if (r.promoted) void notifyClient(pid, '🎉 Поздравляем! Вы стали Резидентом Titan — спасибо, что с нами!')
+      }).catch(() => {})
     }
     if (closed?.completedEvent) {
       void notify({

@@ -14,6 +14,7 @@ import { requireAuth, requireRole } from '../../middleware/auth.js'
 import { accrueBonusLot, getBonusExpiryDays } from '../../lib/bonusLots.js'
 import { hashPassword } from '@titan/auth'
 import { notify, notifyClient } from '../notifications/push.js'
+import { visitProgress } from '../../lib/loyalty.js'
 import { createHmac } from 'node:crypto'
 
 const CreateClientSchema = z.object({
@@ -250,6 +251,11 @@ clientsRouter.post('/:id/telegram-link', requireRole('owner', 'staff'), async (c
 clientsRouter.delete('/:id', requireRole('owner'), async (c) => {
   await db.update(profiles).set({ deletedAt: new Date() }).where(eq(profiles.id, c.req.param('id')))
   return c.json({ ok: true })
+})
+
+// Прогресс к статусу Резидент (посещения) — для карточки клиента.
+clientsRouter.get('/:id/visit-progress', requireRole('owner', 'staff'), async (c) => {
+  return c.json(await visitProgress(c.req.param('id')))
 })
 
 clientsRouter.get('/:id/transactions', async (c) => {
