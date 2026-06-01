@@ -254,8 +254,16 @@ authRouter.post(
 
 authRouter.post('/login/telegram', zValidator('json', LoginTelegramSchema), async (c) => {
   const { initData } = c.req.valid('json')
-  const botToken = process.env['ADMIN_BOT_TOKEN'] ?? process.env['WALLET_BOT_TOKEN'] ?? ''
-  if (!verifyTelegramInitData(initData, botToken)) {
+  // WebApp может быть запущен из ЛЮБОГО бота (кошелёк — из wallet-бота, поэтому
+  // initData подписан токеном wallet-бота). Раньше брали ADMIN-токен первым через
+  // ?? — для wallet-WebApp подпись не сходилась → 401 и пустой кошелёк. Проверяем
+  // по обоим токенам: успех, если совпало хотя бы с одним.
+  const walletToken = process.env['WALLET_BOT_TOKEN'] ?? ''
+  const adminToken = process.env['ADMIN_BOT_TOKEN'] ?? ''
+  const valid =
+    (walletToken && verifyTelegramInitData(initData, walletToken)) ||
+    (adminToken && verifyTelegramInitData(initData, adminToken))
+  if (!valid) {
     return c.json({ error: 'Invalid Telegram data' }, 401)
   }
   const params = new URLSearchParams(initData)
