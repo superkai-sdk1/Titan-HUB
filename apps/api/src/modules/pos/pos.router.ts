@@ -10,6 +10,7 @@ import {
 } from '@titan/database'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
 import { getCurrentShift } from '../shifts/shifts.service.js'
+import { notify } from '../notifications/push.js'
 import { accrueBonusLot, spendBonusLots, getBonusExpiryDays } from '../../lib/bonusLots.js'
 import { round2, computeRental } from '../../lib/money.js'
 import { Redis } from 'ioredis'
@@ -591,6 +592,9 @@ posRouter.post('/checks/:id/items', requireRole('owner', 'staff', 'tablet'), zVa
   const user = c.get('user')
 
   // Атомарная транзакция: проверка чека + блокировка stock + списание + insert позиции
+  // Пересечение порога низкого остатка фиксируем внутри транзакции, а само
+  // уведомление шлём после коммита (fire-and-forget).
+  let lowStock: { name: string; newQty: number } | null = null
   try {
     const checkItem = await db.transaction(async (tx) => {
       const [check] = await tx.select().from(checks).where(eq(checks.id, checkId))
@@ -600,7 +604,7 @@ posRouter.post('/checks/:id/items', requireRole('owner', 'staff', 'tablet'), zVa
 
       // SELECT ... FOR UPDATE блокирует строку до конца транзакции
       const itemRows = await tx.execute(
-        sql`SELECT id, price, track_stock as "trackStock", stock_quantity as "stockQuantity"
+        sql`SELECT id, name, price, track_stock as "trackStock", stock_quantity as "stockQuantity", min_threshold as "minThreshold"
             FROM inventory WHERE id = ${itemId} FOR UPDATE`
       )
       const item: any = (itemRows as any).rows?.[0] ?? (itemRows as any)[0]
@@ -623,6 +627,15 @@ posRouter.post('/checks/:id/items', requireRole('owner', 'staff', 'tablet'), zVa
           reason: `Продажа: чек ${checkId}`,
           createdBy: user.sub,
         })
+
+        // Низкий остаток: уведомляем только в момент пересечения порога
+        // (oldQty > minThreshold && newQty <= minThreshold), порог > 0.
+        const oldQty = Number(item.stockQuantity ?? 0)
+        const newQty = Number(upd?.stockQuantity ?? 0)
+        const minThreshold = Number(item.minThreshold ?? 0)
+        if (minThreshold > 0 && oldQty > minThreshold && newQty <= minThreshold) {
+          lowStock = { name: String(item.name), newQty }
+        }
       }
 
       // Мерж с существующей строкой того же товара БЕЗ модификаторов: повторное
@@ -675,6 +688,17 @@ posRouter.post('/checks/:id/items', requireRole('owner', 'staff', 'tablet'), zVa
 
     await recalcCheckTotal(checkId)
     publishEvent('check:updated', { checkId })
+
+    if (lowStock) {
+      const ls: { name: string; newQty: number } = lowStock
+      void notify({
+        type: 'low_stock',
+        title: 'Низкий остаток',
+        body: `${ls.name}: осталось ${ls.newQty}`,
+        meta: { itemId },
+      }).catch(() => {})
+    }
+
     const data = await getCheckWithItems(checkId)
     return c.json({ check: data }, 201)
   } catch (err: any) {
@@ -1218,6 +1242,24 @@ posRouter.post('/checks/:id/pay', requireRole('owner', 'staff'), zValidator('jso
 
     publishEvent('check:paid', { checkId })
     publishEvent('check:closed', { checkId })
+
+    // Уведомления вне денежной транзакции (fire-and-forget, не блокируют ответ).
+    const paidTotal = parseFloat(String(closed?.totalAmount ?? 0)) || 0
+    void notify({
+      type: 'check_paid',
+      title: 'Чек оплачен',
+      body: `${paidTotal} ₽`,
+      meta: { checkId },
+    }).catch(() => {})
+    if (paidTotal >= 3000) {
+      void notify({
+        type: 'large_check',
+        title: 'Крупный чек',
+        body: `${paidTotal} ₽`,
+        meta: { checkId },
+      }).catch(() => {})
+    }
+
     return c.json({ check: closed })
   } catch (err: any) {
     const map: Record<string, [string, 400]> = {

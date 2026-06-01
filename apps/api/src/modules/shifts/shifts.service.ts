@@ -1,4 +1,5 @@
 import { db, shifts, checks, checkPayments, cashOperations, refunds, profiles, eq, and, isNull, sql, desc, sum } from '@titan/database'
+import { notify } from '../notifications/push.js'
 
 export async function getCurrentShift() {
   const [shift] = await db
@@ -34,8 +35,8 @@ export async function openShift(data: {
     throw new Error('Требуется причина расхождения наличных при открытии смены')
   }
 
-  return db.transaction(async (tx) => {
-    const [shift] = await tx
+  const shift = await db.transaction(async (tx) => {
+    const [created] = await tx
       .insert(shifts)
       .values({
         openedBy: data.openedBy,
@@ -52,13 +53,22 @@ export async function openShift(data: {
         type: diff > 0 ? 'deposit' : 'withdrawal',
         amount: String(Math.abs(diff)),
         description: data.adjustmentReason!.trim(),
-        shiftId: shift.id,
+        shiftId: created.id,
         createdBy: data.openedBy,
       })
     }
 
-    return shift
+    return created
   })
+
+  // Fire-and-forget уведомление (вне денежной транзакции, не блокирует ответ).
+  void notify({
+    type: 'shift_open',
+    title: 'Смена открыта',
+    body: `Касса на старте: ${expectedStart} ₽`,
+  }).catch(() => {})
+
+  return shift
 }
 
 export async function closeShift(shiftId: string, closedBy: string, cashEnd: number, adjustmentReason?: string) {
@@ -84,7 +94,7 @@ export async function closeShift(shiftId: string, closedBy: string, cashEnd: num
     throw new Error('Требуется причина расхождения наличных при закрытии смены')
   }
 
-  return db.transaction(async (tx) => {
+  const updated = await db.transaction(async (tx) => {
     if (diff !== 0) {
       await tx.insert(cashOperations).values({
         type: diff > 0 ? 'deposit' : 'withdrawal',
@@ -95,13 +105,29 @@ export async function closeShift(shiftId: string, closedBy: string, cashEnd: num
       })
     }
 
-    const [updated] = await tx
+    const [row] = await tx
       .update(shifts)
       .set({ status: 'closed', closedBy, cashEnd: String(counted), closedAt: new Date() })
       .where(eq(shifts.id, shiftId))
       .returning()
-    return updated
+    return row
   })
+
+  // Fire-and-forget уведомления (вне денежной транзакции, не блокируют ответ).
+  void notify({
+    type: 'shift_close',
+    title: 'Смена закрыта',
+    body: `Касса: ${counted} ₽`,
+  }).catch(() => {})
+  if (diff !== 0) {
+    void notify({
+      type: 'cash_discrepancy',
+      title: 'Расхождение в кассе',
+      body: `${diff > 0 ? 'Излишек (внесение)' : 'Недостача (изъятие)'}: ${Math.abs(diff)} ₽`,
+    }).catch(() => {})
+  }
+
+  return updated
 }
 
 export async function getBirthdaysToday() {

@@ -37,6 +37,18 @@ export const userNotificationSettings = pgTable('user_notification_settings', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 })
 
+export const pushSubscriptions = pgTable('push_subscriptions', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id')
+    .notNull()
+    .references(() => profiles.id),
+  endpoint: text('endpoint').notNull().unique(),
+  p256dh: text('p256dh').notNull(),
+  auth: text('auth').notNull(),
+  userAgent: text('user_agent'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+})
+
 export const appSettings = pgTable('app_settings', {
   key: text('key').primaryKey(),
   value: text('value').notNull(),
@@ -46,3 +58,4 @@ export const appSettings = pgTable('app_settings', {
 export type TgLinkRequest = typeof tgLinkRequests.$inferSelect
 export type Notification = typeof notifications.$inferSelect
 export type AppSetting = typeof appSettings.$inferSelect
+export type PushSubscription = typeof pushSubscriptions.$inferSelect

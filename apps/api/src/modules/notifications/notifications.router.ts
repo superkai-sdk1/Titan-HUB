@@ -2,48 +2,32 @@ import { Hono } from 'hono'
 import { streamSSE } from 'hono/streaming'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
-import { db, notifications, userNotificationSettings, tgLinkRequests, profiles, spaces, checks, eq, and, or, isNull, desc } from '@titan/database'
+import { db, notifications, userNotificationSettings, pushSubscriptions, tgLinkRequests, profiles, spaces, checks, eq, and, or, isNull, desc } from '@titan/database'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
 import { Redis } from 'ioredis'
 import { randomInt } from 'crypto'
 import type { AppEnv } from '../../types.js'
+import { notify, NOTIFICATION_TYPES } from './push.js'
 
 const NOTIF_CHANNEL = 'titan:staff-notifications'
 
-function getNotifRedis() {
-  return new Redis(process.env['REDIS_URL'] ?? 'redis://redis:6379', { lazyConnect: true })
-}
-
+// Сохранена ради совместимости вызовов в этом роутере: делегирует в notify(),
+// который пишет в БД, публикует в SSE и шлёт web push персоналу. Возвращает
+// «псевдо-строку» уведомления для ответа клиенту (id здесь не используется в UI).
 async function publishStaffNotification(payload: {
   type: string
   title: string
   body: string
   meta?: Record<string, unknown>
 }) {
-  // Persist в БД (без userId — broadcast для всех staff)
-  const [row] = await db.insert(notifications).values({
+  await notify({ ...payload })
+  return {
     type: payload.type,
     title: payload.title,
     body: payload.body,
     meta: payload.meta ?? {},
-  }).returning()
-
-  // Publish в Redis для SSE
-  const redis = getNotifRedis()
-  try {
-    await redis.connect()
-    await redis.publish(NOTIF_CHANNEL, JSON.stringify({
-      id: row!.id,
-      type: row!.type,
-      title: row!.title,
-      body: row!.body,
-      meta: row!.meta,
-      createdAt: row!.createdAt,
-    }))
-  } finally {
-    redis.disconnect()
+    createdAt: new Date(),
   }
-  return row
 }
 
 export const notificationsRouter = new Hono<AppEnv>()
@@ -212,6 +196,70 @@ notificationsRouter.put('/settings', zValidator('json', z.object({
   } else {
     await db.insert(userNotificationSettings).values({ userId: user.sub, types })
   }
+  return c.json({ ok: true })
+})
+
+// ── Типы уведомлений (для экрана настроек) ───────────────────────────────
+notificationsRouter.get('/types', (c) => {
+  return c.json({ types: NOTIFICATION_TYPES })
+})
+
+// ── VAPID public key для подписки на push на клиенте ──────────────────────
+notificationsRouter.get('/vapid-public-key', (c) => {
+  return c.json({ key: process.env['VAPID_PUBLIC_KEY'] ?? '' })
+})
+
+// ── Подписка на web push ──────────────────────────────────────────────────
+notificationsRouter.post(
+  '/push/subscribe',
+  zValidator('json', z.object({
+    endpoint: z.string(),
+    keys: z.object({ p256dh: z.string(), auth: z.string() }),
+    userAgent: z.string().optional(),
+  })),
+  async (c) => {
+    const user = c.get('user')
+    const { endpoint, keys, userAgent } = c.req.valid('json')
+    await db
+      .insert(pushSubscriptions)
+      .values({
+        userId: user.sub,
+        endpoint,
+        p256dh: keys.p256dh,
+        auth: keys.auth,
+        userAgent: userAgent ?? null,
+      })
+      .onConflictDoUpdate({
+        target: pushSubscriptions.endpoint,
+        set: { userId: user.sub, p256dh: keys.p256dh, auth: keys.auth, userAgent: userAgent ?? null },
+      })
+    return c.json({ ok: true })
+  },
+)
+
+// ── Отписка от web push ───────────────────────────────────────────────────
+notificationsRouter.post(
+  '/push/unsubscribe',
+  zValidator('json', z.object({ endpoint: z.string() })),
+  async (c) => {
+    const user = c.get('user')
+    const { endpoint } = c.req.valid('json')
+    await db
+      .delete(pushSubscriptions)
+      .where(and(eq(pushSubscriptions.endpoint, endpoint), eq(pushSubscriptions.userId, user.sub)))
+    return c.json({ ok: true })
+  },
+)
+
+// ── Тестовое push-уведомление самому себе ─────────────────────────────────
+notificationsRouter.post('/push/test', async (c) => {
+  const user = c.get('user')
+  void notify({
+    type: 'test',
+    title: 'Titan HUB',
+    body: 'Тестовое уведомление 🔔',
+    userId: user.sub,
+  }).catch(() => {})
   return c.json({ ok: true })
 })
 

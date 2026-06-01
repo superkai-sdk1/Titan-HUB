@@ -8,7 +8,7 @@
  *
  * Версионирование: при изменении CACHE_VERSION пересоздаём кэш.
  */
-const CACHE_VERSION = 'v91'
+const CACHE_VERSION = 'v92'
 const STATIC_CACHE = `titan-static-${CACHE_VERSION}`
 const RUNTIME_CACHE = `titan-runtime-${CACHE_VERSION}`
 
@@ -55,6 +55,46 @@ self.addEventListener('fetch', (event) => {
 
   // Прочее (HTML, JSON, изображения) — network-first с fallback кэшем
   event.respondWith(networkFirst(request, RUNTIME_CACHE, 8000))
+})
+
+// ─── Web Push ───────────────────────────────────────────────────────────────
+
+self.addEventListener('push', (event) => {
+  let payload = {}
+  try {
+    payload = event.data ? event.data.json() : {}
+  } catch (e) {
+    payload = {}
+  }
+  const title = payload.title || 'Titan HUB'
+  const body = payload.body || ''
+  const url = payload.url || '/'
+  const tag = payload.type || undefined
+  event.waitUntil(
+    self.registration.showNotification(title, {
+      body,
+      icon: '/icon-192.png',
+      badge: '/icon-192.png',
+      data: { url, meta: payload.meta },
+      tag,
+    })
+  )
+})
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close()
+  const url = event.notification.data?.url || '/'
+  event.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((list) => {
+      for (const c of list) {
+        if ('focus' in c) {
+          c.navigate?.(url)
+          return c.focus()
+        }
+      }
+      return clients.openWindow(url)
+    })
+  )
 })
 
 async function cacheFirst(request, cacheName) {

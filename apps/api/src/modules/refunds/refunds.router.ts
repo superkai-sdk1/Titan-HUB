@@ -6,6 +6,7 @@ import { db, refunds, checks, inventory, checkItems, checkPayments, transactions
 import { requireAuth, requireRole } from '../../middleware/auth.js'
 import { accrueBonusLot, spendBonusLots, getBonusExpiryDays } from '../../lib/bonusLots.js'
 import { round2 } from '../../lib/money.js'
+import { notify } from '../notifications/push.js'
 
 const TENDER_METHODS = ['cash', 'card', 'transfer', 'deposit', 'bonus', 'certificate', 'debt'] as const
 
@@ -247,6 +248,15 @@ refundsRouter.post('/', requireRole('owner', 'staff'), zValidator('json', Refund
 
       return r
     })
+
+    // Уведомление вне денежной транзакции (fire-and-forget, не блокирует ответ).
+    const refundAmt = parseFloat(String(refund?.totalAmount ?? 0)) || 0
+    void notify({
+      type: 'refund',
+      title: 'Возврат',
+      body: `${refundAmt} ₽`,
+      meta: { checkId: body.checkId },
+    }).catch(() => {})
 
     return c.json({ refund }, 201)
   } catch (err: any) {

@@ -15,22 +15,24 @@
     "@anthropic-ai/sdk": "^0.52.0",
     "@hono/node-server": "^1.14.2",
     "@hono/zod-validator": "^0.4.3",
+    "@simplewebauthn/server": "^13.1.1",
     "@titan/auth": "workspace:*",
     "@titan/database": "workspace:*",
     "@titan/types": "workspace:*",
     "bullmq": "^5.45.3",
     "drizzle-orm": "^0.43.1",
     "hono": "^4.7.7",
-    "@simplewebauthn/server": "^13.1.1",
     "ioredis": "^5.6.1",
     "minio": "^8.0.5",
     "qrcode": "^1.5.4",
+    "web-push": "^3.6.7",
     "zod": "^3.24.3"
   },
   "devDependencies": {
     "@titan/config": "workspace:*",
     "@types/node": "^22.15.17",
     "@types/qrcode": "^1.5.5",
+    "@types/web-push": "^3.6.4",
     "tsx": "^4.19.4",
     "typescript": "^5.8.3"
   }
