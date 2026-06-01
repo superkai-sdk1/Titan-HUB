@@ -8,6 +8,7 @@ import {
 } from '@titan/database'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
 import { getCurrentShift } from '../shifts/shifts.service.js'
+import { notify } from '../notifications/push.js'
 
 const EventSchema = z.object({
   type: z.enum(['titan', 'exit']).default('titan'),
@@ -154,6 +155,13 @@ eventsRouter.post('/', requireRole('owner', 'staff'), zValidator('json', EventSc
     } catch { /* non-fatal */ }
   }
 
+  void notify({
+    type: 'event_created',
+    title: 'Мероприятие',
+    body: event!.title ?? `${event!.date} ${event!.startTime}`.trim(),
+    meta: { eventId: event!.id },
+  }).catch(() => {})
+
   return c.json({ event }, 201)
 })
 
@@ -268,6 +276,17 @@ eventsRouter.patch('/:id', requireRole('owner', 'staff'), zValidator('json', Eve
   }
 
   if (!event) return c.json({ error: 'Not found' }, 404)
+
+  // Завершение мероприятия вручную (переход в 'completed') → уведомление.
+  if (body.status === 'completed' && prev.status !== 'completed') {
+    void notify({
+      type: 'event_completed',
+      title: 'Мероприятие завершено',
+      body: event.title ?? `${event.date} ${event.startTime}`.trim(),
+      meta: { eventId: event.id },
+    }).catch(() => {})
+  }
+
   return c.json({ event })
 })
 

@@ -5,6 +5,7 @@ import { z } from 'zod'
 import { db, supplies, supplyItems, inventory, stockMovements, eq, desc } from '@titan/database'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
 import { round2 } from '../../lib/money.js'
+import { notify } from '../notifications/push.js'
 
 const SupplySchema = z.object({
   note: z.string().optional(),
@@ -121,6 +122,13 @@ suppliesRouter.post('/', requireRole('owner', 'staff'), zValidator('json', Suppl
     }
     return c.json({ error: 'Не удалось сохранить приёмку' }, 500)
   }
+
+  void notify({
+    type: 'supply_received',
+    title: 'Приход на склад',
+    body: `${totalCost} ₽`,
+    meta: { supplyId: supply.id },
+  }).catch(() => {})
 
   return c.json({ supply }, 201)
 })

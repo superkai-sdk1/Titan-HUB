@@ -59,7 +59,10 @@ const TOAST_CONFIG: Record<ToastType, { icon: string; color: string; bg: string 
 function ToastContainer({ toasts, onDismiss }: { toasts: Toast[]; onDismiss: (id: string) => void }) {
   return (
     <div style={{
-      position: 'fixed', top: 16, left: '50%', transform: 'translateX(-50%)',
+      // Тосты внизу экрана, НАД плавающей нижней навигацией, по центру.
+      position: 'fixed',
+      bottom: 'calc(var(--bottom-nav-clear, 96px) + 10px)',
+      left: '50%', transform: 'translateX(-50%)',
       zIndex: 9999, display: 'flex', flexDirection: 'column', gap: 8, pointerEvents: 'none',
       width: 'min(calc(100vw - 32px), 360px)',
     }}>
@@ -69,9 +72,9 @@ function ToastContainer({ toasts, onDismiss }: { toasts: Toast[]; onDismiss: (id
           return (
             <motion.div
               key={toast.id}
-              initial={{ opacity: 0, y: -16, scale: 0.95 }}
+              initial={{ opacity: 0, y: 16, scale: 0.95 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: -8, scale: 0.95 }}
+              exit={{ opacity: 0, y: 8, scale: 0.95 }}
               transition={{ type: 'spring', damping: 25, stiffness: 350 }}
               style={{
                 display: 'flex', alignItems: 'center', gap: 10,

@@ -10,6 +10,7 @@ import { differenceInMinutes } from 'date-fns'
 import { CheckDetailView } from '@/components/CheckDetailView'
 import { PullToRefreshContainer } from '@/components/PullToRefreshContainer'
 import { useToast } from '@/components/Toast'
+import { NotificationBell } from '@/components/NotificationBell'
 
 interface CheckCard {
   id: string
@@ -435,19 +436,22 @@ function PosPageInner() {
             )}
           </div>
 
-          {/* Right: action icon buttons — мобильный режим */}
-          {shift && (
-            <div className="pos-header-actions" style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+          {/* Right: action icon buttons */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+            {/* Возврат — только мобильный режим (на десктопе есть нижняя панель) */}
+            {shift && (
               <button
                 onClick={() => router.push('/manage/refunds')}
-                className="glass-l2"
+                className="glass-l2 pos-header-actions"
                 title="Возврат"
                 style={{ width: 36, height: 36, borderRadius: 10, border: '1px solid rgba(255,255,255,0.1)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
               >
                 <Icon name="money_return" size={18} color="var(--on-surface-variant)" />
               </button>
-            </div>
-          )}
+            )}
+            {/* Колокольчик уведомлений: бейдж непрочитанных + тряска при важных */}
+            <NotificationBell />
+          </div>
         </div>
       </div>
       <style>{`

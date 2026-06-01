@@ -46,6 +46,16 @@ export const NOTIFICATION_TYPES: NotificationTypeDef[] = [
   { key: 'low_stock', label: 'Низкий остаток на складе', description: 'Остаток товара упал ниже порога', defaultEnabled: true },
   { key: 'refund', label: 'Возврат', description: 'Оформлен возврат по чеку', defaultEnabled: true },
   { key: 'birthday', label: 'День рождения клиента', description: 'У клиента сегодня день рождения', defaultEnabled: true },
+  { key: 'check_opened', label: 'Новый чек', description: 'Открыт новый чек', defaultEnabled: false },
+  { key: 'rental_started', label: 'Аренда зоны начата', description: 'Начата аренда игровой зоны', defaultEnabled: true },
+  { key: 'deposit_topup', label: 'Пополнение депозита', description: 'Клиент пополнил баланс депозита', defaultEnabled: false },
+  { key: 'debt_created', label: 'Новый долг клиента', description: 'У клиента образовался долг', defaultEnabled: true },
+  { key: 'certificate_used', label: 'Сертификат использован', description: 'При оплате использован сертификат', defaultEnabled: false },
+  { key: 'event_created', label: 'Создано мероприятие', description: 'Создано новое мероприятие', defaultEnabled: true },
+  { key: 'event_completed', label: 'Мероприятие завершено', description: 'Мероприятие завершено', defaultEnabled: false },
+  { key: 'new_client', label: 'Новый клиент', description: 'Зарегистрирован новый клиент', defaultEnabled: false },
+  { key: 'supply_received', label: 'Приход на склад', description: 'Оформлен приход товара на склад', defaultEnabled: true },
+  { key: 'large_refund', label: 'Крупный возврат', description: 'Оформлен возврат на крупную сумму', defaultEnabled: true },
 ]
 
 const DEFAULT_ENABLED: Record<string, boolean> = Object.fromEntries(

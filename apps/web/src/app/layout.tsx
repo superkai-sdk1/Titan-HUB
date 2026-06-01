@@ -5,7 +5,6 @@ import { AuthGuard } from '@/components/AuthGuard'
 import { BottomNav } from '@/components/BottomNav'
 import { Sidebar } from '@/components/Sidebar'
 import { SessionLock } from '@/components/SessionLock'
-import { StaffNotifications } from '@/components/StaffNotifications'
 import { ServiceWorkerRegister } from '@/components/ServiceWorkerRegister'
 
 export const metadata: Metadata = {
@@ -81,9 +80,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 
             {/* Mobile bottom nav (hidden on desktop via CSS) */}
             <BottomNav />
-
-            {/* SSE-toasts для staff/owner: вызовы с планшета, запросы счёта */}
-            <StaffNotifications />
 
             {/* Service Worker для PWA-offline */}
             <ServiceWorkerRegister />

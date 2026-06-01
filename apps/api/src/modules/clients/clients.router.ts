@@ -9,6 +9,7 @@ import {
 import { requireAuth, requireRole } from '../../middleware/auth.js'
 import { accrueBonusLot, getBonusExpiryDays } from '../../lib/bonusLots.js'
 import { hashPassword } from '@titan/auth'
+import { notify } from '../notifications/push.js'
 import { createHmac } from 'node:crypto'
 
 const CreateClientSchema = z.object({
@@ -181,6 +182,14 @@ clientsRouter.post('/', requireRole('owner', 'staff'), zValidator('json', Create
     passwordHash,
   }).returning()
   const { pin, passwordHash: _, ...safe } = client
+
+  void notify({
+    type: 'new_client',
+    title: 'Новый клиент',
+    body: client.nickname,
+    meta: { clientId: client.id },
+  }).catch(() => {})
+
   return c.json({ client: safe }, 201)
 })
 
@@ -266,7 +275,7 @@ clientsRouter.post('/:id/balance', requireRole('owner', 'staff'), zValidator('js
   type Result =
     | { kind: 'not_found' }
     | { kind: 'limit'; maxDebt: number; newBalance: number }
-    | { kind: 'ok'; newBalance: number }
+    | { kind: 'ok'; newBalance: number; prevBalance: number }
 
   const result = await db.transaction<Result>(async (tx) => {
     // Блокируем строку клиента до конца транзакции.
@@ -300,13 +309,33 @@ clientsRouter.post('/:id/balance', requireRole('owner', 'staff'), zValidator('js
       description: note,
     })
 
-    return { kind: 'ok', newBalance }
+    return { kind: 'ok', newBalance, prevBalance: currentBalance }
   })
 
   if (result.kind === 'not_found') return c.json({ error: 'Not found' }, 404)
   if (result.kind === 'limit') {
     return c.json({ error: `Превышен лимит долга (${result.maxDebt}₽). Запрошенный баланс: ${result.newBalance.toFixed(2)}₽` }, 400)
   }
+
+  // Уведомления (fire-and-forget, после транзакции)
+  if (amount > 0) {
+    void notify({
+      type: 'deposit_topup',
+      title: 'Пополнение депозита',
+      body: `${amount} ₽`,
+      meta: { clientId },
+    }).catch(() => {})
+  }
+  // Долг образовался: баланс только что ушёл в минус (раньше был неотрицателен).
+  if (result.newBalance < 0 && result.prevBalance >= 0) {
+    void notify({
+      type: 'debt_created',
+      title: 'Новый долг клиента',
+      body: `${result.newBalance.toFixed(2)} ₽`,
+      meta: { clientId },
+    }).catch(() => {})
+  }
+
   return c.json({ balance: result.newBalance })
 })
 

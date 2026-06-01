@@ -462,6 +462,34 @@ posRouter.post('/checks', requireRole('owner', 'staff'), zValidator('json', Open
   }
 
   publishEvent('check:created', { checkId: check!.id, shiftId: shift.id })
+
+  // Уведомления (fire-and-forget, после операции)
+  {
+    let guestInfo: string | null = null
+    if (check!.playerId) {
+      const [p] = await db.select({ nickname: profiles.nickname }).from(profiles).where(eq(profiles.id, check!.playerId))
+      guestInfo = p?.nickname ?? null
+    } else if (check!.guestNames && check!.guestNames.length > 0) {
+      guestInfo = check!.guestNames[0] ?? null
+    }
+    void notify({
+      type: 'check_opened',
+      title: 'Новый чек',
+      body: guestInfo ? `Гость: ${guestInfo}` : 'Открыт новый чек',
+      meta: { checkId: check!.id },
+    }).catch(() => {})
+
+    if (check!.spaceId) {
+      const [sp] = await db.select({ name: spaces.name }).from(spaces).where(eq(spaces.id, check!.spaceId))
+      void notify({
+        type: 'rental_started',
+        title: 'Аренда зоны',
+        body: sp?.name ? `Зона: ${sp.name}` : 'Начата аренда зоны',
+        meta: { checkId: check!.id, spaceId: check!.spaceId },
+      }).catch(() => {})
+    }
+  }
+
   return c.json({ check }, 201)
 })
 
@@ -1203,9 +1231,12 @@ posRouter.post('/checks/:id/pay', requireRole('owner', 'staff'), zValidator('jso
 
       // Авто-завершение мероприятия: чек события оплачен и закрыт → событие
       // переходит в «Завершено» (ручной кнопки «Завершить» нет — финал только здесь).
+      let completedEvent: { id: string; title: string | null } | null = null
       if (check.linkedEventId) {
-        await tx.update(events).set({ status: 'completed' })
+        const [evRow] = await tx.update(events).set({ status: 'completed' })
           .where(and(eq(events.id, check.linkedEventId), ne(events.status, 'cancelled')))
+          .returning({ id: events.id, title: events.title })
+        if (evRow) completedEvent = evRow
       }
 
       // Начисление бонусов с учётом настроек app_settings (на полную сумму, включая аренду)
@@ -1237,14 +1268,16 @@ posRouter.post('/checks/:id/pay', requireRole('owner', 'staff'), zValidator('jso
         }
       }
 
-      return closedCheck
+      return { closedCheck, certSent, debtAmount, playerId: body.playerId ?? null, completedEvent }
     })
+
+    const closedCheck = closed?.closedCheck
 
     publishEvent('check:paid', { checkId })
     publishEvent('check:closed', { checkId })
 
     // Уведомления вне денежной транзакции (fire-and-forget, не блокируют ответ).
-    const paidTotal = parseFloat(String(closed?.totalAmount ?? 0)) || 0
+    const paidTotal = parseFloat(String(closedCheck?.totalAmount ?? 0)) || 0
     void notify({
       type: 'check_paid',
       title: 'Чек оплачен',
@@ -1259,8 +1292,32 @@ posRouter.post('/checks/:id/pay', requireRole('owner', 'staff'), zValidator('jso
         meta: { checkId },
       }).catch(() => {})
     }
+    if ((closed?.certSent ?? 0) > 0.005) {
+      void notify({
+        type: 'certificate_used',
+        title: 'Сертификат',
+        body: `${closed!.certSent} ₽`,
+        meta: { checkId },
+      }).catch(() => {})
+    }
+    if ((closed?.debtAmount ?? 0) > 0) {
+      void notify({
+        type: 'debt_created',
+        title: 'Оплата в долг',
+        body: `${closed!.debtAmount} ₽`,
+        meta: { checkId, playerId: closed!.playerId },
+      }).catch(() => {})
+    }
+    if (closed?.completedEvent) {
+      void notify({
+        type: 'event_completed',
+        title: 'Мероприятие завершено',
+        body: closed.completedEvent.title ?? 'Мероприятие завершено',
+        meta: { eventId: closed.completedEvent.id, checkId },
+      }).catch(() => {})
+    }
 
-    return c.json({ check: closed })
+    return c.json({ check: closedCheck })
   } catch (err: any) {
     const map: Record<string, [string, 400]> = {
       CHECK_NOT_OPEN: ['Check not open', 400],

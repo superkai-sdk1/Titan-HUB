@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { ReactQueryDevtools } from '@tanstack/react-query-devtools'
 import { Component, useState, type ReactNode } from 'react'
 import { ToastProvider } from '@/components/Toast'
+import { NotificationsProvider } from '@/components/NotificationsProvider'
 
 class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
   state = { hasError: false }
@@ -50,7 +51,9 @@ export function Providers({ children }: { children: React.ReactNode }) {
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
         <ToastProvider>
-          {children}
+          <NotificationsProvider>
+            {children}
+          </NotificationsProvider>
         </ToastProvider>
         {process.env.NODE_ENV === 'development' && <ReactQueryDevtools />}
       </QueryClientProvider>
