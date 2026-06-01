@@ -2,7 +2,7 @@
 import React, { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
-import { PageHeader, Sheet, INP, LBL } from '@/components/manage/DesignSystem'
+import { PageHeader, Sheet, INP, LBL, formatMoney } from '@/components/manage/DesignSystem'
 import { StateView } from '@/components/StateView'
 import { useToast } from '@/components/Toast'
 import { Icon } from '@/components/Icon'
@@ -16,6 +16,7 @@ interface MenuItem {
   stockQuantity: number
   minThreshold: number
   trackStock: boolean
+  costPrice?: string | number
 }
 
 export default function InventoryPage() {
@@ -38,6 +39,12 @@ export default function InventoryPage() {
 
   const allItems = data?.items ?? []
   const lowStockCount = allItems.filter(i => i.trackStock && i.stockQuantity <= i.minThreshold).length
+  // Сводка склада: стоимость остатка по себестоимости, заканчивающиеся (>0 и ≤ порога)
+  // и отсутствующие (=0) позиции — только по товарам с учётом.
+  const tracked = allItems.filter(i => i.trackStock)
+  const stockValue = tracked.reduce((s, i) => s + i.stockQuantity * (parseFloat(String(i.costPrice ?? 0)) || 0), 0)
+  const endingCount = tracked.filter(i => i.stockQuantity > 0 && i.stockQuantity <= i.minThreshold).length
+  const outCount = tracked.filter(i => i.stockQuantity === 0).length
   // FIX #15: reduce вместо Math.max(...array) — спред падает на больших списках
   // (превышение лимита аргументов).
   const maxQty = useMemo(() => allItems.reduce((m, i) => Math.max(m, i.stockQuantity), 1), [allItems])
@@ -137,6 +144,32 @@ export default function InventoryPage() {
       </div>
 
       <div style={{ padding: '16px 16px var(--bottom-nav-clear)', flex: 1, maxWidth: 680, margin: '0 auto', width: '100%', boxSizing: 'border-box' }}>
+        {/* Сводка склада */}
+        {data && tracked.length > 0 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 14 }}>
+            <div className="glass-l2" style={{ borderRadius: 16, padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div style={{ width: 42, height: 42, borderRadius: 12, background: 'rgba(139,92,246,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <Icon name="payments" size={22} color="#a78bfa" />
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: 0 }}>Стоимость склада</p>
+                <p style={{ fontSize: 22, fontWeight: 800, margin: '1px 0 0', color: 'var(--on-surface)', fontVariantNumeric: 'tabular-nums' }}>{formatMoney(stockValue)}</p>
+              </div>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              <button onClick={() => setFilter('low')} className="glass-l2" style={{ borderRadius: 16, padding: '14px 16px', textAlign: 'left', cursor: 'pointer', border: filter === 'low' ? '1px solid rgba(245,158,11,0.5)' : '1px solid rgba(255,255,255,0.08)' }}>
+                <Icon name="warning" size={20} color="#F59E0B" />
+                <p style={{ fontSize: 26, fontWeight: 800, margin: '6px 0 0', color: '#F59E0B', lineHeight: 1 }}>{endingCount}</p>
+                <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: '4px 0 0' }}>Заканчивается</p>
+              </button>
+              <div className="glass-l2" style={{ borderRadius: 16, padding: '14px 16px' }}>
+                <Icon name="remove_shopping_cart" size={20} color="#F43F5E" />
+                <p style={{ fontSize: 26, fontWeight: 800, margin: '6px 0 0', color: '#F43F5E', lineHeight: 1 }}>{outCount}</p>
+                <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: '4px 0 0' }}>Нет в наличии</p>
+              </div>
+            </div>
+          </div>
+        )}
         {isLoading && !data ? (
           <StateView state="loading" />
         ) : filtered.length === 0 ? (

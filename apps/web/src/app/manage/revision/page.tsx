@@ -14,11 +14,62 @@ interface StockItem {
   minThreshold: number
   trackStock: boolean
   category?: string
+  costPrice?: string | number
 }
 
-interface RevisionEntry {
-  id: string
-  actualQty: string
+interface ResultRow { name: string; expected: number; actual: number; diff: number; value: number }
+interface Report { surplusCount: number; surplusValue: number; shortageCount: number; shortageValue: number; total: number }
+
+const costOf = (i: { costPrice?: string | number }) => parseFloat(String(i.costPrice ?? 0)) || 0
+function fmt(n: number) { return `${Math.round(n).toLocaleString('ru')} ₽` }
+
+// Сводка расхождений: излишек (факт > учёта) и недостача (факт < учёта) — в штуках
+// и в деньгах (по себестоимости), плюс общая сумма расхождений (их сумма).
+function buildReport(rows: { diff: number; cost: number }[]): Report {
+  let surplusCount = 0, surplusValue = 0, shortageCount = 0, shortageValue = 0
+  for (const r of rows) {
+    if (r.diff > 0) { surplusCount++; surplusValue += r.diff * r.cost }
+    else if (r.diff < 0) { shortageCount++; shortageValue += -r.diff * r.cost }
+  }
+  return { surplusCount, surplusValue, shortageCount, shortageValue, total: surplusValue + shortageValue }
+}
+
+function ReportCard({ r }: { r: Report }) {
+  const nothing = r.surplusCount === 0 && r.shortageCount === 0
+  return (
+    <div className="glass-l2" style={{ borderRadius: 16, padding: 16 }}>
+      <p style={{ fontSize: 12, fontWeight: 700, color: 'var(--on-surface-variant)', margin: '0 0 12px', letterSpacing: '0.02em' }}>СВОДКА РАСХОЖДЕНИЙ</p>
+      {nothing ? (
+        <p style={{ fontSize: 13, color: 'var(--on-surface-variant)', margin: 0 }}>Расхождений нет — всё сходится.</p>
+      ) : (
+        <>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <div style={{ padding: '12px 14px', borderRadius: 12, background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.2)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                <Icon name="trending_up" size={16} color="#34D399" />
+                <span style={{ fontSize: 12, fontWeight: 700, color: '#34D399' }}>Излишек</span>
+              </div>
+              <p style={{ fontSize: 18, fontWeight: 800, margin: 0, color: '#34D399', fontVariantNumeric: 'tabular-nums' }}>+{fmt(r.surplusValue)}</p>
+              <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: '2px 0 0' }}>{r.surplusCount} поз.</p>
+            </div>
+            <div style={{ padding: '12px 14px', borderRadius: 12, background: 'rgba(244,63,94,0.1)', border: '1px solid rgba(244,63,94,0.2)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                <Icon name="trending_down" size={16} color="#F87171" />
+                <span style={{ fontSize: 12, fontWeight: 700, color: '#F87171' }}>Недостача</span>
+              </div>
+              <p style={{ fontSize: 18, fontWeight: 800, margin: 0, color: '#F87171', fontVariantNumeric: 'tabular-nums' }}>−{fmt(r.shortageValue)}</p>
+              <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: '2px 0 0' }}>{r.shortageCount} поз.</p>
+            </div>
+          </div>
+          <div style={{ height: 1, background: 'rgba(255,255,255,0.07)', margin: '12px 0' }} />
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span style={{ fontSize: 13, color: 'var(--on-surface-variant)' }}>Общая сумма расхождений</span>
+            <span style={{ fontSize: 18, fontWeight: 800, color: 'var(--on-surface)', fontVariantNumeric: 'tabular-nums' }}>{fmt(r.total)}</span>
+          </div>
+        </>
+      )}
+    </div>
+  )
 }
 
 export default function RevisionPage() {
@@ -27,7 +78,7 @@ export default function RevisionPage() {
   const [mode, setMode] = useState<'idle' | 'active' | 'done'>('idle')
   const [entries, setEntries] = useState<Record<string, string>>({})
   const [saving, setSaving] = useState(false)
-  const [results, setResults] = useState<{ name: string; expected: number; actual: number; diff: number }[]>([])
+  const [results, setResults] = useState<ResultRow[]>([])
 
   const { data, isLoading } = useQuery<{ items: StockItem[] }>({
     queryKey: ['menu-items-inventory'],
@@ -67,7 +118,7 @@ export default function RevisionPage() {
         const diff = actual - item.stockQuantity
         // Пишем в результат только после успешного сохранения позиции.
         await patchMut.mutateAsync({ id: item.id, stockQuantity: actual })
-        res.push({ name: item.name, expected: item.stockQuantity, actual, diff })
+        res.push({ name: item.name, expected: item.stockQuantity, actual, diff, value: diff * costOf(item) })
       }
     } catch {
       failed = true
@@ -84,6 +135,29 @@ export default function RevisionPage() {
 
   const filled = Object.values(entries).filter(v => v !== '').length
   const total = tracked.length
+
+  // Живой отчёт во время заполнения.
+  const activeReport = useMemo(() => buildReport(
+    tracked
+      .map(item => {
+        const raw = entries[item.id]
+        if (raw === '' || raw === undefined) return null
+        const a = parseInt(raw, 10)
+        if (!Number.isFinite(a)) return null
+        return { diff: a - item.stockQuantity, cost: costOf(item) }
+      })
+      .filter((x): x is { diff: number; cost: number } => x !== null),
+  ), [tracked, entries])
+
+  // Итоговый отчёт по сохранённым результатам (value = diff × себестоимость).
+  const doneReport = useMemo<Report>(() => {
+    let sV = 0, shV = 0, sC = 0, shC = 0
+    for (const r of results) {
+      if (r.diff > 0) { sC++; sV += r.value }
+      else if (r.diff < 0) { shC++; shV += -r.value }
+    }
+    return { surplusCount: sC, surplusValue: sV, shortageCount: shC, shortageValue: shV, total: sV + shV }
+  }, [results])
 
   return (
     <div style={{ minHeight: '100dvh', display: 'flex', flexDirection: 'column' }}>
@@ -160,8 +234,9 @@ export default function RevisionPage() {
         {/* Active state */}
         {mode === 'active' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <p style={{ fontSize: 13, color: 'var(--on-surface-variant)', margin: '0 0 8px' }}>
-              Введите фактическое количество. Пустые поля — не будут обновлены.
+            <ReportCard r={activeReport} />
+            <p style={{ fontSize: 13, color: 'var(--on-surface-variant)', margin: '4px 0 4px' }}>
+              Введите фактическое количество. Расхождения подсвечиваются, пустые поля не обновляются.
             </p>
             {tracked.map(item => {
               const val = entries[item.id] ?? ''
@@ -169,31 +244,35 @@ export default function RevisionPage() {
               const parsed = val === '' ? null : parseInt(val, 10)
               const actual = parsed !== null && Number.isFinite(parsed) ? parsed : null
               const diff = actual !== null ? actual - item.stockQuantity : null
+              const hasDiff = diff !== null && diff !== 0
+              const dColor = !hasDiff ? 'var(--on-surface-variant)' : diff! > 0 ? '#34D399' : '#F87171'
+              const value = diff !== null ? diff * costOf(item) : 0
               return (
-                <div key={item.id} className="glass-l2" style={{ borderRadius: 16, padding: '14px 16px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
-                    <div style={{ flex: 1 }}>
-                      <p style={{ fontSize: 14, fontWeight: 600, margin: '0 0 2px' }}>{item.name}</p>
-                      <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: 0 }}>
-                        В системе: <strong>{item.stockQuantity}</strong> шт
-                        {diff !== null && (
-                          <span style={{ marginLeft: 8, fontWeight: 700, color: diff > 0 ? '#10B981' : diff < 0 ? '#F43F5E' : 'var(--on-surface-variant)' }}>
-                            ({diff > 0 ? '+' : ''}{diff})
-                          </span>
-                        )}
-                      </p>
+                <div key={item.id} className="glass-l2" style={{ borderRadius: 16, padding: '14px 16px', border: hasDiff ? `1px solid ${dColor}66` : '1px solid rgba(255,255,255,0.08)', background: hasDiff ? `${dColor}12` : undefined }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <p style={{ fontSize: 14, fontWeight: 600, margin: '0 0 4px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.name}</p>
+                      <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 6, background: 'rgba(255,255,255,0.06)', color: 'var(--on-surface-variant)', fontFamily: "'JetBrains Mono',monospace" }}>склад: {item.stockQuantity} шт</span>
                     </div>
-                    <div style={{ width: 96 }}>
+                    <div style={{ width: 88, flexShrink: 0 }}>
                       <input
                         type="number"
                         min="0"
                         placeholder="Факт"
                         value={val}
                         onChange={e => setEntries(prev => ({ ...prev, [item.id]: e.target.value }))}
-                        style={{ ...INP, textAlign: 'center', fontWeight: 700, fontSize: 16, padding: '10px 12px' }}
+                        style={{ ...INP, textAlign: 'center', fontWeight: 700, fontSize: 16, padding: '10px 12px', borderColor: hasDiff ? `${dColor}99` : undefined }}
                       />
                     </div>
                   </div>
+                  {hasDiff && (
+                    <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 7 }}>
+                      <Icon name={diff! > 0 ? 'trending_up' : 'trending_down'} size={15} color={dColor} />
+                      <span style={{ fontSize: 12, fontWeight: 700, color: dColor }}>
+                        {diff! > 0 ? 'Излишек' : 'Недостача'} {diff! > 0 ? '+' : ''}{diff} шт{value ? ` · ${diff! > 0 ? '+' : '−'}${fmt(Math.abs(value))}` : ''}
+                      </span>
+                    </div>
+                  )}
                 </div>
               )
             })}
@@ -228,6 +307,8 @@ export default function RevisionPage() {
               <h2 style={{ fontSize: 20, fontWeight: 800, margin: '0 0 6px' }}>Ревизия завершена</h2>
               <p style={{ fontSize: 13, color: 'var(--on-surface-variant)', margin: 0 }}>Обновлено {results.length} позиций</p>
             </div>
+
+            <ReportCard r={doneReport} />
 
             {results.length > 0 && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
