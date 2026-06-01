@@ -4,7 +4,7 @@ import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import {
   db, checks, checkItems, checkPayments, checkDiscounts, inventory, profiles, shifts, expenses,
-  supplies, supplyItems, salaryPayments, refunds,
+  supplies, supplyItems, salaryPayments, refunds, tariffs, eveningTypes,
   eq, and, gte, lte, lt, desc, asc, sql, sum, count, avg, isNull, ne, inArray,
 } from '@titan/database'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
@@ -419,6 +419,86 @@ analyticsRouter.get('/products', zValidator('query', dateRangeQuerySchema), asyn
   })
 
   return c.json({ products: withAbc, totalRev })
+})
+
+// ─── Тарифы: продажи по тарифам и разбивка по типам вечеров ────────────────────
+// Сколько каждого тарифа продано за период и как продажи делятся по типам вечеров.
+// Тариф маппится на проданное через backing-позицию: tariffs.item_id = check_items.item_id.
+// Окно — то же полуоткрытое [fromStart, toEndExclusive) по МСК, что и в /revenue;
+// только закрытые чеки. Тип вечера берём со смены чека (shifts.evening_type).
+analyticsRouter.get('/tariffs', zValidator('query', dateRangeQuerySchema), async (c) => {
+  const q = c.req.valid('query')
+  const from = q.from ?? mskDateStr(30)
+  const to = q.to ?? mskDateStr(0)
+  const fromStart = mskBoundary(from)
+  const toEndExclusive = new Date(mskBoundary(to).getTime() + 86400000)
+
+  const lineRev = sql<number>`sum(${checkItems.quantity}::numeric * ${checkItems.priceAtTime})`
+  const lineQty = sql<number>`sum(${checkItems.quantity})::int`
+
+  // Разбивка по тарифам.
+  const byTariffRows = await db
+    .select({
+      tariffId: tariffs.id,
+      name: tariffs.name,
+      count: lineQty,
+      revenue: lineRev,
+    })
+    .from(checkItems)
+    .innerJoin(tariffs, eq(tariffs.itemId, checkItems.itemId))
+    .innerJoin(checks, eq(checks.id, checkItems.checkId))
+    .where(and(
+      eq(checks.status, 'closed'),
+      gte(checks.createdAt, fromStart),
+      lt(checks.createdAt, toEndExclusive),
+    ))
+    .groupBy(tariffs.id, tariffs.name)
+    .orderBy(desc(lineRev))
+
+  // Разбивка по типам вечеров (тип берём со смены чека).
+  const byEveningRows = await db
+    .select({
+      eveningKey: shifts.eveningType,
+      count: lineQty,
+      revenue: lineRev,
+    })
+    .from(checkItems)
+    .innerJoin(tariffs, eq(tariffs.itemId, checkItems.itemId))
+    .innerJoin(checks, eq(checks.id, checkItems.checkId))
+    .innerJoin(shifts, eq(shifts.id, checks.shiftId))
+    .where(and(
+      eq(checks.status, 'closed'),
+      gte(checks.createdAt, fromStart),
+      lt(checks.createdAt, toEndExclusive),
+    ))
+    .groupBy(shifts.eveningType)
+    .orderBy(desc(lineRev))
+
+  // Метки типов вечеров из справочника (fallback на сам key).
+  const eveningRows = await db.select({ key: eveningTypes.key, label: eveningTypes.label }).from(eveningTypes)
+  const labelByKey = new Map(eveningRows.map((r: any) => [r.key, r.label]))
+
+  const byTariff = byTariffRows.map((r: any) => ({
+    tariffId: r.tariffId,
+    name: r.name,
+    count: Number(r.count ?? 0),
+    revenue: parseNum(r.revenue),
+  }))
+
+  const byEvening = byEveningRows.map((r: any) => ({
+    eveningKey: r.eveningKey,
+    label: labelByKey.get(r.eveningKey) ?? r.eveningKey,
+    count: Number(r.count ?? 0),
+    revenue: parseNum(r.revenue),
+  }))
+
+  const total = byTariff.reduce(
+    (acc, r) => ({ count: acc.count + r.count, revenue: acc.revenue + r.revenue }),
+    { count: 0, revenue: 0 },
+  )
+  total.revenue = Math.round(total.revenue * 100) / 100
+
+  return c.json({ byTariff, byEvening, total })
 })
 
 // ─── Clients / Players ────────────────────────────────────────────────────────

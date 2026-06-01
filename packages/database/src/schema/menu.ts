@@ -54,9 +54,29 @@ export const modifiers = pgTable('modifiers', {
     .references(() => inventory.id, { onDelete: 'cascade' }),
 })
 
+// Тарифы клиентов (Гость/Резидент/Студент/Одна игра/Без тарифа и т.д.) — отдельная
+// управляемая сущность (раздел «Тарифы и аренда»). Не считаются на складе. Каждый
+// тариф привязан к скрытой backing-позиции меню (itemId), через которую тариф
+// попадает в чек как обычная позиция (денежный путь не меняется); tariffs владеет
+// идентичностью/ценой/порядком и используется в настройках и аналитике.
+export const tariffs = pgTable('tariffs', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  name: text('name').notNull(),
+  price: numeric('price', { precision: 10, scale: 2 }).notNull().default('0'),
+  color: text('color').notNull().default('#8B5CF6'),
+  sortOrder: integer('sort_order').notNull().default(0),
+  isActive: boolean('is_active').notNull().default(true),
+  // Backing-позиция меню (категория «Тарифы», trackStock=false) — через неё тариф
+  // ложится в check_items. Аналитика маппит тариф по этому itemId.
+  itemId: uuid('item_id').references(() => inventory.id),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+})
+
 export type MenuCategory = typeof menuCategories.$inferSelect
 export type NewMenuCategory = typeof menuCategories.$inferInsert
 export type InventoryItem = typeof inventory.$inferSelect
 export type NewInventoryItem = typeof inventory.$inferInsert
 export type Modifier = typeof modifiers.$inferSelect
 export type NewModifier = typeof modifiers.$inferInsert
+export type Tariff = typeof tariffs.$inferSelect

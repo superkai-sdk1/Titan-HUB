@@ -59,6 +59,17 @@ interface PlayerProfile {
   photoUrl: string | null
 }
 
+// Стандартизированный тариф из /tariffs. itemId — backing-позиция меню,
+// которую добавляем в чек при выборе тарифа.
+interface TariffOption {
+  id: string
+  name: string
+  price: string | number
+  color?: string | null
+  isActive?: boolean
+  itemId?: string | null
+}
+
 interface CertificateInfo {
   id: string
   code: string
@@ -166,6 +177,13 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
     queryFn: () => api.get<{ items: InventoryItem[] }>('/menu/items'),
   })
 
+  // Тарифы — из стандартизированного справочника /tariffs (активные). itemId
+  // каждого тарифа добавляется позицией в чек при выборе (через addItem).
+  const { data: tariffsData } = useQuery({
+    queryKey: ['pricing', 'tariffs'],
+    queryFn: () => api.get<{ tariffs: TariffOption[] } | TariffOption[]>('/pricing/tariffs'),
+  })
+
   // Настройки: процент макс. оплаты бонусами (bonus_max_spend). Бэкенд /pay
   // enforce-ит этот же лимит; здесь — только для корректного UI слайдера.
   const { data: settingsData } = useQuery({
@@ -238,9 +256,9 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
   const displayName = check ? (check.guestName || funnyGuestName(check.id)) : 'Гость'
   const categories = categoriesData?.categories ?? []
   const allItems = (itemsData?.items ?? []).filter(i => i.isActive)
-  // Тарифы — активные позиции из категории «Тарифы» (для тарифного шага привязки).
-  const tariffCategoryId = categories.find(c => c.name.toLowerCase().includes('тариф'))?.id ?? null
-  const tariffItems = allItems.filter(i => tariffCategoryId ? i.category === tariffCategoryId : false)
+  // Тарифы — из стандартизированного справочника /tariffs (активные).
+  const allTariffs: TariffOption[] = Array.isArray(tariffsData) ? tariffsData : (tariffsData?.tariffs ?? [])
+  const tariffItems = allTariffs.filter(t => t.isActive !== false)
   const filteredItems = allItems.filter(item => {
     const matchCat = !activeCat || item.category === activeCat
     const matchSearch = !search || item.name.toLowerCase().includes(search.toLowerCase())
@@ -496,7 +514,7 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
     if (!expected) { setSelectedTariffId(null); return }
     const match = tariffItems.find(i => i.name.toLowerCase() === expected.toLowerCase())
     setSelectedTariffId(match?.id ?? null)
-  }, [tariffStep, pendingPlayer, itemsData]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [tariffStep, pendingPlayer, tariffsData]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Закрыть шторку клиента и сбросить тарифный шаг.
   const closeClient = () => {
@@ -513,7 +531,9 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
         try { await setGuests.mutateAsync([...names, pendingPlayer.nickname]) } catch { /* toastError */ }
       }
     }
-    if (selectedTariffId) { try { await addItem.mutateAsync(selectedTariffId) } catch { /* toastError */ } }
+    // selectedTariffId — id тарифа из /tariffs; в чек добавляем его backing itemId.
+    const chosenTariff = tariffItems.find(t => t.id === selectedTariffId)
+    if (chosenTariff?.itemId) { try { await addItem.mutateAsync(chosenTariff.itemId) } catch { /* toastError */ } }
     closeClient()
   }
 
@@ -1289,7 +1309,7 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
                 </div>
 
                 {tariffItems.length === 0 && (
-                  <p style={{ fontSize: 13, color: 'var(--on-surface-variant)', textAlign: 'center', margin: '12px 0 0' }}>Категория «Тарифы» пуста — клиент привязан без тарифа.</p>
+                  <p style={{ fontSize: 13, color: 'var(--on-surface-variant)', textAlign: 'center', margin: '12px 0 0' }}>Тарифы не настроены — клиент привязан без тарифа.</p>
                 )}
               </>
             )}

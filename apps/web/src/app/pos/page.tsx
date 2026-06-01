@@ -45,6 +45,24 @@ interface SpaceResult {
   isActive: boolean
 }
 
+// Стандартизированный тариф из /tariffs. itemId — backing-позиция меню,
+// которую добавляем в чек при выборе тарифа.
+interface TariffOption {
+  id: string
+  name: string
+  price: string | number
+  color?: string | null
+  isActive?: boolean
+  itemId?: string | null
+}
+
+// Тип вечера из /evening-types (для select при открытии смены).
+interface EveningTypeOption {
+  key: string
+  label: string
+  color?: string | null
+}
+
 type NewCheckStep = 'search' | 'tariff' | 'new_client' | 'space'
 
 // Нормальное время нахождения — 8 часов. До него таймер просто считается
@@ -224,6 +242,16 @@ function PosPageInner() {
     queryFn: () => api.get<{ cashEnd: number | null }>('/shifts/last-cash-end'),
     enabled: showOpenShift,
   })
+
+  // Типы вечеров из стандартизированного справочника /evening-types.
+  const { data: eveningTypesData } = useQuery({
+    queryKey: ['pricing', 'evening-types'],
+    queryFn: () => api.get<{ eveningTypes: EveningTypeOption[] } | EveningTypeOption[]>('/pricing/evening-types'),
+    enabled: showOpenShift,
+  })
+  const eveningTypes: EveningTypeOption[] = Array.isArray(eveningTypesData)
+    ? eveningTypesData
+    : (eveningTypesData?.eveningTypes ?? [])
   useEffect(() => {
     if (showOpenShift && lastCashEndData?.cashEnd != null) {
       setCashStart(String(lastCashEndData.cashEnd))
@@ -300,32 +328,24 @@ function PosPageInner() {
     enabled: newCheckStep === 'space',
   })
 
-  // Menu items + categories for tariff step — filter by "Тарифы" category
-  const { data: menuCatsData } = useQuery({
-    queryKey: ['menu', 'categories'],
-    queryFn: () => api.get<{ categories: { id: string; name: string }[] }>('/menu/categories'),
+  // Тарифы из стандартизированного справочника /tariffs (активные). У каждого
+  // тарифа есть backing itemId — его и добавляем позицией в чек при выборе.
+  const { data: tariffsData } = useQuery({
+    queryKey: ['pricing', 'tariffs'],
+    queryFn: () => api.get<{ tariffs: TariffOption[] } | TariffOption[]>('/pricing/tariffs'),
     enabled: newCheckStep === 'tariff',
   })
-  const { data: menuItemsData } = useQuery({
-    queryKey: ['menu', 'items', 'tariffs'],
-    queryFn: () => api.get<{ items: { id: string; name: string; price: string | number; isActive: boolean; category?: string }[] }>('/menu/items/all'),
-    enabled: newCheckStep === 'tariff',
-  })
-  const tariffCategoryId = (menuCatsData?.categories ?? []).find(
-    c => c.name.toLowerCase().includes('тариф')
-  )?.id ?? null
-  const tariffItems = (menuItemsData?.items ?? []).filter(i =>
-    i.isActive && (tariffCategoryId ? i.category === tariffCategoryId : true)
-  )
+  const allTariffs: TariffOption[] = Array.isArray(tariffsData) ? tariffsData : (tariffsData?.tariffs ?? [])
+  const tariffItems = allTariffs.filter(t => t.isActive !== false)
 
-  // Предвыбор тарифа по тиру клиента
+  // Предвыбор тарифа по тиру клиента (матч tariff.name ↔ метка тира)
   useEffect(() => {
-    if (newCheckStep !== 'tariff' || !menuItemsData || !selectedPlayer) return
+    if (newCheckStep !== 'tariff' || !tariffsData || !selectedPlayer) return
     const expectedName = TIER_TO_TARIFF_NAME[selectedPlayer.clientTier]
     if (!expectedName) { setSelectedTariffId(null); return }
-    const match = tariffItems.find(i => i.name.toLowerCase() === expectedName.toLowerCase())
+    const match = tariffItems.find(t => t.name.toLowerCase() === expectedName.toLowerCase())
     setSelectedTariffId(match?.id ?? null)
-  }, [newCheckStep, menuItemsData, selectedPlayer]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [newCheckStep, tariffsData, selectedPlayer]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Debounced smart player search (layout switch + transliteration)
   useEffect(() => {
@@ -889,11 +909,11 @@ function PosPageInner() {
                   className="glass-l2"
                   style={{ width: '100%', padding: '14px 16px', borderRadius: 14, border: '1px solid rgba(255,255,255,0.08)', color: 'var(--on-surface)', fontSize: 14, outline: 'none', background: 'rgba(255,255,255,0.04)' }}
                 >
-                  <option value="none">Обычный</option>
-                  <option value="sport_mafia">Спортивная мафия</option>
-                  <option value="city_mafia">Городская мафия</option>
-                  <option value="kids_mafia">Детская мафия</option>
-                  <option value="board_games">Настольные игры</option>
+                  {eveningTypes.length > 0
+                    ? eveningTypes.map(et => (
+                        <option key={et.key} value={et.key}>{et.label}</option>
+                      ))
+                    : <option value="none">Обычный</option>}
                 </select>
               </div>
               <div style={{ display: 'flex', gap: 12, marginTop: 8 }}>
@@ -1124,8 +1144,8 @@ function PosPageInner() {
                   </div>
                 </div>
 
-                {/* Tariff list — from DB, with pre-selection by player tier */}
-                {!menuItemsData ? (
+                {/* Tariff list — from /tariffs, with pre-selection by player tier */}
+                {!tariffsData ? (
                   <div style={{ textAlign: 'center', padding: '32px 0', color: 'var(--on-surface-variant)', fontSize: 13 }}>
                     Загрузка тарифов…
                   </div>
@@ -1200,7 +1220,10 @@ function PosPageInner() {
 
                     {/* Confirm button */}
                     <button
-                      onClick={() => createCheck.mutate({ playerId: selectedPlayer.id, tariffItemId: selectedTariffId ?? undefined })}
+                      onClick={() => {
+                        const chosen = tariffItems.find(t => t.id === selectedTariffId)
+                        createCheck.mutate({ playerId: selectedPlayer.id, tariffItemId: chosen?.itemId ?? undefined })
+                      }}
                       disabled={createCheck.isPending}
                       style={{
                         gridColumn: '1 / -1',

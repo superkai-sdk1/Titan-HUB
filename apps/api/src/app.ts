@@ -29,6 +29,7 @@ import { cashopsRouter } from './modules/cashops/cashops.router.js'
 import { discountsRouter } from './modules/discounts/discounts.router.js'
 import { inventoryRouter } from './modules/inventory/inventory.router.js'
 import { plategaRouter } from './modules/platega/platega.router.js'
+import { pricingRouter } from './modules/pricing/pricing.router.js'
 
 const app = new Hono()
 
@@ -118,6 +119,7 @@ app.route('/api/cashops', cashopsRouter)
 app.route('/api/discounts', discountsRouter)
 app.route('/api/inventory', inventoryRouter)
 app.route('/api/platega', plategaRouter)
+app.route('/api/pricing', pricingRouter)
 
 app.onError((err, c) => {
   // Полную ошибку логируем только на сервере; наружу — обобщённое сообщение,

@@ -38,6 +38,7 @@ const NAV: NavGroup[] = [
       { href: '/manage/inventory', label: 'Склад',     icon: 'inventory_2',     color: '#3B82F6', bg: 'rgba(59,130,246,0.15)',  roles: ['owner','staff'], perm: 'inventory' },
       { href: '/manage/supplies',  label: 'Поставки',  icon: 'local_shipping',  color: '#10B981', bg: 'rgba(16,185,129,0.15)', roles: ['owner','staff'], perm: 'supplies' },
       { href: '/manage/revision',  label: 'Ревизия',   icon: 'fact_check',      color: '#F59E0B', bg: 'rgba(245,158,11,0.15)', roles: ['owner','staff'], perm: 'inventory' },
+      { href: '/manage/pricing',   label: 'Тарифы и аренда', icon: 'confirmation_number', color: '#8B5CF6', bg: 'rgba(139,92,246,0.15)', roles: ['owner','staff'] },
     ],
   },
   {

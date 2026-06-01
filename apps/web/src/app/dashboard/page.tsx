@@ -9,7 +9,7 @@ import { useCountUp } from '@/hooks/useCountUp'
 import { StateView } from '@/components/StateView'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-type MainTab = 'today' | 'overview' | 'reports' | 'products' | 'players' | 'checks'
+type MainTab = 'today' | 'overview' | 'reports' | 'products' | 'players' | 'checks' | 'tariffs'
 type ReportRange = '7d' | '30d' | 'month' | 'custom'
 
 const PAY_COLORS: Record<string, string> = {
@@ -1184,6 +1184,144 @@ function ChecksTab() {
   )
 }
 
+// ─── Tab: Тарифы (выручка/количество по тарифам + по типам вечеров) ───────────
+function TariffsTab() {
+  const [range, setRange] = useState<ReportRange>('30d')
+  const [customFrom, setCustomFrom] = useState(format(subDays(new Date(), 29), 'yyyy-MM-dd'))
+  const [customTo, setCustomTo] = useState(format(new Date(), 'yyyy-MM-dd'))
+  const [from, to] = getRange(range, customFrom, customTo)
+  // Кликабельный тариф → раскрываем строку с деталями (count/revenue).
+  const [openTariff, setOpenTariff] = useState<any | null>(null)
+
+  const { data, isLoading, isError, refetch } = useQuery({
+    queryKey: ['analytics', 'tariffs', from, to],
+    queryFn: () => api.get<any>(`/analytics/tariffs?from=${from}&to=${to}`),
+    enabled: !!from && !!to,
+  })
+
+  const byTariff: any[] = data?.byTariff ?? []
+  const byEvening: any[] = data?.byEvening ?? []
+  const totalCount: number = parseNum(data?.total?.count)
+  const totalRevenue: number = parseNum(data?.total?.revenue)
+  const maxTariffRev = byTariff.length ? Math.max(...byTariff.map((t: any) => parseNum(t.revenue))) : 1
+  const maxEveningRev = byEvening.length ? Math.max(...byEvening.map((e: any) => parseNum(e.revenue))) : 1
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      {/* Range selector */}
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+        {(['7d', '30d', 'month', 'custom'] as ReportRange[]).map(r => (
+          <button key={r} onClick={() => setRange(r)} style={{ padding: '6px 14px', borderRadius: 9999, border: `1px solid ${range === r ? '#8B5CF6' : 'rgba(255,255,255,0.08)'}`, background: range === r ? 'rgba(139,92,246,0.15)' : 'transparent', color: range === r ? '#A78BFA' : 'var(--on-surface-variant)', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+            {r === '7d' ? '7 дней' : r === '30d' ? '30 дней' : r === 'month' ? 'Этот месяц' : 'Период'}
+          </button>
+        ))}
+        {range === 'custom' && (
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            <input type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)} style={INP} />
+            <span style={{ color: 'var(--on-surface-variant)', fontSize: 12 }}>—</span>
+            <input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)} style={INP} />
+          </div>
+        )}
+      </div>
+
+      {isLoading ? <StateView state="loading" />
+      : isError ? <StateView state="error" description="Не удалось загрузить аналитику тарифов." action={{ label: 'Повторить', onClick: () => refetch() }} />
+      : (
+        <>
+          {/* KPI */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 10 }}>
+            <div className="glass-l2" style={{ borderRadius: 14, padding: '14px 16px' }}>
+              <p style={{ fontSize: 20, fontWeight: 900, fontStyle: 'italic', color: '#8B5CF6', margin: '0 0 4px', lineHeight: 1 }}>{totalCount}</p>
+              <p style={{ fontSize: 10, color: 'var(--on-surface-variant)', margin: 0, textTransform: 'uppercase', letterSpacing: '0.06em', fontFamily: "'JetBrains Mono',monospace" }}>Тарифов продано</p>
+            </div>
+            <div className="glass-l2" style={{ borderRadius: 14, padding: '14px 16px' }}>
+              <p style={{ fontSize: 20, fontWeight: 900, fontStyle: 'italic', color: '#4cd7f6', margin: '0 0 4px', lineHeight: 1 }}>{fmt(totalRevenue)} ₽</p>
+              <p style={{ fontSize: 10, color: 'var(--on-surface-variant)', margin: 0, textTransform: 'uppercase', letterSpacing: '0.06em', fontFamily: "'JetBrains Mono',monospace" }}>Выручка по тарифам</p>
+            </div>
+          </div>
+
+          {/* По тарифам — кликабельные строки */}
+          <div className="glass-l2" style={{ borderRadius: 16, overflow: 'hidden' }}>
+            <div style={{ padding: '14px 18px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+              <span style={{ ...LBL, margin: 0 }}>По тарифам</span>
+            </div>
+            {byTariff.length === 0 ? <p style={{ padding: 24, textAlign: 'center', fontSize: 13, color: 'var(--on-surface-variant)' }}>Нет данных за период</p>
+              : byTariff.map((t: any, i: number) => {
+                const rev = parseNum(t.revenue)
+                const pct = maxTariffRev > 0 ? (rev / maxTariffRev) * 100 : 0
+                const isOpen = openTariff?.tariffId === t.tariffId
+                return (
+                  <div key={t.tariffId ?? i} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                    <button
+                      onClick={() => setOpenTariff(isOpen ? null : t)}
+                      style={{ width: '100%', textAlign: 'left', padding: '12px 18px', display: 'flex', gap: 12, alignItems: 'center', background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--on-surface)' }}
+                    >
+                      <span style={{ fontSize: 11, fontFamily: "'JetBrains Mono',monospace", color: 'var(--on-surface-variant)', width: 18, flexShrink: 0 }}>{i + 1}</span>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                          <span style={{ fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.name}</span>
+                        </div>
+                        <div style={{ height: 4, borderRadius: 2, background: 'rgba(255,255,255,0.06)', overflow: 'hidden' }}>
+                          <div style={{ height: '100%', width: `${pct}%`, background: 'linear-gradient(90deg, #8B5CF6, #4cd7f6)', borderRadius: 2 }} />
+                        </div>
+                      </div>
+                      <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                        <p style={{ fontSize: 13, fontWeight: 700, margin: 0 }}>{fmt(rev)} ₽</p>
+                        <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: '2px 0 0' }}>{parseNum(t.count).toFixed(0)} шт</p>
+                      </div>
+                      <Icon name={isOpen ? 'expand_less' : 'expand_more'} size={18} color="var(--on-surface-variant)" />
+                    </button>
+                    {isOpen && (
+                      <div style={{ padding: '0 18px 14px 48px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
+                          <span style={{ color: 'var(--on-surface-variant)' }}>Количество</span>
+                          <span style={{ fontWeight: 700 }}>{parseNum(t.count).toFixed(0)} шт</span>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
+                          <span style={{ color: 'var(--on-surface-variant)' }}>Выручка</span>
+                          <span style={{ fontWeight: 700, color: '#4cd7f6' }}>{fmt(rev)} ₽</span>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
+                          <span style={{ color: 'var(--on-surface-variant)' }}>Средняя цена</span>
+                          <span style={{ fontWeight: 700 }}>{fmt(parseNum(t.count) > 0 ? rev / parseNum(t.count) : 0)} ₽</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+          </div>
+
+          {/* По типам вечеров */}
+          <div className="glass-l2" style={{ borderRadius: 16, padding: 20 }}>
+            <span style={LBL}>По типам вечеров</span>
+            {byEvening.length === 0 ? <p style={{ fontSize: 13, color: 'var(--on-surface-variant)', textAlign: 'center', padding: '12px 0' }}>Нет данных</p>
+              : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {byEvening.map((e: any, i: number) => {
+                    const rev = parseNum(e.revenue)
+                    const pct = maxEveningRev > 0 ? (rev / maxEveningRev) * 100 : 0
+                    return (
+                      <div key={e.eveningKey ?? i}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                          <span style={{ fontSize: 12, color: 'var(--on-surface-variant)' }}>{e.label ?? e.eveningKey}</span>
+                          <span style={{ fontSize: 12, fontWeight: 700 }}>{fmt(rev)} ₽ · {parseNum(e.count).toFixed(0)} шт</span>
+                        </div>
+                        <div style={{ height: 8, borderRadius: 4, background: 'rgba(255,255,255,0.04)', overflow: 'hidden' }}>
+                          <div style={{ height: '100%', width: `${pct}%`, background: 'linear-gradient(90deg, #10B981, #4cd7f6)', borderRadius: 4 }} />
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
 export default function DashboardPage() {
   const [activeTab, setActiveTab] = useState<MainTab>('today')
@@ -1201,6 +1339,7 @@ export default function DashboardPage() {
     { key: 'overview' as MainTab, label: 'Сводка',  icon: 'dashboard' },
     { key: 'reports'  as MainTab, label: 'Отчёты',  icon: 'bar_chart' },
     { key: 'checks'   as MainTab, label: 'Чеки',    icon: 'receipt_long' },
+    { key: 'tariffs'  as MainTab, label: 'Тарифы',  icon: 'confirmation_number' },
     { key: 'products' as MainTab, label: 'Товары',  icon: 'inventory_2' },
     { key: 'players'  as MainTab, label: 'Игроки',  icon: 'group' },
   ]
@@ -1246,6 +1385,7 @@ export default function DashboardPage() {
         {activeTab === 'overview'  && (dash ? <OverviewTab dash={dash} revenue={revenue} /> : dashError ? <StateView state="error" description="Не удалось загрузить аналитику." action={{ label: 'Повторить', onClick: () => refetchDash() }} /> : <StateView state="loading" />)}
         {activeTab === 'reports'   && <ReportsTab />}
         {activeTab === 'checks'    && <ChecksTab />}
+        {activeTab === 'tariffs'   && <TariffsTab />}
         {activeTab === 'products'  && <ProductsTab  products={products} />}
         {activeTab === 'players'   && <PlayersTab   clients={clients} />}
       </div>

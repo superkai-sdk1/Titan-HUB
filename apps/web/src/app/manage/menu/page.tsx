@@ -415,8 +415,12 @@ export default function MenuPage() {
   const { data: catsData } = useQuery({ queryKey: ['menu', 'categories'], queryFn: () => api.get<any>('/menu/categories') })
   const { data: itemsData } = useQuery({ queryKey: ['menu', 'items', 'all'], queryFn: () => api.get<any>('/menu/items/all') })
   const { data: spacesData } = useQuery({ queryKey: ['spaces'], queryFn: () => api.get<any>('/spaces') })
-  const cats: any[] = catsData?.categories ?? []
-  const allItems: any[] = itemsData?.items ?? []
+  // Категория «Тарифы» управляется в отдельном разделе «Тарифы и аренда» —
+  // прячем её (и её позиции) из меню, чтобы тарифы не редактировались здесь.
+  const allCats: any[] = catsData?.categories ?? []
+  const tariffCatIds = new Set(allCats.filter((c: any) => String(c.name ?? '').toLowerCase().includes('тариф')).map((c: any) => c.id))
+  const cats: any[] = allCats.filter((c: any) => !tariffCatIds.has(c.id))
+  const allItems: any[] = (itemsData?.items ?? []).filter((i: any) => !tariffCatIds.has(i.category))
   const spaces: any[] = spacesData?.spaces ?? []
 
   // Синхронизируем локальный порядок с сервером. Ключимся на itemsData (стабильная
@@ -429,6 +433,8 @@ export default function MenuPage() {
   const activeCatObj = activeCat !== 'all' && activeCat !== 'none' ? cats.find((c: any) => c.id === activeCat) : null
 
   const filteredItems = sortedItems.filter((i: any) => {
+    // Позиции категории «Тарифы» управляются в разделе «Тарифы и аренда» — прячем.
+    if (tariffCatIds.has(i.category)) return false
     if (search && !i.name?.toLowerCase().includes(search.toLowerCase())) return false
     if (activeCat === 'all') return true
     if (activeCat === 'none') return !i.category || !catIds.has(i.category)
