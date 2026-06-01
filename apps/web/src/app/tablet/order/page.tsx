@@ -140,13 +140,11 @@ export default function TabletOrderPage() {
     if (!activeCheckId || cart.length === 0 || isSubmitting) return
     setIsSubmitting(true)
     try {
-      // Добавляем каждую позицию в чек
-      for (const ci of cart) {
-        await api.post(`/pos/checks/${activeCheckId}/items`, {
-          itemId: ci.item.id,
-          quantity: ci.quantity,
-        })
-      }
+      // Отправляем ОДИН заказ (pending). Позиции попадут в чек после подтверждения
+      // сотрудником — здесь в чек НЕ добавляем.
+      await api.post(`/pos/checks/${activeCheckId}/orders`, {
+        items: cart.map((ci) => ({ itemId: ci.item.id, quantity: ci.quantity })),
+      })
       setCart([])
       setShowCart(false)
       setSubmitted(true)
@@ -176,10 +174,10 @@ export default function TabletOrderPage() {
         </div>
         <div style={{ textAlign: 'center' }}>
           <h2 style={{ fontSize: 28, fontWeight: 900, fontStyle: 'italic', textTransform: 'uppercase', color: 'var(--success)', margin: '0 0 8px' }}>
-            ЗАКАЗ ПРИНЯТ!
+            ЗАКАЗ ОТПРАВЛЕН!
           </h2>
           <p style={{ fontSize: 15, color: 'var(--on-surface-variant)', margin: 0 }}>
-            Персонал получил ваш заказ
+            Ожидает подтверждения персонала
           </p>
         </div>
       </div>

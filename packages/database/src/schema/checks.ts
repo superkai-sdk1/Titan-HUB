@@ -5,6 +5,7 @@ import {
   numeric,
   integer,
   timestamp,
+  jsonb,
   pgEnum,
 } from 'drizzle-orm/pg-core'
 import { profiles } from './profiles.js'
@@ -70,6 +71,29 @@ export const checkItems = pgTable('check_items', {
     .references(() => inventory.id),
   quantity: integer('quantity').notNull().default(1),
   priceAtTime: numeric('price_at_time', { precision: 10, scale: 2 }).notNull(),
+})
+
+// Заказы гостя с планшета, ожидающие подтверждения сотрудником. Гость отправляет
+// заказ → строка pending → уведомление персоналу. Сотрудник на экране чека
+// подтверждает (позиции добавляются в чек) или отклоняет. Гость может отменить
+// свой ещё не подтверждённый заказ. items — снимок состава на момент заказа.
+// См. 029_pending_orders.sql.
+export const pendingOrders = pgTable('pending_orders', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  checkId: uuid('check_id')
+    .notNull()
+    .references(() => checks.id, { onDelete: 'cascade' }),
+  spaceId: uuid('space_id').references(() => spaces.id),
+  // pending | confirmed | rejected | cancelled
+  status: text('status').notNull().default('pending'),
+  items: jsonb('items')
+    .$type<{ itemId: string; name: string; quantity: number; price: string }[]>()
+    .notNull()
+    .default([]),
+  createdBy: uuid('created_by').references(() => profiles.id),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  resolvedBy: uuid('resolved_by').references(() => profiles.id),
+  resolvedAt: timestamp('resolved_at', { withTimezone: true }),
 })
 
 export const checkItemModifiers = pgTable('check_item_modifiers', {

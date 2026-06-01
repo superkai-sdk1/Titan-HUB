@@ -14,11 +14,19 @@ interface CheckItem {
   item: { id: string; name: string; price: string } | null
 }
 
+interface PendingOrder {
+  id: string
+  status: string
+  items: { itemId: string; name: string; quantity: number; price: string }[]
+  createdAt: string
+}
+
 interface CheckData {
   id: string
   totalAmount: string
   status: string
   items: CheckItem[]
+  pendingOrders?: PendingOrder[]
   guestName?: string
   spaceId?: string | null
   spaceStartAt?: string | null
@@ -293,6 +301,13 @@ function TabletMain({ space, onLogout }: { space: TabletSpace; onLogout: () => v
     onError: (err: any) => { setToastMsg(err?.message ?? 'Не удалось запросить счёт'); setTimeout(() => setToastMsg(null), 3000) },
   })
 
+  // Отмена своего ещё не подтверждённого заказа
+  const cancelOrder = useMutation({
+    mutationFn: (orderId: string) => api.post(`/pos/orders/${orderId}/cancel`, {}),
+    onSuccess: () => { refetchDetail(); setToastMsg('Заказ отменён'); setTimeout(() => setToastMsg(null), 3000) },
+    onError: (err: any) => { setToastMsg(err?.message ?? 'Не удалось отменить'); setTimeout(() => setToastMsg(null), 3000) },
+  })
+
   // Оплата по QR (СБП) — гость платит сам (+опц. чаевые), чек закроется вебхуком.
   const payQr = useMutation({
     mutationFn: (tip: number) => api.post<{ qrDataUrl: string; chargedAmount: number; baseAmount: number; tip: number }>(`/pos/checks/${activeCheck!.id}/qr`, { tip }),
@@ -316,6 +331,11 @@ function TabletMain({ space, onLogout }: { space: TabletSpace; onLogout: () => v
           const m = JSON.parse(ev.data)
           if (m?.event === 'check:paid') setFinished('paid')
           else if (m?.event === 'check:closed') setFinished((prev) => prev ?? 'closed')
+          else if (m?.event === 'order:resolved') {
+            // Подтверждён → позиции уже в чеке; отклонён → показываем гостю.
+            if (m?.data?.status === 'rejected') { setToastMsg('Заказ отклонён, обратитесь к персоналу'); setTimeout(() => setToastMsg(null), 4000) }
+            else if (m?.data?.status === 'confirmed') { setToastMsg('Заказ подтверждён ✅'); setTimeout(() => setToastMsg(null), 3000) }
+          }
         } catch { /* ignore */ }
       }
     }).catch(() => {})
@@ -504,6 +524,32 @@ function TabletMain({ space, onLogout }: { space: TabletSpace; onLogout: () => v
             </div>
           </div>
         </div>
+
+        {/* Ожидающие подтверждения заказы гостя */}
+        {(activeCheck.pendingOrders ?? []).length > 0 && (
+          <div style={{ marginBottom: 24, display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {(activeCheck.pendingOrders ?? []).map((ord) => (
+              <div key={ord.id} style={{ borderRadius: 18, padding: '16px 18px', background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.3)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 10 }}>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#F59E0B', fontSize: 13, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                    <Icon name="hourglass_top" size={18} /> Ожидает подтверждения
+                  </span>
+                  <button onClick={() => cancelOrder.mutate(ord.id)} disabled={cancelOrder.isPending} style={{ padding: '8px 14px', borderRadius: 12, border: '1px solid rgba(244,63,94,0.35)', background: 'rgba(244,63,94,0.08)', color: '#f43f5e', fontSize: 13, fontWeight: 700, cursor: 'pointer', flexShrink: 0 }}>
+                    Отменить
+                  </button>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {ord.items.map((it, i) => (
+                    <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, color: 'var(--on-surface)' }}>
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{it.name} × {it.quantity}</span>
+                      <span style={{ fontVariantNumeric: 'tabular-nums', flexShrink: 0, marginLeft: 12 }}>{(parseFloat(it.price) * it.quantity).toLocaleString('ru')} ₽</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* Items list */}
         {(activeCheck.items ?? []).length === 0 ? (

@@ -48,6 +48,14 @@ interface CheckData {
   linkedEventId?: string | null
   discounts?: { id: string; name: string; type: string; value: string; amount: string; discountId: string | null }[]
   excludedDiscounts?: { id: string; name: string; type: string; value: string }[]
+  pendingOrders?: PendingOrder[]
+}
+
+interface PendingOrder {
+  id: string
+  status: string
+  items: { itemId: string; name: string; quantity: number; price: string }[]
+  createdAt: string
 }
 
 interface PlayerProfile {
@@ -472,6 +480,18 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
     onError: toastError,
   })
 
+  // Подтверждение заказа гостя: позиции добавляются в чек (бэкенд возвращает чек).
+  const confirmOrder = useMutation({
+    mutationFn: (orderId: string) => api.post<{ check: CheckData }>(`/pos/orders/${orderId}/confirm`, {}),
+    onSuccess: writeCheck,
+    onError: toastError,
+  })
+  const rejectOrder = useMutation({
+    mutationFn: (orderId: string) => api.post(`/pos/orders/${orderId}/reject`, {}),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['check', checkId] }),
+    onError: toastError,
+  })
+
   const updateQty = useMutation({
     mutationFn: ({ id, quantity }: { id: string; quantity: number }) =>
       quantity === 0
@@ -826,6 +846,37 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
         {/* Left: check items */}
         <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', borderRight: '1px solid rgba(255,255,255,0.07)' }}>
           <div className="check-items" style={{ flex: 1, overflowY: 'auto', padding: '12px 16px' }}>
+            {/* Входящие заказы гостя с планшета — подтвердить / отклонить */}
+            {(check?.pendingOrders ?? []).map((ord) => {
+              const sum = ord.items.reduce((s, it) => s + parseFloat(it.price) * it.quantity, 0)
+              return (
+                <div key={ord.id} style={{ borderRadius: 14, padding: '14px 16px', marginBottom: 12, background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.4)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, color: '#F59E0B', fontSize: 13, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                    <Icon name="room_service" size={18} /> Новый заказ с планшета
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 5, marginBottom: 12 }}>
+                    {ord.items.map((it, i) => (
+                      <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: 'var(--on-surface)' }}>
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{it.name} × {it.quantity}</span>
+                        <span style={{ fontVariantNumeric: 'tabular-nums', flexShrink: 0, marginLeft: 12 }}>{(parseFloat(it.price) * it.quantity).toLocaleString('ru')} ₽</span>
+                      </div>
+                    ))}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, fontWeight: 800, marginTop: 4, paddingTop: 6, borderTop: '1px solid rgba(255,255,255,0.1)', color: 'var(--on-surface)' }}>
+                      <span>Итого</span><span style={{ fontVariantNumeric: 'tabular-nums' }}>{sum.toLocaleString('ru')} ₽</span>
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button onClick={() => confirmOrder.mutate(ord.id)} disabled={confirmOrder.isPending || rejectOrder.isPending} style={{ flex: 1, padding: '11px 0', borderRadius: 12, border: 'none', cursor: 'pointer', background: 'linear-gradient(135deg,#10B981,#34D399)', color: '#fff', fontSize: 13, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                      <Icon name="check" size={18} /> Подтвердить
+                    </button>
+                    <button onClick={() => rejectOrder.mutate(ord.id)} disabled={confirmOrder.isPending || rejectOrder.isPending} style={{ flex: 1, padding: '11px 0', borderRadius: 12, border: '1px solid rgba(244,63,94,0.4)', cursor: 'pointer', background: 'rgba(244,63,94,0.08)', color: '#f43f5e', fontSize: 13, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                      <Icon name="close" size={18} /> Отклонить
+                    </button>
+                  </div>
+                </div>
+              )
+            })}
+
             {isLoading && Array.from({ length: 3 }).map((_, i) => (
               <div key={i} className="skeleton" style={{ height: 60, borderRadius: 12, marginBottom: 8 }} />
             ))}

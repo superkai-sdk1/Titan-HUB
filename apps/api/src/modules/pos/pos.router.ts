@@ -3,7 +3,7 @@ import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import {
-  db, checks, checkItems, checkItemModifiers, checkPayments, checkDiscounts,
+  db, checks, checkItems, checkItemModifiers, checkPayments, checkDiscounts, pendingOrders,
   inventory, profiles, spaces, certificates, bonusHistory, transactions, modifiers as modifiersTable,
   appSettings, events, discounts, clientDiscountRules, stockMovements,
   eq, and, ne, inArray, desc, sql, isNull,
@@ -128,7 +128,100 @@ async function getCheckWithItems(checkId: string) {
         .from(discounts).where(inArray(discounts.id, excludedIds)))
     : []
 
-  return { ...check, items: itemsWithMods, payments, discounts: discountRows, excludedDiscounts, spaceHourlyRate, guestName }
+  // Ожидающие подтверждения заказы гостя с планшета (для баннера на чеке POS и
+  // отображения «ожидает подтверждения» на планшете).
+  const pending = await db
+    .select()
+    .from(pendingOrders)
+    .where(and(eq(pendingOrders.checkId, checkId), eq(pendingOrders.status, 'pending')))
+    .orderBy(pendingOrders.createdAt)
+
+  return { ...check, items: itemsWithMods, payments, discounts: discountRows, excludedDiscounts, spaceHourlyRate, guestName, pendingOrders: pending }
+}
+
+// Добавление одной позиции в открытый чек ВНУТРИ транзакции: блокировка строки
+// склада (FOR UPDATE), списание + журнал движения, мерж с существующей строкой
+// того же товара без модификаторов / иначе вставка, модификаторы. Возвращает
+// строку позиции и факт пересечения порога низкого остатка (уведомление шлёт
+// вызывающий после коммита). Бросает CHECK_NOT_OPEN / ITEM_NOT_FOUND /
+// INSUFFICIENT_STOCK. Используется и при добавлении из кассы, и при подтверждении
+// заказа гостя (см. /orders/:id/confirm) — логика склада одна.
+async function addCheckItemTx(
+  tx: Tx,
+  opts: { checkId: string; itemId: string; quantity: number; modifierIds?: string[]; userId: string },
+): Promise<{ checkItem: typeof checkItems.$inferSelect | undefined; lowStock: { name: string; newQty: number } | null }> {
+  const { checkId, itemId, quantity, userId } = opts
+  const modifierIds = opts.modifierIds ?? []
+  let lowStock: { name: string; newQty: number } | null = null
+
+  const [check] = await tx.select().from(checks).where(eq(checks.id, checkId))
+  if (!check || check.status !== 'open') throw new Error('CHECK_NOT_OPEN')
+
+  const itemRows = await tx.execute(
+    sql`SELECT id, name, price, track_stock as "trackStock", stock_quantity as "stockQuantity", min_threshold as "minThreshold"
+        FROM inventory WHERE id = ${itemId} FOR UPDATE`
+  )
+  const item: any = (itemRows as any).rows?.[0] ?? (itemRows as any)[0]
+  if (!item) throw new Error('ITEM_NOT_FOUND')
+
+  if (item.trackStock && (item.stockQuantity ?? 0) < quantity) throw new Error('INSUFFICIENT_STOCK')
+  if (item.trackStock) {
+    const [upd] = await tx.update(inventory)
+      .set({ stockQuantity: sql`${inventory.stockQuantity} - ${quantity}` })
+      .where(eq(inventory.id, itemId))
+      .returning({ stockQuantity: inventory.stockQuantity })
+    await tx.insert(stockMovements).values({
+      itemId,
+      delta: -quantity,
+      newQuantity: upd?.stockQuantity ?? 0,
+      reason: `Продажа: чек ${checkId}`,
+      createdBy: userId,
+    })
+    const oldQty = Number(item.stockQuantity ?? 0)
+    const newQty = Number(upd?.stockQuantity ?? 0)
+    const minThreshold = Number(item.minThreshold ?? 0)
+    if (minThreshold > 0 && oldQty > minThreshold && newQty <= minThreshold) {
+      lowStock = { name: String(item.name), newQty }
+    }
+  }
+
+  // Мерж с существующей строкой того же товара БЕЗ модификаторов (иначе дубли и
+  // ломаются авто-скидки с minQuantity). Позиции с модификаторами — всегда отдельно.
+  if (!modifierIds.length) {
+    const existing = await tx
+      .select({ id: checkItems.id, quantity: checkItems.quantity })
+      .from(checkItems)
+      .leftJoin(checkItemModifiers, eq(checkItemModifiers.checkItemId, checkItems.id))
+      .where(and(eq(checkItems.checkId, checkId), eq(checkItems.itemId, itemId), isNull(checkItemModifiers.id)))
+      .limit(1)
+    if (existing.length && existing[0]) {
+      const [merged] = await tx.update(checkItems)
+        .set({ quantity: sql`${checkItems.quantity} + ${quantity}` })
+        .where(eq(checkItems.id, existing[0].id))
+        .returning()
+      return { checkItem: merged, lowStock }
+    }
+  }
+
+  const [insertedItem] = await tx.insert(checkItems).values({
+    checkId,
+    itemId,
+    quantity,
+    priceAtTime: String(item.price),
+  }).returning()
+
+  if (modifierIds.length) {
+    const modRows = await tx.select().from(modifiersTable).where(inArray(modifiersTable.id, modifierIds))
+    if (modRows.length) {
+      await tx.insert(checkItemModifiers).values(modRows.map(m => ({
+        checkItemId: insertedItem!.id,
+        modifierId: m.id,
+        priceAtTime: m.price,
+      })))
+    }
+  }
+
+  return { checkItem: insertedItem, lowStock }
 }
 
 // Авто-скидки из справочника `discounts` (isActive && isAuto) применяются к чеку
@@ -654,93 +747,10 @@ posRouter.post('/checks/:id/items', requireRole('owner', 'staff', 'tablet'), zVa
   // уведомление шлём после коммита (fire-and-forget).
   let lowStock: { name: string; newQty: number } | null = null
   try {
-    const checkItem = await db.transaction(async (tx) => {
-      const [check] = await tx.select().from(checks).where(eq(checks.id, checkId))
-      if (!check || check.status !== 'open') {
-        throw new Error('CHECK_NOT_OPEN')
-      }
-
-      // SELECT ... FOR UPDATE блокирует строку до конца транзакции
-      const itemRows = await tx.execute(
-        sql`SELECT id, name, price, track_stock as "trackStock", stock_quantity as "stockQuantity", min_threshold as "minThreshold"
-            FROM inventory WHERE id = ${itemId} FOR UPDATE`
-      )
-      const item: any = (itemRows as any).rows?.[0] ?? (itemRows as any)[0]
-      if (!item) throw new Error('ITEM_NOT_FOUND')
-
-      // Атомарная проверка стока в условиях блокировки
-      if (item.trackStock && (item.stockQuantity ?? 0) < quantity) {
-        throw new Error('INSUFFICIENT_STOCK')
-      }
-      if (item.trackStock) {
-        const [upd] = await tx.update(inventory)
-          .set({ stockQuantity: sql`${inventory.stockQuantity} - ${quantity}` })
-          .where(eq(inventory.id, itemId))
-          .returning({ stockQuantity: inventory.stockQuantity })
-        // Журнал движений склада: продажа списывает сток (delta < 0).
-        await tx.insert(stockMovements).values({
-          itemId,
-          delta: -quantity,
-          newQuantity: upd?.stockQuantity ?? 0,
-          reason: `Продажа: чек ${checkId}`,
-          createdBy: user.sub,
-        })
-
-        // Низкий остаток: уведомляем только в момент пересечения порога
-        // (oldQty > minThreshold && newQty <= minThreshold), порог > 0.
-        const oldQty = Number(item.stockQuantity ?? 0)
-        const newQty = Number(upd?.stockQuantity ?? 0)
-        const minThreshold = Number(item.minThreshold ?? 0)
-        if (minThreshold > 0 && oldQty > minThreshold && newQty <= minThreshold) {
-          lowStock = { name: String(item.name), newQty }
-        }
-      }
-
-      // Мерж с существующей строкой того же товара БЕЗ модификаторов: повторное
-      // добавление увеличивает количество (а не плодит дубли) — иначе авто-скидки
-      // с minQuantity по одной строке не срабатывают. Позиции с модификаторами
-      // различаются составом → всегда отдельная строка.
-      if (!modifierIds.length) {
-        const existing = await tx
-          .select({ id: checkItems.id, quantity: checkItems.quantity })
-          .from(checkItems)
-          .leftJoin(checkItemModifiers, eq(checkItemModifiers.checkItemId, checkItems.id))
-          .where(and(
-            eq(checkItems.checkId, checkId),
-            eq(checkItems.itemId, itemId),
-            isNull(checkItemModifiers.id),
-          ))
-          .limit(1)
-        if (existing.length && existing[0]) {
-          const [merged] = await tx.update(checkItems)
-            .set({ quantity: sql`${checkItems.quantity} + ${quantity}` })
-            .where(eq(checkItems.id, existing[0].id))
-            .returning()
-          return merged
-        }
-      }
-
-      const [insertedItem] = await tx.insert(checkItems).values({
-        checkId,
-        itemId,
-        quantity,
-        priceAtTime: String(item.price),
-      }).returning()
-
-      // Add modifiers within same transaction
-      if (modifierIds.length) {
-        const modRows = await tx.select().from(modifiersTable).where(inArray(modifiersTable.id, modifierIds))
-        if (modRows.length) {
-          await tx.insert(checkItemModifiers).values(modRows.map(m => ({
-            checkItemId: insertedItem!.id,
-            modifierId: m.id,
-            priceAtTime: m.price,
-          })))
-        }
-      }
-
-      return insertedItem
-    })
+    const { checkItem, lowStock: ls } = await db.transaction(async (tx) =>
+      addCheckItemTx(tx, { checkId, itemId, quantity, modifierIds, userId: user.sub })
+    )
+    lowStock = ls
 
     if (!checkItem) return c.json({ error: 'Failed to add item' }, 500)
 
@@ -766,6 +776,134 @@ posRouter.post('/checks/:id/items', requireRole('owner', 'staff', 'tablet'), zVa
     console.error('POST /checks/:id/items error:', err)
     return c.json({ error: 'Internal error' }, 500)
   }
+})
+
+// ─── Заказы гостя с планшета (pending → подтверждение сотрудником) ────────────
+
+const CreateOrderSchema = z.object({
+  items: z.array(z.object({
+    itemId: z.string().uuid(),
+    quantity: z.number().int().min(1).max(99),
+  })).min(1).max(50),
+})
+
+// POST /checks/:id/orders — гость отправляет заказ. Создаёт pending-заказ (НЕ
+// добавляет в чек), шлёт уведомление персоналу (тип client_order). Позиции
+// попадут в чек только при подтверждении сотрудником.
+posRouter.post('/checks/:id/orders', requireRole('owner', 'staff', 'tablet'), zValidator('json', CreateOrderSchema), async (c) => {
+  const checkId = c.req.param('id')
+  const user = c.get('user')
+  const { items } = c.req.valid('json')
+
+  const [check] = await db.select().from(checks).where(eq(checks.id, checkId))
+  if (!check || check.status !== 'open') return c.json({ error: 'Check not open' }, 400)
+
+  // Снимок состава: имена и цены на момент заказа (для отображения у гостя и в
+  // баннере на чеке). При подтверждении цена берётся актуальная из inventory.
+  const ids = [...new Set(items.map((i) => i.itemId))]
+  const invRows = await db.select({ id: inventory.id, name: inventory.name, price: inventory.price })
+    .from(inventory).where(inArray(inventory.id, ids))
+  const invById = new Map(invRows.map((r) => [r.id, r]))
+  const snapshot = items
+    .map((i) => {
+      const inv = invById.get(i.itemId)
+      return inv ? { itemId: i.itemId, name: inv.name, quantity: i.quantity, price: String(inv.price) } : null
+    })
+    .filter((x): x is { itemId: string; name: string; quantity: number; price: string } => !!x)
+  if (!snapshot.length) return c.json({ error: 'No valid items' }, 400)
+
+  const [order] = await db.insert(pendingOrders).values({
+    checkId,
+    spaceId: check.spaceId ?? null,
+    status: 'pending',
+    items: snapshot,
+    createdBy: user.sub,
+  }).returning()
+
+  let spaceName = ''
+  if (check.spaceId) {
+    const [sp] = await db.select({ name: spaces.name }).from(spaces).where(eq(spaces.id, check.spaceId))
+    spaceName = sp?.name ?? ''
+  }
+  const sum = snapshot.reduce((s, it) => s + parseFloat(it.price) * it.quantity, 0)
+  const lines = snapshot.map((it) => `${it.name} ×${it.quantity}`).join(', ')
+  void notify({
+    type: 'client_order',
+    title: spaceName ? `Новый заказ: ${spaceName}` : 'Новый заказ',
+    body: `${lines} — ${sum.toLocaleString('ru')} ₽`,
+    meta: { checkId, spaceId: check.spaceId, orderId: order!.id },
+  }).catch(() => {})
+
+  publishEvent('order:created', { checkId, orderId: order!.id })
+  return c.json({ order }, 201)
+})
+
+// POST /orders/:orderId/confirm — сотрудник подтверждает: позиции добавляются в
+// чек (через ту же логику склада). Только owner/staff.
+posRouter.post('/orders/:orderId/confirm', requireRole('owner', 'staff'), async (c) => {
+  const orderId = c.req.param('orderId')
+  const user = c.get('user')
+  const [order] = await db.select().from(pendingOrders).where(eq(pendingOrders.id, orderId))
+  if (!order) return c.json({ error: 'Not found' }, 404)
+  if (order.status !== 'pending') return c.json({ error: 'Already resolved' }, 409)
+
+  const lowStocks: { name: string; newQty: number }[] = []
+  try {
+    await db.transaction(async (tx) => {
+      // Блокировка + идемпотентность: повторно читаем заказ FOR UPDATE.
+      const [o] = await tx.select().from(pendingOrders).where(eq(pendingOrders.id, orderId)).for('update')
+      if (!o || o.status !== 'pending') throw new Error('ALREADY_RESOLVED')
+      for (const it of (o.items ?? [])) {
+        const { lowStock } = await addCheckItemTx(tx, { checkId: o.checkId, itemId: it.itemId, quantity: it.quantity, userId: user.sub })
+        if (lowStock) lowStocks.push(lowStock)
+      }
+      await tx.update(pendingOrders).set({ status: 'confirmed', resolvedBy: user.sub, resolvedAt: new Date() }).where(eq(pendingOrders.id, orderId))
+    })
+  } catch (err: any) {
+    if (err.message === 'ALREADY_RESOLVED') return c.json({ error: 'Заказ уже обработан' }, 409)
+    if (err.message === 'CHECK_NOT_OPEN') return c.json({ error: 'Чек закрыт' }, 400)
+    if (err.message === 'INSUFFICIENT_STOCK') return c.json({ error: 'Недостаточно товара на складе' }, 400)
+    if (err.message === 'ITEM_NOT_FOUND') return c.json({ error: 'Позиция не найдена' }, 404)
+    console.error('confirm order error:', err)
+    return c.json({ error: 'Internal error' }, 500)
+  }
+
+  await recalcCheckTotal(order.checkId)
+  publishEvent('check:updated', { checkId: order.checkId })
+  publishEvent('order:resolved', { checkId: order.checkId, orderId, status: 'confirmed' })
+  for (const ls of lowStocks) {
+    void notify({ type: 'low_stock', title: 'Низкий остаток', body: `${ls.name}: осталось ${ls.newQty}`, meta: {} }).catch(() => {})
+  }
+
+  const data = await getCheckWithItems(order.checkId)
+  return c.json({ check: data }, 200)
+})
+
+// POST /orders/:orderId/reject — сотрудник отклоняет заказ. Только owner/staff.
+posRouter.post('/orders/:orderId/reject', requireRole('owner', 'staff'), async (c) => {
+  const orderId = c.req.param('orderId')
+  const user = c.get('user')
+  const [order] = await db.select().from(pendingOrders).where(eq(pendingOrders.id, orderId))
+  if (!order) return c.json({ error: 'Not found' }, 404)
+  if (order.status !== 'pending') return c.json({ error: 'Already resolved' }, 409)
+  await db.update(pendingOrders)
+    .set({ status: 'rejected', resolvedBy: user.sub, resolvedAt: new Date() })
+    .where(and(eq(pendingOrders.id, orderId), eq(pendingOrders.status, 'pending')))
+  publishEvent('order:resolved', { checkId: order.checkId, orderId, status: 'rejected' })
+  return c.json({ ok: true })
+})
+
+// POST /orders/:orderId/cancel — гость отменяет СВОЙ ещё не подтверждённый заказ.
+posRouter.post('/orders/:orderId/cancel', requireRole('owner', 'staff', 'tablet'), async (c) => {
+  const orderId = c.req.param('orderId')
+  const [order] = await db.select().from(pendingOrders).where(eq(pendingOrders.id, orderId))
+  if (!order) return c.json({ error: 'Not found' }, 404)
+  if (order.status !== 'pending') return c.json({ error: 'Already resolved' }, 409)
+  await db.update(pendingOrders)
+    .set({ status: 'cancelled', resolvedAt: new Date() })
+    .where(and(eq(pendingOrders.id, orderId), eq(pendingOrders.status, 'pending')))
+  publishEvent('order:resolved', { checkId: order.checkId, orderId, status: 'cancelled' })
+  return c.json({ ok: true })
 })
 
 posRouter.patch('/checks/:id/items/:itemId', requireRole('owner', 'staff', 'tablet'), zValidator('json', z.object({ quantity: z.number().int().min(0) })), async (c) => {
