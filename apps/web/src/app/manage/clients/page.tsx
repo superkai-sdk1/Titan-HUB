@@ -264,6 +264,7 @@ export default function ClientsPage() {
           const tierColor = colorOf(tier)
           const bal = parseNum(selected.balance)
           const debt = bal < 0 ? -bal : 0
+          const deposit = bal > 0 ? bal : 0
           const isLinked = !!(selected.tgUsername || selected.tgId)
 
           // ── РЕЖИМ РЕДАКТИРОВАНИЯ ──────────────────────────────────────────
@@ -341,8 +342,8 @@ export default function ClientsPage() {
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 8, marginBottom: 16 }}>
                 {([
                   ['star', 'Бонусы', fmt(parseNum(selected.bonusPoints)), '#EAB308'],
-                  ['account_balance_wallet', 'Депозит', `${fmt(bal)} ₽`, '#8B5CF6'],
-                  ['account_balance_wallet', 'Долг', `${fmt(debt)} ₽`, debt > 0 ? '#F43F5E' : 'var(--on-surface-variant)'],
+                  ['account_balance_wallet', 'Депозит', `${fmt(deposit)} ₽`, deposit > 0 ? '#10B981' : 'var(--on-surface-variant)'],
+                  ['account_balance_wallet', 'Долг', `${debt > 0 ? '−' : ''}${fmt(debt)} ₽`, debt > 0 ? '#F43F5E' : 'var(--on-surface-variant)'],
                 ] as [string, string, string, string][]).map(([icon, lbl, val, color]) => (
                   <div key={lbl} style={{ padding: '10px 6px', borderRadius: 12, background: 'rgba(255,255,255,0.04)', textAlign: 'center' }}>
                     <Icon name={icon} size={16} color={color} style={{ display: 'block', margin: '0 auto 4px' }} />

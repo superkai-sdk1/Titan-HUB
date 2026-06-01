@@ -279,7 +279,7 @@ export default function WalletPage() {
           {debt > 0 && (
             <div style={styles.plate('#F87171')}>
               <p style={styles.plateLabel}>Долг</p>
-              <p style={styles.plateValue('#F87171')}>{formatAmount(debt)} ₽</p>
+              <p style={styles.plateValue('#F87171')}>−{formatAmount(debt)} ₽</p>
             </div>
           )}
         </div>
