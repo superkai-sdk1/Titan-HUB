@@ -903,18 +903,52 @@ function PosPageInner() {
                 <label style={{ display: 'block', marginBottom: 8, fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--on-surface-variant)' }}>
                   Тип вечера
                 </label>
-                <select
-                  value={eveningType}
-                  onChange={e => setEveningType(e.target.value)}
-                  className="glass-l2"
-                  style={{ width: '100%', padding: '14px 16px', borderRadius: 14, border: '1px solid rgba(255,255,255,0.08)', color: 'var(--on-surface)', fontSize: 14, outline: 'none', background: 'rgba(255,255,255,0.04)' }}
-                >
-                  {eveningTypes.length > 0
-                    ? eveningTypes.map(et => (
-                        <option key={et.key} value={et.key}>{et.label}</option>
-                      ))
-                    : <option value="none">Обычный</option>}
-                </select>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                  {eveningTypes.filter(et => et.key !== 'none').map(et => {
+                    const active = eveningType === et.key
+                    const c = et.color || '#8B5CF6'
+                    return (
+                      <button
+                        key={et.key}
+                        onClick={() => setEveningType(et.key)}
+                        style={{
+                          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, minHeight: 52, padding: '12px 10px',
+                          borderRadius: 14, cursor: 'pointer', textAlign: 'center',
+                          border: active ? `1.5px solid ${c}` : '1px solid rgba(255,255,255,0.08)',
+                          background: active ? `${c}26` : 'rgba(255,255,255,0.04)',
+                          color: active ? c : 'var(--on-surface)', fontSize: 13, fontWeight: active ? 700 : 600,
+                          transition: 'all 0.15s',
+                        }}
+                      >
+                        <span style={{ width: 10, height: 10, borderRadius: '50%', background: c, flexShrink: 0 }} />
+                        {et.label}
+                      </button>
+                    )
+                  })}
+                  {/* «Без вечера» (системный 'none') — отдельной строкой во всю ширину */}
+                  {(() => {
+                    const noneType = eveningTypes.find(et => et.key === 'none')
+                    const key = noneType?.key ?? 'none'
+                    const active = eveningType === key
+                    const c = noneType?.color || '#94A3B8'
+                    return (
+                      <button
+                        onClick={() => setEveningType(key)}
+                        style={{
+                          gridColumn: '1 / -1', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, minHeight: 52, padding: '12px 10px',
+                          borderRadius: 14, cursor: 'pointer', textAlign: 'center',
+                          border: active ? `1.5px solid ${c}` : '1px solid rgba(255,255,255,0.08)',
+                          background: active ? `${c}26` : 'rgba(255,255,255,0.04)',
+                          color: active ? c : 'var(--on-surface)', fontSize: 13, fontWeight: active ? 700 : 600,
+                          transition: 'all 0.15s',
+                        }}
+                      >
+                        <span style={{ width: 10, height: 10, borderRadius: '50%', background: c, flexShrink: 0 }} />
+                        Без вечера
+                      </button>
+                    )
+                  })()}
+                </div>
               </div>
               <div style={{ display: 'flex', gap: 12, marginTop: 8 }}>
                 <button
