@@ -107,6 +107,8 @@ export const chatMessages = pgTable('chat_messages', {
   sender: text('sender').notNull(),
   senderId: uuid('sender_id').references(() => profiles.id),
   text: text('text').notNull(),
+  // Заполняется, когда противоположная сторона открыла чат (отметка «прочитано»).
+  readAt: timestamp('read_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 })
 

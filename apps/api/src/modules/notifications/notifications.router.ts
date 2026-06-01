@@ -2,7 +2,7 @@ import { Hono } from 'hono'
 import { streamSSE } from 'hono/streaming'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
-import { db, notifications, userNotificationSettings, pushSubscriptions, tgLinkRequests, profiles, spaces, checks, eq, and, or, isNull, desc } from '@titan/database'
+import { db, notifications, userNotificationSettings, pushSubscriptions, tgLinkRequests, profiles, spaces, checks, eq, and, or, isNull, desc, sql, inArray } from '@titan/database'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
 import { Redis } from 'ioredis'
 import { randomInt } from 'crypto'
@@ -176,6 +176,33 @@ notificationsRouter.put('/:id/read', async (c) => {
   await db.update(notifications)
     .set({ isRead: true })
     .where(and(eq(notifications.id, c.req.param('id')), owns))
+  return c.json({ ok: true })
+})
+
+// PUT /read-by-check — отметить прочитанными уведомления, относящиеся к чеку
+// (meta.checkId) или пространству (meta.spaceId, для staff_call без checkId),
+// опционально только заданных типов. Нужно, чтобы при открытии чека/чата гасить
+// «пульс» карточки и помечать уведомление прочитанным.
+notificationsRouter.put('/read-by-check', zValidator('json', z.object({
+  checkId: z.string().uuid().optional(),
+  spaceId: z.string().uuid().optional(),
+  types: z.array(z.string()).optional(),
+})), async (c) => {
+  const user = c.get('user')
+  const isStaff = user.role === 'owner' || user.role === 'staff'
+  if (!isStaff) return c.json({ ok: true })
+  const { checkId, spaceId, types } = c.req.valid('json')
+  const matchers: any[] = []
+  if (checkId) matchers.push(sql`${notifications.meta}->>'checkId' = ${checkId}`)
+  if (spaceId) matchers.push(sql`${notifications.meta}->>'spaceId' = ${spaceId}`)
+  if (!matchers.length) return c.json({ ok: true })
+  const conds: any[] = [
+    or(eq(notifications.userId, user.sub), isNull(notifications.userId)),
+    or(...(matchers as [any, ...any[]])),
+    eq(notifications.isRead, false),
+  ]
+  if (types?.length) conds.push(inArray(notifications.type, types))
+  await db.update(notifications).set({ isRead: true }).where(and(...(conds as [any, ...any[]])))
   return c.json({ ok: true })
 })
 

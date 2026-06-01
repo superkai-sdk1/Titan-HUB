@@ -8,8 +8,12 @@ export interface ChatMessage {
   id: string
   sender: string // 'guest' | 'staff'
   text: string
+  readAt?: string | null
   createdAt: string
 }
+
+// Быстрые ответы персонала.
+const STAFF_TEMPLATES = ['Уже идём 🙌', 'Одну минуту', 'Готовим ваш заказ', 'Сейчас подойдём со счётом', 'Спасибо!']
 
 function timeOf(s: string): string {
   try {
@@ -39,6 +43,21 @@ export function CheckChat({ checkId, as, onClose }: { checkId: string; as: 'gues
     mutationFn: (t: string) => api.post(`/pos/checks/${checkId}/chat`, { text: t, from: as }),
     onSuccess: () => { setText(''); qc.invalidateQueries({ queryKey: ['chat', checkId] }) },
   })
+
+  // Отметка «прочитано»: пока чат открыт, помечаем прочитанными сообщения другой
+  // стороны. Срабатывает один раз на каждую «пачку» новых входящих.
+  const markRead = useMutation({
+    mutationFn: () => api.post(`/pos/checks/${checkId}/chat/read`, { as }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['chat', checkId] }),
+  })
+  const hasIncomingUnread = messages.some((m) => m.sender !== as && !m.readAt)
+  useEffect(() => {
+    if (hasIncomingUnread) markRead.mutate()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasIncomingUnread])
+
+  // id последнего МОЕГО сообщения, которое уже прочитано — под ним покажем «Прочитано».
+  const lastReadMineId = [...messages].reverse().find((m) => m.sender === as && m.readAt)?.id
 
   // Автопрокрутка вниз при новых сообщениях.
   useEffect(() => {
@@ -81,7 +100,7 @@ export function CheckChat({ checkId, as, onClose }: { checkId: string; as: 'gues
         {messages.map((m) => {
           const mine = m.sender === as
           return (
-            <div key={m.id} style={{ display: 'flex', justifyContent: mine ? 'flex-end' : 'flex-start' }}>
+            <div key={m.id} style={{ display: 'flex', flexDirection: 'column', alignItems: mine ? 'flex-end' : 'flex-start' }}>
               <div style={{
                 maxWidth: '78%', padding: '10px 14px', borderRadius: 18,
                 borderBottomRightRadius: mine ? 4 : 18, borderBottomLeftRadius: mine ? 18 : 4,
@@ -91,10 +110,26 @@ export function CheckChat({ checkId, as, onClose }: { checkId: string; as: 'gues
                 <p style={{ fontSize: 15, margin: 0, lineHeight: 1.35, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{m.text}</p>
                 <p style={{ fontSize: 10.5, margin: '4px 0 0', textAlign: 'right', color: mine ? 'rgba(255,255,255,0.7)' : 'var(--on-surface-variant)' }}>{timeOf(m.createdAt)}</p>
               </div>
+              {m.id === lastReadMineId && (
+                <span style={{ fontSize: 10.5, color: 'var(--on-surface-variant)', margin: '3px 4px 0', display: 'flex', alignItems: 'center', gap: 3 }}>
+                  <Icon name="done_all" size={13} color="#4cd7f6" /> Прочитано
+                </span>
+              )}
             </div>
           )
         })}
       </div>
+
+      {/* Быстрые ответы (только персонал) */}
+      {as === 'staff' && (
+        <div style={{ display: 'flex', gap: 8, padding: '0 14px 6px', overflowX: 'auto', flexShrink: 0 }}>
+          {STAFF_TEMPLATES.map((t) => (
+            <button key={t} onClick={() => send.mutate(t)} disabled={send.isPending} style={{ flexShrink: 0, padding: '8px 14px', borderRadius: 9999, border: '1px solid rgba(139,92,246,0.35)', background: 'rgba(139,92,246,0.1)', color: '#A78BFA', fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+              {t}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Input */}
       <div style={{ padding: '12px 14px', borderTop: '1px solid rgba(255,255,255,0.08)', display: 'flex', gap: 10, alignItems: 'flex-end', flexShrink: 0 }}>

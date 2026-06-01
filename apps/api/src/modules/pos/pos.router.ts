@@ -966,6 +966,19 @@ posRouter.post('/checks/:id/chat', requireRole('owner', 'staff', 'tablet'), zVal
   return c.json({ message: msg }, 201)
 })
 
+// POST /checks/:id/chat/read — читающая сторона ({as}) видит чат: помечаем
+// прочитанными сообщения ПРОТИВОПОЛОЖНОЙ стороны (read_at = now).
+posRouter.post('/checks/:id/chat/read', requireRole('owner', 'staff', 'tablet'), zValidator('json', z.object({ as: z.enum(['guest', 'staff']) })), async (c) => {
+  const checkId = c.req.param('id')
+  const { as } = c.req.valid('json')
+  const other = as === 'guest' ? 'staff' : 'guest'
+  await db.update(chatMessages)
+    .set({ readAt: new Date() })
+    .where(and(eq(chatMessages.checkId, checkId), eq(chatMessages.sender, other), isNull(chatMessages.readAt)))
+  publishEvent('chat:read', { checkId })
+  return c.json({ ok: true })
+})
+
 posRouter.patch('/checks/:id/items/:itemId', requireRole('owner', 'staff', 'tablet'), zValidator('json', z.object({ quantity: z.number().int().min(0) })), async (c) => {
   const checkId = c.req.param('id')
   const itemId = c.req.param('itemId')

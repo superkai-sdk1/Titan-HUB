@@ -12,6 +12,7 @@ import { CheckDetailView } from '@/components/CheckDetailView'
 import { PullToRefreshContainer } from '@/components/PullToRefreshContainer'
 import { useToast } from '@/components/Toast'
 import { NotificationBell } from '@/components/NotificationBell'
+import { useNotifications } from '@/components/NotificationsProvider'
 
 interface CheckCard {
   id: string
@@ -27,6 +28,7 @@ interface CheckCard {
   spaceEndAt?: string | null
   spaceHourlyRate?: string | null
   eventBaseAmount?: string | null
+  spaceId?: string | null
 }
 
 interface PlayerResult {
@@ -349,6 +351,19 @@ function PosPageInner() {
   }, [shift])
 
   const checks = checksData?.checks ?? []
+
+  // «Пульс» карточки чека: непрочитанное обращение гостя (чат / вызов / заказ /
+  // запрос счёта). staff_call привязан к пространству (без checkId), остальные — к чеку.
+  const { notifications: appNotifs } = useNotifications()
+  const ATTENTION_TYPES = new Set(['staff_call', 'request_bill', 'client_order', 'chat_message'])
+  function checkNeedsAttention(card: CheckCard): boolean {
+    return appNotifs.some((n) => {
+      if (n.isRead || !ATTENTION_TYPES.has(n.type)) return false
+      const m = (n.meta ?? {}) as Record<string, unknown>
+      return m['checkId'] === card.id || (n.type === 'staff_call' && !!card.spaceId && m['spaceId'] === card.spaceId)
+    })
+  }
+
   const avgTime = checks.length
     ? Math.round(checks.reduce((acc, c) => acc + differenceInMinutes(now, new Date(c.createdAt)), 0) / checks.length)
     : 0
@@ -486,6 +501,7 @@ function PosPageInner() {
             const warn = isWarning(check.createdAt, now)
             const timerColor = getTimerColor(check.createdAt, now)
             const isActive = activeCheckId === check.id
+            const attention = checkNeedsAttention(check)
             // Почасовая аренда: итог на карточке = позиции + живой счётчик аренды.
             const rental = computeRental(check.spaceStartAt, check.spaceEndAt, check.spaceHourlyRate, now)
             const displayTotal = parseFloat(check.totalAmount) + rental + (parseFloat(check.eventBaseAmount ?? '0') || 0)
@@ -494,7 +510,7 @@ function PosPageInner() {
               <button
                 key={check.id}
                 onClick={() => handleCheckClick(check.id)}
-                className={`glass-l2 ti-slide-up stagger-${Math.min(idx, 6)} pos-check-card`}
+                className={`glass-l2 ti-slide-up stagger-${Math.min(idx, 6)} pos-check-card${attention ? ' pos-card-attention' : ''}`}
                 style={{
                   borderRadius: 16,
                   textAlign: 'left',
@@ -521,6 +537,11 @@ function PosPageInner() {
                   el.style.boxShadow = 'none'
                 }}
               >
+                {attention && (
+                  <span style={{ position: 'absolute', top: 8, right: 8, zIndex: 2, width: 26, height: 26, borderRadius: '50%', background: 'rgba(245,158,11,0.95)', boxShadow: '0 0 0 3px rgba(245,158,11,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <Icon name="notifications_active" size={15} color="#1a1622" />
+                  </span>
+                )}
                 {/* Top: avatar + info + badge */}
                 <div className="card-top" style={{ display: 'flex', alignItems: 'center' }}>
                   <div className="card-avatar" style={{

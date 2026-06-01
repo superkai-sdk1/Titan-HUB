@@ -45,6 +45,7 @@ interface NotificationsContextValue {
   hasImportantUnread: boolean
   markRead: (id: string) => void
   markAllRead: () => void
+  markReadByCheck: (opts: { checkId?: string; spaceId?: string; types: string[] }) => void
 }
 
 const NotificationsContext = createContext<NotificationsContextValue | null>(null)
@@ -170,6 +171,22 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
     api.put('/notifications/read-all').catch(() => { /* best-effort */ })
   }, [])
 
+  // Помечаем прочитанными уведомления, относящиеся к чеку (meta.checkId) или
+  // пространству (meta.spaceId — для вызова персонала без checkId), заданных типов.
+  // Используется при открытии чека/чата, чтобы погасить «пульс» карточки.
+  const markReadByCheck = useCallback((opts: { checkId?: string; spaceId?: string; types: string[] }) => {
+    let changed = false
+    setNotifications((prev) => prev.map((n) => {
+      if (n.isRead || !opts.types.includes(n.type)) return n
+      const m = (n.meta ?? {}) as Record<string, unknown>
+      const match = (opts.checkId && m['checkId'] === opts.checkId) || (opts.spaceId && m['spaceId'] === opts.spaceId)
+      if (!match) return n
+      changed = true
+      return { ...n, isRead: true }
+    }))
+    if (changed) api.put('/notifications/read-by-check', opts).catch(() => { /* best-effort */ })
+  }, [])
+
   const unreadCount = useMemo(
     () => notifications.reduce((acc, n) => acc + (n.isRead ? 0 : 1), 0),
     [notifications],
@@ -180,8 +197,8 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
   )
 
   const value = useMemo<NotificationsContextValue>(
-    () => ({ notifications, unreadCount, hasImportantUnread, markRead, markAllRead }),
-    [notifications, unreadCount, hasImportantUnread, markRead, markAllRead],
+    () => ({ notifications, unreadCount, hasImportantUnread, markRead, markAllRead, markReadByCheck }),
+    [notifications, unreadCount, hasImportantUnread, markRead, markAllRead, markReadByCheck],
   )
 
   return (

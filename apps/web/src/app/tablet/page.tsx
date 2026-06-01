@@ -343,7 +343,7 @@ function TabletMain({ space, onLogout }: { space: TabletSpace; onLogout: () => v
         refetchList(); refetchDetail()
         try {
           const m = JSON.parse(ev.data)
-          if (m?.event === 'chat:message') qc.invalidateQueries({ queryKey: ['chat', openCheckId] })
+          if (m?.event === 'chat:message' || m?.event === 'chat:read') qc.invalidateQueries({ queryKey: ['chat', openCheckId] })
           else if (m?.event === 'check:paid') setFinished('paid')
           else if (m?.event === 'check:closed') setFinished((prev) => prev ?? 'closed')
           else if (m?.event === 'order:resolved') {

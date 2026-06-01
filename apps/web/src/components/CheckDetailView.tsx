@@ -9,6 +9,7 @@ import { useToast } from '@/components/Toast'
 import { ConfirmDialog } from '@/components/manage/DesignSystem'
 import { TimeInput24 } from '@/components/TimeInput24'
 import { CheckChat, type ChatMessage } from '@/components/CheckChat'
+import { useNotifications } from '@/components/NotificationsProvider'
 
 interface InventoryItem {
   id: string
@@ -281,6 +282,14 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
   const check = checkData
   // Имя в заголовке: реальное имя клиента/гостя, иначе смешная заглушка (по id чека).
   const displayName = check ? (check.guestName || funnyGuestName(check.id)) : 'Гость'
+
+  // Открытие чека гасит «пульс» карточки: помечаем прочитанными обращения гостя
+  // (чат / вызов / заказ / запрос счёта) по этому чеку и пространству.
+  const { markReadByCheck } = useNotifications()
+  const checkSpaceId = check?.spaceId ?? undefined
+  useEffect(() => {
+    markReadByCheck({ checkId, spaceId: checkSpaceId ?? undefined, types: ['staff_call', 'request_bill', 'client_order', 'chat_message'] })
+  }, [checkId, checkSpaceId, markReadByCheck])
   const categories = categoriesData?.categories ?? []
   const allItems = (itemsData?.items ?? []).filter(i => i.isActive)
   // Тарифы — из стандартизированного справочника /tariffs (активные).
@@ -835,7 +844,7 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
         </div>
 
         <button
-          onClick={() => { setChatSeenAt(Date.now()); setChatOpen(true) }}
+          onClick={() => { setChatSeenAt(Date.now()); setChatOpen(true); markReadByCheck({ checkId, types: ['chat_message'] }) }}
           aria-label="Чат с гостем"
           title="Чат с гостем"
           style={{
