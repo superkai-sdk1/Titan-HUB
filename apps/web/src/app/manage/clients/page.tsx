@@ -33,6 +33,10 @@ function pluralVisits(n: number) {
 function adjBtnStyle(color: string): React.CSSProperties {
   return { flex: 1, padding: '12px 0', borderRadius: 12, border: `1px solid ${color}40`, background: `${color}14`, color, fontSize: 14, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6 }
 }
+const PAY_LABELS: Record<string, string> = {
+  cash: 'Наличные', card: 'Карта', transfer: 'СБП', bonus: 'Бонусы',
+  deposit: 'Депозит', debt: 'Долг', certificate: 'Сертификат', split: 'Раздельная',
+}
 
 export default function ClientsPage() {
   const qc = useQueryClient()
@@ -54,6 +58,7 @@ export default function ClientsPage() {
   const [adjModal, setAdjModal] = useState<{ kind: 'balance' | 'bonus'; op: 'add' | 'sub' } | null>(null)
   const [adjAmount, setAdjAmount] = useState('')
   const [adjComment, setAdjComment] = useState('')
+  const [checkModalId, setCheckModalId] = useState<string | null>(null)
   const [page, setPage] = useState(1)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -93,6 +98,7 @@ export default function ClientsPage() {
   const { data, isLoading } = pageQueries
   const { data: txData } = useQuery({ queryKey: ['clients', selected?.id, 'tx'], queryFn: () => api.get<any>(`/clients/${selected.id}/transactions`), enabled: !!selected?.id && tab === 'tx' })
   const { data: vpData } = useQuery({ queryKey: ['clients', selected?.id, 'visit'], queryFn: () => api.get<{ tier: string; visits: number; threshold: number; remaining: number; isResident: boolean }>(`/clients/${selected.id}/visit-progress`), enabled: !!selected?.id && tab === 'tx' })
+  const { data: checkDetail } = useQuery({ queryKey: ['check-detail', checkModalId], queryFn: () => api.get<any>(`/analytics/checks/${checkModalId}`), enabled: !!checkModalId })
 
   // Справочник статусов (динамический). Фоллбек на встроенные метки/цвета, если
   // справочник ещё не загрузился, чтобы UI не «прыгал».
@@ -440,20 +446,30 @@ export default function ClientsPage() {
                       </p>
                     </div>
                   ) : null)}
-                  {!txData?.transactions?.length
-                    ? <p style={{ fontSize: 13, color: 'rgba(204,195,216,0.4)', textAlign: 'center', padding: '24px 0' }}>Нет транзакций</p>
-                    : txData.transactions.map((tx: any) => (
-                      <div key={tx.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', borderRadius: 12, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.05)' }}>
-                        <div>
-                          <p style={{ fontSize: 13, fontWeight: 500, margin: 0 }}>{tx.description ?? tx.type}</p>
-                          <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: '2px 0 0' }}>{tx.createdAt ? formatDistanceToNow(new Date(tx.createdAt), { locale: ru, addSuffix: true }) : ''}</p>
+                  {(() => {
+                    // Скрываем дубли «Долг/Оплата депозитом за чек» (withdrawal с checkId) —
+                    // их представляет строка «Оплата чека». Строки с чеком — кликабельные.
+                    const rows = (txData?.transactions ?? []).filter((t: any) => !(t.checkId && t.type === 'withdrawal'))
+                    if (!rows.length) return <p style={{ fontSize: 13, color: 'rgba(204,195,216,0.4)', textAlign: 'center', padding: '24px 0' }}>Нет транзакций</p>
+                    return rows.map((tx: any) => {
+                      const clickable = !!tx.checkId
+                      const amt = parseNum(tx.amount)
+                      return (
+                        <div key={tx.id} onClick={() => clickable && setCheckModalId(tx.checkId)}
+                          style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 12, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.05)', cursor: clickable ? 'pointer' : 'default' }}>
+                          <div style={{ minWidth: 0 }}>
+                            <p style={{ fontSize: 13, fontWeight: 500, margin: 0, display: 'flex', alignItems: 'center', gap: 5 }}>
+                              {tx.description ?? tx.type}{clickable && <Icon name="receipt_long" size={13} color="#a78bfa" />}
+                            </p>
+                            <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: '2px 0 0' }}>{tx.createdAt ? formatDistanceToNow(new Date(tx.createdAt), { locale: ru, addSuffix: true }) : ''}</p>
+                          </div>
+                          <p style={{ fontSize: 14, fontWeight: 700, fontStyle: 'italic', color: amt >= 0 ? '#10B981' : '#F43F5E', margin: 0, fontFamily: "'JetBrains Mono',monospace", flexShrink: 0 }}>
+                            {amt >= 0 ? '+' : ''}{fmt(amt)} ₽
+                          </p>
                         </div>
-                        <p style={{ fontSize: 14, fontWeight: 700, fontStyle: 'italic', color: parseNum(tx.amount) >= 0 ? '#10B981' : '#F43F5E', margin: 0, fontFamily: "'JetBrains Mono',monospace" }}>
-                          {parseNum(tx.amount) >= 0 ? '+' : ''}{fmt(parseNum(tx.amount))} ₽
-                        </p>
-                      </div>
-                    ))
-                  }
+                      )
+                    })
+                  })()}
                 </div>
               )}
             </div>
@@ -495,6 +511,57 @@ export default function ClientsPage() {
           </div>
         </div>
       </Sheet>
+
+      {/* Модалка детали чека */}
+      {checkModalId && (
+        <div onClick={e => { if (e.target === e.currentTarget) setCheckModalId(null) }}
+          style={{ position: 'fixed', inset: 0, zIndex: 210, background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <div className="glass-l1" style={{ width: '100%', maxWidth: 420, maxHeight: '85vh', overflowY: 'auto', borderRadius: 20, padding: 20 }}>
+            {!checkDetail ? (
+              <p style={{ textAlign: 'center', color: 'var(--on-surface-variant)', padding: '30px 0' }}>Загрузка…</p>
+            ) : (() => {
+              const ch = checkDetail.check ?? {}
+              return (
+                <>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
+                    <div>
+                      <h3 style={{ fontSize: 17, fontWeight: 800, margin: 0 }}>Чек</h3>
+                      <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: '3px 0 0' }}>{(ch.closedAt || ch.createdAt) ? new Date(ch.closedAt || ch.createdAt).toLocaleString('ru') : ''}</p>
+                    </div>
+                    <button onClick={() => setCheckModalId(null)} style={{ width: 32, height: 32, borderRadius: 10, border: '1px solid rgba(255,255,255,0.1)', background: 'transparent', color: 'var(--on-surface-variant)', cursor: 'pointer', flexShrink: 0 }}><Icon name="close" size={16} /></button>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12 }}>
+                    {(checkDetail.items ?? []).map((it: any, i: number) => (
+                      <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 13 }}>
+                        <span style={{ color: 'var(--on-surface)', minWidth: 0 }}>{it.name} <span style={{ color: 'var(--on-surface-variant)' }}>×{it.quantity}</span></span>
+                        <span style={{ fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>{fmt(it.lineTotal)} ₽</span>
+                      </div>
+                    ))}
+                  </div>
+                  {(checkDetail.discounts?.length ?? 0) > 0 && (
+                    <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: 10, marginBottom: 10, display: 'flex', flexDirection: 'column', gap: 5 }}>
+                      {checkDetail.discounts.map((d: any) => (
+                        <div key={d.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#F59E0B' }}>
+                          <span>Скидка: {d.name}</span><span>−{fmt(d.amount)} ₽</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: 12, marginBottom: 12 }}>
+                    <span style={{ fontSize: 14, color: 'var(--on-surface-variant)' }}>Итого</span>
+                    <span style={{ fontSize: 20, fontWeight: 800, fontStyle: 'italic' }}>{fmt(parseNum(ch.totalAmount))} ₽</span>
+                  </div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                    {(checkDetail.payments ?? []).map((p: any, i: number) => (
+                      <span key={i} style={{ fontSize: 12, fontWeight: 600, padding: '5px 10px', borderRadius: 8, background: 'rgba(139,92,246,0.12)', color: '#a78bfa' }}>{PAY_LABELS[p.method] ?? p.method}: {fmt(p.amount)} ₽</span>
+                    ))}
+                  </div>
+                </>
+              )
+            })()}
+          </div>
+        </div>
+      )}
 
       {/* Модалка начисления/списания (баланс/бонусы) */}
       {adjModal && (

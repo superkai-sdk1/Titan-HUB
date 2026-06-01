@@ -108,7 +108,7 @@ refundsRouter.post('/', requireRole('owner', 'staff'), zValidator('json', Refund
         checkId: body.checkId,
         playerId: check.playerId ?? null,
         createdBy: user.sub,
-        description: `Refund: ${body.reason}`,
+        description: `Возврат: ${body.reason}`,
       })
 
       // Возврат на баланс клиента (депозит + долг) и бонусов

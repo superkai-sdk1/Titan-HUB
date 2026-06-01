@@ -1172,7 +1172,7 @@ posRouter.post('/checks/:id/pay', requireRole('owner', 'staff'), zValidator('jso
           profileId: body.playerId,
           amount: String(-body.bonusAmount),
           balanceAfter: String(newBonus),
-          reason: 'Payment for check',
+          reason: 'Списание за чек',
         })
         // Списываем из лотов (FIFO по сроку сгорания) — параллельный учёт для expiry.
         await spendBonusLots(tx, body.playerId, body.bonusAmount)
@@ -1212,7 +1212,7 @@ posRouter.post('/checks/:id/pay', requireRole('owner', 'staff'), zValidator('jso
         checkId,
         playerId: body.playerId ?? null,
         createdBy: user.sub,
-        description: 'Check payment',
+        description: 'Оплата чека',
       })
 
       // Закрытие чека

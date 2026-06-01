@@ -31,11 +31,13 @@ interface Transaction {
   description: string
   amount: number
   createdAt: string
+  checkId: string | null
 }
 interface BonusRow { id: string; amount: number; reason: string | null; createdAt: string }
 interface BonusLot { amount: number; remaining: number; expiresAt: string | null }
 interface VisitProgress { tier: string; visits: number; threshold: number; remaining: number; isResident: boolean }
-interface FeedItem { id: string; date: string; emoji: string; label: string; sign: 1 | -1; amount: number; unit: '₽' | '⭐' }
+interface FeedItem { id: string; date: string; emoji: string; label: string; sign: 1 | -1; amount: number; unit: '₽' | '⭐'; checkId?: string | null }
+interface CheckDetail { check: { id: string; totalAmount: number; createdAt: string; closedAt: string | null }; items: { name: string; quantity: number; priceAtTime: number; lineTotal: number }[]; payments: { method: string; amount: number }[]; discounts: { name: string | null; amount: number }[] }
 
 type AppState = 'loading' | 'error' | 'main'
 
@@ -46,6 +48,10 @@ const TIER_COLORS: Record<string, string> = {
 const TIER_LABELS: Record<string, string> = {
   guest: 'Гость', resident: 'Резидент', student: 'Студент',
   bronze: 'Бронза', silver: 'Серебро', gold: 'Золото', platinum: 'Платина',
+}
+const PAY_LABELS: Record<string, string> = {
+  cash: 'Наличные', card: 'Карта', transfer: 'СБП', bonus: 'Бонусы',
+  deposit: 'Депозит', debt: 'Долг', certificate: 'Сертификат', split: 'Раздельная',
 }
 
 function formatAmount(amount: number): string {
@@ -98,6 +104,19 @@ export default function WalletPage() {
   const [bonusLots, setBonusLots] = useState<BonusLot[]>([])
   const [vp, setVp] = useState<VisitProgress | null>(null)
   const [errorMsg, setErrorMsg] = useState<string>('')
+  const [token, setToken] = useState<string | null>(null)
+  const [openCheck, setOpenCheck] = useState<CheckDetail | null>(null)
+  const [checkLoading, setCheckLoading] = useState(false)
+
+  async function openCheckDetail(checkId: string) {
+    if (!token) return
+    setCheckLoading(true)
+    try {
+      const r = await fetch(`${API_URL}/api/auth/me/checks/${checkId}`, { headers: { Authorization: `Bearer ${token}` } })
+      if (r.ok) setOpenCheck(await r.json() as CheckDetail)
+    } catch { /* ignore */ }
+    setCheckLoading(false)
+  }
 
   // 3D-наклон карты за пальцем.
   const cardRef = useRef<HTMLDivElement>(null)
@@ -127,6 +146,7 @@ export default function WalletPage() {
         if (!authRes.ok) throw new Error(`Auth failed: ${authRes.status}`)
         const authData = await authRes.json() as { token: string }
         const authToken = authData.token
+        setToken(authToken)
         const authHeaders = { Authorization: `Bearer ${authToken}` }
 
         const meRes = await fetch(`${API_URL}/api/auth/me`, { headers: authHeaders })
@@ -145,7 +165,7 @@ export default function WalletPage() {
         ])
         const txData = txRes.ok ? (await txRes.json()) as { transactions: any[] } : { transactions: [] }
         setTransactions((txData.transactions ?? []).map((t) => ({
-          id: t.id, type: t.type, description: t.description ?? t.type, amount: Number(t.amount) || 0, createdAt: t.createdAt,
+          id: t.id, type: t.type, description: t.description ?? t.type, amount: Number(t.amount) || 0, createdAt: t.createdAt, checkId: t.checkId ?? null,
         })))
         if (bhRes && bhRes.ok) {
           const bh = (await bhRes.json()) as { history?: any[] }
@@ -175,10 +195,14 @@ export default function WalletPage() {
 
   // Единый фид: деньги (transactions) + бонусы (bonusHistory), по дате.
   const feed = useMemo<FeedItem[]>(() => {
-    const money: FeedItem[] = transactions.map(t => ({
-      id: 'm' + t.id, date: t.createdAt, emoji: getTransactionEmoji(t.type),
-      label: t.description || t.type, sign: isPositive(t.type) ? 1 : -1, amount: Math.abs(t.amount), unit: '₽',
-    }))
+    const money: FeedItem[] = transactions
+      // Скрываем дубли «Долг/Оплата депозитом за чек» (withdrawal с checkId) — их
+      // представляет строка «Оплата чека».
+      .filter(t => !(t.checkId && t.type === 'withdrawal'))
+      .map(t => ({
+        id: 'm' + t.id, date: t.createdAt, emoji: getTransactionEmoji(t.type),
+        label: t.description || t.type, sign: isPositive(t.type) ? 1 : -1, amount: Math.abs(t.amount), unit: '₽', checkId: t.checkId,
+      }))
     const bonus: FeedItem[] = bonusHist.map(b => ({
       id: 'b' + b.id, date: b.createdAt, emoji: b.amount >= 0 ? '⭐' : '🔄',
       label: b.reason || (b.amount >= 0 ? 'Начисление бонусов' : 'Списание бонусов'),
@@ -307,10 +331,10 @@ export default function WalletPage() {
         {feed.length === 0 ? (
           <p style={{ color: '#94A3B8', textAlign: 'center', padding: '24px 0', fontSize: 14 }}>Операций пока нет</p>
         ) : feed.map(it => (
-          <div key={it.id} style={styles.txRow}>
+          <div key={it.id} onClick={() => it.checkId && openCheckDetail(it.checkId)} style={{ ...styles.txRow, cursor: it.checkId ? 'pointer' : 'default' }}>
             <span style={{ fontSize: 22, flexShrink: 0 }}>{it.emoji}</span>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <p style={styles.txDesc}>{it.label}</p>
+              <p style={styles.txDesc}>{it.label}{it.checkId ? ' ›' : ''}</p>
               <p style={styles.txDate}>{formatDate(it.date)}</p>
             </div>
             <span style={styles.txAmount(it.sign > 0)}>
@@ -319,6 +343,54 @@ export default function WalletPage() {
           </div>
         ))}
       </div>
+
+      {/* ─── Деталь чека ─── */}
+      {(openCheck || checkLoading) && (
+        <div onClick={e => { if (e.target === e.currentTarget) { setOpenCheck(null); setCheckLoading(false) } }}
+          style={{ position: 'fixed', inset: 0, zIndex: 100, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <div style={{ width: '100%', maxWidth: 420, maxHeight: '85vh', overflowY: 'auto', borderRadius: 20, padding: 20, background: '#1d1a24', border: '1px solid rgba(255,255,255,0.1)' }}>
+            {!openCheck ? (
+              <p style={{ textAlign: 'center', color: '#94A3B8', padding: '30px 0' }}>Загрузка…</p>
+            ) : (
+              <>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
+                  <div>
+                    <h3 style={{ fontSize: 17, fontWeight: 800, margin: 0, color: '#fff' }}>Чек</h3>
+                    <p style={{ fontSize: 12, color: '#94A3B8', margin: '3px 0 0' }}>{formatDate(openCheck.check.closedAt || openCheck.check.createdAt)}</p>
+                  </div>
+                  <button onClick={() => setOpenCheck(null)} style={{ width: 32, height: 32, borderRadius: 10, border: '1px solid rgba(255,255,255,0.1)', background: 'transparent', color: '#94A3B8', cursor: 'pointer', fontSize: 16 }}>✕</button>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12 }}>
+                  {openCheck.items.map((it, i) => (
+                    <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 13, color: '#e2e8f0' }}>
+                      <span>{it.name} <span style={{ color: '#94A3B8' }}>×{it.quantity}</span></span>
+                      <span style={{ fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>{formatAmount(it.lineTotal)} ₽</span>
+                    </div>
+                  ))}
+                </div>
+                {openCheck.discounts.length > 0 && (
+                  <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: 10, marginBottom: 10, display: 'flex', flexDirection: 'column', gap: 5 }}>
+                    {openCheck.discounts.map((d, i) => (
+                      <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#F59E0B' }}>
+                        <span>Скидка{d.name ? `: ${d.name}` : ''}</span><span>−{formatAmount(d.amount)} ₽</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: 12, marginBottom: 12 }}>
+                  <span style={{ fontSize: 14, color: '#94A3B8' }}>Итого</span>
+                  <span style={{ fontSize: 20, fontWeight: 800, fontStyle: 'italic', color: '#fff' }}>{formatAmount(openCheck.check.totalAmount)} ₽</span>
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {openCheck.payments.map((p, i) => (
+                    <span key={i} style={{ fontSize: 12, fontWeight: 600, padding: '5px 10px', borderRadius: 8, background: 'rgba(139,92,246,0.15)', color: '#a78bfa' }}>{PAY_LABELS[p.method] ?? p.method}: {formatAmount(p.amount)} ₽</span>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
-import { db, profiles, transactions, bonusLots, bonusHistory, eq, and, isNull, inArray, desc, gt, sql } from '@titan/database'
+import { db, profiles, transactions, bonusLots, bonusHistory, checks, checkItems, checkPayments, checkDiscounts, inventory, eq, and, isNull, inArray, desc, gt, sql } from '@titan/database'
 import { visitProgress } from '../../lib/loyalty.js'
 // @ts-ignore
 import { passkeys } from '@titan/database'
@@ -316,6 +316,7 @@ authRouter.get('/me/transactions', requireAuth, async (c) => {
     type: transactions.type,
     amount: transactions.amount,
     description: transactions.description,
+    checkId: transactions.checkId,
     createdAt: transactions.createdAt,
   }).from(transactions)
     .where(eq(transactions.playerId, user.sub))
@@ -343,6 +344,25 @@ authRouter.get('/me/bonus-history', requireAuth, async (c) => {
 // Свой прогресс к статусу Резидент (для Wallet).
 authRouter.get('/me/visit-progress', requireAuth, async (c) => {
   return c.json(await visitProgress(c.get('user').sub))
+})
+
+// Деталь СВОЕГО чека (для Wallet) — позиции, скидки, оплата, дата. Только если
+// чек принадлежит этому клиенту (playerId === user.sub).
+authRouter.get('/me/checks/:id', requireAuth, async (c) => {
+  const user = c.get('user')
+  const id = c.req.param('id')
+  const [check] = await db.select().from(checks).where(and(eq(checks.id, id), eq(checks.playerId, user.sub))).limit(1)
+  if (!check) return c.json({ error: 'not_found' }, 404)
+  const items = await db.select({ name: inventory.name, quantity: checkItems.quantity, priceAtTime: checkItems.priceAtTime })
+    .from(checkItems).leftJoin(inventory, eq(inventory.id, checkItems.itemId)).where(eq(checkItems.checkId, id))
+  const payments = await db.select({ method: checkPayments.method, amount: checkPayments.amount }).from(checkPayments).where(eq(checkPayments.checkId, id))
+  const discounts = await db.select({ name: checkDiscounts.name, amount: checkDiscounts.amount }).from(checkDiscounts).where(eq(checkDiscounts.checkId, id))
+  return c.json({
+    check: { id: check.id, totalAmount: parseFloat(String(check.totalAmount)) || 0, createdAt: check.createdAt, closedAt: check.closedAt },
+    items: items.map(i => ({ name: i.name ?? '—', quantity: Number(i.quantity), priceAtTime: parseFloat(String(i.priceAtTime)) || 0, lineTotal: (parseFloat(String(i.priceAtTime)) || 0) * Number(i.quantity) })),
+    payments: payments.map(p => ({ method: p.method, amount: parseFloat(String(p.amount)) || 0 })),
+    discounts: discounts.map(d => ({ name: d.name, amount: parseFloat(String(d.amount)) || 0 })),
+  })
 })
 
 // Серверный logout: отзываем текущий токен (blacklist в Redis до его exp).
