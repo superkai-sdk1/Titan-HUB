@@ -68,7 +68,14 @@ function getRedis() {
   return new Redis(process.env['REDIS_URL'] ?? 'redis://redis:6379')
 }
 
-const SYSTEM_PROMPT = 'Ты аналитик игрового клуба Titan. Отвечай кратко, конкретно, на русском языке. Давай actionable инсайты.'
+const SYSTEM_PROMPT = [
+  'Ты ассистент игрового клуба Titan. Отвечай кратко, конкретно, на русском языке.',
+  'Если в сообщении есть блок «АКТУАЛЬНЫЕ ДАННЫЕ КЛУБА» — отвечай СТРОГО по этим данным',
+  '(долги клиентов, остатки склада, выручка, смена и т.д.), не выдумывай.',
+  'Имя человека из вопроса сопоставляй с именами и никами из данных без учёта регистра',
+  '(например «Саид» ↔ «Саид»/«said»). Если ответа в данных нет — честно скажи, что таких данных нет.',
+  'Суммы давай в рублях.',
+].join(' ')
 
 const ActionSchema = z.object({
   action: z.enum([
@@ -91,6 +98,95 @@ const ActionSchema = z.object({
   payload: z.record(z.unknown()).optional(),
   question: z.string().max(1000).optional(),
 })
+
+// Снимок актуального состояния клуба для произвольных вопросов (долги, остатки,
+// выручка и т.д.). Подаётся в промпт, чтобы ИИ отвечал по реальным данным, а не
+// угадывал. Долг клиента = отрицательный profiles.balance; депозит = положительный.
+async function buildBusinessSnapshot(): Promise<string> {
+  const parts: string[] = []
+  const now = new Date()
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+
+  // Должники (balance < 0) + общий долг.
+  try {
+    const debtors = await db
+      .select({ nickname: profiles.nickname, fullName: profiles.fullName, balance: profiles.balance })
+      .from(profiles)
+      .where(and(eq(profiles.role, 'client'), sql`${profiles.balance}::numeric < 0`))
+      .orderBy(sql`${profiles.balance}::numeric asc`)
+      .limit(80)
+    const totalDebt = debtors.reduce((s, d) => s + Math.abs(Number(d.balance) || 0), 0)
+    if (debtors.length) {
+      const lines = debtors.map(d => {
+        const name = d.fullName ? `${d.fullName} (${d.nickname})` : d.nickname
+        return `- ${name}: ${Math.abs(Number(d.balance)).toFixed(0)} ₽`
+      }).join('\n')
+      parts.push(`ДОЛЖНИКИ — всего ${debtors.length}, ОБЩИЙ ДОЛГ ${totalDebt.toFixed(0)} ₽:\n${lines}`)
+    } else {
+      parts.push('ДОЛЖНИКИ: нет. Общий долг 0 ₽.')
+    }
+  } catch { parts.push('ДОЛЖНИКИ: данные недоступны.') }
+
+  // Депозиты клиентов (balance > 0).
+  try {
+    const [dep] = await db
+      .select({ total: sql<string>`coalesce(sum(${profiles.balance}::numeric), 0)`, cnt: count() })
+      .from(profiles)
+      .where(and(eq(profiles.role, 'client'), sql`${profiles.balance}::numeric > 0`))
+    parts.push(`ДЕПОЗИТЫ КЛИЕНТОВ: ${Number(dep?.total ?? 0).toFixed(0)} ₽ у ${dep?.cnt ?? 0} клиентов.`)
+  } catch { /* skip */ }
+
+  // Нет в наличии (учёт ведётся, остаток 0).
+  try {
+    const out = await db
+      .select({ name: inventory.name })
+      .from(inventory)
+      .where(and(eq(inventory.trackStock, true), isNull(inventory.deletedAt), eq(inventory.stockQuantity, 0)))
+      .orderBy(inventory.name)
+      .limit(100)
+    parts.push(out.length
+      ? `НЕТ В НАЛИЧИИ (закончилось) — ${out.length} позиций: ${out.map(i => i.name).join(', ')}`
+      : 'НЕТ В НАЛИЧИИ: всё в наличии.')
+  } catch { /* skip */ }
+
+  // Заканчивается (остаток >0 и ниже/равен порогу).
+  try {
+    const low = await db
+      .select({ name: inventory.name, stock: inventory.stockQuantity, threshold: inventory.minThreshold })
+      .from(inventory)
+      .where(and(eq(inventory.trackStock, true), isNull(inventory.deletedAt),
+        gt(inventory.stockQuantity, 0), sql`${inventory.stockQuantity} <= coalesce(${inventory.minThreshold}, 0)`))
+      .limit(100)
+    parts.push(low.length
+      ? `ЗАКАНЧИВАЕТСЯ — ${low.length} позиций:\n${low.map(i => `- ${i.name}: ${i.stock} шт (порог ${i.threshold ?? 0})`).join('\n')}`
+      : 'ЗАКАНЧИВАЕТСЯ: нет позиций ниже порога.')
+  } catch { /* skip */ }
+
+  // Сегодня: выручка/чеки.
+  try {
+    const [today] = await db
+      .select({ rev: sum(checks.totalAmount), cnt: count() })
+      .from(checks)
+      .where(and(eq(checks.status, 'closed'), gte(checks.createdAt, todayStart)))
+    parts.push(`СЕГОДНЯ: выручка ${Number(today?.rev ?? 0).toFixed(0)} ₽, закрыто чеков ${today?.cnt ?? 0}.`)
+  } catch { /* skip */ }
+
+  // Текущая смена.
+  try {
+    const [openShift] = await db.select().from(shifts).where(eq(shifts.status, 'open')).orderBy(desc(shifts.openedAt)).limit(1)
+    parts.push(openShift
+      ? `СМЕНА: открыта с ${new Date(openShift.openedAt).toLocaleString('ru-RU')}.`
+      : 'СМЕНА: открытой смены нет.')
+  } catch { /* skip */ }
+
+  // Всего клиентов.
+  try {
+    const [cl] = await db.select({ cnt: count() }).from(profiles).where(eq(profiles.role, 'client'))
+    parts.push(`ВСЕГО КЛИЕНТОВ: ${cl?.cnt ?? 0}.`)
+  } catch { /* skip */ }
+
+  return parts.join('\n\n')
+}
 
 async function buildContext(action: string, payload?: Record<string, unknown>, question?: string): Promise<string> {
   const now = new Date()
@@ -420,8 +516,9 @@ async function buildContext(action: string, payload?: Record<string, unknown>, q
 
     case 'custom_query': {
       const query = question ?? (payload?.query as string) ?? ''
-      if (!query) return 'Не указан вопрос для произвольного запроса.'
-      return `Вопрос пользователя: ${query}`
+      const snapshot = await buildBusinessSnapshot()
+      if (!query) return snapshot
+      return `АКТУАЛЬНЫЕ ДАННЫЕ КЛУБА:\n\n${snapshot}\n\nВОПРОС ПОЛЬЗОВАТЕЛЯ: ${query}`
     }
 
     default:
