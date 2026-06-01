@@ -56,6 +56,8 @@ interface MenuItem {
   minThreshold: number
   trackStock: boolean
   costPrice?: string | number
+  isService?: boolean
+  linkedSpaceId?: string | null
 }
 
 export default function InventoryPage() {
@@ -81,7 +83,22 @@ export default function InventoryPage() {
     enabled: !!selected,
   })
 
-  const allItems = data?.items ?? []
+  // Категории нужны, чтобы спрятать со склада служебные позиции «Тарифы» и «Аренда».
+  const { data: catsData } = useQuery<{ categories: { id: string; name: string }[] }>({
+    queryKey: ['menu', 'categories'],
+    queryFn: () => api.get('/menu/categories'),
+  })
+  const hiddenCatIds = useMemo(() => new Set(
+    (catsData?.categories ?? [])
+      .filter(c => { const n = (c.name ?? '').toLowerCase(); return n.includes('тариф') || n.includes('аренд') })
+      .map(c => c.id),
+  ), [catsData])
+
+  // Склад — только физические товары. Прячем услуги (isService), позиции аренды
+  // (привязка к зоне linkedSpaceId) и всё из категорий «Тарифы»/«Аренда».
+  const allItems = (data?.items ?? []).filter(i =>
+    !i.isService && !i.linkedSpaceId && !(i.category && hiddenCatIds.has(i.category)),
+  )
   const lowStockCount = allItems.filter(i => i.trackStock && i.stockQuantity <= i.minThreshold).length
   // Сводка склада: стоимость остатка по себестоимости, заканчивающиеся (>0 и ≤ порога)
   // и отсутствующие (=0) позиции — только по товарам с учётом.
