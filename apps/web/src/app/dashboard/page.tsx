@@ -9,7 +9,7 @@ import { useCountUp } from '@/hooks/useCountUp'
 import { StateView } from '@/components/StateView'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-type MainTab = 'overview' | 'reports' | 'products' | 'players' | 'checks'
+type MainTab = 'today' | 'overview' | 'reports' | 'products' | 'players' | 'checks'
 type ReportRange = '7d' | '30d' | 'month' | 'custom'
 
 const PAY_COLORS: Record<string, string> = {
@@ -237,22 +237,260 @@ function KpiBreakdownModal({ title, subtitle, b, onClose }: { title: string; sub
   )
 }
 
+// Простая модалка-детализация для карточек без отдельной раскладки gross→net:
+// показывает крупное значение + произвольный список «строк за цифрой».
+function MetricDetailModal({ title, subtitle, value, valueColor = '#8B5CF6', rows, onClose }: {
+  title: string; subtitle?: string; value: string; valueColor?: string
+  rows: { label: string; value: string; color?: string }[]; onClose: () => void
+}) {
+  return (
+    <Sheet title={title} subtitle={subtitle} onClose={onClose}>
+      <div style={{ padding: '16px 18px', borderRadius: 14, background: 'rgba(255,255,255,0.04)', marginBottom: 16 }}>
+        <p style={{ fontSize: 28, fontWeight: 900, fontStyle: 'italic', margin: 0, color: valueColor, lineHeight: 1 }}>{value}</p>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+        {rows.map((r, i) => (
+          <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 12px', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+            <span style={{ fontSize: 12, color: 'var(--on-surface-variant)' }}>{r.label}</span>
+            <span style={{ fontSize: 13, fontWeight: 700, color: r.color ?? 'var(--on-surface)' }}>{r.value}</span>
+          </div>
+        ))}
+      </div>
+    </Sheet>
+  )
+}
+
+// Детализация позиции товара: выручка, кол-во, средняя цена, доля и ABC-класс.
+function ItemDetailModal({ item, totalRev, onClose }: { item: any; totalRev: number; onClose: () => void }) {
+  const rev = parseNum(item.totalRev)
+  const qty = parseNum(item.totalQty)
+  const avg = qty > 0 ? rev / qty : 0
+  const share = item.share != null ? parseNum(item.share) : (totalRev > 0 ? (rev / totalRev) * 100 : 0)
+  const abc = item.abc ?? 'C'
+  return (
+    <Sheet title={item.name ?? 'Позиция'} subtitle={item.category ?? undefined} onClose={onClose}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
+        {[
+          { label: 'Выручка', value: `${fmt(rev)} ₽`, color: '#4cd7f6' },
+          { label: 'Продано', value: `${fmt(qty)} шт`, color: '#A78BFA' },
+          { label: 'Средняя цена', value: `${fmt(avg)} ₽`, color: '#10B981' },
+          { label: 'Доля выручки', value: `${share.toFixed(1)}%`, color: ABC_COLORS[abc] ?? '#94A3B8' },
+        ].map(m => (
+          <div key={m.label} style={{ padding: '12px 14px', borderRadius: 10, background: 'rgba(255,255,255,0.04)' }}>
+            <p style={{ fontSize: 18, fontWeight: 800, fontStyle: 'italic', margin: '0 0 4px', color: m.color, lineHeight: 1 }}>{m.value}</p>
+            <p style={{ fontSize: 10, color: 'var(--on-surface-variant)', margin: 0, textTransform: 'uppercase', letterSpacing: '0.06em', fontFamily: "'JetBrains Mono',monospace" }}>{m.label}</p>
+          </div>
+        ))}
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 14px', borderRadius: 10, background: `${ABC_COLORS[abc] ?? '#94A3B8'}14` }}>
+        <span style={{ fontSize: 12, color: 'var(--on-surface-variant)' }}>ABC-класс</span>
+        <span style={{ fontSize: 14, fontWeight: 800, color: ABC_COLORS[abc] ?? '#94A3B8' }}>Класс {abc}</span>
+      </div>
+    </Sheet>
+  )
+}
+
+// Детализация игрока: суммарная трата, визиты, уровень, средний чек.
+function PlayerDetailModal({ player, onClose }: { player: any; onClose: () => void }) {
+  const total = parseNum(player.total)
+  const visits = player.cnt ?? player.visits ?? 0
+  const tier = player.clientTier ?? 'null'
+  const avg = visits > 0 ? total / visits : 0
+  return (
+    <Sheet title={player.nickname ?? 'Гость'} subtitle={`${TIER_LABELS[tier] ?? tier}`} onClose={onClose}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+        {[
+          { label: 'Потрачено · 30 дней', value: `${fmt(total)} ₽`, color: '#4cd7f6' },
+          { label: 'Визитов', value: String(visits), color: '#A78BFA' },
+          { label: 'Средний чек', value: `${fmt(avg)} ₽`, color: '#10B981' },
+          { label: 'Уровень', value: TIER_LABELS[tier] ?? tier, color: TIER_COLORS[tier] ?? '#94A3B8' },
+        ].map(m => (
+          <div key={m.label} style={{ padding: '12px 14px', borderRadius: 10, background: 'rgba(255,255,255,0.04)' }}>
+            <p style={{ fontSize: 18, fontWeight: 800, fontStyle: 'italic', margin: '0 0 4px', color: m.color, lineHeight: 1 }}>{m.value}</p>
+            <p style={{ fontSize: 10, color: 'var(--on-surface-variant)', margin: 0, textTransform: 'uppercase', letterSpacing: '0.06em', fontFamily: "'JetBrains Mono',monospace" }}>{m.label}</p>
+          </div>
+        ))}
+      </div>
+    </Sheet>
+  )
+}
+
+// ─── Tab: Сегодня (бизнес-день 09:00–06:00) ────────────────────────────────────
+function TodayTab({ businessDay }: { businessDay: string }) {
+  const [modal, setModal] = useState<null | { title: string; subtitle?: string; b: NetBreak }>(null)
+  const [openCheckId, setOpenCheckId] = useState<string | null>(null)
+  const [openItem, setOpenItem] = useState<any | null>(null)
+
+  const { data: checksData, isLoading, isError, refetch } = useQuery({
+    queryKey: ['analytics', 'checks', businessDay, businessDay],
+    queryFn: () => api.get<any>(`/analytics/checks?from=${businessDay}&to=${businessDay}`),
+    enabled: !!businessDay,
+    refetchInterval: 60000,
+  })
+  const { data: payData } = useQuery({
+    queryKey: ['analytics', 'payments', businessDay, businessDay],
+    queryFn: () => api.get<any>(`/analytics/payments?from=${businessDay}&to=${businessDay}`),
+    enabled: !!businessDay,
+    refetchInterval: 60000,
+  })
+  const { data: prodData } = useQuery({
+    queryKey: ['analytics', 'products', businessDay, businessDay],
+    queryFn: () => api.get<any>(`/analytics/products?from=${businessDay}&to=${businessDay}`),
+    enabled: !!businessDay,
+    refetchInterval: 60000,
+  })
+
+  const summary: NetBreak | undefined = checksData?.summary
+  const checks: any[] = checksData?.checks ?? []
+  const payBreakdown: any[] = payData?.breakdown ?? []
+  const products: any[] = prodData?.products ?? []
+  const totalProdRev: number = parseNum(prodData?.totalRev)
+
+  const gross = parseNum(summary?.gross)
+  const net = parseNum(summary?.net)
+  const checksCnt = summary?.checks ?? 0
+  const avgCheck = parseNum(summary?.avgCheck)
+  const commission = parseNum(summary?.commission)
+
+  const openBreak = (title: string) => { if (summary) setModal({ title, subtitle: `${bizDayLabel(businessDay)} · 09:00–06:00`, b: summary }) }
+  const totalPay = payBreakdown.reduce((s: number, p: any) => s + parseNum(p.total), 0)
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+      {/* Заголовок бизнес-дня */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <Icon name="today" size={16} color="#8B5CF6" />
+        <span style={{ fontSize: 13, fontWeight: 700 }}>{bizDayLabel(businessDay)}</span>
+        <span style={{ fontSize: 11, color: 'rgba(204,195,216,0.45)' }}>· 09:00–06:00</span>
+      </div>
+
+      {/* Big cards — все кликабельны */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 12 }}>
+        <KpiCard label="Выручка" rawValue={gross} sub="валовая за день" icon="payments" iconColor="#8B5CF6" iconBg="rgba(139,92,246,0.1)" onClick={summary ? () => openBreak('Выручка · сегодня') : undefined} />
+        <KpiCard label="Чистая прибыль" rawValue={net} suffix=" ₽" sub="с учётом расходов" icon="trending_up" iconColor={net >= 0 ? '#10B981' : '#F43F5E'} iconBg="rgba(16,185,129,0.1)" onClick={summary ? () => openBreak('Чистая прибыль · сегодня') : undefined} />
+        <KpiCard label="Чеков" value={String(checksCnt)} suffix="" sub="закрыто за день" icon="receipt_long" iconColor="#4cd7f6" iconBg="rgba(76,215,246,0.1)" onClick={summary ? () => openBreak('Чеки · сегодня') : undefined} />
+        <KpiCard label="Средний чек" rawValue={avgCheck} sub="выручка / чеки" icon="receipt" iconColor="#A78BFA" iconBg="rgba(167,139,250,0.1)" onClick={summary ? () => openBreak('Средний чек · сегодня') : undefined} />
+      </div>
+
+      {/* Эквайринг (потери) */}
+      <div
+        className="glass-l2"
+        onClick={summary ? () => openBreak('Эквайринг · сегодня') : undefined}
+        style={{ borderRadius: 14, padding: '14px 18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: summary ? 'pointer' : 'default' }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ width: 34, height: 34, borderRadius: 10, background: 'rgba(245,158,11,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <Icon name="credit_card" size={18} color="#F59E0B" />
+          </div>
+          <div>
+            <p style={{ fontSize: 12, fontWeight: 600, margin: 0 }}>Эквайринг (потери)</p>
+            <p style={{ fontSize: 10, color: 'var(--on-surface-variant)', margin: '2px 0 0' }}>комиссия СБП 8%</p>
+          </div>
+        </div>
+        <span style={{ fontSize: 16, fontWeight: 800, fontStyle: 'italic', color: '#F59E0B' }}>{fmt(commission)} ₽</span>
+      </div>
+
+      {/* Методы оплаты за сегодня */}
+      <div className="glass-l2" style={{ borderRadius: 16, padding: 20 }}>
+        <span style={LBL}>Методы оплаты — сегодня</span>
+        {payBreakdown.length === 0 ? <p style={{ fontSize: 12, color: 'rgba(204,195,216,0.4)', textAlign: 'center', padding: '14px 0' }}>Нет данных</p> : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {payBreakdown.map((p: any) => {
+              const pct = totalPay > 0 ? (parseNum(p.total) / totalPay) * 100 : 0
+              const color = PAY_COLORS[p.method] ?? '#94A3B8'
+              return (
+                <div key={p.method}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                    <span style={{ fontSize: 12, color: 'var(--on-surface-variant)' }}>{PAY_LABELS[p.method] ?? p.method}</span>
+                    <span style={{ fontSize: 12, fontWeight: 700 }}>{fmt(parseNum(p.total))} ₽ · {pct.toFixed(1)}%</span>
+                  </div>
+                  <div style={{ height: 6, borderRadius: 3, background: 'rgba(255,255,255,0.06)', overflow: 'hidden' }}>
+                    <div style={{ height: '100%', width: `${pct}%`, background: color, borderRadius: 3 }} />
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Топ товары за сегодня — кликабельны */}
+      <div className="glass-l2" style={{ borderRadius: 16, overflow: 'hidden' }}>
+        <div style={{ padding: '14px 18px', borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span style={{ ...LBL, margin: 0 }}>Топ товары — сегодня</span>
+          <span style={{ fontSize: 11, color: 'var(--on-surface-variant)' }}>{fmt(totalProdRev)} ₽</span>
+        </div>
+        {products.length === 0 ? <p style={{ padding: 24, textAlign: 'center', fontSize: 13, color: 'var(--on-surface-variant)' }}>Нет данных</p> : products.slice(0, 10).map((p: any, i: number) => {
+          const abcColor = ABC_COLORS[p.abc] ?? '#94A3B8'
+          const barPct = totalProdRev > 0 ? (parseNum(p.totalRev) / totalProdRev) * 100 : 0
+          return (
+            <button key={p.itemId ?? i} onClick={() => setOpenItem({ ...p, _totalRev: totalProdRev })} style={{ width: '100%', textAlign: 'left', padding: '12px 18px', borderBottom: '1px solid rgba(255,255,255,0.04)', display: 'flex', gap: 12, alignItems: 'center', background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--on-surface)' }}>
+              <span style={{ fontSize: 11, fontFamily: "'JetBrains Mono',monospace", color: 'var(--on-surface-variant)', width: 18, flexShrink: 0 }}>{i + 1}</span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                  <span style={{ fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
+                  <span style={{ fontSize: 9, fontWeight: 800, padding: '1px 5px', borderRadius: 4, background: `${abcColor}22`, color: abcColor, fontFamily: "'JetBrains Mono',monospace", flexShrink: 0 }}>{p.abc}</span>
+                </div>
+                <div style={{ height: 4, borderRadius: 2, background: 'rgba(255,255,255,0.06)', overflow: 'hidden' }}>
+                  <div style={{ height: '100%', width: `${barPct}%`, background: abcColor, borderRadius: 2 }} />
+                </div>
+              </div>
+              <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                <p style={{ fontSize: 13, fontWeight: 700, margin: 0 }}>{fmt(parseNum(p.totalRev))} ₽</p>
+                <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: '2px 0 0' }}>{parseNum(p.totalQty).toFixed(0)} шт</p>
+              </div>
+            </button>
+          )
+        })}
+      </div>
+
+      {/* Чеки за сегодня — кликабельны */}
+      <div className="glass-l2" style={{ borderRadius: 16, overflow: 'hidden' }}>
+        <div style={{ padding: '14px 18px', borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span style={{ ...LBL, margin: 0 }}>Чеки сегодня</span>
+          <span style={{ fontSize: 11, color: 'var(--on-surface-variant)' }}>{checks.length}</span>
+        </div>
+        {isLoading ? <StateView state="loading" />
+          : isError ? <StateView state="error" description="Не удалось загрузить чеки." action={{ label: 'Повторить', onClick: () => refetch() }} />
+          : checks.length === 0 ? <p style={{ padding: 28, textAlign: 'center', fontSize: 13, color: 'var(--on-surface-variant)' }}>Пока нет чеков сегодня</p>
+          : checks.map((c: any) => (
+            <button
+              key={c.id}
+              onClick={() => setOpenCheckId(c.id)}
+              style={{ width: '100%', textAlign: 'left', display: 'flex', alignItems: 'center', gap: 12, padding: '12px 18px', borderBottom: '1px solid rgba(255,255,255,0.04)', background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--on-surface)' }}
+            >
+              <span style={{ fontSize: 12, fontFamily: "'JetBrains Mono',monospace", color: 'var(--on-surface-variant)', width: 44, flexShrink: 0 }}>{fmtMsk(c.createdAt)}</span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <p style={{ fontSize: 13, fontWeight: 600, margin: '0 0 3px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.guestName || 'Гость'}</p>
+                <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: '0 0 5px' }}>{c.staffNickname || '—'} · {c.itemCount ?? 0} поз.</p>
+                <PayChips payments={c.payments ?? []} />
+              </div>
+              <span style={{ fontSize: 14, fontWeight: 800, fontStyle: 'italic', flexShrink: 0 }}>{fmt(parseNum(c.totalAmount))} ₽</span>
+            </button>
+          ))}
+      </div>
+
+      {modal && <KpiBreakdownModal title={modal.title} subtitle={modal.subtitle} b={modal.b} onClose={() => setModal(null)} />}
+      {openCheckId && <CheckDetailModal id={openCheckId} onClose={() => setOpenCheckId(null)} />}
+      {openItem && <ItemDetailModal item={openItem} totalRev={openItem._totalRev ?? totalProdRev} onClose={() => setOpenItem(null)} />}
+    </div>
+  )
+}
+
 // ─── Tab: Сводка (live overview) ──────────────────────────────────────────────
 function OverviewTab({ dash, revenue }: { dash: any; revenue: any }) {
-  const [mode, setMode] = useState<'gross' | 'net'>('gross')
   const [modal, setModal] = useState<null | { title: string; subtitle?: string; b: NetBreak }>(null)
 
   const businessDay: string = dash?.businessDay ?? format(new Date(), 'yyyy-MM-dd')
   const netToday: NetBreak | undefined = dash?.netToday
   const netMonth: NetBreak | undefined = dash?.netMonth
 
-  // Заголовочные суммы зависят от переключателя «С учётом»/«Без учёта».
-  const isNet = mode === 'net'
-  const dayHeadline   = isNet && netToday ? parseNum(netToday.net) : parseNum(dash?.today?.revenue)
+  // Заголовочные суммы — ВСЕГДА реальная (валовая) выручка. Детализация
+  // gross→net доступна по клику на карточку (модалка-раскладка).
+  const dayHeadline   = parseNum(dash?.today?.revenue)
   const dayChecks     = dash?.today?.checks ?? netToday?.checks ?? 0
   const dayAvg        = parseNum(dash?.today?.avgCheck ?? netToday?.avgCheck)
-  const monthHeadline = isNet && netMonth ? parseNum(netMonth.net) : parseNum(dash?.month?.revenue)
-  const monthChecks   = netMonth?.checks ?? dash?.month?.checks ?? 0
+  const monthHeadline = parseNum(dash?.month?.revenue)
 
   const monthProfit= parseNum(dash?.month?.profit)
   const monthCogs  = parseNum(dash?.month?.cogs)
@@ -261,32 +499,21 @@ function OverviewTab({ dash, revenue }: { dash: any; revenue: any }) {
   const monthRevGross = parseNum(dash?.month?.revenue)
   const revenueRows: any[] = revenue?.revenue ?? []
 
-  const seg: React.CSSProperties = { padding: '7px 16px', borderRadius: 9999, border: 'none', background: 'transparent', fontSize: 12, fontWeight: 600, cursor: 'pointer', transition: 'all 0.2s', color: 'var(--on-surface-variant)' }
-
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-      {/* Net/Gross toggle */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
-        <div style={{ display: 'inline-flex', padding: 3, borderRadius: 9999, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)' }}>
-          <button onClick={() => setMode('gross')} style={{ ...seg, background: !isNet ? 'rgba(139,92,246,0.25)' : 'transparent', color: !isNet ? '#A78BFA' : 'var(--on-surface-variant)' }}>Без учёта</button>
-          <button onClick={() => setMode('net')} style={{ ...seg, background: isNet ? 'rgba(16,185,129,0.22)' : 'transparent', color: isNet ? '#34D399' : 'var(--on-surface-variant)' }}>С учётом</button>
-        </div>
-        <span style={{ fontSize: 11, color: 'rgba(204,195,216,0.45)' }}>с учётом расходов и комиссий</span>
-      </div>
-
       {/* Month KPIs (clickable) */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))', gap: 12 }}>
-        <KpiCard label={isNet ? 'Чистая прибыль месяц' : 'Выручка месяц'} rawValue={monthHeadline} sub="последние 30 дней" delta={!isNet ? monthDelta : undefined} icon="payments" iconColor="#8B5CF6" iconBg="rgba(139,92,246,0.1)" onClick={netMonth ? () => setModal({ title: isNet ? 'Чистая прибыль · месяц' : 'Выручка · месяц', subtitle: 'последние 30 дней', b: netMonth }) : undefined} />
+        <KpiCard label="Выручка месяц" rawValue={monthHeadline} sub="последние 30 дней" delta={monthDelta} icon="payments" iconColor="#8B5CF6" iconBg="rgba(139,92,246,0.1)" onClick={netMonth ? () => setModal({ title: 'Выручка · месяц', subtitle: 'последние 30 дней · нажмите для раскладки', b: netMonth }) : undefined} />
         <KpiCard label="Прибыль месяц" rawValue={monthProfit} sub={`маржа ${monthRevGross > 0 ? Math.round((monthProfit / monthRevGross) * 100) : 0}%`} icon="trending_up" iconColor="#10B981" iconBg="rgba(16,185,129,0.1)" onClick={netMonth ? () => setModal({ title: 'Прибыль · месяц', subtitle: 'последние 30 дней', b: netMonth }) : undefined} />
-        <KpiCard label="Себестоимость" rawValue={monthCogs} sub="стоимость товаров" icon="inventory" iconColor="#F59E0B" iconBg="rgba(245,158,11,0.1)" />
-        <KpiCard label="Расходы" rawValue={monthExp} sub="операционные" icon="receipt" iconColor="#F43F5E" iconBg="rgba(244,63,94,0.1)" />
+        <KpiCard label="Себестоимость" rawValue={monthCogs} sub="стоимость товаров" icon="inventory" iconColor="#F59E0B" iconBg="rgba(245,158,11,0.1)" onClick={netMonth ? () => setModal({ title: 'Себестоимость · месяц', subtitle: 'в составе раскладки прибыли', b: netMonth }) : undefined} />
+        <KpiCard label="Расходы" rawValue={monthExp} sub="операционные + ЗП" icon="receipt" iconColor="#F43F5E" iconBg="rgba(244,63,94,0.1)" onClick={netMonth ? () => setModal({ title: 'Расходы · месяц', subtitle: 'в составе раскладки прибыли', b: netMonth }) : undefined} />
       </div>
 
       {/* Day navigator + chart */}
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) minmax(0,1fr)', gap: 16 }} className="dash-row">
         <div
           className="glass-l2"
-          onClick={netToday ? () => setModal({ title: isNet ? 'Чистая прибыль · бизнес-день' : 'Выручка · бизнес-день', subtitle: `${bizDayLabel(businessDay)} · 09:00–06:00`, b: netToday }) : undefined}
+          onClick={netToday ? () => setModal({ title: 'Выручка · бизнес-день', subtitle: `${bizDayLabel(businessDay)} · 09:00–06:00`, b: netToday }) : undefined}
           style={{ borderRadius: 16, padding: 20, cursor: netToday ? 'pointer' : 'default' }}
         >
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
@@ -296,10 +523,10 @@ function OverviewTab({ dash, revenue }: { dash: any; revenue: any }) {
           <p style={{ fontSize: 11, color: 'rgba(204,195,216,0.45)', margin: '0 0 14px' }}>{bizDayLabel(businessDay)} · 09:00–06:00</p>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
             {[
-              { label: isNet ? 'Чистая прибыль' : 'Выручка', value: `${fmt(dayHeadline)} ₽`, color: isNet ? (dayHeadline >= 0 ? '#10B981' : '#F43F5E') : '#8B5CF6' },
+              { label: 'Выручка', value: `${fmt(dayHeadline)} ₽`, color: '#8B5CF6' },
               { label: 'Чеков', value: String(dayChecks), color: '#4cd7f6' },
               { label: 'Средний чек', value: `${fmt(dayAvg)} ₽`, color: '#A78BFA' },
-              { label: 'Эквайринг', value: `${fmt(parseNum(netToday?.commission))} ₽`, color: '#F59E0B' },
+              { label: 'Эквайринг (потери)', value: `${fmt(parseNum(netToday?.commission))} ₽`, color: '#F59E0B' },
             ].map(item => (
               <div key={item.label} style={{ padding: '12px 14px', borderRadius: 10, background: 'rgba(255,255,255,0.04)' }}>
                 <p style={{ fontSize: 18, fontWeight: 800, fontStyle: 'italic', margin: '0 0 4px', color: item.color, lineHeight: 1 }}>{item.value}</p>
@@ -340,6 +567,8 @@ function ReportsTab() {
   const [customFrom, setCustomFrom] = useState(format(subDays(new Date(), 29), 'yyyy-MM-dd'))
   const [customTo, setCustomTo] = useState(format(new Date(), 'yyyy-MM-dd'))
   const [subTab, setSubTab] = useState<'revenue' | 'products' | 'payments'>('revenue')
+  const [metricModal, setMetricModal] = useState<null | { title: string; subtitle?: string; value: string; valueColor?: string; rows: { label: string; value: string; color?: string }[] }>(null)
+  const [openItem, setOpenItem] = useState<any | null>(null)
 
   const [from, to] = getRange(range, customFrom, customTo)
 
@@ -353,11 +582,12 @@ function ReportsTab() {
     queryFn: () => api.get<any>(`/analytics/products?from=${from}&to=${to}`),
     enabled: !!from && !!to && subTab === 'products',
   })
-  // Платежи за выбранный период (тот же from/to, что и у под-вкладки «По дням»).
+  // Платежи за выбранный период. Грузим всегда (не только на под-вкладке «Платежи»):
+  // из суммы СБП-переводов считаем потери на эквайринг (8%) для сводки периода.
   const { data: payData } = useQuery({
     queryKey: ['analytics', 'payments', from, to],
     queryFn: () => api.get<any>(`/analytics/payments?from=${from}&to=${to}`),
-    enabled: !!from && !!to && subTab === 'payments',
+    enabled: !!from && !!to,
   })
 
   // /analytics/revenue → { revenue: [{date,revenue,count}], expenses: [{date,total}], cogs: [{date,total}] }
@@ -369,7 +599,6 @@ function ReportsTab() {
   const totalRevenue  = revRows.reduce((s: number, d: any) => s + parseNum(d.revenue), 0)
   const totalExpenses = expRows.reduce((s: number, d: any) => s + parseNum(d.total), 0)
   const totalCogs     = cogsRows.reduce((s: number, d: any) => s + parseNum(d.total), 0)
-  const profit        = totalRevenue - totalExpenses - totalCogs
   const checksCount   = revRows.reduce((s: number, d: any) => s + (d.count || 0), 0)
   const avgCheck      = checksCount ? totalRevenue / checksCount : 0
   const maxDayRev     = revRows.length ? Math.max(...revRows.map((d: any) => parseNum(d.revenue))) : 1
@@ -379,6 +608,11 @@ function ReportsTab() {
   const totalProdRev: number = parseNum(prodData?.totalRev)
   // /analytics/payments → { breakdown: [{ method, total }] } за выбранный период.
   const payBreakdown: any[] = payData?.breakdown ?? []
+  // Эквайринг (потери) = 8% от СБП-переводов за период (как в бэкенде netBreakdown).
+  const transferTotal = parseNum(payBreakdown.find((p: any) => p.method === 'transfer')?.total)
+  const acquiring     = Math.round(transferTotal * 0.08 * 100) / 100
+  // Прибыль с учётом эквайринга — согласуется со сводкой бэкенда.
+  const profit        = totalRevenue - totalExpenses - totalCogs - acquiring
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -398,21 +632,34 @@ function ReportsTab() {
         )}
       </div>
 
-      {/* KPI row */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 10 }}>
-        {[
-          { label: 'Выручка', value: `${fmt(totalRevenue)} ₽`, color: '#4cd7f6' },
+      {/* KPI row — все карточки кликабельны (раскрывают раскладку за цифрой) */}
+      {(() => {
+        const periodSub = `${format(new Date(from), 'd MMM', { locale: ru })} — ${format(new Date(to), 'd MMM yyyy', { locale: ru })}`
+        const breakdownRows = [
+          { label: 'Валовая выручка', value: `${fmt(totalRevenue)} ₽` },
+          { label: 'Себестоимость', value: `− ${fmt(totalCogs)} ₽`, color: '#F43F5E' },
+          { label: 'Операционные расходы', value: `− ${fmt(totalExpenses)} ₽`, color: '#F43F5E' },
+          { label: 'Эквайринг (потери)', value: `− ${fmt(acquiring)} ₽`, color: '#F59E0B' },
           { label: 'Прибыль', value: `${fmt(profit)} ₽`, color: '#10B981' },
-          { label: 'Расходы', value: `${fmt(totalExpenses)} ₽`, color: '#F43F5E' },
-          { label: 'Чеков', value: String(checksCount), color: '#8B5CF6' },
-          { label: 'Средний чек', value: `${fmt(avgCheck)} ₽`, color: '#A78BFA' },
-        ].map(k => (
-          <div key={k.label} className="glass-l2" style={{ borderRadius: 14, padding: '14px 16px' }}>
-            <p style={{ fontSize: 20, fontWeight: 900, fontStyle: 'italic', color: k.color, margin: '0 0 4px', lineHeight: 1 }}>{k.value}</p>
-            <p style={{ fontSize: 10, color: 'var(--on-surface-variant)', margin: 0, textTransform: 'uppercase', letterSpacing: '0.06em', fontFamily: "'JetBrains Mono',monospace" }}>{k.label}</p>
+        ]
+        const cards = [
+          { label: 'Выручка', value: `${fmt(totalRevenue)} ₽`, color: '#4cd7f6', onClick: () => setMetricModal({ title: 'Выручка · период', subtitle: periodSub, value: `${fmt(totalRevenue)} ₽`, valueColor: '#4cd7f6', rows: breakdownRows }) },
+          { label: 'Прибыль', value: `${fmt(profit)} ₽`, color: '#10B981', onClick: () => setMetricModal({ title: 'Прибыль · период', subtitle: periodSub, value: `${fmt(profit)} ₽`, valueColor: '#10B981', rows: breakdownRows }) },
+          { label: 'Расходы', value: `${fmt(totalExpenses)} ₽`, color: '#F43F5E', onClick: () => setMetricModal({ title: 'Расходы · период', subtitle: periodSub, value: `${fmt(totalExpenses)} ₽`, valueColor: '#F43F5E', rows: [{ label: 'Операционные расходы', value: `${fmt(totalExpenses)} ₽` }, { label: 'Себестоимость', value: `${fmt(totalCogs)} ₽`, color: '#F59E0B' }, { label: 'Эквайринг (потери)', value: `${fmt(acquiring)} ₽`, color: '#F59E0B' }] }) },
+          { label: 'Чеков', value: String(checksCount), color: '#8B5CF6', onClick: () => setMetricModal({ title: 'Чеки · период', subtitle: periodSub, value: String(checksCount), valueColor: '#8B5CF6', rows: [{ label: 'Средний чек', value: `${fmt(avgCheck)} ₽` }, { label: 'Выручка', value: `${fmt(totalRevenue)} ₽`, color: '#4cd7f6' }] }) },
+          { label: 'Средний чек', value: `${fmt(avgCheck)} ₽`, color: '#A78BFA', onClick: () => setMetricModal({ title: 'Средний чек · период', subtitle: periodSub, value: `${fmt(avgCheck)} ₽`, valueColor: '#A78BFA', rows: [{ label: 'Выручка', value: `${fmt(totalRevenue)} ₽`, color: '#4cd7f6' }, { label: 'Чеков', value: String(checksCount), color: '#8B5CF6' }] }) },
+        ]
+        return (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 10 }}>
+            {cards.map(k => (
+              <button key={k.label} onClick={k.onClick} className="glass-l2" style={{ borderRadius: 14, padding: '14px 16px', textAlign: 'left', border: 'none', cursor: 'pointer', color: 'var(--on-surface)' }}>
+                <p style={{ fontSize: 20, fontWeight: 900, fontStyle: 'italic', color: k.color, margin: '0 0 4px', lineHeight: 1 }}>{k.value}</p>
+                <p style={{ fontSize: 10, color: 'var(--on-surface-variant)', margin: 0, textTransform: 'uppercase', letterSpacing: '0.06em', fontFamily: "'JetBrains Mono',monospace" }}>{k.label}</p>
+              </button>
+            ))}
           </div>
-        ))}
-      </div>
+        )
+      })()}
 
       {/* Sub-tabs */}
       <div style={{ display: 'flex', gap: 2, borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
@@ -451,6 +698,7 @@ function ReportsTab() {
               ['Валовая выручка', `${fmt(totalRevenue)} ₽`, false],
               ['Себестоимость', `− ${fmt(totalCogs)} ₽`, false],
               ['Операционные расходы', `− ${fmt(totalExpenses)} ₽`, false],
+              ['Эквайринг (потери)', `− ${fmt(acquiring)} ₽`, false],
               ['Прибыль', `${fmt(profit)} ₽`, true],
             ].map(([k, v, highlight]) => (
               <div key={k as string} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid rgba(255,255,255,0.04)', background: highlight ? 'rgba(16,185,129,0.04)' : 'transparent', borderRadius: highlight ? 8 : 0, paddingLeft: highlight ? 8 : 0, paddingRight: highlight ? 8 : 0 }}>
@@ -473,7 +721,7 @@ function ReportsTab() {
             const abcColor = ABC_COLORS[p.abc] ?? '#94A3B8'
             const barPct = totalProdRev > 0 ? (parseNum(p.totalRev) / totalProdRev) * 100 : 0
             return (
-              <div key={p.itemId ?? i} style={{ padding: '12px 18px', borderBottom: '1px solid rgba(255,255,255,0.04)', display: 'flex', gap: 12, alignItems: 'center' }}>
+              <button key={p.itemId ?? i} onClick={() => setOpenItem(p)} style={{ width: '100%', textAlign: 'left', padding: '12px 18px', borderBottom: '1px solid rgba(255,255,255,0.04)', display: 'flex', gap: 12, alignItems: 'center', background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--on-surface)' }}>
                 <span style={{ fontSize: 11, fontFamily: "'JetBrains Mono',monospace", color: 'var(--on-surface-variant)', width: 18, flexShrink: 0 }}>{i + 1}</span>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
@@ -488,7 +736,7 @@ function ReportsTab() {
                   <p style={{ fontSize: 13, fontWeight: 700, margin: 0 }}>{fmt(parseNum(p.totalRev))} ₽</p>
                   <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: '2px 0 0' }}>{parseNum(p.totalQty).toFixed(0)} шт</p>
                 </div>
-              </div>
+              </button>
             )
           })}
         </div>
@@ -522,6 +770,9 @@ function ReportsTab() {
           )}
         </div>
       )}
+
+      {metricModal && <MetricDetailModal title={metricModal.title} subtitle={metricModal.subtitle} value={metricModal.value} valueColor={metricModal.valueColor} rows={metricModal.rows} onClose={() => setMetricModal(null)} />}
+      {openItem && <ItemDetailModal item={openItem} totalRev={totalProdRev} onClose={() => setOpenItem(null)} />}
     </div>
   )
 }
@@ -529,6 +780,8 @@ function ReportsTab() {
 // ─── Tab: Продукты (ABC) ──────────────────────────────────────────────────────
 function ProductsTab({ products }: { products: any }) {
   const rows: any[] = products?.products ?? []
+  const totalRev: number = parseNum(products?.totalRev)
+  const [openItem, setOpenItem] = useState<any | null>(null)
 
   const catMap: Record<string, number> = {}
   rows.forEach((r: any) => {
@@ -562,12 +815,12 @@ function ProductsTab({ products }: { products: any }) {
         {rows.length === 0 ? (
           <p style={{ padding: 24, textAlign: 'center', fontSize: 13, color: 'var(--on-surface-variant)' }}>Нет данных</p>
         ) : rows.map((item: any, i: number) => (
-          <div key={item.itemId ?? i} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 18px', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+          <button key={item.itemId ?? i} onClick={() => setOpenItem(item)} style={{ width: '100%', textAlign: 'left', display: 'flex', alignItems: 'center', gap: 12, padding: '10px 18px', borderBottom: '1px solid rgba(255,255,255,0.04)', background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--on-surface)' }}>
             <span style={{ fontSize: 11, color: 'var(--on-surface-variant)', width: 20, fontFamily: "'JetBrains Mono',monospace" }}>{i + 1}</span>
             <span style={{ flex: 1, fontSize: 13, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.name ?? '—'}</span>
             <span style={{ fontSize: 12, color: 'var(--on-surface-variant)', width: 50, textAlign: 'right' }}>{item.share ?? '0'}%</span>
             <div style={{ width: 24, height: 24, borderRadius: 6, background: `${ABC_COLORS[item.abc ?? 'C']}22`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 800, color: ABC_COLORS[item.abc ?? 'C'] }}>{item.abc ?? 'C'}</div>
-          </div>
+          </button>
         ))}
       </div>
 
@@ -587,6 +840,8 @@ function ProductsTab({ products }: { products: any }) {
           </div>
         </div>
       )}
+
+      {openItem && <ItemDetailModal item={openItem} totalRev={totalRev} onClose={() => setOpenItem(null)} />}
     </div>
   )
 }
@@ -599,6 +854,8 @@ function PlayersTab({ clients }: { clients: any }) {
   const retentionRate: number = clients?.retentionRate ?? 0
   const totalClients: number  = clients?.total ?? 0
   const newThisMonth: number  = clients?.newThisMonth ?? 0
+  const [metricModal, setMetricModal] = useState<null | { title: string; subtitle?: string; value: string; valueColor?: string; rows: { label: string; value: string; color?: string }[] }>(null)
+  const [openPlayer, setOpenPlayer] = useState<any | null>(null)
 
   const segTotal = segments.new + segments.active + segments.sleeping || 1
   const segData = [
@@ -611,16 +868,16 @@ function PlayersTab({ clients }: { clients: any }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))', gap: 12 }}>
-        <KpiCard label="Всего игроков" value={String(totalClients)} sub="зарегистрировано" icon="group" iconColor="#8B5CF6" iconBg="rgba(139,92,246,0.1)" />
-        <KpiCard label="Новые за месяц" value={String(newThisMonth)} sub="последние 30 дней" icon="person_add" iconColor="#10B981" iconBg="rgba(16,185,129,0.1)" />
-        <KpiCard label="Retention" value={`${retentionRate}%`} sub="повторные визиты 14д" icon="repeat" iconColor="#4cd7f6" iconBg="rgba(76,215,246,0.1)" />
+        <KpiCard label="Всего игроков" value={String(totalClients)} sub="зарегистрировано" icon="group" iconColor="#8B5CF6" iconBg="rgba(139,92,246,0.1)" onClick={() => setMetricModal({ title: 'Всего игроков', subtitle: 'клиентская база', value: String(totalClients), valueColor: '#8B5CF6', rows: [{ label: 'Новые за месяц', value: String(newThisMonth), color: '#10B981' }, { label: 'Активные (14д)', value: String(segments.active), color: '#8B5CF6' }, { label: 'Спящие', value: String(segments.sleeping), color: '#F59E0B' }] })} />
+        <KpiCard label="Новые за месяц" value={String(newThisMonth)} sub="последние 30 дней" icon="person_add" iconColor="#10B981" iconBg="rgba(16,185,129,0.1)" onClick={() => setMetricModal({ title: 'Новые за месяц', subtitle: 'регистрация < 30 дней', value: String(newThisMonth), valueColor: '#10B981', rows: [{ label: 'Всего игроков', value: String(totalClients) }, { label: 'Новые сегмент', value: String(segments.new), color: '#10B981' }] })} />
+        <KpiCard label="Retention" value={`${retentionRate}%`} sub="повторные визиты 14д" icon="repeat" iconColor="#4cd7f6" iconBg="rgba(76,215,246,0.1)" onClick={() => setMetricModal({ title: 'Retention', subtitle: 'повторные визиты за 14 дней', value: `${retentionRate}%`, valueColor: '#4cd7f6', rows: [{ label: 'Активные (14д)', value: String(segments.active), color: '#8B5CF6' }, { label: 'Спящие', value: String(segments.sleeping), color: '#F59E0B' }] })} />
       </div>
 
       <div className="glass-l2" style={{ borderRadius: 16, padding: 20 }}>
         <span style={LBL}>Сегменты</span>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
           {segData.map(seg => (
-            <div key={seg.label} style={{ padding: 14, borderRadius: 12, background: `${seg.color}10`, border: `1px solid ${seg.color}22` }}>
+            <button key={seg.label} onClick={() => setMetricModal({ title: `Сегмент · ${seg.label}`, subtitle: seg.desc, value: String(seg.value), valueColor: seg.color, rows: [{ label: 'Доля сегментов', value: `${Math.round((seg.value / segTotal) * 100)}%`, color: seg.color }, { label: 'Всего в сегментах', value: String(segTotal) }] })} style={{ textAlign: 'left', padding: 14, borderRadius: 12, background: `${seg.color}10`, border: `1px solid ${seg.color}22`, cursor: 'pointer', color: 'var(--on-surface)' }}>
               <Icon name={seg.icon} size={18} color={seg.color} />
               <p style={{ fontSize: 24, fontWeight: 900, fontStyle: 'italic', color: 'var(--on-surface)', margin: '8px 0 2px', lineHeight: 1 }}>{seg.value}</p>
               <p style={{ fontSize: 11, color: seg.color, fontWeight: 600, margin: '0 0 2px' }}>{seg.label}</p>
@@ -628,7 +885,7 @@ function PlayersTab({ clients }: { clients: any }) {
               <div style={{ height: 4, borderRadius: 9999, background: 'rgba(255,255,255,0.08)' }}>
                 <div style={{ height: '100%', width: `${(seg.value / segTotal) * 100}%`, background: seg.color, borderRadius: 9999 }} />
               </div>
-            </div>
+            </button>
           ))}
         </div>
       </div>
@@ -662,7 +919,7 @@ function PlayersTab({ clients }: { clients: any }) {
             {topSpenders.length === 0 ? <p style={{ fontSize: 12, color: 'rgba(204,195,216,0.4)', textAlign: 'center' }}>Нет данных</p> : topSpenders.slice(0, 8).map((sp: any, i: number) => {
               const tier = sp.clientTier ?? 'null'
               return (
-                <div key={sp.playerId ?? i} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 10px', borderRadius: 10, background: 'rgba(255,255,255,0.03)' }}>
+                <button key={sp.playerId ?? i} onClick={() => setOpenPlayer(sp)} style={{ width: '100%', textAlign: 'left', display: 'flex', alignItems: 'center', gap: 12, padding: '8px 10px', borderRadius: 10, background: 'rgba(255,255,255,0.03)', border: 'none', cursor: 'pointer', color: 'var(--on-surface)' }}>
                   <div style={{ width: 30, height: 30, borderRadius: '50%', background: `rgba(139,92,246,${0.25 - i * 0.02})`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, color: '#A78BFA', flexShrink: 0 }}>
                     {(sp.nickname ?? '??').slice(0, 2).toUpperCase()}
                   </div>
@@ -671,12 +928,15 @@ function PlayersTab({ clients }: { clients: any }) {
                     <p style={{ fontSize: 11, color: TIER_COLORS[tier] ?? 'var(--on-surface-variant)', margin: 0 }}>{TIER_LABELS[tier] ?? tier} · {sp.cnt ?? 0} визитов</p>
                   </div>
                   <p style={{ fontSize: 14, fontWeight: 800, fontStyle: 'italic', color: 'var(--on-surface)', margin: 0, flexShrink: 0 }}>{fmt(parseNum(sp.total))} ₽</p>
-                </div>
+                </button>
               )
             })}
           </div>
         </div>
       </div>
+
+      {metricModal && <MetricDetailModal title={metricModal.title} subtitle={metricModal.subtitle} value={metricModal.value} valueColor={metricModal.valueColor} rows={metricModal.rows} onClose={() => setMetricModal(null)} />}
+      {openPlayer && <PlayerDetailModal player={openPlayer} onClose={() => setOpenPlayer(null)} />}
     </div>
   )
 }
@@ -926,14 +1186,18 @@ function ChecksTab() {
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 export default function DashboardPage() {
-  const [activeTab, setActiveTab] = useState<MainTab>('overview')
+  const [activeTab, setActiveTab] = useState<MainTab>('today')
 
   const { data: dash, isError: dashError, refetch: refetchDash } = useQuery({ queryKey: ['analytics', 'dashboard'], queryFn: () => api.get<any>('/analytics/dashboard'), refetchInterval: 60000 })
   const { data: revenue } = useQuery({ queryKey: ['analytics', 'revenue', '30d'], queryFn: () => api.get<any>('/analytics/revenue'), refetchInterval: 300000 })
   const { data: products } = useQuery({ queryKey: ['analytics', 'products'], queryFn: () => api.get<any>('/analytics/products'), refetchInterval: 300000, enabled: activeTab === 'products' })
   const { data: clients } = useQuery({ queryKey: ['analytics', 'clients'], queryFn: () => api.get<any>('/analytics/clients'), refetchInterval: 300000, enabled: activeTab === 'players' })
 
+  // Бизнес-день для вкладки «Сегодня»: берём с дашборда, иначе вычисляем локально.
+  const businessDay: string = dash?.businessDay ?? format(new Date(), 'yyyy-MM-dd')
+
   const TABS = [
+    { key: 'today'    as MainTab, label: 'Сегодня', icon: 'today' },
     { key: 'overview' as MainTab, label: 'Сводка',  icon: 'dashboard' },
     { key: 'reports'  as MainTab, label: 'Отчёты',  icon: 'bar_chart' },
     { key: 'checks'   as MainTab, label: 'Чеки',    icon: 'receipt_long' },
@@ -978,6 +1242,7 @@ export default function DashboardPage() {
 
       {/* Content */}
       <div style={{ padding: '16px 16px var(--bottom-nav-clear)', flex: 1, width: '100%', boxSizing: 'border-box' }}>
+        {activeTab === 'today'     && <TodayTab businessDay={businessDay} />}
         {activeTab === 'overview'  && (dash ? <OverviewTab dash={dash} revenue={revenue} /> : dashError ? <StateView state="error" description="Не удалось загрузить аналитику." action={{ label: 'Повторить', onClick: () => refetchDash() }} /> : <StateView state="loading" />)}
         {activeTab === 'reports'   && <ReportsTab />}
         {activeTab === 'checks'    && <ChecksTab />}

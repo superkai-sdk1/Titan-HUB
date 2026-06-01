@@ -13,7 +13,7 @@ export function useCurrentShift() {
 export function useOpenShift() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (body: { cashStart: number; eveningType: string; note?: string }) =>
+    mutationFn: (body: { cashStart: number; eveningType: string; note?: string; adjustmentReason?: string }) =>
       api.post<{ shift: any }>('/shifts/open', body),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['shifts'] }),
   })
@@ -22,7 +22,7 @@ export function useOpenShift() {
 export function useCloseShift() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (body: { cashEnd: number }) => api.post<{ shift: any; analytics: any }>('/shifts/close', body),
+    mutationFn: (body: { cashEnd: number; adjustmentReason?: string }) => api.post<{ shift: any; analytics: any }>('/shifts/close', body),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['shifts'] }),
   })
 }

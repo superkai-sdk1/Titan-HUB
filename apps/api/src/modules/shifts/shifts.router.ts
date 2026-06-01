@@ -18,10 +18,12 @@ const OpenShiftSchema = z.object({
   cashStart: z.number().min(0).default(0),
   eveningType: z.enum(['sport_mafia', 'city_mafia', 'kids_mafia', 'board_games', 'none']).default('none'),
   note: z.string().optional(),
+  adjustmentReason: z.string().optional(),
 })
 
 const CloseShiftSchema = z.object({
   cashEnd: z.number().min(0),
+  adjustmentReason: z.string().optional(),
 })
 
 export const shiftsRouter = new Hono<AppEnv>()
@@ -45,11 +47,11 @@ shiftsRouter.post('/open', requireRole('owner', 'staff'), zValidator('json', Ope
 
 shiftsRouter.post('/close', requireRole('owner', 'staff'), zValidator('json', CloseShiftSchema), async (c) => {
   const user = c.get('user')
-  const { cashEnd } = c.req.valid('json')
+  const { cashEnd, adjustmentReason } = c.req.valid('json')
   const current = await getCurrentShift()
   if (!current) return c.json({ error: 'No open shift' }, 400)
   try {
-    const shift = await closeShift(current.id, user.sub, cashEnd)
+    const shift = await closeShift(current.id, user.sub, cashEnd, adjustmentReason)
     const analytics = await getShiftAnalytics(current.id)
     return c.json({ shift, analytics })
   } catch (e: any) {

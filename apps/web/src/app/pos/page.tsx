@@ -214,6 +214,8 @@ function PosPageInner() {
   const [showOpenShift, setShowOpenShift] = useState(false)
   const [cashStart, setCashStart] = useState('0')
   const [eveningType, setEveningType] = useState('none')
+  // Причина расхождения при открытии (если оператор изменил преднаполненный старт)
+  const [openAdjustmentReason, setOpenAdjustmentReason] = useState('')
 
   // Prefill cash_start из cash_end предыдущей смены
   const { data: lastCashEndData } = useQuery({
@@ -244,6 +246,8 @@ function PosPageInner() {
   // Close shift modal state
   const [showCloseShift, setShowCloseShift] = useState(false)
   const [cashEnd, setCashEnd] = useState('')
+  // Причина расхождения при закрытии (если факт != ожидаемого)
+  const [closeAdjustmentReason, setCloseAdjustmentReason] = useState('')
 
   // Открыть модал закрытия смены если URL содержит ?close=1 (из Sidebar)
   useEffect(() => {
@@ -262,6 +266,14 @@ function PosPageInner() {
     queryFn: () => api.get<{ expected: number; cashStart: number; cashPayments?: number }>('/shifts/cash-balance'),
     enabled: showCloseShift,
   })
+
+  // Преднаполняем «фактически в кассе» ожидаемым остатком — по умолчанию
+  // расхождения нет. Оператор меняет значение, только если пересчёт отличается.
+  useEffect(() => {
+    if (showCloseShift && cashBalance?.expected != null && cashEnd === '') {
+      setCashEnd(String(cashBalance.expected))
+    }
+  }, [showCloseShift, cashBalance, cashEnd])
 
   // Birthdays
   const [showBirthdays, setShowBirthdays] = useState(false)
@@ -377,6 +389,17 @@ function PosPageInner() {
   const expected = cashBalance?.expected ?? 0
   const cashEndNum = parseFloat(cashEnd || '0') || 0
   const discrepancy = cashEndNum - expected
+
+  // OPEN: ожидаемый старт = cashEnd прошлой смены (преднаполнение). Если прошлой
+  // смены нет (null) — расхождения быть не может (любой старт = факт).
+  const expectedStart = lastCashEndData?.cashEnd ?? null
+  const cashStartNum = parseFloat(cashStart || '0') || 0
+  const openDiscrepancy = expectedStart != null ? cashStartNum - expectedStart : 0
+  const openChanged = expectedStart != null && openDiscrepancy !== 0
+  const openReasonMissing = openChanged && !openAdjustmentReason.trim()
+
+  // CLOSE: расхождение != 0 требует обязательную причину.
+  const closeReasonMissing = discrepancy !== 0 && !closeAdjustmentReason.trim()
 
   // Определяем режим split-view через CSS media
   // На десктопе клик открывает панель справа, на мобильном — навигация
@@ -811,7 +834,43 @@ function PosPageInner() {
                   className="glass-l2"
                   style={{ width: '100%', padding: '14px 16px', borderRadius: 14, border: '1px solid rgba(255,255,255,0.08)', color: 'var(--on-surface)', fontSize: 15, outline: 'none', background: 'none' }}
                 />
+                {expectedStart != null && (
+                  <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: '6px 0 0' }}>
+                    Ожидается с прошлой смены: {expectedStart.toLocaleString('ru')} ₽
+                  </p>
+                )}
               </div>
+
+              {/* Расхождение при открытии — внесение/изъятие с обязательной причиной */}
+              {openChanged && (
+                <div style={{
+                  padding: '12px 16px', borderRadius: 12,
+                  background: openDiscrepancy > 0 ? 'rgba(52,211,153,0.08)' : 'rgba(244,63,94,0.08)',
+                  border: `1px solid ${openDiscrepancy > 0 ? 'rgba(52,211,153,0.25)' : 'rgba(244,63,94,0.25)'}`,
+                }}>
+                  <p style={{ fontSize: 12, fontWeight: 600, margin: 0, color: openDiscrepancy > 0 ? 'var(--success)' : 'var(--danger)' }}>
+                    {openDiscrepancy > 0
+                      ? `Излишек +${openDiscrepancy.toLocaleString('ru')} ₽ — будет внесение`
+                      : `Недостача ${openDiscrepancy.toLocaleString('ru')} ₽ — будет изъятие`}
+                  </p>
+                </div>
+              )}
+              {openChanged && (
+                <div>
+                  <label style={{ display: 'block', marginBottom: 8, fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--on-surface-variant)' }}>
+                    Причина расхождения (внесение/изъятие)
+                  </label>
+                  <input
+                    type="text"
+                    value={openAdjustmentReason}
+                    onChange={e => setOpenAdjustmentReason(e.target.value)}
+                    placeholder="Например: довнесли разменную монету"
+                    className="glass-l2"
+                    style={{ width: '100%', padding: '14px 16px', borderRadius: 14, border: `1px solid ${openReasonMissing ? 'rgba(244,63,94,0.4)' : 'rgba(255,255,255,0.08)'}`, color: 'var(--on-surface)', fontSize: 14, outline: 'none', background: 'none' }}
+                  />
+                </div>
+              )}
+
               <div>
                 <label style={{ display: 'block', marginBottom: 8, fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--on-surface-variant)' }}>
                   Тип вечера
@@ -839,15 +898,20 @@ function PosPageInner() {
                 </button>
                 <button
                   onClick={async () => {
-                    await openShift.mutateAsync({ cashStart: Number(cashStart), eveningType })
+                    await openShift.mutateAsync({
+                      cashStart: Number(cashStart),
+                      eveningType,
+                      ...(openChanged ? { adjustmentReason: openAdjustmentReason.trim() } : {}),
+                    } as { cashStart: number; eveningType: string })
                     setShowOpenShift(false)
+                    setOpenAdjustmentReason('')
                   }}
-                  disabled={openShift.isPending}
+                  disabled={openShift.isPending || openReasonMissing}
                   style={{
                     flex: 1, padding: '14px 0', borderRadius: 14, border: 'none', cursor: 'pointer',
                     background: 'linear-gradient(135deg, #8B5CF6, #4cd7f6)',
                     color: '#fff', fontSize: 13, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.06em',
-                    boxShadow: '0 4px 20px rgba(139,92,246,0.35)', opacity: openShift.isPending ? 0.6 : 1,
+                    boxShadow: '0 4px 20px rgba(139,92,246,0.35)', opacity: (openShift.isPending || openReasonMissing) ? 0.6 : 1,
                   }}
                 >
                   Открыть
@@ -1352,13 +1416,34 @@ function PosPageInner() {
               {cashEnd !== '' && (
                 <div style={{
                   padding: '12px 16px', borderRadius: 12,
-                  background: discrepancy === 0 ? 'rgba(52,211,153,0.08)' : 'rgba(244,63,94,0.08)',
-                  border: `1px solid ${discrepancy === 0 ? 'rgba(52,211,153,0.25)' : 'rgba(244,63,94,0.25)'}`,
+                  background: discrepancy === 0 ? 'rgba(52,211,153,0.08)' : discrepancy > 0 ? 'rgba(52,211,153,0.08)' : 'rgba(244,63,94,0.08)',
+                  border: `1px solid ${discrepancy === 0 ? 'rgba(52,211,153,0.25)' : discrepancy > 0 ? 'rgba(52,211,153,0.25)' : 'rgba(244,63,94,0.25)'}`,
                 }}>
-                  <p style={{ fontSize: 12, fontWeight: 600, margin: 0, color: discrepancy === 0 ? 'var(--success)' : 'var(--danger)' }}>
+                  <p style={{ fontSize: 12, fontWeight: 600, margin: 0, color: discrepancy < 0 ? 'var(--danger)' : 'var(--success)' }}>
                     Расхождение: {discrepancy >= 0 ? '+' : ''}{discrepancy.toLocaleString('ru')} ₽
-                    {discrepancy === 0 ? ' — всё сходится!' : discrepancy > 0 ? ' — излишек' : ' — недостача'}
+                    {discrepancy === 0
+                      ? ' — всё сходится!'
+                      : discrepancy > 0
+                        ? ' — излишек, будет внесение'
+                        : ' — недостача, будет изъятие'}
                   </p>
+                </div>
+              )}
+
+              {/* Причина расхождения при закрытии — обязательна */}
+              {discrepancy !== 0 && (
+                <div>
+                  <label style={{ display: 'block', marginBottom: 8, fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--on-surface-variant)' }}>
+                    Причина расхождения (внесение/изъятие)
+                  </label>
+                  <input
+                    type="text"
+                    value={closeAdjustmentReason}
+                    onChange={e => setCloseAdjustmentReason(e.target.value)}
+                    placeholder={discrepancy > 0 ? 'Например: излишек, внесли в кассу' : 'Например: недостача, изъятие'}
+                    className="glass-l2"
+                    style={{ width: '100%', padding: '14px 16px', borderRadius: 14, border: `1px solid ${closeReasonMissing ? 'rgba(244,63,94,0.4)' : 'rgba(255,255,255,0.08)'}`, color: 'var(--on-surface)', fontSize: 14, outline: 'none', background: 'none' }}
+                  />
                 </div>
               )}
 
@@ -1387,16 +1472,22 @@ function PosPageInner() {
                 </button>
                 <button
                   onClick={async () => {
-                    await closeShift.mutateAsync({ cashEnd: cashEndNum })
+                    await closeShift.mutateAsync({
+                      cashEnd: cashEndNum,
+                      ...(discrepancy !== 0 ? { adjustmentReason: closeAdjustmentReason.trim() } : {}),
+                    } as { cashEnd: number })
+                    qc.invalidateQueries({ queryKey: ['shifts', 'cash-balance'] })
                     setShowCloseShift(false)
+                    setCashEnd('')
+                    setCloseAdjustmentReason('')
                   }}
-                  disabled={closeShift.isPending || cashEnd === ''}
+                  disabled={closeShift.isPending || cashEnd === '' || closeReasonMissing}
                   style={{
                     flex: 2, padding: '14px 0', borderRadius: 14, border: 'none', cursor: 'pointer',
                     background: 'linear-gradient(135deg, #ef4444, #f97316)',
                     color: '#fff', fontSize: 13, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.06em',
                     boxShadow: '0 4px 20px rgba(244,63,94,0.3)',
-                    opacity: (closeShift.isPending || cashEnd === '') ? 0.5 : 1,
+                    opacity: (closeShift.isPending || cashEnd === '' || closeReasonMissing) ? 0.5 : 1,
                   }}
                 >
                   {closeShift.isPending ? 'ЗАКРЫВАЕМ...' : 'ЗАКРЫТЬ СМЕНУ'}

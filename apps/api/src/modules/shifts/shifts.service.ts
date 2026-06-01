@@ -15,24 +15,53 @@ export async function openShift(data: {
   cashStart: number
   eveningType: string
   note?: string
+  adjustmentReason?: string
 }) {
   const existing = await getCurrentShift()
   if (existing) throw new Error('Shift already open')
 
-  const [shift] = await db
-    .insert(shifts)
-    .values({
-      openedBy: data.openedBy,
-      cashStart: String(data.cashStart),
-      eveningType: data.eveningType as any,
-      note: data.note,
-      status: 'open',
-    })
-    .returning()
-  return shift
+  // Касса сводится непрерывно: ожидаемый старт = cashEnd прошлой смены.
+  // Если прошлой смены нет — расхождения быть не может (старт = факт).
+  const lastCashEnd = await getLastShiftCashEnd()
+  const hadPriorShift = lastCashEnd !== null
+  const expectedStart = lastCashEnd ?? data.cashStart
+  const counted = data.cashStart
+  const diff = counted - expectedStart
+
+  // Любое расхождение факта с ожидаемым стартом фиксируется как операция с
+  // кассой (внесение/изъятие) с обязательной причиной — книги всегда сходятся.
+  if (hadPriorShift && diff !== 0 && !data.adjustmentReason?.trim()) {
+    throw new Error('Требуется причина расхождения наличных при открытии смены')
+  }
+
+  return db.transaction(async (tx) => {
+    const [shift] = await tx
+      .insert(shifts)
+      .values({
+        openedBy: data.openedBy,
+        // Базис непрерывности — ожидаемый старт; расхождение закрываем операцией.
+        cashStart: String(expectedStart),
+        eveningType: data.eveningType as any,
+        note: data.note,
+        status: 'open',
+      })
+      .returning()
+
+    if (hadPriorShift && diff !== 0) {
+      await tx.insert(cashOperations).values({
+        type: diff > 0 ? 'deposit' : 'withdrawal',
+        amount: String(Math.abs(diff)),
+        description: data.adjustmentReason!.trim(),
+        shiftId: shift.id,
+        createdBy: data.openedBy,
+      })
+    }
+
+    return shift
+  })
 }
 
-export async function closeShift(shiftId: string, closedBy: string, cashEnd: number) {
+export async function closeShift(shiftId: string, closedBy: string, cashEnd: number, adjustmentReason?: string) {
   const [shift] = await db.select().from(shifts).where(eq(shifts.id, shiftId))
   if (!shift) throw new Error('Shift not found')
   if (shift.status !== 'open') throw new Error('Shift already closed')
@@ -44,12 +73,35 @@ export async function closeShift(shiftId: string, closedBy: string, cashEnd: num
     .where(and(eq(checks.shiftId, shiftId), eq(checks.status, 'open')))
   if (openChecks > 0) throw new Error(`Есть ${openChecks} незакрытых чек(а). Закройте их перед закрытием смены.`)
 
-  const [updated] = await db
-    .update(shifts)
-    .set({ status: 'closed', closedBy, cashEnd: String(cashEnd), closedAt: new Date() })
-    .where(eq(shifts.id, shiftId))
-    .returning()
-  return updated
+  const { expected } = await getShiftCashBalance(shiftId)
+  const counted = cashEnd
+  const diff = counted - expected
+
+  // Любое расхождение факта с ожидаемым остатком фиксируется операцией с кассой
+  // (излишек → внесение, недостача → изъятие) с обязательной причиной. После
+  // операции ожидаемый остаток == cashEnd, и старт следующей смены = этот cashEnd.
+  if (diff !== 0 && !adjustmentReason?.trim()) {
+    throw new Error('Требуется причина расхождения наличных при закрытии смены')
+  }
+
+  return db.transaction(async (tx) => {
+    if (diff !== 0) {
+      await tx.insert(cashOperations).values({
+        type: diff > 0 ? 'deposit' : 'withdrawal',
+        amount: String(Math.abs(diff)),
+        description: adjustmentReason!.trim(),
+        shiftId,
+        createdBy: closedBy,
+      })
+    }
+
+    const [updated] = await tx
+      .update(shifts)
+      .set({ status: 'closed', closedBy, cashEnd: String(counted), closedAt: new Date() })
+      .where(eq(shifts.id, shiftId))
+      .returning()
+    return updated
+  })
 }
 
 export async function getBirthdaysToday() {
