@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
-import { db, profiles, transactions, bonusLots, eq, and, isNull, inArray, desc, gt, sql } from '@titan/database'
+import { db, profiles, transactions, bonusLots, bonusHistory, eq, and, isNull, inArray, desc, gt, sql } from '@titan/database'
 // @ts-ignore
 import { passkeys } from '@titan/database'
 import { signToken, verifyPin, verifyPassword, hashPassword, hashPin, isPlaintext, verifyTelegramInitData } from '@titan/auth'
@@ -321,6 +321,22 @@ authRouter.get('/me/transactions', requireAuth, async (c) => {
     .orderBy(desc(transactions.createdAt))
     .limit(50)
   return c.json({ transactions: rows })
+})
+
+// Своя история бонусов (для единого фида в кошельке) — строго по своему профилю.
+// amount знаковый: + начисление, − списание.
+authRouter.get('/me/bonus-history', requireAuth, async (c) => {
+  const user = c.get('user')
+  const rows = await db.select({
+    id: bonusHistory.id,
+    amount: bonusHistory.amount,
+    reason: bonusHistory.reason,
+    createdAt: bonusHistory.createdAt,
+  }).from(bonusHistory)
+    .where(eq(bonusHistory.profileId, user.sub))
+    .orderBy(desc(bonusHistory.createdAt))
+    .limit(50)
+  return c.json({ history: rows })
 })
 
 // Серверный logout: отзываем текущий токен (blacklist в Redis до его exp).
