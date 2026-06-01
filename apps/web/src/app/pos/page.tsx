@@ -5,7 +5,8 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api, ApiError } from '@/lib/api'
 import { funnyGuestName } from '@/lib/funnyName'
-import { useCurrentShift, useOpenShift, useCloseShift } from '@/hooks/useShift'
+import { useCurrentShift } from '@/hooks/useShift'
+import { OpenShiftModal, CloseShiftModal } from '@/components/ShiftModals'
 import { differenceInMinutes } from 'date-fns'
 import { CheckDetailView } from '@/components/CheckDetailView'
 import { PullToRefreshContainer } from '@/components/PullToRefreshContainer'
@@ -54,13 +55,6 @@ interface TariffOption {
   color?: string | null
   isActive?: boolean
   itemId?: string | null
-}
-
-// Тип вечера из /evening-types (для select при открытии смены).
-interface EveningTypeOption {
-  key: string
-  label: string
-  color?: string | null
 }
 
 type NewCheckStep = 'search' | 'tariff' | 'new_client' | 'space'
@@ -174,8 +168,6 @@ function PosPageInner() {
   const qc = useQueryClient()
 
   const { data: shift, isLoading: shiftLoading } = useCurrentShift()
-  const openShift = useOpenShift()
-  const closeShift = useCloseShift()
 
   // Таймер для обновления времени на карточках чеков каждые 30 секунд
   const [now, setNow] = useState(Date.now())
@@ -231,32 +223,6 @@ function PosPageInner() {
 
   // Open shift modal state
   const [showOpenShift, setShowOpenShift] = useState(false)
-  const [cashStart, setCashStart] = useState('0')
-  const [eveningType, setEveningType] = useState('none')
-  // Причина расхождения при открытии (если оператор изменил преднаполненный старт)
-  const [openAdjustmentReason, setOpenAdjustmentReason] = useState('')
-
-  // Prefill cash_start из cash_end предыдущей смены
-  const { data: lastCashEndData } = useQuery({
-    queryKey: ['shifts', 'last-cash-end'],
-    queryFn: () => api.get<{ cashEnd: number | null }>('/shifts/last-cash-end'),
-    enabled: showOpenShift,
-  })
-
-  // Типы вечеров из стандартизированного справочника /evening-types.
-  const { data: eveningTypesData } = useQuery({
-    queryKey: ['pricing', 'evening-types'],
-    queryFn: () => api.get<{ eveningTypes: EveningTypeOption[] } | EveningTypeOption[]>('/pricing/evening-types'),
-    enabled: showOpenShift,
-  })
-  const eveningTypes: EveningTypeOption[] = Array.isArray(eveningTypesData)
-    ? eveningTypesData
-    : (eveningTypesData?.eveningTypes ?? [])
-  useEffect(() => {
-    if (showOpenShift && lastCashEndData?.cashEnd != null) {
-      setCashStart(String(lastCashEndData.cashEnd))
-    }
-  }, [showOpenShift, lastCashEndData])
 
   // New check modal state
   const [showNewCheck, setShowNewCheck] = useState(false)
@@ -274,35 +240,15 @@ function PosPageInner() {
 
   // Close shift modal state
   const [showCloseShift, setShowCloseShift] = useState(false)
-  const [cashEnd, setCashEnd] = useState('')
-  // Причина расхождения при закрытии (если факт != ожидаемого)
-  const [closeAdjustmentReason, setCloseAdjustmentReason] = useState('')
 
   // Открыть модал закрытия смены если URL содержит ?close=1 (из Sidebar)
   useEffect(() => {
     if (searchParams.get('close') === '1') {
-      setCashEnd('')
       setShowCloseShift(true)
       // Убираем параметр из URL без перехода
       router.replace('/pos')
     }
   }, [searchParams, router])
-  const [closeNote, setCloseNote] = useState('')
-
-  // Cash balance for close shift
-  const { data: cashBalance } = useQuery({
-    queryKey: ['shifts', 'cash-balance'],
-    queryFn: () => api.get<{ expected: number; cashStart: number; cashPayments?: number }>('/shifts/cash-balance'),
-    enabled: showCloseShift,
-  })
-
-  // Преднаполняем «фактически в кассе» ожидаемым остатком — по умолчанию
-  // расхождения нет. Оператор меняет значение, только если пересчёт отличается.
-  useEffect(() => {
-    if (showCloseShift && cashBalance?.expected != null && cashEnd === '') {
-      setCashEnd(String(cashBalance.expected))
-    }
-  }, [showCloseShift, cashBalance, cashEnd])
 
   // Birthdays
   const [showBirthdays, setShowBirthdays] = useState(false)
@@ -406,21 +352,6 @@ function PosPageInner() {
   const avgTime = checks.length
     ? Math.round(checks.reduce((acc, c) => acc + differenceInMinutes(now, new Date(c.createdAt)), 0) / checks.length)
     : 0
-
-  const expected = cashBalance?.expected ?? 0
-  const cashEndNum = parseFloat(cashEnd || '0') || 0
-  const discrepancy = cashEndNum - expected
-
-  // OPEN: ожидаемый старт = cashEnd прошлой смены (преднаполнение). Если прошлой
-  // смены нет (null) — расхождения быть не может (любой старт = факт).
-  const expectedStart = lastCashEndData?.cashEnd ?? null
-  const cashStartNum = parseFloat(cashStart || '0') || 0
-  const openDiscrepancy = expectedStart != null ? cashStartNum - expectedStart : 0
-  const openChanged = expectedStart != null && openDiscrepancy !== 0
-  const openReasonMissing = openChanged && !openAdjustmentReason.trim()
-
-  // CLOSE: расхождение != 0 требует обязательную причину.
-  const closeReasonMissing = discrepancy !== 0 && !closeAdjustmentReason.trim()
 
   // Определяем режим split-view через CSS media
   // На десктопе клик открывает панель справа, на мобильном — навигация
@@ -829,160 +760,7 @@ function PosPageInner() {
         </div>
       )}
 
-      {/* Open shift modal */}
-      {showOpenShift && (
-        <div
-          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(10px)', zIndex: 50, display: 'flex', alignItems: 'flex-end' }}
-          onClick={e => { if (e.target === e.currentTarget) setShowOpenShift(false) }}
-        >
-          <div
-            className="glass-l1"
-            style={{
-              width: '100%', borderRadius: '32px 32px 0 0',
-              // Нижний отступ учитывает плавающую навигацию (--bottom-nav-clear), иначе
-              // «Тип вечера» и кнопки уходят под панель; + скролл, если контент высокий.
-              padding: '24px 24px calc(24px + var(--bottom-nav-clear, 96px))',
-              maxHeight: '88dvh', overflowY: 'auto',
-              boxShadow: 'var(--sh-drawer)',
-            }}
-          >
-            <div style={{ width: 36, height: 4, background: 'rgba(255,255,255,0.12)', borderRadius: 4, margin: '0 auto 24px' }} />
-            <h2 style={{ fontSize: 20, fontWeight: 900, fontStyle: 'italic', textTransform: 'uppercase', marginBottom: 24, color: 'var(--on-surface)' }}>
-              ОТКРЫТЬ СМЕНУ
-            </h2>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-              <div>
-                <label style={{ display: 'block', marginBottom: 8, fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--on-surface-variant)' }}>
-                  Наличные в начале
-                </label>
-                <input
-                  type="number"
-                  value={cashStart}
-                  onChange={e => setCashStart(e.target.value)}
-                  className="glass-l2"
-                  style={{ width: '100%', padding: '14px 16px', borderRadius: 14, border: '1px solid rgba(255,255,255,0.08)', color: 'var(--on-surface)', fontSize: 15, outline: 'none', background: 'none' }}
-                />
-                {expectedStart != null && (
-                  <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: '6px 0 0' }}>
-                    Ожидается с прошлой смены: {expectedStart.toLocaleString('ru')} ₽
-                  </p>
-                )}
-              </div>
-
-              {/* Расхождение при открытии — внесение/изъятие с обязательной причиной */}
-              {openChanged && (
-                <div style={{
-                  padding: '12px 16px', borderRadius: 12,
-                  background: openDiscrepancy > 0 ? 'rgba(52,211,153,0.08)' : 'rgba(244,63,94,0.08)',
-                  border: `1px solid ${openDiscrepancy > 0 ? 'rgba(52,211,153,0.25)' : 'rgba(244,63,94,0.25)'}`,
-                }}>
-                  <p style={{ fontSize: 12, fontWeight: 600, margin: 0, color: openDiscrepancy > 0 ? 'var(--success)' : 'var(--danger)' }}>
-                    {openDiscrepancy > 0
-                      ? `Излишек +${openDiscrepancy.toLocaleString('ru')} ₽ — будет внесение`
-                      : `Недостача ${openDiscrepancy.toLocaleString('ru')} ₽ — будет изъятие`}
-                  </p>
-                </div>
-              )}
-              {openChanged && (
-                <div>
-                  <label style={{ display: 'block', marginBottom: 8, fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--on-surface-variant)' }}>
-                    Причина расхождения (внесение/изъятие)
-                  </label>
-                  <input
-                    type="text"
-                    value={openAdjustmentReason}
-                    onChange={e => setOpenAdjustmentReason(e.target.value)}
-                    placeholder="Например: довнесли разменную монету"
-                    className="glass-l2"
-                    style={{ width: '100%', padding: '14px 16px', borderRadius: 14, border: `1px solid ${openReasonMissing ? 'rgba(244,63,94,0.4)' : 'rgba(255,255,255,0.08)'}`, color: 'var(--on-surface)', fontSize: 14, outline: 'none', background: 'none' }}
-                  />
-                </div>
-              )}
-
-              <div>
-                <label style={{ display: 'block', marginBottom: 8, fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--on-surface-variant)' }}>
-                  Тип вечера
-                </label>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                  {eveningTypes.filter(et => et.key !== 'none').map(et => {
-                    const active = eveningType === et.key
-                    const c = et.color || '#8B5CF6'
-                    return (
-                      <button
-                        key={et.key}
-                        onClick={() => setEveningType(et.key)}
-                        style={{
-                          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, minHeight: 52, padding: '12px 10px',
-                          borderRadius: 14, cursor: 'pointer', textAlign: 'center',
-                          border: active ? `1.5px solid ${c}` : '1px solid rgba(255,255,255,0.08)',
-                          background: active ? `${c}26` : 'rgba(255,255,255,0.04)',
-                          color: active ? c : 'var(--on-surface)', fontSize: 13, fontWeight: active ? 700 : 600,
-                          transition: 'all 0.15s',
-                        }}
-                      >
-                        <span style={{ width: 10, height: 10, borderRadius: '50%', background: c, flexShrink: 0 }} />
-                        {et.label}
-                      </button>
-                    )
-                  })}
-                  {/* «Без вечера» (системный 'none') — отдельной строкой во всю ширину */}
-                  {(() => {
-                    const noneType = eveningTypes.find(et => et.key === 'none')
-                    const key = noneType?.key ?? 'none'
-                    const active = eveningType === key
-                    const c = noneType?.color || '#94A3B8'
-                    return (
-                      <button
-                        onClick={() => setEveningType(key)}
-                        style={{
-                          gridColumn: '1 / -1', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, minHeight: 52, padding: '12px 10px',
-                          borderRadius: 14, cursor: 'pointer', textAlign: 'center',
-                          border: active ? `1.5px solid ${c}` : '1px solid rgba(255,255,255,0.08)',
-                          background: active ? `${c}26` : 'rgba(255,255,255,0.04)',
-                          color: active ? c : 'var(--on-surface)', fontSize: 13, fontWeight: active ? 700 : 600,
-                          transition: 'all 0.15s',
-                        }}
-                      >
-                        <span style={{ width: 10, height: 10, borderRadius: '50%', background: c, flexShrink: 0 }} />
-                        Без вечера
-                      </button>
-                    )
-                  })()}
-                </div>
-              </div>
-              <div style={{ display: 'flex', gap: 12, marginTop: 8 }}>
-                <button
-                  onClick={() => setShowOpenShift(false)}
-                  className="glass-l2"
-                  style={{ flex: 1, padding: '14px 0', borderRadius: 14, border: '1px solid rgba(255,255,255,0.08)', cursor: 'pointer', color: 'var(--on-surface-variant)', fontSize: 13, fontWeight: 600, background: 'none' }}
-                >
-                  Отмена
-                </button>
-                <button
-                  onClick={async () => {
-                    await openShift.mutateAsync({
-                      cashStart: Number(cashStart),
-                      eveningType,
-                      ...(openChanged ? { adjustmentReason: openAdjustmentReason.trim() } : {}),
-                    } as { cashStart: number; eveningType: string })
-                    setShowOpenShift(false)
-                    setOpenAdjustmentReason('')
-                  }}
-                  disabled={openShift.isPending || openReasonMissing}
-                  style={{
-                    flex: 1, padding: '14px 0', borderRadius: 14, border: 'none', cursor: 'pointer',
-                    background: 'linear-gradient(135deg, #8B5CF6, #4cd7f6)',
-                    color: '#fff', fontSize: 13, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.06em',
-                    boxShadow: '0 4px 20px rgba(139,92,246,0.35)', opacity: (openShift.isPending || openReasonMissing) ? 0.6 : 1,
-                  }}
-                >
-                  Открыть
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      <OpenShiftModal open={showOpenShift} onClose={() => setShowOpenShift(false)} />
 
       {/* New Check Modal — multi-step */}
       {showNewCheck && (
@@ -1422,151 +1200,7 @@ function PosPageInner() {
         </div>
       )}
 
-      {/* Close Shift Modal */}
-      {showCloseShift && (
-        <div
-          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(12px)', zIndex: 50, display: 'flex', alignItems: 'flex-end' }}
-          onClick={e => { if (e.target === e.currentTarget) setShowCloseShift(false) }}
-        >
-          <div className="glass-l1" style={{ width: '100%', borderRadius: '32px 32px 0 0', padding: '28px 28px calc(28px + var(--bottom-nav-clear, 96px))', maxHeight: '88dvh', overflowY: 'auto', boxShadow: 'var(--sh-drawer)' }}>
-            <div style={{ width: 36, height: 4, background: 'rgba(255,255,255,0.12)', borderRadius: 4, margin: '0 auto 24px' }} />
-            <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 24 }}>
-              <div style={{
-                width: 52, height: 52, borderRadius: 14, flexShrink: 0,
-                background: 'rgba(244,63,94,0.15)', border: '1px solid rgba(244,63,94,0.3)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-              }}>
-                <Icon name="lock" size={26} color="var(--danger)" />
-              </div>
-              <div>
-                <h2 style={{ fontSize: 20, fontWeight: 900, fontStyle: 'italic', textTransform: 'uppercase', margin: 0, color: 'var(--on-surface)' }}>
-                  ЗАКРЫТЬ СМЕНУ
-                </h2>
-                <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: '4px 0 0' }}>Проверьте кассу перед закрытием</p>
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-              {/* Expected amount */}
-              <div className="glass-l2" style={{ padding: '14px 16px', borderRadius: 14, border: '1px solid rgba(255,255,255,0.08)' }}>
-                <p style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--on-surface-variant)', margin: '0 0 6px' }}>
-                  ОЖИДАЕТСЯ В КАССЕ
-                </p>
-                <p style={{ fontSize: 28, fontWeight: 900, fontStyle: 'italic', fontVariantNumeric: 'tabular-nums', margin: 0, color: 'var(--on-surface)' }}>
-                  {expected.toLocaleString('ru')} ₽
-                </p>
-                {cashBalance?.cashStart != null && (
-                  <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: '4px 0 0' }}>
-                    Начало смены: {Number(cashBalance.cashStart).toLocaleString('ru')} ₽ + Наличные платежи: {Number(cashBalance.cashPayments ?? 0).toLocaleString('ru')} ₽
-                  </p>
-                )}
-              </div>
-
-              {/* Cash end input */}
-              <div>
-                <label style={{ display: 'block', marginBottom: 8, fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--on-surface-variant)' }}>
-                  Фактически в кассе
-                </label>
-                <input
-                  type="number"
-                  value={cashEnd}
-                  onChange={e => setCashEnd(e.target.value)}
-                  placeholder="0"
-                  className="glass-l2"
-                  style={{ width: '100%', padding: '14px 16px', borderRadius: 14, border: '1px solid rgba(255,255,255,0.08)', color: 'var(--on-surface)', fontSize: 22, fontWeight: 800, fontStyle: 'italic', outline: 'none', background: 'none', fontVariantNumeric: 'tabular-nums' }}
-                />
-              </div>
-
-              {/* Discrepancy */}
-              {cashEnd !== '' && (
-                <div style={{
-                  padding: '12px 16px', borderRadius: 12,
-                  background: discrepancy === 0 ? 'rgba(52,211,153,0.08)' : discrepancy > 0 ? 'rgba(52,211,153,0.08)' : 'rgba(244,63,94,0.08)',
-                  border: `1px solid ${discrepancy === 0 ? 'rgba(52,211,153,0.25)' : discrepancy > 0 ? 'rgba(52,211,153,0.25)' : 'rgba(244,63,94,0.25)'}`,
-                }}>
-                  <p style={{ fontSize: 12, fontWeight: 600, margin: 0, color: discrepancy < 0 ? 'var(--danger)' : 'var(--success)' }}>
-                    Расхождение: {discrepancy >= 0 ? '+' : ''}{discrepancy.toLocaleString('ru')} ₽
-                    {discrepancy === 0
-                      ? ' — всё сходится!'
-                      : discrepancy > 0
-                        ? ' — излишек, будет внесение'
-                        : ' — недостача, будет изъятие'}
-                  </p>
-                </div>
-              )}
-
-              {/* Причина расхождения при закрытии — обязательна */}
-              {discrepancy !== 0 && (
-                <div>
-                  <label style={{ display: 'block', marginBottom: 8, fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--on-surface-variant)' }}>
-                    Причина расхождения (внесение/изъятие)
-                  </label>
-                  <input
-                    type="text"
-                    value={closeAdjustmentReason}
-                    onChange={e => setCloseAdjustmentReason(e.target.value)}
-                    placeholder={discrepancy > 0 ? 'Например: излишек, внесли в кассу' : 'Например: недостача, изъятие'}
-                    className="glass-l2"
-                    style={{ width: '100%', padding: '14px 16px', borderRadius: 14, border: `1px solid ${closeReasonMissing ? 'rgba(244,63,94,0.4)' : 'rgba(255,255,255,0.08)'}`, color: 'var(--on-surface)', fontSize: 14, outline: 'none', background: 'none' }}
-                  />
-                </div>
-              )}
-
-              {/* Note */}
-              <div>
-                <label style={{ display: 'block', marginBottom: 8, fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--on-surface-variant)' }}>
-                  Примечание
-                </label>
-                <textarea
-                  value={closeNote}
-                  onChange={e => setCloseNote(e.target.value)}
-                  placeholder="Комментарий к закрытию..."
-                  className="glass-l2"
-                  rows={2}
-                  style={{ width: '100%', padding: '12px 16px', borderRadius: 14, border: '1px solid rgba(255,255,255,0.08)', color: 'var(--on-surface)', fontSize: 13, outline: 'none', background: 'none', resize: 'none' }}
-                />
-              </div>
-
-              <div style={{ display: 'flex', gap: 12 }}>
-                <button
-                  onClick={() => setShowCloseShift(false)}
-                  className="glass-l2"
-                  style={{ flex: 1, padding: '14px 0', borderRadius: 14, border: '1px solid rgba(255,255,255,0.08)', cursor: 'pointer', color: 'var(--on-surface-variant)', fontSize: 13, fontWeight: 600, background: 'none' }}
-                >
-                  Отмена
-                </button>
-                <button
-                  onClick={async () => {
-                    await closeShift.mutateAsync({
-                      cashEnd: cashEndNum,
-                      ...(discrepancy !== 0 ? { adjustmentReason: closeAdjustmentReason.trim() } : {}),
-                    } as { cashEnd: number })
-                    qc.invalidateQueries({ queryKey: ['shifts', 'cash-balance'] })
-                    setShowCloseShift(false)
-                    setCashEnd('')
-                    setCloseAdjustmentReason('')
-                  }}
-                  disabled={closeShift.isPending || cashEnd === '' || closeReasonMissing}
-                  style={{
-                    flex: 2, padding: '14px 0', borderRadius: 14, border: 'none', cursor: 'pointer',
-                    background: 'linear-gradient(135deg, #ef4444, #f97316)',
-                    color: '#fff', fontSize: 13, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.06em',
-                    boxShadow: '0 4px 20px rgba(244,63,94,0.3)',
-                    opacity: (closeShift.isPending || cashEnd === '' || closeReasonMissing) ? 0.5 : 1,
-                  }}
-                >
-                  {closeShift.isPending ? 'ЗАКРЫВАЕМ...' : 'ЗАКРЫТЬ СМЕНУ'}
-                </button>
-              </div>
-              {closeShift.isError && (
-                <p style={{ color: 'var(--danger)', fontSize: 12, margin: 0, textAlign: 'center' }}>
-                  {(closeShift.error as Error)?.message ?? 'Ошибка закрытия смены'}
-                </p>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+      <CloseShiftModal open={showCloseShift} onClose={() => setShowCloseShift(false)} />
 
       {/* Birthdays popup */}
       {showBirthdays && birthdaysData?.birthdays && birthdaysData.birthdays.length > 0 && (

@@ -3,7 +3,8 @@ import { useState, useRef } from 'react'
 import { Icon } from '@/components/Icon'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/lib/api'
-import { useCurrentShift, useOpenShift, useCloseShift } from '@/hooks/useShift'
+import { useCurrentShift } from '@/hooks/useShift'
+import { OpenShiftModal, CloseShiftModal } from '@/components/ShiftModals'
 import { PageHeader } from '@/components/manage/DesignSystem'
 import { formatDistanceToNow, format } from 'date-fns'
 import { ru } from 'date-fns/locale'
@@ -338,189 +339,6 @@ function ShiftPlayersTab({ players }: { players: any[] }) {
   )
 }
 
-// ─── Open shift modal ─────────────────────────────────────────────────────────
-function OpenShiftModal({ onClose }: { onClose: () => void }) {
-  const openShift = useOpenShift()
-  const [cashStart, setCashStart] = useState('0')
-  const [eveningType, setEveningType] = useState('none')
-  const [note, setNote] = useState('')
-
-  async function handleOpen() {
-    await openShift.mutateAsync({ cashStart: Number(cashStart), eveningType, note: note || undefined })
-    onClose()
-  }
-
-  return (
-    <div
-      style={{ position: 'fixed', inset: 0, zIndex: 100, background: 'rgba(10,8,14,0.8)', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}
-      onClick={e => { if (e.target === e.currentTarget) onClose() }}
-    >
-      <div className="glass-l1" style={{ width: '100%', maxWidth: 480, borderRadius: '24px 24px 0 0', padding: '24px 24px 40px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
-          <h2 style={{ fontSize: 18, fontWeight: 800, margin: 0 }}>Открыть смену</h2>
-          <button onClick={onClose} style={{ width: 32, height: 32, borderRadius: 8, border: '1px solid rgba(255,255,255,0.1)', background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--on-surface-variant)' }}>
-            <Icon name="close" size={16} />
-          </button>
-        </div>
-
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <div>
-            <label style={{ fontSize: 11, color: 'var(--on-surface-variant)', textTransform: 'uppercase', letterSpacing: '0.06em', fontFamily: 'JetBrains Mono', display: 'block', marginBottom: 6 }}>Касса в начале (₽)</label>
-            <input
-              type="number" value={cashStart} onChange={e => setCashStart(e.target.value)}
-              style={{ width: '100%', padding: '12px 16px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.05)', color: 'var(--on-surface)', fontSize: 16, fontWeight: 700, outline: 'none', boxSizing: 'border-box' }}
-            />
-          </div>
-
-          <div>
-            <label style={{ fontSize: 11, color: 'var(--on-surface-variant)', textTransform: 'uppercase', letterSpacing: '0.06em', fontFamily: 'JetBrains Mono', display: 'block', marginBottom: 6 }}>Тип вечера</label>
-            <select
-              value={eveningType} onChange={e => setEveningType(e.target.value)}
-              style={{ width: '100%', padding: '12px 16px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(29,26,36,0.8)', color: 'var(--on-surface)', fontSize: 14, outline: 'none', cursor: 'pointer', boxSizing: 'border-box' }}
-            >
-              {Object.entries(EVENING_LABELS).map(([val, label]) => (
-                <option key={val} value={val}>{label}</option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label style={{ fontSize: 11, color: 'var(--on-surface-variant)', textTransform: 'uppercase', letterSpacing: '0.06em', fontFamily: 'JetBrains Mono', display: 'block', marginBottom: 6 }}>Заметка (необязательно)</label>
-            <input
-              type="text" value={note} onChange={e => setNote(e.target.value)} placeholder="Особые условия..."
-              style={{ width: '100%', padding: '12px 16px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.05)', color: 'var(--on-surface)', fontSize: 14, outline: 'none', boxSizing: 'border-box' }}
-            />
-          </div>
-
-          <div style={{ display: 'flex', gap: 10, paddingTop: 8 }}>
-            <button onClick={onClose} style={{ flex: 1, padding: '13px 0', borderRadius: 14, border: '1px solid rgba(255,255,255,0.1)', background: 'transparent', color: 'var(--on-surface-variant)', fontSize: 14, cursor: 'pointer' }}>Отмена</button>
-            <button
-              onClick={handleOpen} disabled={openShift.isPending}
-              style={{ flex: 2, padding: '13px 0', borderRadius: 14, border: 'none', background: 'linear-gradient(135deg, #8B5CF6, #4cd7f6)', color: '#fff', fontSize: 14, fontWeight: 700, cursor: openShift.isPending ? 'not-allowed' : 'pointer', opacity: openShift.isPending ? 0.7 : 1 }}
-            >
-              {openShift.isPending ? 'Открываем...' : 'Открыть смену'}
-            </button>
-          </div>
-
-          {openShift.isError && (
-            <p style={{ fontSize: 12, color: 'var(--danger)', textAlign: 'center', margin: 0 }}>
-              {(openShift.error as any)?.message ?? 'Ошибка открытия смены'}
-            </p>
-          )}
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// ─── Close shift modal ────────────────────────────────────────────────────────
-function CloseShiftModal({ onClose, onClosed }: { onClose: () => void; onClosed: (result: any) => void }) {
-  const closeShift = useCloseShift()
-  const [cashEnd, setCashEnd] = useState('0')
-
-  const { data: cashBalance } = useQuery({
-    queryKey: ['shifts', 'cash-balance'],
-    queryFn: () => api.get<any>('/shifts/cash-balance'),
-  })
-
-  const expected = parseNum(cashBalance?.expected)
-  const actual = Number(cashEnd) || 0
-  const diff = actual - expected
-
-  async function handleClose() {
-    const res = await closeShift.mutateAsync({ cashEnd: actual })
-    onClosed(res)
-  }
-
-  return (
-    <div
-      style={{ position: 'fixed', inset: 0, zIndex: 100, background: 'rgba(10,8,14,0.8)', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}
-      onClick={e => { if (e.target === e.currentTarget) onClose() }}
-    >
-      <div className="glass-l1" style={{ width: '100%', maxWidth: 480, borderRadius: '24px 24px 0 0', padding: '24px 24px 40px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
-          <h2 style={{ fontSize: 18, fontWeight: 800, margin: 0 }}>Закрыть смену</h2>
-          <button onClick={onClose} style={{ width: 32, height: 32, borderRadius: 8, border: '1px solid rgba(255,255,255,0.1)', background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--on-surface-variant)' }}>
-            <Icon name="close" size={16} />
-          </button>
-        </div>
-
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          {/* Expected cash breakdown */}
-          <div className="glass-l2" style={{ borderRadius: 12, padding: 14 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: cashBalance ? 10 : 0 }}>
-              <span style={{ fontSize: 13, color: 'var(--on-surface-variant)' }}>Ожидаемая касса</span>
-              <span style={{ fontSize: 16, fontWeight: 800, fontStyle: 'italic', fontVariantNumeric: 'tabular-nums', color: '#10B981' }}>
-                {fmt(expected)} ₽
-              </span>
-            </div>
-            {cashBalance && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4, borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 10 }}>
-                {[
-                  ['Начало смены', fmt(parseNum(cashBalance.cashStart)), '+'],
-                  ['Наличные платежи', fmt(parseNum(cashBalance.cashPayments)), '+'],
-                  ...(parseNum(cashBalance.deposits) > 0 ? [['Внесения', fmt(parseNum(cashBalance.deposits)), '+']] : []),
-                  ...(parseNum(cashBalance.withdrawals) > 0 ? [['Изъятия', fmt(parseNum(cashBalance.withdrawals)), '−']] : []),
-                ].map(([label, val, sign]) => (
-                  <div key={String(label)} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--on-surface-variant)' }}>
-                    <span>{label}</span>
-                    <span style={{ fontFamily: 'JetBrains Mono', color: sign === '−' ? '#F87171' : 'rgba(204,195,216,0.7)' }}>{sign} {val} ₽</span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <div>
-            <label style={{ fontSize: 11, color: 'var(--on-surface-variant)', textTransform: 'uppercase', letterSpacing: '0.06em', fontFamily: 'JetBrains Mono', display: 'block', marginBottom: 6 }}>Фактическая касса (₽)</label>
-            <input
-              type="number" value={cashEnd} onChange={e => setCashEnd(e.target.value)}
-              style={{ width: '100%', padding: '12px 16px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.05)', color: 'var(--on-surface)', fontSize: 16, fontWeight: 700, outline: 'none', boxSizing: 'border-box' }}
-            />
-          </div>
-
-          {/* Discrepancy */}
-          {cashEnd !== '0' && (
-            <div style={{
-              borderRadius: 12, padding: 14,
-              background: diff === 0 ? 'rgba(16,185,129,0.08)' : diff > 0 ? 'rgba(245,158,11,0.08)' : 'rgba(244,63,94,0.08)',
-              border: `1px solid ${diff === 0 ? '#10B981' : diff > 0 ? '#F59E0B' : '#F43F5E'}33`,
-              display: 'flex', alignItems: 'center', gap: 10,
-            }}>
-              <Icon name={diff === 0 ? 'check_circle' : diff > 0 ? 'arrow_circle_up' : 'arrow_circle_down'} size={18} color={diff === 0 ? '#10B981' : diff > 0 ? '#F59E0B' : '#F43F5E'} />
-              <div>
-                <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--on-surface)', margin: 0 }}>
-                  {diff === 0 ? 'Касса совпадает' : diff > 0 ? 'Излишек' : 'Недостача'}
-                </p>
-                {diff !== 0 && (
-                  <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: 0 }}>
-                    {diff > 0 ? '+' : ''}{fmt(diff)} ₽
-                  </p>
-                )}
-              </div>
-            </div>
-          )}
-
-          <div style={{ display: 'flex', gap: 10, paddingTop: 8 }}>
-            <button onClick={onClose} style={{ flex: 1, padding: '13px 0', borderRadius: 14, border: '1px solid rgba(255,255,255,0.1)', background: 'transparent', color: 'var(--on-surface-variant)', fontSize: 14, cursor: 'pointer' }}>Отмена</button>
-            <button
-              onClick={handleClose} disabled={closeShift.isPending}
-              style={{ flex: 2, padding: '13px 0', borderRadius: 14, border: 'none', background: 'linear-gradient(135deg, #F43F5E, #DC2626)', color: '#fff', fontSize: 14, fontWeight: 700, cursor: closeShift.isPending ? 'not-allowed' : 'pointer', opacity: closeShift.isPending ? 0.7 : 1 }}
-            >
-              {closeShift.isPending ? 'Закрываем...' : 'Закрыть смену'}
-            </button>
-          </div>
-
-          {closeShift.isError && (
-            <p style={{ fontSize: 12, color: 'var(--danger)', textAlign: 'center', margin: 0 }}>
-              {(closeShift.error as any)?.message ?? 'Ошибка закрытия смены'}
-            </p>
-          )}
-        </div>
-      </div>
-    </div>
-  )
-}
 
 // ─── Main page ────────────────────────────────────────────────────────────────
 export default function ShiftsPage() {
@@ -698,8 +516,8 @@ export default function ShiftsPage() {
       </div>
 
       {/* Modals */}
-      {showOpen && <OpenShiftModal onClose={() => setShowOpen(false)} />}
-      {showClose && <CloseShiftModal onClose={() => setShowClose(false)} onClosed={() => setShowClose(false)} />}
+      <OpenShiftModal open={showOpen} onClose={() => setShowOpen(false)} />
+      <CloseShiftModal open={showClose} onClose={() => setShowClose(false)} />
       {analyticsShiftId && <ShiftAnalytics shiftId={analyticsShiftId} onClose={() => setAnalyticsShiftId(null)} />}
 
       <style>{`
