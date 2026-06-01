@@ -6,8 +6,47 @@ import { PageHeader, Sheet, INP, LBL, formatMoney } from '@/components/manage/De
 import { StateView } from '@/components/StateView'
 import { useToast } from '@/components/Toast'
 import { Icon } from '@/components/Icon'
+import { format } from 'date-fns'
+import { ru } from 'date-fns/locale'
 
 type FilterTab = 'all' | 'low' | 'untracked'
+
+interface ItemStats {
+  item: { id: string; name: string; stockQuantity: number; costPrice: number; price: number; minThreshold: number; trackStock: boolean }
+  lastSupply: { date: string; quantity: number; costPerUnit: number } | null
+  sales: { totalQty: number; totalRevenue: number; avgDaily: number; allTimeQty: number; series: { date: string; qty: number }[] }
+}
+
+/* Мини-тайл статистики */
+function StatTile({ label, value, sub, color }: { label: string; value: string; sub?: string; color?: string }) {
+  return (
+    <div style={{ padding: '12px 14px', borderRadius: 12, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)' }}>
+      <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: 0 }}>{label}</p>
+      <p style={{ fontSize: 17, fontWeight: 800, margin: '3px 0 0', color: color ?? 'var(--on-surface)', fontVariantNumeric: 'tabular-nums' }}>{value}</p>
+      {sub && <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: '1px 0 0' }}>{sub}</p>}
+    </div>
+  )
+}
+
+/* График продаж по дням (30 дней) */
+function SalesChart({ series }: { series: { date: string; qty: number }[] }) {
+  const max = series.reduce((m, s) => Math.max(m, s.qty), 0) || 1
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 2, height: 88 }}>
+        {series.map((s, i) => (
+          <div key={i} title={`${format(new Date(s.date), 'd MMM', { locale: ru })}: ${s.qty}`} style={{ flex: 1, height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>
+            <div style={{ height: `${(s.qty / max) * 100}%`, minHeight: s.qty > 0 ? 3 : 0, borderRadius: 2, background: s.qty > 0 ? 'linear-gradient(180deg, #a78bfa, #8B5CF6)' : 'rgba(255,255,255,0.05)' }} />
+          </div>
+        ))}
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6 }}>
+        <span style={{ fontSize: 10, color: 'var(--on-surface-variant)' }}>{format(new Date(series[0]?.date ?? Date.now()), 'd MMM', { locale: ru })}</span>
+        <span style={{ fontSize: 10, color: 'var(--on-surface-variant)' }}>сегодня</span>
+      </div>
+    </div>
+  )
+}
 
 interface MenuItem {
   id: string
@@ -25,9 +64,7 @@ export default function InventoryPage() {
   const [filter, setFilter] = useState<FilterTab>('all')
   const [search, setSearch] = useState('')
   const [selected, setSelected] = useState<MenuItem | null>(null)
-  const [newQty, setNewQty] = useState('')
   const [newThreshold, setNewThreshold] = useState('')
-  const [note, setNote] = useState('')
 
   // /inventory (не /menu/items): возвращает активные И неактивные позиции,
   // исключая только мягко удалённые. Скрытая из меню позиция всё равно учитывается
@@ -35,6 +72,13 @@ export default function InventoryPage() {
   const { data, isLoading } = useQuery<{ items: MenuItem[] }>({
     queryKey: ['menu-items-inventory'],
     queryFn: () => api.get('/inventory'),
+  })
+
+  // Статистика позиции для карточки (грузится при открытии панели).
+  const { data: stats, isLoading: statsLoading } = useQuery<ItemStats>({
+    queryKey: ['inventory-stats', selected?.id],
+    queryFn: () => api.get(`/inventory/${selected!.id}/stats`),
+    enabled: !!selected,
   })
 
   const allItems = data?.items ?? []
@@ -83,18 +127,15 @@ export default function InventoryPage() {
     )
   }
 
-  function openEdit(item: MenuItem) { setSelected(item); setNewQty(String(item.stockQuantity)); setNewThreshold(String(item.minThreshold ?? 0)); setNote('') }
-  function closeSheet() { setSelected(null); setNewQty(''); setNewThreshold(''); setNote('') }
-  function saveEdit() {
+  function openDetail(item: MenuItem) { setSelected(item); setNewThreshold(String(item.minThreshold ?? 0)) }
+  function closeSheet() { setSelected(null); setNewThreshold('') }
+  function saveThreshold() {
     if (!selected) return
     const threshold = parseInt(newThreshold)
-    patchMut.mutate({
-      id: selected.id,
-      stockQuantity: parseInt(newQty) || 0,
-      // Шлём порог, только если он реально изменился (иначе лишняя запись).
-      minThreshold: Number.isNaN(threshold) ? undefined : (threshold !== (selected.minThreshold ?? 0) ? threshold : undefined),
-      reason: note.trim() || undefined,
-    })
+    // Меняем только порог пополнения (конфиг). Остаток здесь не редактируется.
+    if (!Number.isNaN(threshold) && threshold !== (selected.minThreshold ?? 0)) {
+      patchMut.mutate({ id: selected.id, minThreshold: threshold })
+    }
     closeSheet()
   }
 
@@ -184,7 +225,7 @@ export default function InventoryPage() {
                 <div key={item.id} className="glass-l2" style={{ borderRadius: 14, padding: '14px 16px', cursor: 'pointer', transition: 'border-color 0.2s' }}
                   onMouseEnter={e => { e.currentTarget.style.borderColor = `${color}44` }}
                   onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }} onClick={() => openEdit(item)}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }} onClick={() => openDetail(item)}>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontWeight: 700, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.name}</div>
                     </div>
@@ -225,18 +266,81 @@ export default function InventoryPage() {
       </div>
 
       <Sheet open={!!selected} onClose={closeSheet} title={selected?.name}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <div style={{ padding: '14px 16px', borderRadius: 12, background: 'rgba(255,255,255,0.04)', display: 'flex', justifyContent: 'space-between' }}>
-            <span style={{ fontSize: 13, color: 'var(--on-surface-variant)' }}>Текущий остаток</span>
-            <strong style={{ color: selected ? stockColor(selected) : undefined }}>{selected?.stockQuantity} шт</strong>
-          </div>
-          <div><label style={LBL}>Новое количество</label><input style={INP} type="number" min="0" value={newQty} onChange={e => setNewQty(e.target.value)} placeholder="Введите количество" /></div>
-          <div><label style={LBL}>Порог пополнения</label><input style={INP} type="number" min="0" value={newThreshold} onChange={e => setNewThreshold(e.target.value)} placeholder="Уведомлять, когда остаток ≤ порога" /></div>
-          <div><label style={LBL}>Причина / заметка</label><input style={INP} value={note} onChange={e => setNote(e.target.value)} placeholder="Поставка, инвентаризация…" /></div>
-          <button onClick={saveEdit} style={{ width: '100%', padding: 14, borderRadius: 14, border: 'none', cursor: 'pointer', background: 'linear-gradient(135deg, #8B5CF6, #4cd7f6)', color: '#fff', fontSize: 15, fontWeight: 700 }}>
-            Сохранить
-          </button>
-        </div>
+        {statsLoading && !stats ? (
+          <StateView state="loading" />
+        ) : stats ? (() => {
+          const it = stats.item
+          const profit = it.price - it.costPrice
+          const marginPct = it.price > 0 ? Math.round((profit / it.price) * 100) : 0
+          const stockVal = it.stockQuantity * it.costPrice
+          const daysLeft = it.trackStock && stats.sales.avgDaily > 0 ? Math.ceil(it.stockQuantity / stats.sales.avgDaily) : null
+          const qColor = !it.trackStock ? 'var(--on-surface-variant)' : it.stockQuantity <= it.minThreshold ? '#F43F5E' : it.stockQuantity <= it.minThreshold * 2 ? '#F59E0B' : '#34D399'
+          return (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              {/* Остаток + стоимость остатка */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                <div style={{ padding: '14px 16px', borderRadius: 14, background: 'rgba(139,92,246,0.1)', border: '1px solid rgba(139,92,246,0.2)' }}>
+                  <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: 0 }}>Количество</p>
+                  <p style={{ fontSize: 26, fontWeight: 800, margin: '2px 0 0', color: qColor, lineHeight: 1 }}>
+                    {it.trackStock ? it.stockQuantity : '—'}<span style={{ fontSize: 13, fontWeight: 600, marginLeft: 4, color: 'var(--on-surface-variant)' }}>{it.trackStock ? 'шт' : 'без учёта'}</span>
+                  </p>
+                </div>
+                <StatTile label="Стоимость остатка" value={formatMoney(stockVal)} />
+              </div>
+
+              {/* Цена / себестоимость / маржа */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
+                <StatTile label="Себестоимость" value={formatMoney(it.costPrice)} />
+                <StatTile label="Цена" value={formatMoney(it.price)} />
+                <StatTile label="Маржа" value={`${marginPct}%`} sub={formatMoney(profit)} color={profit >= 0 ? '#34D399' : '#F87171'} />
+              </div>
+
+              {/* График продаж */}
+              <div className="glass-l2" style={{ borderRadius: 16, padding: 16 }}>
+                <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 12 }}>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--on-surface-variant)', letterSpacing: '0.02em' }}>ПРОДАЖИ · 30 ДНЕЙ</span>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--on-surface)' }}>{stats.sales.totalQty} шт</span>
+                </div>
+                <SalesChart series={stats.sales.series} />
+              </div>
+
+              {/* Агрегаты продаж */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                <StatTile label="Выручка · 30 дней" value={formatMoney(stats.sales.totalRevenue)} sub={`всего продано: ${stats.sales.allTimeQty} шт`} />
+                <StatTile label="В среднем в день" value={`${stats.sales.avgDaily.toFixed(1)} шт`} sub={daysLeft != null ? `хватит на ~${daysLeft} дн.` : undefined} />
+              </div>
+
+              {/* Последняя закупка */}
+              <div className="glass-l2" style={{ borderRadius: 16, padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div style={{ width: 40, height: 40, borderRadius: 11, background: 'rgba(16,185,129,0.13)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  <Icon name="local_shipping" size={20} color="#34D399" />
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: 0 }}>Последняя закупка</p>
+                  {stats.lastSupply ? (
+                    <p style={{ fontSize: 14, fontWeight: 700, margin: '2px 0 0' }}>
+                      {format(new Date(stats.lastSupply.date), 'd MMMM yyyy', { locale: ru })}
+                      <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--on-surface-variant)' }}> · {stats.lastSupply.quantity} шт по {formatMoney(stats.lastSupply.costPerUnit)}</span>
+                    </p>
+                  ) : (
+                    <p style={{ fontSize: 14, fontWeight: 600, margin: '2px 0 0', color: 'var(--on-surface-variant)' }}>Закупок не было</p>
+                  )}
+                </div>
+              </div>
+
+              {/* Порог пополнения (конфиг, не остаток) */}
+              {it.trackStock && (
+                <div style={{ padding: '14px 16px', borderRadius: 16, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
+                  <label style={LBL}>Порог пополнения</label>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <input style={{ ...INP, flex: 1 }} type="number" min="0" value={newThreshold} onChange={e => setNewThreshold(e.target.value)} placeholder="Уведомлять, когда остаток ≤ порога" />
+                    <button onClick={saveThreshold} disabled={patchMut.isPending} style={{ padding: '0 18px', borderRadius: 12, border: 'none', cursor: 'pointer', background: 'linear-gradient(135deg, #8B5CF6, #4cd7f6)', color: '#fff', fontSize: 14, fontWeight: 700, flexShrink: 0 }}>ОК</button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )
+        })() : null}
       </Sheet>
     </div>
   )

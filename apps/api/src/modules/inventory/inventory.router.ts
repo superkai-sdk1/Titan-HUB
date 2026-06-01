@@ -2,7 +2,7 @@ import type { AppEnv } from '../../types.js'
 import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
-import { db, inventory, stockMovements, eq, asc, isNull } from '@titan/database'
+import { db, inventory, stockMovements, supplies, supplyItems, checks, checkItems, eq, asc, isNull, and, gte, desc, sum } from '@titan/database'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
 
 export const inventoryRouter = new Hono<AppEnv>()
@@ -21,6 +21,68 @@ inventoryRouter.get('/', async (c) => {
     .where(isNull(inventory.deletedAt))
     .orderBy(asc(inventory.sortOrder), asc(inventory.name))
   return c.json({ items: rows })
+})
+
+// GET /api/inventory/:id/stats — карточка позиции: остаток, последняя закупка,
+// продажи по дням за 30 дней (закрытые чеки, валовое количество) + агрегаты.
+// Бакетим по календарю МСК (UTC+3). Идёт ДО PATCH/:id по методу — конфликта нет.
+inventoryRouter.get('/:id/stats', async (c) => {
+  const id = c.req.param('id')
+  const [item] = await db.select().from(inventory).where(eq(inventory.id, id))
+  if (!item) return c.json({ error: 'Not found' }, 404)
+
+  const [lastSup] = await db
+    .select({ date: supplies.createdAt, quantity: supplyItems.quantity, costPerUnit: supplyItems.costPerUnit })
+    .from(supplyItems)
+    .innerJoin(supplies, eq(supplies.id, supplyItems.supplyId))
+    .where(eq(supplyItems.itemId, id))
+    .orderBy(desc(supplies.createdAt))
+    .limit(1)
+
+  const since = new Date(Date.now() - 30 * 86400000)
+  const rows = await db
+    .select({ createdAt: checks.createdAt, quantity: checkItems.quantity, price: checkItems.priceAtTime })
+    .from(checkItems)
+    .innerJoin(checks, eq(checks.id, checkItems.checkId))
+    .where(and(eq(checkItems.itemId, id), eq(checks.status, 'closed'), gte(checks.createdAt, since)))
+
+  const MSK = 3 * 3600 * 1000
+  const dayKey = (d: Date) => new Date(d.getTime() + MSK).toISOString().split('T')[0]
+  const byDay = new Map<string, number>()
+  let totalQty = 0, totalRevenue = 0
+  for (const r of rows) {
+    const q = Number(r.quantity) || 0
+    totalQty += q
+    totalRevenue += q * (parseFloat(String(r.price)) || 0)
+    const k = dayKey(new Date(r.createdAt as unknown as string))
+    byDay.set(k, (byDay.get(k) ?? 0) + q)
+  }
+  const series: { date: string; qty: number }[] = []
+  for (let i = 29; i >= 0; i--) {
+    const k = new Date(Date.now() + MSK - i * 86400000).toISOString().split('T')[0]
+    series.push({ date: k, qty: byDay.get(k) ?? 0 })
+  }
+
+  const [allTime] = await db
+    .select({ qty: sum(checkItems.quantity) })
+    .from(checkItems)
+    .innerJoin(checks, eq(checks.id, checkItems.checkId))
+    .where(and(eq(checkItems.itemId, id), eq(checks.status, 'closed')))
+
+  const costPrice = parseFloat(String(item.costPrice ?? 0)) || 0
+  const price = parseFloat(String(item.price ?? 0)) || 0
+  const avgDaily = totalQty / 30
+  return c.json({
+    item: {
+      id: item.id, name: item.name, stockQuantity: item.stockQuantity ?? 0,
+      costPrice, price, minThreshold: item.minThreshold ?? 0, trackStock: item.trackStock,
+    },
+    lastSupply: lastSup ? { date: lastSup.date, quantity: Number(lastSup.quantity), costPerUnit: Number(lastSup.costPerUnit) } : null,
+    sales: {
+      totalQty, totalRevenue: Math.round(totalRevenue * 100) / 100,
+      avgDaily, allTimeQty: Number(allTime?.qty ?? 0), series,
+    },
+  })
 })
 
 // PATCH /api/inventory/:id — изменение остатка/порога с аудитом движения.
