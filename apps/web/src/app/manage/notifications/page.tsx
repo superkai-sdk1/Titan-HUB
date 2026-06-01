@@ -29,8 +29,8 @@ interface NotifType {
   defaultEnabled: boolean
 }
 
-// Контракт API: настройки хранятся как карта типов → { enabled, channel }.
-type NotifTypeSetting = { enabled: boolean; channel: string }
+// Контракт API: настройки хранятся как карта типов → { enabled (web push), telegram }.
+type NotifTypeSetting = { enabled: boolean; channel?: string; telegram?: boolean }
 type NotifTypesMap = Record<string, NotifTypeSetting>
 interface NotifSettingsRow {
   types?: NotifTypesMap | null
@@ -103,7 +103,15 @@ export default function NotificationsPage() {
 
   const { data: settingsData } = useQuery({
     queryKey: ['notifications', 'settings'],
-    queryFn: () => api.get<{ settings: NotifSettingsRow | null }>('/notifications/settings'),
+    queryFn: () => api.get<{ settings: NotifSettingsRow | null; telegramLinked?: boolean }>('/notifications/settings'),
+  })
+  const telegramLinked = settingsData?.telegramLinked ?? false
+
+  const [linkCode, setLinkCode] = useState<string | null>(null)
+  const tgLink = useMutation({
+    mutationFn: () => api.post<{ code: string }>('/notifications/tg-link'),
+    onSuccess: (r) => setLinkCode(r.code),
+    onError: () => show('Не удалось создать код привязки', 'error'),
   })
 
   const readOne = useMutation({
@@ -123,8 +131,8 @@ export default function NotificationsPage() {
     onMutate: async (types) => {
       // Оптимистичное обновление: тумблер реагирует мгновенно.
       await qc.cancelQueries({ queryKey: ['notifications', 'settings'] })
-      const prev = qc.getQueryData<{ settings: NotifSettingsRow | null }>(['notifications', 'settings'])
-      qc.setQueryData(['notifications', 'settings'], { settings: { types } })
+      const prev = qc.getQueryData<{ settings: NotifSettingsRow | null; telegramLinked?: boolean }>(['notifications', 'settings'])
+      qc.setQueryData(['notifications', 'settings'], { ...(prev ?? {}), settings: { ...(prev?.settings ?? {}), types } })
       return { prev }
     },
     onError: (_e, _v, ctx) => {
@@ -150,19 +158,23 @@ export default function NotificationsPage() {
   function isEnabled(t: NotifType): boolean {
     return savedTypes[t.key]?.enabled ?? t.defaultEnabled
   }
+  // Telegram-доставка — opt-in (по умолчанию выкл).
+  function isTgEnabled(t: NotifType): boolean {
+    return savedTypes[t.key]?.telegram ?? false
+  }
 
   function handleCardClick(n: Notification) {
     if (!n.isRead) readOne.mutate(n.id)
     setExpanded(prev => (prev === n.id ? null : n.id))
   }
 
-  function toggleSetting(t: NotifType, value: boolean) {
-    // Строим полную карту по всем известным типам + изменённый.
+  function setTypeField(t: NotifType, field: 'enabled' | 'telegram', value: boolean) {
+    // Строим полную карту по всем известным типам, затем меняем одно поле.
     const next: NotifTypesMap = {}
     for (const item of notifTypes) {
-      next[item.key] = { enabled: isEnabled(item), channel: savedTypes[item.key]?.channel ?? DEFAULT_CHANNEL }
+      next[item.key] = { enabled: isEnabled(item), telegram: isTgEnabled(item), channel: savedTypes[item.key]?.channel ?? DEFAULT_CHANNEL }
     }
-    next[t.key] = { enabled: value, channel: savedTypes[t.key]?.channel ?? DEFAULT_CHANNEL }
+    next[t.key] = { ...next[t.key]!, [field]: value }
     saveSettings.mutate(next)
   }
 
@@ -250,6 +262,38 @@ export default function NotificationsPage() {
           )}
         </div>
 
+        {/* ─── Telegram-привязка ──────────────────────────────────────── */}
+        <div className="glass-l2" style={{ borderRadius: 16, padding: '16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: telegramLinked ? 0 : 14 }}>
+            <div style={{ width: 44, height: 44, borderRadius: 12, background: telegramLinked ? 'rgba(34,158,217,0.18)' : 'rgba(148,163,184,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              <Icon name="send" size={22} color={telegramLinked ? '#229ED9' : '#94A3B8'} />
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <p style={{ fontSize: 15, fontWeight: 700, margin: 0, color: telegramLinked ? '#229ED9' : 'var(--on-surface)' }}>
+                {telegramLinked ? 'Telegram привязан' : 'Telegram не привязан'}
+              </p>
+              <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: '2px 0 0', lineHeight: 1.4 }}>
+                {telegramLinked ? 'Типы с галочкой «TG» ниже приходят в Telegram-бот' : 'Привяжите, чтобы получать выбранные уведомления в Telegram'}
+              </p>
+            </div>
+          </div>
+          {!telegramLinked && !linkCode && (
+            <button onClick={() => tgLink.mutate()} disabled={tgLink.isPending}
+              style={{ width: '100%', padding: '14px 0', borderRadius: 14, border: 'none', cursor: 'pointer', background: 'linear-gradient(135deg, #229ED9, #4cd7f6)', color: '#fff', fontSize: 14, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, opacity: tgLink.isPending ? 0.7 : 1 }}>
+              <Icon name="link" size={20} />{tgLink.isPending ? 'Создаём код…' : 'Привязать Telegram'}
+            </button>
+          )}
+          {!telegramLinked && linkCode && (
+            <div style={{ borderRadius: 12, padding: '14px', background: 'rgba(34,158,217,0.08)', border: '1px solid rgba(34,158,217,0.25)' }}>
+              <p style={{ fontSize: 12.5, color: 'var(--on-surface)', margin: '0 0 10px', lineHeight: 1.5 }}>
+                Откройте админ-бота в Telegram и отправьте ему этот код:
+              </p>
+              <p style={{ fontSize: 28, fontWeight: 800, letterSpacing: '0.18em', textAlign: 'center', margin: 0, color: '#229ED9', fontFamily: "'JetBrains Mono',monospace" }}>{linkCode}</p>
+              <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: '10px 0 0', textAlign: 'center' }}>Код действует 30 минут</p>
+            </div>
+          )}
+        </div>
+
         {/* ─── Подсказка для iOS ──────────────────────────────────────── */}
         {showIOSHint && (
           <div style={{ borderRadius: 14, padding: '14px', background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)', display: 'flex', gap: 12 }}>
@@ -330,30 +374,47 @@ export default function NotificationsPage() {
         {notifTypes.length === 0 ? (
           <StateView state="empty" icon="notifications_off" title="Нет доступных типов" />
         ) : (
-          <div className="glass-l2" style={{ borderRadius: 16, overflow: 'hidden' }}>
-            {notifTypes.map((t, idx, arr) => (
-              <div
-                key={t.key}
-                style={{
-                  display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
-                  padding: '14px 16px',
-                  borderBottom: idx < arr.length - 1 ? '1px solid rgba(255,255,255,0.06)' : 'none',
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flex: 1 }}>
-                  <Icon name={TYPE_ICONS[t.key] ?? 'notifications'} size={18} color="var(--on-surface-variant)" style={{ flexShrink: 0 }} />
-                  <div style={{ minWidth: 0 }}>
-                    <p style={{ fontSize: 14, margin: 0, color: 'var(--on-surface)' }}>{t.label}</p>
-                    {t.description && <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: '2px 0 0', lineHeight: 1.4 }}>{t.description}</p>}
+          <>
+            {/* Заголовки колонок каналов */}
+            <div style={{ display: 'flex', alignItems: 'center', padding: '0 16px 8px' }}>
+              <div style={{ flex: 1 }} />
+              <div style={{ display: 'flex', gap: 16 }}>
+                <span style={{ width: 42, textAlign: 'center', fontSize: 10, fontWeight: 700, color: '#F59E0B', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Push</span>
+                <span style={{ width: 42, textAlign: 'center', fontSize: 10, fontWeight: 700, color: '#229ED9', textTransform: 'uppercase', letterSpacing: '0.04em' }}>TG</span>
+              </div>
+            </div>
+            <div className="glass-l2" style={{ borderRadius: 16, overflow: 'hidden' }}>
+              {notifTypes.map((t, idx, arr) => (
+                <div
+                  key={t.key}
+                  style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
+                    padding: '14px 16px',
+                    borderBottom: idx < arr.length - 1 ? '1px solid rgba(255,255,255,0.06)' : 'none',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flex: 1 }}>
+                    <Icon name={TYPE_ICONS[t.key] ?? 'notifications'} size={18} color="var(--on-surface-variant)" style={{ flexShrink: 0 }} />
+                    <div style={{ minWidth: 0 }}>
+                      <p style={{ fontSize: 14, margin: 0, color: 'var(--on-surface)' }}>{t.label}</p>
+                      {t.description && <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: '2px 0 0', lineHeight: 1.4 }}>{t.description}</p>}
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexShrink: 0 }}>
+                    <div style={{ width: 42, display: 'flex', justifyContent: 'center' }}>
+                      <Toggle size="sm" value={isEnabled(t)} onChange={(v) => setTypeField(t, 'enabled', v)} color="#F59E0B" ariaLabel={`${t.label} push`} />
+                    </div>
+                    <div style={{ width: 42, display: 'flex', justifyContent: 'center' }}>
+                      <Toggle size="sm" value={isTgEnabled(t)} onChange={(v) => setTypeField(t, 'telegram', v)} color="#229ED9" ariaLabel={`${t.label} telegram`} />
+                    </div>
                   </div>
                 </div>
-                <Toggle size="sm" value={isEnabled(t)} onChange={(v) => toggleSetting(t, v)} color="#F59E0B" ariaLabel={t.label} />
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          </>
         )}
         <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: '12px 4px 0', lineHeight: 1.5 }}>
-          Настройки уведомлений индивидуальны для вашего аккаунта.
+          Настройки индивидуальны для вашего аккаунта. «Push» — на это устройство, «TG» — в Telegram-бот (нужна привязка выше).
         </p>
       </div>
     </div>

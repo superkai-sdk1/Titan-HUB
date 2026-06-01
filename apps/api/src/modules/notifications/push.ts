@@ -66,12 +66,38 @@ function getNotifRedis() {
   return new Redis(process.env['REDIS_URL'] ?? 'redis://redis:6379', { lazyConnect: true })
 }
 
+// ── Telegram-канал ─────────────────────────────────────────────────────────
+// Шлём через Bot API напрямую (токен админ-бота доступен API через env_file).
+// No-op, если токен не задан. Никогда не бросает.
+const TG_TOKEN = process.env['ADMIN_BOT_TOKEN']
+async function sendTelegram(tgId: string, text: string): Promise<void> {
+  if (!TG_TOKEN || !tgId) return
+  try {
+    await fetch(`https://api.telegram.org/bot${TG_TOKEN}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: tgId, text, disable_web_page_preview: true }),
+    })
+  } catch (err) {
+    console.warn('[push] telegram send error:', err)
+  }
+}
+
+// Слать ли в Telegram этому пользователю по этому типу: только если явно включено
+// (telegram=true) в настройках. По умолчанию Telegram-доставка ВЫКЛ (opt-in).
+function isTelegramEnabledForUser(
+  type: string,
+  settings: { types?: Record<string, { enabled: boolean; channel?: string; telegram?: boolean }> | null } | undefined,
+): boolean {
+  return settings?.types?.[type]?.telegram === true
+}
+
 // Решение «слать ли push этому пользователю по этому типу»: берём настройку
 // userNotificationSettings.types[type].enabled, иначе — defaultEnabled типа,
 // иначе (неизвестный тип) — true.
 function isTypeEnabledForUser(
   type: string,
-  settings: { types?: Record<string, { enabled: boolean; channel: string }> | null } | undefined,
+  settings: { types?: Record<string, { enabled: boolean; channel?: string; telegram?: boolean }> | null } | undefined,
 ): boolean {
   const t = settings?.types?.[type]
   if (t && typeof t.enabled === 'boolean') return t.enabled
@@ -194,14 +220,18 @@ export async function notify(opts: {
       }
     }
 
-    // 3) Web push
-    if (!pushEnabled) return
+    // 3) Доставка по каналам (web push + Telegram). Каналы независимы:
+    //    Telegram работает даже без настроенного VAPID.
+    const tgText = `🔔 ${opts.title}\n${opts.body}`
 
-    const payload = buildPushPayload(opts)
-
-    // Спец-тип 'test' — всегда шлём только самому пользователю, без проверки настроек.
+    // Спец-тип 'test' — только самому пользователю, без проверки настроек типов.
     if (opts.type === 'test') {
-      if (targetUserId) await sendWebPushToUser(targetUserId, payload)
+      if (targetUserId) {
+        const payload = buildPushPayload(opts)
+        if (pushEnabled) await sendWebPushToUser(targetUserId, payload)
+        const [p] = await db.select({ tgId: profiles.tgId }).from(profiles).where(eq(profiles.id, targetUserId))
+        if (p?.tgId) await sendTelegram(p.tgId, tgText)
+      }
       return
     }
 
@@ -216,22 +246,32 @@ export async function notify(opts: {
         .where(and(inArray(profiles.role, ['owner', 'staff']), isNull(profiles.deletedAt)))
       recipientIds = staff.map((s) => s.id)
     }
-
     if (!recipientIds.length) return
 
-    // Настройки типов для получателей одним запросом.
+    // Настройки типов + tgId получателей одним проходом.
     const settingsRows = await db
       .select()
       .from(userNotificationSettings)
       .where(inArray(userNotificationSettings.userId, recipientIds))
     const settingsByUser = new Map(settingsRows.map((s) => [s.userId, s]))
+    const profRows = await db
+      .select({ id: profiles.id, tgId: profiles.tgId })
+      .from(profiles)
+      .where(inArray(profiles.id, recipientIds))
+    const tgByUser = new Map(profRows.map((p) => [p.id, p.tgId]))
 
-    const enabledIds = recipientIds.filter((uid) =>
-      isTypeEnabledForUser(opts.type, settingsByUser.get(uid)),
+    // Web push — по настройке enabled.
+    if (pushEnabled) {
+      const payload = buildPushPayload(opts)
+      const enabledIds = recipientIds.filter((uid) => isTypeEnabledForUser(opts.type, settingsByUser.get(uid)))
+      await Promise.all(enabledIds.map((uid) => sendWebPushToUser(uid, payload)))
+    }
+
+    // Telegram — по настройке telegram + наличию привязки.
+    const tgRecipients = recipientIds.filter(
+      (uid) => isTelegramEnabledForUser(opts.type, settingsByUser.get(uid)) && tgByUser.get(uid),
     )
-    if (!enabledIds.length) return
-
-    await Promise.all(enabledIds.map((uid) => sendWebPushToUser(uid, payload)))
+    await Promise.all(tgRecipients.map((uid) => sendTelegram(tgByUser.get(uid)!, tgText)))
   } catch (err) {
     // notify не должен ронять вызывающий код ни при каких условиях.
     console.error('[push] notify failed:', err)

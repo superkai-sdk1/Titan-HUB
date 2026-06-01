@@ -1,5 +1,5 @@
 import { Bot, InlineKeyboard } from 'grammy'
-import { db, profiles, shifts, checks, inventory, events, eq, and, desc, asc, isNull, inArray, sql } from '@titan/database'
+import { db, profiles, shifts, checks, inventory, events, tgLinkRequests, eq, and, desc, asc, isNull, inArray, sql } from '@titan/database'
 import { signToken } from '@titan/auth'
 
 const token = process.env['ADMIN_BOT_TOKEN']
@@ -58,10 +58,33 @@ type Pending =
   | { mode: 'close_confirm'; cashEnd: number; expected: number }
 const pending = new Map<number, Pending>()
 
+// Привязка по 6-значному коду из приложения (Настройки → Уведомления → Привязать Telegram).
+async function handleLinkCode(ctx: any, tgId: string, code: string): Promise<void> {
+  const [req] = await db.select().from(tgLinkRequests)
+    .where(and(eq(tgLinkRequests.tgId, code), eq(tgLinkRequests.status, 'pending')))
+    .orderBy(desc(tgLinkRequests.createdAt)).limit(1)
+  if (!req) { await ctx.reply('❌ Код неверный. Сгенерируйте новый в приложении.'); return }
+  if (Date.now() - new Date(req.createdAt).getTime() > 30 * 60000) { await ctx.reply('❌ Код истёк (старше 30 минут). Сгенерируйте новый.'); return }
+  const [prof] = await db.select().from(profiles).where(eq(profiles.id, req.profileId))
+  if (!prof || !['owner', 'staff'].includes(prof.role)) { await ctx.reply('❌ Этот профиль недоступен для админ-бота.'); return }
+  const [existing] = await db.select().from(profiles).where(eq(profiles.tgId, tgId))
+  if (existing && existing.id !== prof.id) { await ctx.reply('❌ Этот Telegram уже привязан к другому профилю.'); return }
+  try {
+    await db.transaction(async (tx) => {
+      await tx.update(profiles).set({ tgId, tgUsername: ctx.from?.username ?? null }).where(eq(profiles.id, prof.id))
+      await tx.update(tgLinkRequests).set({ status: 'approved', tgId }).where(eq(tgLinkRequests.id, req.id))
+    })
+    await ctx.reply(`✅ Telegram привязан к *${escapeMd(prof.nickname)}*. Включите нужные уведомления в приложении.`, { parse_mode: 'Markdown', reply_markup: mainKeyboard })
+  } catch (err) {
+    console.error('[bot-admin] link failed:', err)
+    await ctx.reply('❌ Не удалось привязать (возможно, этот Telegram уже занят).')
+  }
+}
+
 bot.command('start', async (ctx) => {
   pending.delete(ctx.chat.id)
   const p = await getProfile(String(ctx.from?.id))
-  if (!p) { await ctx.reply('❌ Доступ запрещён. Привяжите аккаунт через кассу.'); return }
+  if (!p) { await ctx.reply('👋 Это админ-бот Titan HUB.\n\nЧтобы привязать аккаунт: откройте приложение → Настройки → Уведомления → «Привязать Telegram», получите 6-значный код и отправьте его сюда.'); return }
   await ctx.reply(`👋 Titan HUB Admin · ${escapeMd(p.nickname)}`, { reply_markup: mainKeyboard, parse_mode: 'Markdown' })
 })
 
@@ -251,9 +274,16 @@ bot.callbackQuery('close_cancel', async (ctx) => {
 
 // ─── Текстовые сообщения: AI-вопрос или сумма закрытия ────────────────────────
 bot.on('message:text', async (ctx) => {
-  const p = await getProfile(String(ctx.from?.id)); if (!p) return
-  const st = pending.get(ctx.chat.id)
+  const tgId = String(ctx.from?.id)
   const textIn = ctx.message.text.trim()
+  const p = await getProfile(tgId)
+  // Непривязанный аккаунт: принимаем только 6-значный код привязки.
+  if (!p) {
+    if (/^\d{6}$/.test(textIn)) { await handleLinkCode(ctx, tgId, textIn); return }
+    await ctx.reply('Отправьте 6-значный код привязки из приложения (Настройки → Уведомления → Привязать Telegram).')
+    return
+  }
+  const st = pending.get(ctx.chat.id)
 
   if (st?.mode === 'ai') {
     const thinking = await ctx.reply('⏳ Анализирую базу…')

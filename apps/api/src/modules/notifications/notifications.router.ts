@@ -182,11 +182,12 @@ notificationsRouter.put('/read-all', async (c) => {
 notificationsRouter.get('/settings', async (c) => {
   const user = c.get('user')
   const [settings] = await db.select().from(userNotificationSettings).where(eq(userNotificationSettings.userId, user.sub))
-  return c.json({ settings: settings ?? null })
+  const [prof] = await db.select({ tgId: profiles.tgId }).from(profiles).where(eq(profiles.id, user.sub))
+  return c.json({ settings: settings ?? null, telegramLinked: !!prof?.tgId })
 })
 
 notificationsRouter.put('/settings', zValidator('json', z.object({
-  types: z.record(z.object({ enabled: z.boolean(), channel: z.string() })),
+  types: z.record(z.object({ enabled: z.boolean(), channel: z.string().optional(), telegram: z.boolean().optional() })),
 })), async (c) => {
   const user = c.get('user')
   const { types } = c.req.valid('json')

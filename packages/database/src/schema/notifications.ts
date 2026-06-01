@@ -32,7 +32,7 @@ export const userNotificationSettings = pgTable('user_notification_settings', {
     .references(() => profiles.id)
     .unique(),
   types: jsonb('types')
-    .$type<Record<string, { enabled: boolean; channel: string }>>()
+    .$type<Record<string, { enabled: boolean; channel?: string; telegram?: boolean }>>()
     .default({}),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 })
