@@ -70,8 +70,8 @@ function getRedis() {
 
 const SYSTEM_PROMPT = [
   'Ты ассистент игрового клуба Titan. Отвечай кратко, конкретно, на русском языке.',
-  'Если в сообщении есть блок «АКТУАЛЬНЫЕ ДАННЫЕ КЛУБА» — отвечай СТРОГО по этим данным',
-  '(долги клиентов, остатки склада, выручка, смена и т.д.), не выдумывай.',
+  'Если в сообщении есть блок «РЕЗУЛЬТАТ» (данные SQL-запроса к базе) или',
+  '«АКТУАЛЬНЫЕ ДАННЫЕ КЛУБА» — отвечай СТРОГО по этим данным, не выдумывай.',
   'Имя человека из вопроса сопоставляй с именами и никами из данных без учёта регистра',
   '(например «Саид» ↔ «Саид»/«said»). Если ответа в данных нет — честно скажи, что таких данных нет.',
   'Суммы давай в рублях.',
@@ -186,6 +186,84 @@ async function buildBusinessSnapshot(): Promise<string> {
   } catch { /* skip */ }
 
   return parts.join('\n\n')
+}
+
+// ─── Произвольные вопросы по базе (text-to-SQL) ──────────────────────────────
+// Схема базы из information_schema (кэш 5 мин). Исключаем служебные и
+// чувствительные таблицы/колонки (пароли, пины, токены, ключи).
+let schemaCache: { doc: string; ts: number } | null = null
+const SENSITIVE_TABLES = new Set(['_migrations', 'push_subscriptions'])
+const SENSITIVE_COL = /pass|pin|hash|secret|token|credential|webauthn|private_key|public_key/i
+
+async function getSchemaDoc(): Promise<string> {
+  if (schemaCache && Date.now() - schemaCache.ts < 300000) return schemaCache.doc
+  const res: any = await db.execute(sql`
+    SELECT table_name, column_name, data_type
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+    ORDER BY table_name, ordinal_position
+  `)
+  const rows: any[] = res.rows ?? res ?? []
+  const byTable = new Map<string, string[]>()
+  for (const r of rows) {
+    const t = String(r.table_name)
+    if (SENSITIVE_TABLES.has(t)) continue
+    if (SENSITIVE_COL.test(String(r.column_name))) continue
+    if (!byTable.has(t)) byTable.set(t, [])
+    byTable.get(t)!.push(`${r.column_name} ${r.data_type}`)
+  }
+  const doc = [...byTable.entries()].map(([t, cols]) => `${t}(${cols.join(', ')})`).join('\n')
+  schemaCache = { doc, ts: Date.now() }
+  return doc
+}
+
+// Жёсткая проверка: только одиночный SELECT/WITH на чтение, без DDL/DML и секретов.
+function sanitizeSql(raw: string): string {
+  let s = (raw || '').trim().replace(/```sql/gi, '').replace(/```/g, '').trim()
+  const semi = s.indexOf(';')
+  if (semi >= 0) s = s.slice(0, semi).trim()
+  const lower = s.toLowerCase()
+  if (!/^(select|with)\b/.test(lower)) throw new Error('Не SELECT-запрос')
+  if (/\b(insert|update|delete|drop|alter|truncate|create|grant|revoke|copy|merge|call|vacuum|reindex|lock|begin|commit|rollback)\b/.test(lower)) throw new Error('Запрещённая операция')
+  if (/\binto\b/.test(lower)) throw new Error('INTO запрещён')
+  if (SENSITIVE_COL.test(lower) || /push_subscription/.test(lower)) throw new Error('Чувствительные данные')
+  return s
+}
+
+// Выполнение в READ ONLY транзакции с таймаутом и лимитом строк.
+async function runReadonly(query: string): Promise<any[]> {
+  const wrapped = `SELECT * FROM (${query}) AS _q LIMIT 200`
+  return await db.transaction(async (tx) => {
+    await tx.execute(sql`SET TRANSACTION READ ONLY`)
+    await tx.execute(sql`SET LOCAL statement_timeout = '5000'`)
+    const res: any = await tx.execute(sql.raw(wrapped))
+    return (res.rows ?? res ?? []) as any[]
+  })
+}
+
+const SQLGEN_PROMPT = [
+  'Ты эксперт PostgreSQL. По схеме базы и вопросу составь ОДИН SQL-запрос ТОЛЬКО на чтение (SELECT).',
+  'Правила: только SELECT или WITH...SELECT; без INSERT/UPDATE/DELETE/DDL; одна инструкция без «;».',
+  'Используй ТОЛЬКО таблицы и колонки из схемы. Имена людей сравнивай через ILIKE \'%...%\' (без регистра).',
+  'Долг клиента = отрицательный profiles.balance при role=\'client\'; депозит = положительный balance.',
+  'Остаток товара = inventory.stock_quantity; учёт = inventory.track_stock=true; «нет в наличии» = stock_quantity=0; «заканчивается» = stock_quantity<=min_threshold.',
+  'Денежные/числовые поля часто text/numeric — при сравнении и агрегации приводи через ::numeric.',
+  'Закрытые чеки: checks.status=\'closed\'. Ставь разумный LIMIT. Ответь ТОЛЬКО SQL, без пояснений и markdown.',
+].join(' ')
+
+// Полный конвейер: вопрос → SQL → выполнение → блок данных для финального ответа ИИ.
+async function answerFromDb(query: string): Promise<string | null> {
+  try {
+    const schema = await getSchemaDoc()
+    const rawSql = await callAI(SQLGEN_PROMPT, `СХЕМА БАЗЫ:\n${schema}\n\nВОПРОС: ${query}`)
+    const clean = sanitizeSql(rawSql)
+    const rows = await runReadonly(clean)
+    const json = JSON.stringify(rows).slice(0, 6000)
+    return `Чтобы ответить, выполнен SQL-запрос к базе:\n${clean}\n\nРЕЗУЛЬТАТ (${rows.length} строк):\n${json}`
+  } catch {
+    // Не валим запрос — вернём null, выше подставится снимок-фоллбек.
+    return null
+  }
 }
 
 async function buildContext(action: string, payload?: Record<string, unknown>, question?: string): Promise<string> {
@@ -518,6 +596,12 @@ async function buildContext(action: string, payload?: Record<string, unknown>, q
       const query = question ?? (payload?.query as string) ?? ''
       const snapshot = await buildBusinessSnapshot()
       if (!query) return snapshot
+      // Сначала пробуем точный ответ через SQL по всей базе; если не вышло —
+      // подставляем общий снимок (покрывает частые вопросы).
+      const dbBlock = await answerFromDb(query)
+      if (dbBlock) {
+        return `ВОПРОС ПОЛЬЗОВАТЕЛЯ: ${query}\n\n${dbBlock}\n\nСправочно (общая сводка клуба):\n${snapshot}`
+      }
       return `АКТУАЛЬНЫЕ ДАННЫЕ КЛУБА:\n\n${snapshot}\n\nВОПРОС ПОЛЬЗОВАТЕЛЯ: ${query}`
     }
 
