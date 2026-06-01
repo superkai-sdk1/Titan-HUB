@@ -1,5 +1,6 @@
 import { Bot, InlineKeyboard } from 'grammy'
-import { db, profiles, shifts, checks, inventory, events, eq, and, desc, asc, sum, count, gte, isNull, inArray, sql } from '@titan/database'
+import { db, profiles, shifts, checks, inventory, events, eq, and, desc, asc, isNull, inArray, sql } from '@titan/database'
+import { signToken } from '@titan/auth'
 
 const token = process.env['ADMIN_BOT_TOKEN']
 if (!token) throw new Error('ADMIN_BOT_TOKEN is not set')
@@ -7,12 +8,11 @@ if (!token) throw new Error('ADMIN_BOT_TOKEN is not set')
 const API_URL = process.env['API_URL'] ?? 'http://api:3001'
 const ALLOWED_TG_IDS = (process.env['ADMIN_TG_IDS'] ?? '').split(',').filter(Boolean)
 
-// Экранирование спецсимволов legacy-Markdown (parse_mode:'Markdown'). Без него
-// пользовательские значения (ник, примечание чека, имя товара, название события)
-// с _ * [ ` ломают всё сообщение: Telegram возвращает 400 и сообщение не уходит.
+// Экранирование спецсимволов legacy-Markdown.
 function escapeMd(s: string): string {
   return s.replace(/[\\_*[`]/g, '\\$&')
 }
+const money = (n: number) => `${Math.round(n).toLocaleString('ru')} ₽`
 
 export const bot = new Bot(token)
 
@@ -20,251 +20,271 @@ const mainKeyboard = new InlineKeyboard()
   .text('📊 Итог дня', 'report_today').text('💰 Смена', 'shift_status').row()
   .text('🧾 Открытые чеки', 'open_checks').text('📦 Низкий сток', 'stock_alert').row()
   .text('💵 Зарплата', 'salary_estimate').text('📅 События', 'list_events').row()
+  .text('🤖 Спросить Titan', 'ai_ask').text('🔒 Закрыть смену', 'close_shift').row()
 
-async function isAllowed(tgId: string): Promise<boolean> {
-  if (ALLOWED_TG_IDS.length && !ALLOWED_TG_IDS.includes(tgId)) return false
-  const [profile] = await db
-    .select()
-    .from(profiles)
-    .where(and(eq(profiles.tgId, tgId), isNull(profiles.deletedAt)))
-  if (!profile) return false
-  return ['owner', 'staff'].includes(profile.role)
+type Profile = typeof profiles.$inferSelect
+
+async function getProfile(tgId: string): Promise<Profile | null> {
+  if (ALLOWED_TG_IDS.length && !ALLOWED_TG_IDS.includes(tgId)) return null
+  const [p] = await db.select().from(profiles).where(and(eq(profiles.tgId, tgId), isNull(profiles.deletedAt)))
+  if (!p || !['owner', 'staff'].includes(p.role)) return null
+  return p
 }
 
+// Короткий JWT для профиля → вызовы нашего API (переиспользуем всю бизнес-логику).
+async function tokenFor(p: Profile): Promise<string> {
+  return signToken({ sub: p.id, role: p.role, nickname: p.nickname }, '10m')
+}
+async function apiGet<T = any>(p: Profile, path: string): Promise<T> {
+  const res = await fetch(`${API_URL}${path}`, { headers: { Authorization: `Bearer ${await tokenFor(p)}` } })
+  if (!res.ok) throw new Error(`API ${res.status}`)
+  return res.json() as Promise<T>
+}
+async function apiPost<T = any>(p: Profile, path: string, body: unknown): Promise<T> {
+  const res = await fetch(`${API_URL}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await tokenFor(p)}` },
+    body: JSON.stringify(body),
+  })
+  const json: any = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(json?.error || `API ${res.status}`)
+  return json as T
+}
+
+// Состояние диалога (один инстанс бота → in-memory достаточно). Ключ — chat.id.
+type Pending =
+  | { mode: 'ai' }
+  | { mode: 'close_cash'; expected: number }
+  | { mode: 'close_confirm'; cashEnd: number; expected: number }
+const pending = new Map<number, Pending>()
+
 bot.command('start', async (ctx) => {
-  const tgId = String(ctx.from?.id)
-  if (!(await isAllowed(tgId))) {
-    await ctx.reply('❌ Доступ запрещён. Привяжите аккаунт через кассу.')
-    return
-  }
-  await ctx.reply('👋 Titan HUB Admin', { reply_markup: mainKeyboard })
+  pending.delete(ctx.chat.id)
+  const p = await getProfile(String(ctx.from?.id))
+  if (!p) { await ctx.reply('❌ Доступ запрещён. Привяжите аккаунт через кассу.'); return }
+  await ctx.reply(`👋 Titan HUB Admin · ${escapeMd(p.nickname)}`, { reply_markup: mainKeyboard, parse_mode: 'Markdown' })
 })
 
+// ─── Отчёты ──────────────────────────────────────────────────────────────────
 bot.callbackQuery('report_today', async (ctx) => {
   await ctx.answerCallbackQuery()
-  const tgId = String(ctx.from?.id)
-  if (!(await isAllowed(tgId))) return
-
+  pending.delete(ctx.chat!.id)
+  const p = await getProfile(String(ctx.from?.id)); if (!p) return
   try {
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
-
-    const [stats] = await db
-      .select({ revenue: sum(checks.totalAmount), cnt: count() })
-      .from(checks)
-      .where(and(eq(checks.status, 'closed'), gte(checks.createdAt, today)))
-
-    const revenue = parseFloat(String(stats?.revenue ?? 0)) || 0
-    const cnt = stats?.cnt ?? 0
-    const avg = cnt ? revenue / cnt : 0
-
+    const d = await apiGet<any>(p, '/analytics/dashboard')
+    const t = d.today ?? {}
+    const net = d.netToday?.net
     await ctx.reply(
-      `📊 *Итог за сегодня*\n\n` +
-      `💰 Выручка: *${revenue.toLocaleString('ru')} ₽*\n` +
-      `🧾 Чеков: *${cnt}*\n` +
-      `📈 Средний чек: *${avg.toFixed(0)} ₽*`,
-      { parse_mode: 'Markdown' }
+      `📊 *Итог дня* (бизнес-день ${d.businessDay ?? '—'})\n\n` +
+      `💰 Выручка: *${money(t.revenue ?? 0)}*\n` +
+      `🧾 Чеков: *${t.checks ?? 0}*\n` +
+      `📈 Средний чек: *${money(t.avgCheck ?? 0)}*\n` +
+      (net != null ? `✅ Чистыми: *${money(net)}*` : ''),
+      { parse_mode: 'Markdown' },
     )
   } catch (err) {
-    console.error('[bot-admin] report_today query failed:', err)
+    console.error('[bot-admin] report_today:', err)
     await ctx.reply('❌ Не удалось получить данные, попробуйте позже')
   }
 })
 
 bot.callbackQuery('shift_status', async (ctx) => {
   await ctx.answerCallbackQuery()
-  const tgId = String(ctx.from?.id)
-  if (!(await isAllowed(tgId))) return
-
+  pending.delete(ctx.chat!.id)
+  const p = await getProfile(String(ctx.from?.id)); if (!p) return
   try {
     const [shift] = await db
-      .select({
-        openedAt: shifts.openedAt,
-        cashStart: shifts.cashStart,
-        openedByNick: profiles.nickname,
-      })
+      .select({ openedAt: shifts.openedAt, cashStart: shifts.cashStart, openedByNick: profiles.nickname })
       .from(shifts)
       .leftJoin(profiles, eq(profiles.id, shifts.openedBy))
       .where(eq(shifts.status, 'open'))
       .limit(1)
-
-    if (!shift) {
-      await ctx.reply('⚠️ Смена не открыта')
-      return
-    }
-
-    const openedAt = new Date(shift.openedAt)
-    const elapsed = Math.floor((Date.now() - openedAt.getTime()) / 60000)
-    const hours = Math.floor(elapsed / 60)
-    const minutes = elapsed % 60
-
+    if (!shift) { await ctx.reply('⚠️ Смена не открыта'); return }
+    const elapsed = Math.floor((Date.now() - new Date(shift.openedAt).getTime()) / 60000)
     await ctx.reply(
       `🕐 *Смена открыта*\n\n` +
       `👤 Открыл: ${shift.openedByNick ? escapeMd(shift.openedByNick) : '—'}\n` +
-      `⏱ Длительность: ${hours}ч ${minutes}м\n` +
-      `💵 Касса: ${parseFloat(String(shift.cashStart)).toLocaleString('ru')} ₽`,
-      { parse_mode: 'Markdown' }
+      `⏱ Длительность: ${Math.floor(elapsed / 60)}ч ${elapsed % 60}м\n` +
+      `💵 Касса на старте: ${money(parseFloat(String(shift.cashStart)))}`,
+      { parse_mode: 'Markdown' },
     )
   } catch (err) {
-    console.error('[bot-admin] shift_status query failed:', err)
+    console.error('[bot-admin] shift_status:', err)
     await ctx.reply('❌ Не удалось получить данные, попробуйте позже')
   }
 })
 
 bot.callbackQuery('open_checks', async (ctx) => {
   await ctx.answerCallbackQuery()
-  const tgId = String(ctx.from?.id)
-  if (!(await isAllowed(tgId))) return
-
-  const openChecks = await db
-    .select()
-    .from(checks)
-    .where(eq(checks.status, 'open'))
-    .orderBy(desc(checks.createdAt))
-    .limit(10)
-
-  if (!openChecks.length) {
-    await ctx.reply('✅ Нет открытых чеков')
-    return
-  }
-
-  const text = openChecks.map((c, i) =>
-    `${i + 1}. ${parseFloat(c.totalAmount).toLocaleString('ru')} ₽${c.note ? ` · ${escapeMd(c.note)}` : ''}`
-  ).join('\n')
-
+  pending.delete(ctx.chat!.id)
+  const p = await getProfile(String(ctx.from?.id)); if (!p) return
+  const openChecks = await db.select().from(checks).where(eq(checks.status, 'open')).orderBy(desc(checks.createdAt)).limit(10)
+  if (!openChecks.length) { await ctx.reply('✅ Нет открытых чеков'); return }
+  const text = openChecks.map((c, i) => `${i + 1}. ${money(parseFloat(c.totalAmount))}${c.note ? ` · ${escapeMd(c.note)}` : ''}`).join('\n')
   await ctx.reply(`🧾 *Открытые чеки (${openChecks.length})*\n\n${text}`, { parse_mode: 'Markdown' })
 })
 
 bot.callbackQuery('salary_estimate', async (ctx) => {
   await ctx.answerCallbackQuery()
-  const tgId = String(ctx.from?.id)
-  if (!(await isAllowed(tgId))) return
-
+  pending.delete(ctx.chat!.id)
+  const p = await getProfile(String(ctx.from?.id)); if (!p) return
   try {
-    const [profile] = await db.select().from(profiles).where(eq(profiles.tgId, tgId))
-    if (!profile) return
-
-    const today = new Date()
-    const monthStart = new Date(today.getFullYear(), today.getMonth(), 1)
-
-    const [stats] = await db
-      .select({ revenue: sum(checks.totalAmount) })
-      .from(checks)
-      .where(and(eq(checks.staffId, profile.id), eq(checks.status, 'closed'), gte(checks.createdAt, monthStart)))
-
-    const revenue = parseFloat(String(stats?.revenue ?? 0)) || 0
-    const salary = revenue <= 7000 ? 700 : 700 + Math.ceil((revenue - 7000) / 1000) * 100
-
+    const now = new Date()
+    const from = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
+    const to = now.toISOString().split('T')[0]
+    const r = await apiGet<{ revenue: number; salary: number }>(p, `/salary/estimate?from=${from}&to=${to}`)
     await ctx.reply(
-      `💵 *Расчёт зарплаты*\n\n` +
-      `Выручка за месяц: *${revenue.toLocaleString('ru')} ₽*\n` +
-      `Зарплата: *${salary.toLocaleString('ru')} ₽*`,
-      { parse_mode: 'Markdown' }
+      `💵 *Расчёт зарплаты (этот месяц)*\n\n` +
+      `Ваша выручка: *${money(r.revenue ?? 0)}*\n` +
+      `Зарплата: *${money(r.salary ?? 0)}*`,
+      { parse_mode: 'Markdown' },
     )
   } catch (err) {
-    console.error('[bot-admin] salary_estimate query failed:', err)
+    console.error('[bot-admin] salary_estimate:', err)
     await ctx.reply('❌ Не удалось получить данные, попробуйте позже')
   }
 })
 
 bot.callbackQuery('stock_alert', async (ctx) => {
   await ctx.answerCallbackQuery()
-  const tgId = String(ctx.from?.id)
-  if (!(await isAllowed(tgId))) return
-
+  pending.delete(ctx.chat!.id)
+  const p = await getProfile(String(ctx.from?.id)); if (!p) return
   try {
-    // Низкий сток: только позиции с учётом остатка (trackStock), у которых
-    // остаток <= порога. Порог может быть NULL → считаем за 0 (COALESCE).
-    // Удалённые (deletedAt) исключаем.
     const lowStock = await db
-      .select({
-        name: inventory.name,
-        stockQuantity: inventory.stockQuantity,
-        minThreshold: inventory.minThreshold,
-      })
+      .select({ name: inventory.name, stockQuantity: inventory.stockQuantity, minThreshold: inventory.minThreshold })
       .from(inventory)
-      .where(
-        and(
-          eq(inventory.trackStock, true),
-          isNull(inventory.deletedAt),
-          sql`${inventory.stockQuantity} <= COALESCE(${inventory.minThreshold}, 0)`,
-        ),
-      )
+      .where(and(eq(inventory.trackStock, true), isNull(inventory.deletedAt), sql`${inventory.stockQuantity} <= COALESCE(${inventory.minThreshold}, 0)`))
       .orderBy(asc(inventory.stockQuantity))
       .limit(30)
-
-    if (!lowStock.length) {
-      await ctx.reply('✅ Все остатки в норме')
-      return
-    }
-
-    const text = lowStock
-      .map((p) => `• ${escapeMd(p.name)} — *${p.stockQuantity}* шт. (мин. ${p.minThreshold ?? 0})`)
-      .join('\n')
+    if (!lowStock.length) { await ctx.reply('✅ Все остатки в норме'); return }
+    const text = lowStock.map((i) => `• ${escapeMd(i.name)} — *${i.stockQuantity}* шт. (мин. ${i.minThreshold ?? 0})`).join('\n')
     await ctx.reply(`📦 *Низкий сток (${lowStock.length})*\n\n${text}`, { parse_mode: 'Markdown' })
   } catch (err) {
-    console.error('[bot-admin] stock_alert query failed:', err)
+    console.error('[bot-admin] stock_alert:', err)
     await ctx.reply('❌ Не удалось получить остатки. Попробуйте позже.')
   }
 })
 
 bot.callbackQuery('list_events', async (ctx) => {
   await ctx.answerCallbackQuery()
-  const tgId = String(ctx.from?.id)
-  if (!(await isAllowed(tgId))) return
-
+  pending.delete(ctx.chat!.id)
+  const p = await getProfile(String(ctx.from?.id)); if (!p) return
   try {
-    // Предстоящие события: статус planned/active (completed/cancelled скрываем).
-    // date/startTime хранятся как текст (ISO-подобный) — сортируем лексикографически.
     const upcoming = await db
-      .select({
-        title: events.title,
-        date: events.date,
-        startTime: events.startTime,
-        status: events.status,
-        attendeesCount: events.attendeesCount,
-        maxGuests: events.maxGuests,
-      })
+      .select({ title: events.title, date: events.date, startTime: events.startTime, status: events.status, type: events.type, billingMode: events.billingMode, plannedHours: events.plannedHours, fixedAmount: events.fixedAmount })
       .from(events)
       .where(inArray(events.status, ['planned', 'active']))
       .orderBy(asc(events.date), asc(events.startTime))
       .limit(10)
-
-    if (!upcoming.length) {
-      await ctx.reply('📅 Предстоящих событий нет')
-      return
-    }
-
+    if (!upcoming.length) { await ctx.reply('📅 Предстоящих событий нет'); return }
     const STATUS_LABEL: Record<string, string> = { planned: 'запланировано', active: 'идёт' }
-    const text = upcoming
-      .map((e) => {
-        const title = escapeMd(e.title?.trim() || 'Без названия')
-        const when = `${e.date}${e.startTime ? ` ${e.startTime}` : ''}`
-        const guests =
-          e.maxGuests != null
-            ? ` · ${e.attendeesCount}/${e.maxGuests}`
-            : e.attendeesCount
-              ? ` · гостей: ${e.attendeesCount}`
-              : ''
-        const status = STATUS_LABEL[e.status] ? ` (${STATUS_LABEL[e.status]})` : ''
-        return `• *${title}*${status}\n  ${when}${guests}`
-      })
-      .join('\n')
+    const text = upcoming.map((e) => {
+      const title = escapeMd(e.title?.trim() || 'Без названия')
+      const when = `${e.date}${e.startTime ? ` ${e.startTime}` : ''}`
+      const amount = e.billingMode === 'hourly'
+        ? (e.plannedHours ? ` · ${e.plannedHours} ч` : ' · почасовая')
+        : (e.fixedAmount != null ? ` · ${money(parseFloat(String(e.fixedAmount)))}` : '')
+      const status = STATUS_LABEL[e.status] ? ` (${STATUS_LABEL[e.status]})` : ''
+      const kind = e.type === 'exit' ? '🚗' : '🏠'
+      return `${kind} *${title}*${status}\n  ${when}${amount}`
+    }).join('\n')
     await ctx.reply(`📅 *Предстоящие события (${upcoming.length})*\n\n${text}`, { parse_mode: 'Markdown' })
   } catch (err) {
-    console.error('[bot-admin] list_events query failed:', err)
+    console.error('[bot-admin] list_events:', err)
     await ctx.reply('❌ Не удалось получить события. Попробуйте позже.')
   }
 })
 
+// ─── AI: спросить Titan ──────────────────────────────────────────────────────
+bot.callbackQuery('ai_ask', async (ctx) => {
+  await ctx.answerCallbackQuery()
+  const p = await getProfile(String(ctx.from?.id)); if (!p) return
+  pending.set(ctx.chat!.id, { mode: 'ai' })
+  await ctx.reply('🤖 Задайте любой вопрос о клубе — долги, остатки, выручка, клиенты и т.д.\n\nНапример: «сколько долг у Саида», «что закончилось», «топ-5 клиентов за месяц».\n\n/start — выйти.')
+})
+
+// ─── Закрытие смены ──────────────────────────────────────────────────────────
+bot.callbackQuery('close_shift', async (ctx) => {
+  await ctx.answerCallbackQuery()
+  const p = await getProfile(String(ctx.from?.id)); if (!p) return
+  try {
+    const bal = await apiGet<{ expected: number; cashStart: number }>(p, '/shifts/cash-balance')
+    const [open] = await db.select({ id: shifts.id }).from(shifts).where(eq(shifts.status, 'open')).limit(1)
+    if (!open) { await ctx.reply('⚠️ Открытой смены нет'); return }
+    pending.set(ctx.chat!.id, { mode: 'close_cash', expected: bal.expected ?? 0 })
+    await ctx.reply(
+      `🔒 *Закрытие смены*\n\nОжидается в кассе: *${money(bal.expected ?? 0)}*\n\n` +
+      `Отправьте фактическую сумму в кассе числом (например: 12500).`,
+      { parse_mode: 'Markdown' },
+    )
+  } catch (err) {
+    console.error('[bot-admin] close_shift:', err)
+    await ctx.reply('❌ Не удалось получить кассу. Попробуйте позже.')
+  }
+})
+
+bot.callbackQuery('close_confirm', async (ctx) => {
+  await ctx.answerCallbackQuery()
+  const p = await getProfile(String(ctx.from?.id)); if (!p) return
+  const st = pending.get(ctx.chat!.id)
+  if (!st || st.mode !== 'close_confirm') { await ctx.reply('Сессия закрытия истекла. Начните заново.'); return }
+  pending.delete(ctx.chat!.id)
+  const disc = st.cashEnd - st.expected
+  try {
+    await apiPost(p, '/shifts/close', { cashEnd: st.cashEnd, ...(disc !== 0 ? { adjustmentReason: 'Закрытие через Telegram' } : {}) })
+    await ctx.reply(
+      `✅ *Смена закрыта*\n\nФакт: *${money(st.cashEnd)}*\nОжидалось: ${money(st.expected)}\n` +
+      (disc === 0 ? 'Касса сошлась.' : disc > 0 ? `Излишек: *+${money(disc)}* (внесение)` : `Недостача: *${money(disc)}* (изъятие)`),
+      { parse_mode: 'Markdown' },
+    )
+  } catch (err: any) {
+    console.error('[bot-admin] close_confirm:', err)
+    await ctx.reply(`❌ Не удалось закрыть смену: ${escapeMd(String(err?.message ?? ''))}`)
+  }
+})
+
+bot.callbackQuery('close_cancel', async (ctx) => {
+  await ctx.answerCallbackQuery()
+  pending.delete(ctx.chat!.id)
+  await ctx.reply('Отменено.')
+})
+
+// ─── Текстовые сообщения: AI-вопрос или сумма закрытия ────────────────────────
 bot.on('message:text', async (ctx) => {
-  const tgId = String(ctx.from?.id)
-  if (!(await isAllowed(tgId))) return
+  const p = await getProfile(String(ctx.from?.id)); if (!p) return
+  const st = pending.get(ctx.chat.id)
+  const textIn = ctx.message.text.trim()
+
+  if (st?.mode === 'ai') {
+    const thinking = await ctx.reply('⏳ Анализирую базу…')
+    try {
+      const r = await apiPost<{ result?: string; error?: string }>(p, '/ai/chat', { action: 'custom_query', payload: { query: textIn } })
+      const answer = r.result || r.error || 'Не удалось получить ответ.'
+      await ctx.api.editMessageText(ctx.chat.id, thinking.message_id, answer.slice(0, 3900)).catch(() => ctx.reply(answer.slice(0, 3900)))
+    } catch (err) {
+      console.error('[bot-admin] ai_ask:', err)
+      await ctx.api.editMessageText(ctx.chat.id, thinking.message_id, '❌ ИИ недоступен, попробуйте позже.').catch(() => {})
+    }
+    return
+  }
+
+  if (st?.mode === 'close_cash') {
+    const cashEnd = parseFloat(textIn.replace(/[^\d.,]/g, '').replace(',', '.'))
+    if (!Number.isFinite(cashEnd) || cashEnd < 0) { await ctx.reply('Отправьте сумму числом, например: 12500'); return }
+    const disc = cashEnd - st.expected
+    pending.set(ctx.chat.id, { mode: 'close_confirm', cashEnd, expected: st.expected })
+    const kb = new InlineKeyboard().text('✅ Подтвердить', 'close_confirm').text('✖️ Отмена', 'close_cancel')
+    await ctx.reply(
+      `Проверьте закрытие:\n\nФакт: *${money(cashEnd)}*\nОжидалось: ${money(st.expected)}\n` +
+      (disc === 0 ? 'Касса сходится.' : disc > 0 ? `Излишек: *+${money(disc)}*` : `Недостача: *${money(disc)}*`),
+      { parse_mode: 'Markdown', reply_markup: kb },
+    )
+    return
+  }
+
   await ctx.reply('Используйте кнопки меню ниже 👇', { reply_markup: mainKeyboard })
 })
 
-// Глобальный обработчик ошибок: необработанная ошибка в хендлере не должна
-// ронять бота молча — логируем (DB-сбои, сетевые ошибки и т.п.).
 bot.catch((err) => {
   console.error('[bot-admin] handler error:', err.error)
 })

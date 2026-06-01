@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.52.0",
+    "@titan/auth": "workspace:*",
     "@titan/database": "workspace:*",
     "@titan/types": "workspace:*",
     "grammy": "^1.34.0"

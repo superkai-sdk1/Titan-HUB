@@ -23,6 +23,7 @@ COPY packages/ ./packages/
 COPY apps/bot-admin/ ./apps/bot-admin/
 RUN pnpm --filter @titan/types build
 RUN pnpm --filter @titan/database build
+RUN pnpm --filter @titan/auth build
 RUN pnpm --filter @titan/bot-admin build
 # Без `pnpm deploy` (виснет на флакающем npm-реестре). Копируем собранный
 # workspace целиком — pnpm-симлинки относительные, резолв сохраняется.

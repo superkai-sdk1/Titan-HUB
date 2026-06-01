@@ -96,6 +96,9 @@ importers:
       '@anthropic-ai/sdk':
         specifier: ^0.52.0
         version: 0.52.0
+      '@titan/auth':
+        specifier: workspace:*
+        version: link:../../packages/auth
       '@titan/database':
         specifier: workspace:*
         version: link:../../packages/database
