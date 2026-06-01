@@ -2,7 +2,7 @@ import type { AppEnv } from '../../types.js'
 import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
-import { db, appSettings, profiles, eq, and, isNull, count } from '@titan/database'
+import { db, appSettings, eveningTypes, eq } from '@titan/database'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
 import { getCurrentShift } from '../shifts/shifts.service.js'
 import { Redis } from 'ioredis'
@@ -11,15 +11,24 @@ export const systemRouter = new Hono<AppEnv>()
 
 systemRouter.get('/info', requireAuth, async (c) => {
   const shift = await getCurrentShift()
-  const [staffCount] = await db
-    .select({ total: count() })
-    .from(profiles)
-    .where(and(eq(profiles.role, 'staff'), isNull(profiles.deletedAt)))
+
+  // Название вечера открытой смены: shift.eveningType — это ключ справочника
+  // evening_types; резолвим в человекочитаемый label ('none' → «Без вечера»).
+  let eveningName: string | null = null
+  if (shift) {
+    const key = (shift as { eveningType?: string }).eveningType
+    if (!key || key === 'none') {
+      eveningName = 'Без вечера'
+    } else {
+      const [et] = await db.select({ label: eveningTypes.label }).from(eveningTypes).where(eq(eveningTypes.key, key))
+      eveningName = et?.label ?? key
+    }
+  }
 
   return c.json({
     version: process.env['npm_package_version'] ?? '1.0.0',
     shift: shift ?? null,
-    staffCount: staffCount?.total ?? 0,
+    eveningName,
     env: process.env['NODE_ENV'],
   })
 })
