@@ -8,7 +8,7 @@
  *
  * Версионирование: при изменении CACHE_VERSION пересоздаём кэш.
  */
-const CACHE_VERSION = 'v124'
+const CACHE_VERSION = 'v125'
 const STATIC_CACHE = `titan-static-${CACHE_VERSION}`
 const RUNTIME_CACHE = `titan-runtime-${CACHE_VERSION}`
 
@@ -47,11 +47,9 @@ self.addEventListener('fetch', (event) => {
     return
   }
 
-  // API: network-first, fallback to cache for GET requests
-  if (url.pathname.startsWith('/api/')) {
-    event.respondWith(networkFirst(request, RUNTIME_CACHE, 5000))
-    return
-  }
+  // API: НЕ кэшируем и не перехватываем (network-only) — иначе ответы с данными
+  // (балансы/чеки) оседали бы в кэше и могли утечь между сессиями на киоске.
+  if (url.pathname.startsWith('/api/')) return
 
   // Прочее (HTML, JSON, изображения) — network-first с fallback кэшем
   event.respondWith(networkFirst(request, RUNTIME_CACHE, 8000))

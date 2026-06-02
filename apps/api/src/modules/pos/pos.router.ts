@@ -430,7 +430,7 @@ posRouter.get('/players/:id', requireRole('owner', 'staff', 'tablet'), async (c)
   return c.json({ player })
 })
 
-posRouter.get('/checks', async (c) => {
+posRouter.get('/checks', requireRole('owner', 'staff', 'tablet'), async (c) => {
   const shift = await getCurrentShift()
   if (!shift) return c.json({ checks: [] })
   const reqUser = c.get('user')

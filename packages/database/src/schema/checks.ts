@@ -57,6 +57,8 @@ export const checks = pgTable('checks', {
   // Чаевые по QR/СБП (поверх суммы товаров). Хранятся на чеке для валидации в
   // webhook'е Platega и фиксации фактически уплаченных чаевых. См. 028_*.sql.
   tipAmount: numeric('tip_amount', { precision: 12, scale: 2 }).notNull().default('0'),
+  // id подтверждённой транзакции Platega (реконсиляция СБП-оплаты, см. 033_*.sql).
+  plategaTxId: text('platega_tx_id'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   closedAt: timestamp('closed_at', { withTimezone: true }),
 })

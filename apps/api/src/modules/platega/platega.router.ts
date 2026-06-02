@@ -126,6 +126,7 @@ plategaRouter.post('/webhook', async (c) => {
         status: 'closed',
         paymentMethod: 'transfer',
         totalAmount: String(total),
+        plategaTxId: transactionId ?? null,
         // Фиксируем фактически уплаченные чаевые (или 0, если не оплачены).
         tipAmount: String(tipPaid),
         // Фиксируем конец аренды при закрытии (зеркало pos.router.ts close).
