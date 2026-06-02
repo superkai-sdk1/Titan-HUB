@@ -5,8 +5,6 @@ import { api } from '@/lib/api'
 import { Icon } from '@/components/Icon'
 
 const INP: React.CSSProperties = { width: '100%', padding: '12px 16px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.05)', color: 'var(--on-surface)', fontSize: 14, outline: 'none', boxSizing: 'border-box' }
-const SEL: React.CSSProperties = { width: '100%', padding: '12px 16px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(29,26,36,0.8)', color: 'var(--on-surface)', fontSize: 14, outline: 'none', cursor: 'pointer', boxSizing: 'border-box' }
-const LBL: React.CSSProperties = { fontFamily: "'JetBrains Mono',monospace", fontSize: 10, fontWeight: 700, textTransform: 'uppercase' as const, letterSpacing: '0.08em', color: 'var(--on-surface-variant)', margin: '0 0 6px', display: 'block' }
 
 type ActionKey =
   | 'revenue_summary' | 'shift_report' | 'product_analysis' | 'client_analysis'
@@ -14,25 +12,24 @@ type ActionKey =
   | 'refund_analysis' | 'salary_report' | 'event_summary' | 'certificate_usage'
   | 'bonus_usage' | 'daily_summary' | 'custom_query'
 
-const ACTION_LABELS: Record<ActionKey, string> = {
-  revenue_summary: 'Выручка',
-  shift_report: 'Смены',
-  product_analysis: 'Товары',
-  client_analysis: 'Игроки',
-  expense_analysis: 'Расходы',
-  low_stock_alert: 'Остатки',
-  popular_hours: 'Часы пик',
-  avg_check_trend: 'Средний чек',
-  refund_analysis: 'Возвраты',
-  salary_report: 'Зарплаты',
-  event_summary: 'События',
-  certificate_usage: 'Сертификаты',
-  bonus_usage: 'Бонусы',
-  daily_summary: 'День',
-  custom_query: 'Свой запрос',
-}
-
-const ALL_ACTIONS = Object.keys(ACTION_LABELS) as ActionKey[]
+// Готовые полезные запросы — нажатие сразу присылает ответ (без ввода с клавиатуры).
+const QUICK_ACTIONS: { key: ActionKey; label: string; icon: string }[] = [
+  { key: 'daily_summary', label: 'Сводка за день', icon: 'today' },
+  { key: 'revenue_summary', label: 'Выручка', icon: 'payments' },
+  { key: 'low_stock_alert', label: 'Что заканчивается', icon: 'warning' },
+  { key: 'product_analysis', label: 'Топ товаров', icon: 'sell' },
+  { key: 'client_analysis', label: 'Игроки', icon: 'group' },
+  { key: 'shift_report', label: 'Смены', icon: 'schedule' },
+  { key: 'avg_check_trend', label: 'Средний чек', icon: 'bar_chart' },
+  { key: 'popular_hours', label: 'Часы пик', icon: 'history' },
+  { key: 'expense_analysis', label: 'Расходы', icon: 'trending_down' },
+  { key: 'refund_analysis', label: 'Возвраты', icon: 'undo' },
+  { key: 'salary_report', label: 'Зарплаты', icon: 'account_balance_wallet' },
+  { key: 'event_summary', label: 'События', icon: 'event' },
+  { key: 'certificate_usage', label: 'Сертификаты', icon: 'card_giftcard' },
+  { key: 'bonus_usage', label: 'Бонусы', icon: 'star' },
+]
+const QUICK_LABELS: Record<string, string> = Object.fromEntries(QUICK_ACTIONS.map(a => [a.key, a.label]))
 
 interface Message {
   role: 'user' | 'assistant'
@@ -73,7 +70,6 @@ function LoadingDots() {
 
 export default function AiPage() {
   const [messages, setMessages] = useState<Message[]>([])
-  const [selectedAction, setSelectedAction] = useState<ActionKey | null>(null)
   const [customInput, setCustomInput] = useState('')
   const bottomRef = useRef<HTMLDivElement>(null)
 
@@ -87,27 +83,23 @@ export default function AiPage() {
     onSuccess: (res) => {
       setMessages(m => [...m, { role: 'assistant', content: res.result, ts: Date.now() }])
     },
+    onError: () => {
+      setMessages(m => [...m, { role: 'assistant', content: 'Не удалось получить ответ. Попробуйте ещё раз.', ts: Date.now() }])
+    },
   })
 
   function sendAction(action: ActionKey, customText?: string) {
-    const label = customText ?? ACTION_LABELS[action]
+    if (chatMutation.isPending) return
+    const label = customText ?? QUICK_LABELS[action] ?? action
     setMessages(m => [...m, { role: 'user', content: label, ts: Date.now() }])
     const payload = customText ? { query: customText } : undefined
     chatMutation.mutate({ action, payload })
     setCustomInput('')
   }
 
-  function handleChipClick(action: ActionKey) {
-    if (action === 'custom_query') {
-      setSelectedAction(action)
-    } else {
-      setSelectedAction(action)
-      sendAction(action)
-    }
-  }
-
+  // Свободный вопрос — отвечаем сразу, без промежуточных шагов.
   function handleSend() {
-    if (!customInput.trim()) return
+    if (!customInput.trim() || chatMutation.isPending) return
     sendAction('custom_query', customInput.trim())
   }
 
@@ -134,63 +126,35 @@ export default function AiPage() {
         </p>
       </div>
 
-      {/* Quick action chips */}
-      <div style={{
-        display: 'flex',
-        gap: 8,
-        overflowX: 'auto',
-        padding: '4px 20px 12px',
-        flexShrink: 0,
-        scrollbarWidth: 'none',
-      }}>
-        <style>{`div::-webkit-scrollbar { display: none; }`}</style>
-        {ALL_ACTIONS.map(action => {
-          const isActive = selectedAction === action
-          return (
-            <button
-              key={action}
-              onClick={() => handleChipClick(action)}
-              style={{
-                flexShrink: 0,
-                padding: '8px 14px',
-                borderRadius: 20,
-                border: isActive
-                  ? '1px solid transparent'
-                  : '1px solid rgba(255,255,255,0.12)',
-                background: isActive
-                  ? 'linear-gradient(135deg, #7c3aed, #2563eb)'
-                  : 'rgba(255,255,255,0.06)',
-                color: isActive ? '#fff' : 'var(--on-surface)',
-                fontSize: 12,
-                fontWeight: 600,
-                cursor: 'pointer',
-                transition: 'all 0.18s ease',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              {ACTION_LABELS[action]}
-            </button>
-          )
-        })}
-      </div>
-
       {/* Messages area */}
       <div style={{ flex: 1, overflowY: 'auto', padding: '0 20px', minHeight: 0 }}>
+        <style>{`div::-webkit-scrollbar { display: none; }`}</style>
         {messages.length === 0 && !isLoading ? (
-          <div style={{
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center',
-            height: '100%',
-            minHeight: 240,
-            gap: 12,
-            color: 'var(--on-surface-variant)',
-          }}>
-            <Icon name="psychology" size={64} style={{ opacity: 0.4 }} />
-            <p style={{ margin: 0, fontSize: 15, textAlign: 'center', opacity: 0.6 }}>
-              Спросите AI о вашем бизнесе
-            </p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16, paddingTop: 8, paddingBottom: 16 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div style={{ width: 44, height: 44, borderRadius: 14, background: 'rgba(124,58,237,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <Icon name="psychology" size={24} color="#a78bfa" />
+              </div>
+              <p style={{ margin: 0, fontSize: 14, color: 'var(--on-surface-variant)', lineHeight: 1.4 }}>
+                Спросите что угодно о клубе или выберите готовый отчёт ниже — отвечу сразу.
+              </p>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10 }}>
+              {QUICK_ACTIONS.map(a => (
+                <button
+                  key={a.key}
+                  onClick={() => sendAction(a.key)}
+                  disabled={isLoading}
+                  className="glass-l2"
+                  style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 14px', borderRadius: 14, border: '1px solid rgba(255,255,255,0.08)', cursor: isLoading ? 'not-allowed' : 'pointer', textAlign: 'left', color: 'var(--on-surface)' }}
+                >
+                  <div style={{ width: 34, height: 34, borderRadius: 10, background: 'rgba(124,58,237,0.14)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <Icon name={a.icon} size={18} color="#a78bfa" />
+                  </div>
+                  <span style={{ fontSize: 13, fontWeight: 600 }}>{a.label}</span>
+                </button>
+              ))}
+            </div>
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12, paddingBottom: 16 }}>
@@ -261,8 +225,20 @@ export default function AiPage() {
           borderTop: '1px solid rgba(255,255,255,0.08)',
         }}
       >
-        {selectedAction === 'custom_query' && (
-          <p style={{ ...LBL, marginBottom: 8 }}>Свой запрос</p>
+        {/* Быстрые кнопки в диалоге — всегда под рукой, отвечают сразу по нажатию */}
+        {messages.length > 0 && (
+          <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 10, scrollbarWidth: 'none' }}>
+            {QUICK_ACTIONS.map(a => (
+              <button
+                key={a.key}
+                onClick={() => sendAction(a.key)}
+                disabled={isLoading}
+                style={{ flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 13px', borderRadius: 20, border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(255,255,255,0.06)', color: 'var(--on-surface)', fontSize: 12, fontWeight: 600, cursor: isLoading ? 'not-allowed' : 'pointer', whiteSpace: 'nowrap' }}
+              >
+                <Icon name={a.icon} size={14} color="#a78bfa" /> {a.label}
+              </button>
+            ))}
+          </div>
         )}
         <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
           <input
@@ -270,11 +246,7 @@ export default function AiPage() {
             value={customInput}
             onChange={e => setCustomInput(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() } }}
-            placeholder={
-              selectedAction === 'custom_query'
-                ? 'Введите ваш вопрос...'
-                : 'Выберите действие выше или введите запрос...'
-            }
+            placeholder="Спросите что угодно о клубе…"
             disabled={isLoading}
           />
           <button
