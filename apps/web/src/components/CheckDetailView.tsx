@@ -10,6 +10,24 @@ import { ConfirmDialog } from '@/components/manage/DesignSystem'
 import { TimeInput24 } from '@/components/TimeInput24'
 import { CheckChat, type ChatMessage } from '@/components/CheckChat'
 import { useNotifications } from '@/components/NotificationsProvider'
+import { CategoryIcon } from '@/components/CategoryIcon'
+
+// Цвет категории: hex или legacy-имя → { hex, light, border, text }. Совпадает с
+// логикой управления меню/планшета, чтобы POS-меню выглядело так же (цвета+иконки).
+const LEGACY_CAT_COLORS: Record<string, string> = {
+  violet: '#8B5CF6', slate: '#94A3B8', orange: '#F97316', emerald: '#10B981',
+  rose: '#F43F5E', amber: '#F59E0B', blue: '#3B82F6', indigo: '#6366F1',
+  pink: '#EC4899', cyan: '#06B6D4',
+}
+function catHex(v?: string | null): string {
+  if (!v) return '#8B5CF6'
+  return LEGACY_CAT_COLORS[v] || (v.startsWith('#') ? v : '#8B5CF6')
+}
+function catColor(v?: string | null) {
+  const hex = catHex(v)
+  const r = parseInt(hex.slice(1, 3), 16), g = parseInt(hex.slice(3, 5), 16), b = parseInt(hex.slice(5, 7), 16)
+  return { hex, light: `rgba(${r},${g},${b},0.13)`, border: `rgba(${r},${g},${b},0.3)`, text: hex }
+}
 
 interface InventoryItem {
   id: string
@@ -291,6 +309,13 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
     markReadByCheck({ checkId, spaceId: checkSpaceId ?? undefined, types: ['staff_call', 'request_bill', 'client_order', 'chat_message'] })
   }, [checkId, checkSpaceId, markReadByCheck])
   const categories = categoriesData?.categories ?? []
+  const catById = new Map(categories.map((cc) => [cc.id, cc]))
+  // Сколько каждой позиции уже в чеке — для бейджа «×N» на карточке меню.
+  const qtyInCheck = new Map<string, number>()
+  for (const ci of (check?.items ?? [])) {
+    const id = ci.item?.id
+    if (id) qtyInCheck.set(id, (qtyInCheck.get(id) ?? 0) + ci.checkItem.quantity)
+  }
   const allItems = (itemsData?.items ?? []).filter(i => i.isActive)
   // Тарифы — из стандартизированного справочника /tariffs (активные).
   const allTariffs: TariffOption[] = Array.isArray(tariffsData) ? tariffsData : (tariffsData?.tariffs ?? [])
@@ -1274,31 +1299,52 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
                   style={{ width: '100%', padding: '9px 12px 9px 36px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.08)', color: 'var(--on-surface)', fontSize: 13, outline: 'none', background: 'none', boxSizing: 'border-box' }}
                 />
               </div>
-              {/* Category pills */}
+              {/* Category pills — иконки + цвета категории (как на планшете) */}
               <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 10 }}>
-                <button onClick={() => setActiveCat(null)} style={{ flexShrink: 0, padding: '5px 14px', borderRadius: 9999, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 600, background: !activeCat ? 'linear-gradient(135deg, #8B5CF6, #6D28D9)' : 'rgba(255,255,255,0.06)', color: !activeCat ? '#fff' : 'var(--on-surface-variant)' }}>Все</button>
-                {categories.map(cat => (
-                  <button key={cat.id} onClick={() => setActiveCat(cat.id)} style={{ flexShrink: 0, padding: '5px 14px', borderRadius: 9999, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 600, background: activeCat === cat.id ? 'linear-gradient(135deg, #8B5CF6, #6D28D9)' : 'rgba(255,255,255,0.06)', color: activeCat === cat.id ? '#fff' : 'var(--on-surface-variant)' }}>{cat.name}</button>
-                ))}
+                <button onClick={() => setActiveCat(null)} style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px', borderRadius: 9999, border: !activeCat ? 'none' : '1px solid rgba(255,255,255,0.08)', cursor: 'pointer', fontSize: 12, fontWeight: 600, background: !activeCat ? 'linear-gradient(135deg, #8B5CF6, #6D28D9)' : 'rgba(255,255,255,0.06)', color: !activeCat ? '#fff' : 'var(--on-surface-variant)', boxShadow: !activeCat ? '0 2px 12px rgba(139,92,246,0.3)' : 'none' }}>
+                  <Icon name="grid_view" size={14} /> Все
+                </button>
+                {categories.map(cat => {
+                  const isActive = activeCat === cat.id
+                  const cc = catColor(cat.color)
+                  return (
+                    <button key={cat.id} onClick={() => setActiveCat(cat.id)} style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px', borderRadius: 9999, border: `1px solid ${isActive ? cc.hex : cc.border}`, cursor: 'pointer', fontSize: 12, fontWeight: 600, background: isActive ? cc.hex : cc.light, color: isActive ? '#fff' : cc.text, boxShadow: isActive ? `0 2px 12px ${cc.border}` : 'none' }}>
+                      <CategoryIcon icon={cat.icon} size={14} color={isActive ? '#fff' : cc.text} />
+                      {cat.name}
+                    </button>
+                  )
+                })}
               </div>
             </div>
 
-            {/* Items grid */}
-            <div style={{ flex: 1, overflowY: 'auto', padding: '0 16px 24px', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))', gap: 10, alignContent: 'start' }}>
-              {filteredItems.map(item => (
-                <button
-                  key={item.id}
-                  onClick={() => { addItem.mutate(item.id) }}
-                  className="glass-l2"
-                  style={{ borderRadius: 14, padding: '12px 10px', border: '1px solid rgba(255,255,255,0.08)', cursor: 'pointer', textAlign: 'left', transition: 'all 0.15s', background: 'rgba(255,255,255,0.04)' }}
-                  onMouseEnter={e => { e.currentTarget.style.background = 'rgba(139,92,246,0.1)'; e.currentTarget.style.borderColor = 'rgba(139,92,246,0.35)' }}
-                  onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)' }}
-                >
-                  <p style={{ fontSize: 13, fontWeight: 600, margin: '0 0 4px', color: 'var(--on-surface)', lineHeight: 1.3 }}>{item.name}</p>
-                  <p style={{ fontSize: 12, fontWeight: 800, fontStyle: 'italic', color: '#A78BFA', margin: 0 }}>{parseFloat(item.price).toLocaleString('ru')} ₽</p>
-                  {item.trackStock && <p style={{ fontSize: 10, fontWeight: item.stockQuantity <= 0 ? 700 : 400, color: item.stockQuantity <= 0 ? '#f43f5e' : item.stockQuantity <= 3 ? '#F59E0B' : 'var(--on-surface-variant)', margin: '4px 0 0' }}>{item.stockQuantity <= 0 ? 'нет в наличии' : `×${item.stockQuantity}`}</p>}
-                </button>
-              ))}
+            {/* Items grid — карточки с иконкой и цветом категории (как на планшете) */}
+            <div style={{ flex: 1, overflowY: 'auto', padding: '0 16px 24px', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(116px, 1fr))', gap: 10, alignContent: 'start' }}>
+              {filteredItems.map(item => {
+                const cat = item.category ? catById.get(item.category) : undefined
+                const cc = catColor(cat?.color)
+                const qty = qtyInCheck.get(item.id) ?? 0
+                const out = item.trackStock && item.stockQuantity <= 0
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => { addItem.mutate(item.id) }}
+                    className="glass-l2"
+                    style={{ position: 'relative', overflow: 'hidden', borderRadius: 14, padding: '12px 10px', border: `1px solid ${qty > 0 ? cc.hex : cc.border}`, cursor: 'pointer', textAlign: 'left', transition: 'all 0.15s', background: qty > 0 ? cc.light : 'rgba(255,255,255,0.04)' }}
+                    onMouseEnter={e => { e.currentTarget.style.background = cc.light; e.currentTarget.style.borderColor = cc.hex }}
+                    onMouseLeave={e => { e.currentTarget.style.background = qty > 0 ? cc.light : 'rgba(255,255,255,0.04)'; e.currentTarget.style.borderColor = qty > 0 ? cc.hex : cc.border }}
+                  >
+                    {qty > 0 && (
+                      <span style={{ position: 'absolute', top: 6, right: 6, minWidth: 18, height: 18, padding: '0 5px', borderRadius: 9, background: cc.hex, color: '#fff', fontSize: 11, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{qty}</span>
+                    )}
+                    <div style={{ width: 34, height: 34, borderRadius: 10, background: cc.light, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 8 }}>
+                      <CategoryIcon icon={cat?.icon ?? 'restaurant_menu'} size={20} color={cc.hex} />
+                    </div>
+                    <p style={{ fontSize: 13, fontWeight: 600, margin: '0 0 4px', color: 'var(--on-surface)', lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>{item.name}</p>
+                    <p style={{ fontSize: 13, fontWeight: 800, fontStyle: 'italic', color: cc.text, margin: 0, fontVariantNumeric: 'tabular-nums' }}>{parseFloat(item.price).toLocaleString('ru')} ₽</p>
+                    {item.trackStock && <p style={{ fontSize: 10, fontWeight: out ? 700 : 400, color: out ? '#f43f5e' : item.stockQuantity <= 3 ? '#F59E0B' : 'var(--on-surface-variant)', margin: '4px 0 0' }}>{out ? 'нет в наличии' : `×${item.stockQuantity}`}</p>}
+                  </button>
+                )
+              })}
             </div>
           </div>
         </>
