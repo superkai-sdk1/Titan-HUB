@@ -263,10 +263,12 @@ clientsRouter.delete('/:id', requireRole('owner'), async (c) => {
 
 // Полное удаление профиля (НАВСЕГДА). Только из архива (deletedAt задан) и только
 // владельцем. Все ссылки на профиль чистятся обобщённо по каталогу FK:
+//  - passkeys → удаляются (учётные данные не должны пережить пользователя);
 //  - nullable-колонки → NULL (чек/уведомление сохраняются, но «обезличиваются»);
-//  - NOT NULL-колонки → строки удаляются (у клиента таких ссылок обычно нет —
-//    NOT NULL ссылки на профиль это действия персонала: открыл смену/создал и т.п.).
-// Так удаление не падает на FK и не разрушает финансовую историю заведения.
+//  - NOT NULL-колонки → переносятся на sentinel-профиль «Удалённый пользователь»
+//    (кто открыл смену/пробил чек и т.п.) — иначе удаление либо падает на FK
+//    (напр. checks.shift_id → shifts), либо разрушило бы операционно-финансовую
+//    историю заведения. Сотрудник со сменами/чеками теперь удаляется корректно.
 clientsRouter.delete('/:id/permanent', requireRole('owner'), async (c) => {
   const id = c.req.param('id')
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
@@ -277,6 +279,21 @@ clientsRouter.delete('/:id/permanent', requireRole('owner'), async (c) => {
   if (!client.deletedAt) return c.json({ error: 'Сначала отправьте клиента в архив' }, 400)
 
   await db.transaction(async (tx) => {
+    // Sentinel создаём лениво — только если есть NOT NULL-ссылки (у обычного клиента
+    // их нет, тогда «надгробие» не плодится).
+    let sentinelId: string | null = null
+    const ensureSentinel = async (): Promise<string> => {
+      if (sentinelId) return sentinelId
+      const SENTINEL_NICK = '__deleted_user__'
+      const [ex] = await tx.select({ id: profiles.id }).from(profiles).where(eq(profiles.nickname, SENTINEL_NICK))
+      if (ex) { sentinelId = ex.id; return sentinelId }
+      // role 'tablet' → не попадает ни в список клиентов, ни в список персонала,
+      // а без linkedSpaceId не матчится и при входе планшета.
+      const [created] = await tx.insert(profiles).values({ nickname: SENTINEL_NICK, fullName: 'Удалённый пользователь', role: 'tablet' }).returning({ id: profiles.id })
+      sentinelId = created!.id
+      return sentinelId
+    }
+
     const fkRes = await tx.execute(sql`
       SELECT cl.relname AS tbl, att.attname AS col, att.attnotnull AS notnull
       FROM pg_constraint con
@@ -286,10 +303,14 @@ clientsRouter.delete('/:id/permanent', requireRole('owner'), async (c) => {
     `)
     const fks: any[] = (fkRes as any).rows ?? fkRes ?? []
     for (const fk of fks) {
-      const tbl = sql.identifier(String(fk.tbl))
+      const tblName = String(fk.tbl)
+      const tbl = sql.identifier(tblName)
       const col = sql.identifier(String(fk.col))
-      if (fk.notnull) {
+      if (tblName === 'passkeys') {
         await tx.execute(sql`DELETE FROM ${tbl} WHERE ${col} = ${id}`)
+      } else if (fk.notnull) {
+        const sid = await ensureSentinel()
+        await tx.execute(sql`UPDATE ${tbl} SET ${col} = ${sid} WHERE ${col} = ${id}`)
       } else {
         await tx.execute(sql`UPDATE ${tbl} SET ${col} = NULL WHERE ${col} = ${id}`)
       }

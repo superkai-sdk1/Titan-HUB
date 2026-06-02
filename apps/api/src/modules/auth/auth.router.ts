@@ -353,7 +353,8 @@ authRouter.post('/login/telegram', zValidator('json', LoginTelegramSchema), asyn
   const userStr = params.get('user')
   if (!userStr) return c.json({ error: 'No user data' }, 400)
   const tgUser = JSON.parse(userStr) as { id: number; username?: string }
-  const [profile] = await db.select().from(profiles).where(eq(profiles.tgId, String(tgUser.id)))
+  // Удалённый профиль не должен входить по привязанному Telegram (та же логика, что у passkey).
+  const [profile] = await db.select().from(profiles).where(and(eq(profiles.tgId, String(tgUser.id)), isNull(profiles.deletedAt)))
   if (!profile) return c.json({ error: 'Not linked' }, 404)
   const token = await signToken({ sub: profile.id, role: profile.role, nickname: profile.nickname })
   return c.json({ token, user: { id: profile.id, nickname: profile.nickname, role: profile.role, photoUrl: profile.photoUrl } })
@@ -711,9 +712,14 @@ authRouter.post(
       redis2.disconnect()
     }
 
-    // Get user profile and sign JWT
-    const [profile] = await db.select().from(profiles).where(eq(profiles.id, pkRecord.userId))
-    if (!profile) return c.json({ error: 'User not found' }, 404)
+    // Get user profile and sign JWT. Удалённый (уволенный) сотрудник не должен
+    // входить по своему passkey — учитываем deletedAt (и подчищаем «осиротевший»
+    // ключ, чтобы он больше не пытался аутентифицироваться).
+    const [profile] = await db.select().from(profiles).where(and(eq(profiles.id, pkRecord.userId), isNull(profiles.deletedAt)))
+    if (!profile) {
+      await db.delete(passkeys).where(eq(passkeys.userId, pkRecord.userId)).catch(() => {})
+      return c.json({ error: 'User not found' }, 404)
+    }
 
     const token = await signToken({ sub: profile.id, role: profile.role, nickname: profile.nickname })
     return c.json({ token, user: { id: profile.id, nickname: profile.nickname, role: profile.role, photoUrl: profile.photoUrl } })

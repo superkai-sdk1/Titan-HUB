@@ -176,6 +176,10 @@ staffRouter.delete('/:id', async (c) => {
     .set({ deletedAt: new Date() })
     .where(eq(profiles.id, c.req.param('id')))
 
+  // Уволенный сотрудник не должен входить по passkey — удаляем его ключи.
+  // (Дополнительно auth-verify проверяет deletedAt, см. auth.router.ts.)
+  await db.delete(passkeys).where(eq(passkeys.userId, c.req.param('id')))
+
   return c.json({ ok: true })
 })
 
