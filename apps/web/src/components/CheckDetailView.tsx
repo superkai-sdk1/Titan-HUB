@@ -1289,15 +1289,14 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
                 <button
                   key={item.id}
                   onClick={() => { addItem.mutate(item.id) }}
-                  disabled={item.trackStock && item.stockQuantity === 0}
                   className="glass-l2"
-                  style={{ borderRadius: 14, padding: '12px 10px', border: '1px solid rgba(255,255,255,0.08)', cursor: 'pointer', textAlign: 'left', opacity: item.trackStock && item.stockQuantity === 0 ? 0.4 : 1, transition: 'all 0.15s', background: 'rgba(255,255,255,0.04)' }}
+                  style={{ borderRadius: 14, padding: '12px 10px', border: '1px solid rgba(255,255,255,0.08)', cursor: 'pointer', textAlign: 'left', transition: 'all 0.15s', background: 'rgba(255,255,255,0.04)' }}
                   onMouseEnter={e => { e.currentTarget.style.background = 'rgba(139,92,246,0.1)'; e.currentTarget.style.borderColor = 'rgba(139,92,246,0.35)' }}
                   onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)' }}
                 >
                   <p style={{ fontSize: 13, fontWeight: 600, margin: '0 0 4px', color: 'var(--on-surface)', lineHeight: 1.3 }}>{item.name}</p>
                   <p style={{ fontSize: 12, fontWeight: 800, fontStyle: 'italic', color: '#A78BFA', margin: 0 }}>{parseFloat(item.price).toLocaleString('ru')} ₽</p>
-                  {item.trackStock && <p style={{ fontSize: 10, color: item.stockQuantity <= 3 ? '#F59E0B' : 'var(--on-surface-variant)', margin: '4px 0 0' }}>×{item.stockQuantity}</p>}
+                  {item.trackStock && <p style={{ fontSize: 10, fontWeight: item.stockQuantity <= 0 ? 700 : 400, color: item.stockQuantity <= 0 ? '#f43f5e' : item.stockQuantity <= 3 ? '#F59E0B' : 'var(--on-surface-variant)', margin: '4px 0 0' }}>{item.stockQuantity <= 0 ? 'нет в наличии' : `×${item.stockQuantity}`}</p>}
                 </button>
               ))}
             </div>

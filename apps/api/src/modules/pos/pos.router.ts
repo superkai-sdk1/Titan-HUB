@@ -156,7 +156,9 @@ async function addCheckItemTx(
   const item: any = (itemRows as any).rows?.[0] ?? (itemRows as any)[0]
   if (!item) throw new Error('ITEM_NOT_FOUND')
 
-  if (item.trackStock && (item.stockQuantity ?? 0) < quantity) throw new Error('INSUFFICIENT_STOCK')
+  // Продажу НЕ блокируем при нехватке остатка: позицию «нет в наличии» можно
+  // пробить (оверселл). Остаток уйдёт в минус — это честно отражает дефицит,
+  // владелец сводит его Ревизией. Журнал движения остаётся консистентным.
   if (item.trackStock) {
     const [upd] = await tx.update(inventory)
       .set({ stockQuantity: sql`${inventory.stockQuantity} - ${quantity}` })
