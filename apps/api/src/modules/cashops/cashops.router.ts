@@ -4,7 +4,7 @@ import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import { db, cashOperations, shifts, checkPayments, checks, profiles, eq, and, desc, sum, sql } from '@titan/database'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
-import { getCurrentShift } from '../shifts/shifts.service.js'
+import { getCurrentShift, getShiftCashBalance } from '../shifts/shifts.service.js'
 
 export const cashopsRouter = new Hono<AppEnv>()
 // Остаток/операции кассы — только owner/staff.
@@ -26,25 +26,13 @@ cashopsRouter.get('/', async (c) => {
     .where(shift ? eq(cashOperations.shiftId, shift.id) : sql`1=0`)
     .orderBy(desc(cashOperations.createdAt))
 
-  // Balance from shifts service logic
-  let balance = { cashStart: 0, cashPayments: 0, deposits: 0, withdrawals: 0, salaries: 0, expected: 0 }
-  if (shift) {
-    const [cashSum] = await db.select({ total: sum(checkPayments.amount) })
-      .from(checkPayments)
-      .innerJoin(checks, eq(checks.id, checkPayments.checkId))
-      .where(and(eq(checks.shiftId, shift.id), eq(checkPayments.method, 'cash')))
-    const [ops] = await db.select({
-      deposits: sql<string>`coalesce(sum(case when type = 'deposit' then amount::numeric else 0 end), 0)`,
-      withdrawals: sql<string>`coalesce(sum(case when type = 'withdrawal' then amount::numeric else 0 end), 0)`,
-      salaries: sql<string>`coalesce(sum(case when type = 'salary' then amount::numeric else 0 end), 0)`,
-    }).from(cashOperations).where(eq(cashOperations.shiftId, shift.id))
-    const cashStart = parseFloat(String(shift.cashStart ?? 0)) || 0
-    const cashPayments = parseFloat(String(cashSum?.total ?? 0)) || 0
-    const deposits = parseFloat(String(ops?.deposits ?? 0)) || 0
-    const withdrawals = parseFloat(String(ops?.withdrawals ?? 0)) || 0
-    const salaries = parseFloat(String(ops?.salaries ?? 0)) || 0
-    balance = { cashStart, cashPayments, deposits, withdrawals, salaries, expected: cashStart + cashPayments + deposits - withdrawals - salaries }
-  }
+  // Единый расчёт остатка кассы (та же логика, что у смены и закрытия смены):
+  // начало + наличные платежи + внесения − изъятия − зарплаты − возвраты наличными.
+  // Раньше здесь НЕ вычитались наличные возвраты — из-за чего «В кассе сейчас» в
+  // инкассации расходилось с суммой при закрытии смены.
+  const balance = shift
+    ? await getShiftCashBalance(shift.id)
+    : { cashStart: 0, cashPayments: 0, deposits: 0, withdrawals: 0, salaries: 0, expected: 0 }
 
   return c.json({ operations, balance })
 })

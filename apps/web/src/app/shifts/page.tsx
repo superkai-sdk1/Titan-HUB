@@ -344,6 +344,16 @@ function ShiftPlayersTab({ players }: { players: any[] }) {
 export default function ShiftsPage() {
   const { data: shift } = useCurrentShift()
 
+  // Живой остаток кассы за смену (начало + наличные платежи + внесения − изъятия −
+  // зарплаты − возвраты наличными). Раньше на карточке смены показывали только
+  // стартовую сумму (shift.cashStart), из-за чего «в кассе» не менялось за смену.
+  const { data: cashBal } = useQuery<{ expected: number; cashStart: number }>({
+    queryKey: ['shifts', 'cash-balance'],
+    queryFn: () => api.get('/shifts/cash-balance'),
+    enabled: !!shift,
+    refetchInterval: 15000,
+  })
+
   const { data: historyData } = useQuery({
     queryKey: ['shifts', 'history'],
     queryFn: () => api.get<{ shifts: any[] }>('/shifts/history'),
@@ -412,13 +422,14 @@ export default function ShiftsPage() {
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 12 }}>
               {[
-                { label: 'НАЧАЛО', value: format(new Date(shift.openedAt), 'HH:mm', { locale: ru }) },
-                { label: 'КАССА', value: `${fmt(parseNum(shift.cashStart))} ₽` },
-                { label: 'ТИП ВЕЧЕРА', value: EVENING_LABELS[shift.eveningType] ?? shift.eveningType },
+                { label: 'НАЧАЛО', value: format(new Date(shift.openedAt), 'HH:mm', { locale: ru }), sub: undefined as string | undefined },
+                { label: 'В КАССЕ', value: `${fmt(parseNum(cashBal?.expected ?? shift.cashStart))} ₽`, sub: `старт: ${fmt(parseNum(cashBal?.cashStart ?? shift.cashStart))} ₽` },
+                { label: 'ТИП ВЕЧЕРА', value: EVENING_LABELS[shift.eveningType] ?? shift.eveningType, sub: undefined },
               ].map(item => (
                 <div key={item.label} style={{ padding: '12px 14px', borderRadius: 10, background: 'rgba(255,255,255,0.04)' }}>
                   <p style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--on-surface-variant)', margin: '0 0 6px' }}>{item.label}</p>
                   <p style={{ fontSize: 14, fontWeight: 700, color: 'var(--on-surface)', margin: 0 }}>{item.value}</p>
+                  {item.sub && <p style={{ fontSize: 10, color: 'var(--on-surface-variant)', margin: '3px 0 0' }}>{item.sub}</p>}
                 </div>
               ))}
             </div>
