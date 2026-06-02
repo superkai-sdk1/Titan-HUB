@@ -51,6 +51,31 @@ function escapeMd(s: string): string {
 }
 const money = (n: number) => `${Math.round(n).toLocaleString('ru')} ₽`
 
+// Markdown от ИИ (**жирный**, * списки, # заголовки, `код`) → аккуратный Telegram-HTML.
+function aiToTelegramHtml(src: string): string {
+  let s = src.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  s = s.replace(/`([^`\n]+)`/g, '<code>$1</code>')          // инлайн-код
+  s = s.replace(/^\s{0,3}#{1,6}\s+(.+)$/gm, '<b>$1</b>')     // заголовки → жирный
+  s = s.replace(/\*\*([^*\n]+?)\*\*/g, '<b>$1</b>')          // **жирный**
+  s = s.replace(/__([^_\n]+?)__/g, '<b>$1</b>')              // __жирный__
+  s = s.replace(/^[ \t]*[*\-•][ \t]+/gm, '• ')          // маркеры списка → •
+  s = s.replace(/(^|[^\w*])\*([^*\n]+?)\*(?=[^\w*]|$)/g, '$1<i>$2</i>')  // *курсив*
+  s = s.replace(/\n{3,}/g, '\n\n')                           // лишние пустые строки
+  return s.trim()
+}
+
+// Простой текст без разметки — запасной вариант, если HTML не прошёл валидацию Telegram.
+function stripMarkdown(src: string): string {
+  return src
+    .replace(/^\s{0,3}#{1,6}\s+/gm, '')
+    .replace(/\*\*([^*\n]+?)\*\*/g, '$1')
+    .replace(/__([^_\n]+?)__/g, '$1')
+    .replace(/`([^`\n]+)`/g, '$1')
+    .replace(/^[ \t]*[*\-•][ \t]+/gm, '• ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
 export const bot = new Bot(token)
 
 const mainKeyboard = new InlineKeyboard()
@@ -376,8 +401,15 @@ bot.on('message:text', async (ctx) => {
   const thinking = await ctx.reply('⏳ Анализирую базу…')
   try {
     const r = await apiPost<{ result?: string; error?: string }>(p, '/ai/chat', { action: 'custom_query', payload: { query: textIn } })
-    const answer = r.result || r.error || 'Не удалось получить ответ.'
-    await ctx.api.editMessageText(ctx.chat.id, thinking.message_id, answer.slice(0, 3900)).catch(() => ctx.reply(answer.slice(0, 3900)))
+    const raw = (r.result || r.error || 'Не удалось получить ответ.').slice(0, 3800)
+    const html = aiToTelegramHtml(raw)
+    try {
+      await ctx.api.editMessageText(ctx.chat.id, thinking.message_id, html, { parse_mode: 'HTML' })
+    } catch {
+      // HTML не прошёл валидацию Telegram — отправляем чистый текст без разметки.
+      const plain = stripMarkdown(raw)
+      await ctx.api.editMessageText(ctx.chat.id, thinking.message_id, plain).catch(() => ctx.reply(plain))
+    }
   } catch (err) {
     console.error('[bot-admin] ai_ask:', err)
     await ctx.api.editMessageText(ctx.chat.id, thinking.message_id, '❌ ИИ недоступен, попробуйте позже.').catch(() => {})
