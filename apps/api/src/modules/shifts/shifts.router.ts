@@ -59,12 +59,12 @@ shiftsRouter.post('/close', requireRole('owner', 'staff'), zValidator('json', Cl
   }
 })
 
-shiftsRouter.get('/birthdays-today', async (c) => {
+shiftsRouter.get('/birthdays-today', requireRole('owner', 'staff'), async (c) => {
   const people = await getBirthdaysToday()
   return c.json({ birthdays: people })
 })
 
-shiftsRouter.get('/cash-balance', async (c) => {
+shiftsRouter.get('/cash-balance', requireRole('owner', 'staff'), async (c) => {
   const shift = await getCurrentShift()
   if (!shift) return c.json({ expected: 0, cashStart: 0 })
   const balance = await getShiftCashBalance(shift.id)
@@ -82,7 +82,7 @@ shiftsRouter.get('/history', requireRole('owner', 'staff'), async (c) => {
   return c.json({ shifts: rows })
 })
 
-shiftsRouter.get('/:id/analytics', async (c) => {
+shiftsRouter.get('/:id/analytics', requireRole('owner', 'staff'), async (c) => {
   const analytics = await getShiftAnalytics(c.req.param('id'))
   return c.json({ analytics })
 })

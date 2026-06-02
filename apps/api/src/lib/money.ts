@@ -7,6 +7,34 @@
 export const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100
 
 /**
+ * Сумма по позициям чека: позиции + платные модификаторы − скидки (на чек/позицию).
+ * Единая реализация для /pay (pos.router) и вебхука Platega — раньше дублировалась
+ * байт-в-байт в обоих местах (риск расхождения суммы кассы и суммы вебхука).
+ * НЕ включает аренду зоны и базу события — это отдельные слагаемые итога.
+ */
+export function computeTotals(
+  items: { id: string; priceAtTime: string; quantity: number }[],
+  mods: { checkItemId: string; priceAtTime: string }[],
+  discountRows: { type: string; value: string; target: string; itemId: string | null }[],
+) {
+  const qtyByItem = new Map(items.map(i => [i.id, i.quantity]))
+  const itemsTotal = items.reduce((s, i) => s + parseFloat(i.priceAtTime) * i.quantity, 0)
+  const modsTotal = mods.reduce((s, m) => s + parseFloat(m.priceAtTime) * (qtyByItem.get(m.checkItemId) ?? 1), 0)
+  const gross = itemsTotal + modsTotal
+  let discountTotal = 0
+  for (const d of discountRows) {
+    let base = gross
+    if (d.target === 'item' && d.itemId) {
+      const it = items.find(i => i.id === d.itemId)
+      base = it ? parseFloat(it.priceAtTime) * it.quantity : 0
+    }
+    discountTotal += d.type === 'percent' ? base * (parseFloat(d.value) / 100) : Math.min(parseFloat(d.value), base)
+  }
+  discountTotal = Math.min(discountTotal, gross)
+  return { gross: round2(gross), discountTotal: round2(discountTotal), total: round2(Math.max(0, gross - discountTotal)) }
+}
+
+/**
  * Аренда зоны: ceil(минуты/60) × ставка.
  * Конец аренды — заданный вручную spaceEndAt либо «живой счётчик» (nowMs).
  * Возвращает 0, если зона/время начала/ставка отсутствуют (NULL-handling

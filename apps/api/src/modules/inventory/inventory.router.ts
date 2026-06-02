@@ -7,7 +7,8 @@ import { requireAuth, requireRole } from '../../middleware/auth.js'
 
 export const inventoryRouter = new Hono<AppEnv>()
 
-inventoryRouter.use('*', requireAuth)
+// Себестоимость/маржа чувствительны — весь склад только для owner/staff.
+inventoryRouter.use('*', requireAuth, requireRole('owner', 'staff'))
 
 // GET /api/inventory — управление остатками. Возвращает активные И неактивные
 // позиции (исключая только мягко удалённые deletedAt != null): скрытая из меню

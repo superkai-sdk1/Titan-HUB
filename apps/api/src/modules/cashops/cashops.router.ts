@@ -7,7 +7,8 @@ import { requireAuth, requireRole } from '../../middleware/auth.js'
 import { getCurrentShift } from '../shifts/shifts.service.js'
 
 export const cashopsRouter = new Hono<AppEnv>()
-cashopsRouter.use('*', requireAuth)
+// Остаток/операции кассы — только owner/staff.
+cashopsRouter.use('*', requireAuth, requireRole('owner', 'staff'))
 
 // GET /cashops — list operations for current shift + balance summary
 cashopsRouter.get('/', async (c) => {

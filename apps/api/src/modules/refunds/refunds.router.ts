@@ -316,7 +316,7 @@ refundsRouter.get('/prepare/:checkId', requireRole('owner', 'staff'), async (c) 
   })
 })
 
-refundsRouter.get('/:id', async (c) => {
+refundsRouter.get('/:id', requireRole('owner', 'staff'), async (c) => {
   const [refund] = await db.select().from(refunds).where(eq(refunds.id, c.req.param('id')))
   if (!refund) return c.json({ error: 'Not found' }, 404)
   return c.json({ refund })

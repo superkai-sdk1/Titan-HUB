@@ -33,7 +33,7 @@ systemRouter.get('/info', requireAuth, async (c) => {
   })
 })
 
-systemRouter.get('/settings', requireAuth, async (c) => {
+systemRouter.get('/settings', requireAuth, requireRole('owner', 'staff'), async (c) => {
   const rows = await db.select().from(appSettings)
   const settings = Object.fromEntries(rows.map(r => [r.key, r.value]))
   return c.json({ settings })
@@ -62,7 +62,7 @@ systemRouter.patch('/settings', requireAuth, requireRole('owner'), zValidator('j
 })
 
 // SSE endpoint for real-time updates
-systemRouter.get('/update', requireAuth, async (c) => {
+systemRouter.get('/update', requireAuth, requireRole('owner', 'staff'), async (c) => {
   const { readable, writable } = new TransformStream()
   const writer = writable.getWriter()
   const encoder = new TextEncoder()

@@ -35,31 +35,41 @@ export async function openShift(data: {
     throw new Error('Требуется причина расхождения наличных при открытии смены')
   }
 
-  const shift = await db.transaction(async (tx) => {
-    const [created] = await tx
-      .insert(shifts)
-      .values({
-        openedBy: data.openedBy,
-        // Базис непрерывности — ожидаемый старт; расхождение закрываем операцией.
-        cashStart: String(expectedStart),
-        eveningType: data.eveningType as any,
-        note: data.note,
-        status: 'open',
-      })
-      .returning()
+  let shift
+  try {
+    shift = await db.transaction(async (tx) => {
+      const [created] = await tx
+        .insert(shifts)
+        .values({
+          openedBy: data.openedBy,
+          // Базис непрерывности — ожидаемый старт; расхождение закрываем операцией.
+          cashStart: String(expectedStart),
+          eveningType: data.eveningType as any,
+          note: data.note,
+          status: 'open',
+        })
+        .returning()
 
-    if (hadPriorShift && diff !== 0) {
-      await tx.insert(cashOperations).values({
-        type: diff > 0 ? 'deposit' : 'withdrawal',
-        amount: String(Math.abs(diff)),
-        description: data.adjustmentReason!.trim(),
-        shiftId: created.id,
-        createdBy: data.openedBy,
-      })
+      if (hadPriorShift && diff !== 0) {
+        await tx.insert(cashOperations).values({
+          type: diff > 0 ? 'deposit' : 'withdrawal',
+          amount: String(Math.abs(diff)),
+          description: data.adjustmentReason!.trim(),
+          shiftId: created.id,
+          createdBy: data.openedBy,
+        })
+      }
+
+      return created
+    })
+  } catch (e: any) {
+    // Частичный уникальный индекс shifts_one_open (миграция 032) ловит гонку:
+    // две параллельные попытки открыть смену → одна падает с 23505.
+    if (e?.code === '23505' || /shifts_one_open|unique/i.test(String(e?.message))) {
+      throw new Error('Shift already open')
     }
-
-    return created
-  })
+    throw e
+  }
 
   // Fire-and-forget уведомление (вне денежной транзакции, не блокирует ответ).
   void notify({
@@ -72,45 +82,44 @@ export async function openShift(data: {
 }
 
 export async function closeShift(shiftId: string, closedBy: string, cashEnd: number, adjustmentReason?: string) {
-  const [shift] = await db.select().from(shifts).where(eq(shifts.id, shiftId))
-  if (!shift) throw new Error('Shift not found')
-  if (shift.status !== 'open') throw new Error('Shift already closed')
-
-  // Block close if open checks exist
-  const [{ count: openChecks }] = await db
-    .select({ count: sql<number>`count(*)::int` })
-    .from(checks)
-    .where(and(eq(checks.shiftId, shiftId), eq(checks.status, 'open')))
-  if (openChecks > 0) throw new Error(`Есть ${openChecks} незакрытых чек(а). Закройте их перед закрытием смены.`)
-
-  const { expected } = await getShiftCashBalance(shiftId)
   const counted = cashEnd
-  const diff = counted - expected
+  // Всё в ОДНОЙ транзакции с блокировкой строки смены (FOR UPDATE): повторно
+  // проверяем статус и отсутствие открытых чеков и считаем остаток ПОД блокировкой —
+  // иначе параллельная оплата чека (в т.ч. webhook Platega) могла закрыть смену с
+  // «потерянным» чеком и заниженным cashEnd, либо смену закрывали дважды.
+  const { updated, diff } = await db.transaction(async (tx) => {
+    const [shift] = await tx.select().from(shifts).where(eq(shifts.id, shiftId)).for('update')
+    if (!shift) throw new Error('Shift not found')
+    if (shift.status !== 'open') throw new Error('Shift already closed')
 
-  // Любое расхождение факта с ожидаемым остатком фиксируется операцией с кассой
-  // (излишек → внесение, недостача → изъятие) с обязательной причиной. После
-  // операции ожидаемый остаток == cashEnd, и старт следующей смены = этот cashEnd.
-  if (diff !== 0 && !adjustmentReason?.trim()) {
-    throw new Error('Требуется причина расхождения наличных при закрытии смены')
-  }
+    const [{ count: openChecks }] = await tx
+      .select({ count: sql<number>`count(*)::int` })
+      .from(checks)
+      .where(and(eq(checks.shiftId, shiftId), eq(checks.status, 'open')))
+    if (openChecks > 0) throw new Error(`Есть ${openChecks} незакрытых чек(а). Закройте их перед закрытием смены.`)
 
-  const updated = await db.transaction(async (tx) => {
-    if (diff !== 0) {
+    const { expected } = await getShiftCashBalance(shiftId, tx)
+    const d = counted - expected
+    // Любое расхождение факта с ожидаемым остатком фиксируется операцией с кассой
+    // (излишек → внесение, недостача → изъятие) с обязательной причиной.
+    if (d !== 0 && !adjustmentReason?.trim()) {
+      throw new Error('Требуется причина расхождения наличных при закрытии смены')
+    }
+    if (d !== 0) {
       await tx.insert(cashOperations).values({
-        type: diff > 0 ? 'deposit' : 'withdrawal',
-        amount: String(Math.abs(diff)),
+        type: d > 0 ? 'deposit' : 'withdrawal',
+        amount: String(Math.abs(d)),
         description: adjustmentReason!.trim(),
         shiftId,
         createdBy: closedBy,
       })
     }
-
     const [row] = await tx
       .update(shifts)
       .set({ status: 'closed', closedBy, cashEnd: String(counted), closedAt: new Date() })
       .where(eq(shifts.id, shiftId))
       .returning()
-    return row
+    return { updated: row, diff: d }
   })
 
   // Fire-and-forget уведомления (вне денежной транзакции, не блокируют ответ).
@@ -150,11 +159,13 @@ export async function getBirthdaysToday() {
   return rows
 }
 
-export async function getShiftCashBalance(shiftId: string) {
-  const [shift] = await db.select().from(shifts).where(eq(shifts.id, shiftId))
+// exec — db или активная транзакция (tx). Позволяет считать остаток ВНУТРИ
+// транзакции закрытия смены (под блокировкой строки), без отдельного соединения.
+export async function getShiftCashBalance(shiftId: string, exec: any = db) {
+  const [shift] = await exec.select().from(shifts).where(eq(shifts.id, shiftId))
   if (!shift) return { expected: 0, cashStart: 0 }
 
-  const [cashSum] = await db.select({ total: sum(checkPayments.amount) })
+  const [cashSum] = await exec.select({ total: sum(checkPayments.amount) })
     .from(checkPayments)
     .innerJoin(checks, eq(checks.id, checkPayments.checkId))
     .where(and(eq(checks.shiftId, shiftId), eq(checkPayments.method, 'cash')))
@@ -164,7 +175,7 @@ export async function getShiftCashBalance(shiftId: string) {
 
   // Cash operations: deposits (+), withdrawals (-) и зарплаты (-) за смену.
   // Зарплата — это наличные, покинувшие кассу, поэтому уменьшает ожидаемый остаток.
-  const [opsSum] = await db.select({
+  const [opsSum] = await exec.select({
     deposits: sql<string>`coalesce(sum(case when type = 'deposit' then amount::numeric else 0 end), 0)`,
     withdrawals: sql<string>`coalesce(sum(case when type = 'withdrawal' then amount::numeric else 0 end), 0)`,
     salaries: sql<string>`coalesce(sum(case when type = 'salary' then amount::numeric else 0 end), 0)`,
@@ -179,7 +190,7 @@ export async function getShiftCashBalance(shiftId: string) {
   // Возвраты наличными: при возврате по способам оплаты берём «cash»-тендер
   // напрямую; для старых возвратов (tenders=NULL) — пропорционально наличной
   // доле оригинального чека.
-  const refundRows = await db
+  const refundRows = await exec
     .select({
       refundTotal: refunds.totalAmount,
       checkId: refunds.checkId,
@@ -198,13 +209,13 @@ export async function getShiftCashBalance(shiftId: string) {
       continue
     }
     const refundAmt = parseFloat(String(r.refundTotal)) || 0
-    const payments = await db
+    const payments = await exec
       .select({ method: checkPayments.method, total: sum(checkPayments.amount) })
       .from(checkPayments)
       .where(eq(checkPayments.checkId, r.checkId))
       .groupBy(checkPayments.method)
-    const totalPaid = payments.reduce((s, p) => s + (parseFloat(String(p.total)) || 0), 0)
-    const cashPaid = parseFloat(String(payments.find(p => p.method === 'cash')?.total ?? 0)) || 0
+    const totalPaid = payments.reduce((s: number, p: any) => s + (parseFloat(String(p.total)) || 0), 0)
+    const cashPaid = parseFloat(String(payments.find((p: any) => p.method === 'cash')?.total ?? 0)) || 0
     cashRefundTotal += totalPaid > 0 ? refundAmt * (cashPaid / totalPaid) : 0
   }
 

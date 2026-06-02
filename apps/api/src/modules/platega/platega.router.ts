@@ -8,32 +8,10 @@ import {
   eq, inArray,
 } from '@titan/database'
 import { accrueBonusLot, getBonusExpiryDays } from '../../lib/bonusLots.js'
-import { round2, computeRental } from '../../lib/money.js'
+import { round2, computeRental, computeTotals } from '../../lib/money.js'
 
-// Единый расчёт суммы чека: позиции + модификаторы − скидки.
-// ВАЖНО: логика — копия computeTotals из pos.router.ts (тот файл нам не принадлежит,
-// helper переиспользовать нельзя). Держать синхронно с pos.router.ts.
-function computeTotals(
-  items: { id: string; priceAtTime: string; quantity: number }[],
-  mods: { checkItemId: string; priceAtTime: string }[],
-  discountRows: { type: string; value: string; target: string; itemId: string | null }[],
-) {
-  const qtyByItem = new Map(items.map(i => [i.id, i.quantity]))
-  const itemsTotal = items.reduce((s, i) => s + parseFloat(i.priceAtTime) * i.quantity, 0)
-  const modsTotal = mods.reduce((s, m) => s + parseFloat(m.priceAtTime) * (qtyByItem.get(m.checkItemId) ?? 1), 0)
-  const gross = itemsTotal + modsTotal
-  let discountTotal = 0
-  for (const d of discountRows) {
-    let base = gross
-    if (d.target === 'item' && d.itemId) {
-      const it = items.find(i => i.id === d.itemId)
-      base = it ? parseFloat(it.priceAtTime) * it.quantity : 0
-    }
-    discountTotal += d.type === 'percent' ? base * (parseFloat(d.value) / 100) : Math.min(parseFloat(d.value), base)
-  }
-  discountTotal = Math.min(discountTotal, gross)
-  return { gross: round2(gross), discountTotal: round2(discountTotal), total: round2(Math.max(0, gross - discountTotal)) }
-}
+// Сумма по позициям — общий computeTotals из lib/money.js (один источник правды).
+
 
 function publishEvent(event: string, data: unknown) {
   const redis = new Redis(process.env['REDIS_URL'] ?? 'redis://redis:6379')

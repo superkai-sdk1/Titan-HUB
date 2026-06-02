@@ -1,0 +1,19 @@
+# Не отправляем в Docker-контекст лишнее (ускоряет 5 сборок и исключает
+# затаскивание хостовых node_modules/.next/.git в образ).
+**/node_modules
+**/.next
+**/dist
+**/.turbo
+.git
+.gitignore
+**/*.log
+**/.DS_Store
+.claude
+.vscode
+.idea
+# Секреты — никогда в контекст
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*

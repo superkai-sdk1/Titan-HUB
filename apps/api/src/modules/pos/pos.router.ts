@@ -13,7 +13,7 @@ import { getCurrentShift } from '../shifts/shifts.service.js'
 import { notify, notifyClient } from '../notifications/push.js'
 import { maybePromoteToResident } from '../../lib/loyalty.js'
 import { accrueBonusLot, spendBonusLots, getBonusExpiryDays } from '../../lib/bonusLots.js'
-import { round2, computeRental } from '../../lib/money.js'
+import { round2, computeRental, computeTotals } from '../../lib/money.js'
 import { Redis } from 'ioredis'
 import { streamSSE } from 'hono/streaming'
 
@@ -27,27 +27,7 @@ function publishEvent(event: string, data: unknown) {
 // Единый расчёт суммы чека: позиции + модификаторы − скидки.
 // Скидки пересчитываются от ТЕКУЩИХ позиций (не доверяем сохранённому amount),
 // иначе изменение/удаление позиции оставит «застывшую» скидку.
-function computeTotals(
-  items: { id: string; priceAtTime: string; quantity: number }[],
-  mods: { checkItemId: string; priceAtTime: string }[],
-  discountRows: { type: string; value: string; target: string; itemId: string | null }[],
-) {
-  const qtyByItem = new Map(items.map(i => [i.id, i.quantity]))
-  const itemsTotal = items.reduce((s, i) => s + parseFloat(i.priceAtTime) * i.quantity, 0)
-  const modsTotal = mods.reduce((s, m) => s + parseFloat(m.priceAtTime) * (qtyByItem.get(m.checkItemId) ?? 1), 0)
-  const gross = itemsTotal + modsTotal
-  let discountTotal = 0
-  for (const d of discountRows) {
-    let base = gross
-    if (d.target === 'item' && d.itemId) {
-      const it = items.find(i => i.id === d.itemId)
-      base = it ? parseFloat(it.priceAtTime) * it.quantity : 0
-    }
-    discountTotal += d.type === 'percent' ? base * (parseFloat(d.value) / 100) : Math.min(parseFloat(d.value), base)
-  }
-  discountTotal = Math.min(discountTotal, gross)
-  return { gross: round2(gross), discountTotal: round2(discountTotal), total: round2(Math.max(0, gross - discountTotal)) }
-}
+
 
 const AddItemSchema = z.object({
   itemId: z.string().uuid(),
@@ -154,7 +134,7 @@ async function addCheckItemTx(
   const modifierIds = opts.modifierIds ?? []
   let lowStock: { name: string; newQty: number } | null = null
 
-  const [check] = await tx.select().from(checks).where(eq(checks.id, checkId))
+  const [check] = await tx.select().from(checks).where(eq(checks.id, checkId)).for('update')
   if (!check || check.status !== 'open') throw new Error('CHECK_NOT_OPEN')
 
   const itemRows = await tx.execute(
@@ -381,7 +361,7 @@ async function computeCheckGrandTotal(exec: DbOrTx, check: typeof checks.$inferS
   return round2(itemsTotal + rental + eventBase)
 }
 
-posRouter.get('/players/search', async (c) => {
+posRouter.get('/players/search', requireRole('owner', 'staff'), async (c) => {
   const q = c.req.query('q') ?? ''
   if (!q.trim()) return c.json({ players: [] })
   const term = `%${q.toLowerCase()}%`
@@ -990,7 +970,7 @@ posRouter.patch('/checks/:id/items/:itemId', requireRole('owner', 'staff', 'tabl
       // Status-guard: правка позиций допустима только на открытом чеке. Иначе
       // правка/удаление позиции на отменённом/закрытом чеке (отмена уже вернула
       // сток, не удалив строки checkItems) вернула бы сток повторно.
-      const [check] = await tx.select().from(checks).where(eq(checks.id, checkId))
+      const [check] = await tx.select().from(checks).where(eq(checks.id, checkId)).for('update')
       if (!check || check.status !== 'open') throw new Error('CHECK_NOT_OPEN')
 
       const [ci] = await tx.select().from(checkItems).where(and(eq(checkItems.id, itemId), eq(checkItems.checkId, checkId)))
@@ -1048,7 +1028,7 @@ posRouter.delete('/checks/:id/items/:itemId', requireRole('owner', 'staff', 'tab
       // Status-guard: удаление позиции допустимо только на открытом чеке. Иначе
       // удаление позиции на отменённом/закрытом чеке (отмена уже вернула сток, не
       // удалив строки checkItems) вернуло бы сток повторно.
-      const [check] = await tx.select().from(checks).where(eq(checks.id, checkId))
+      const [check] = await tx.select().from(checks).where(eq(checks.id, checkId)).for('update')
       if (!check || check.status !== 'open') throw new Error('CHECK_NOT_OPEN')
 
       const [ci] = await tx.select().from(checkItems).where(and(eq(checkItems.id, itemId), eq(checkItems.checkId, checkId)))
