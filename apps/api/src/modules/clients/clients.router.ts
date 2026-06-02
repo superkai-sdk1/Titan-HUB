@@ -4,7 +4,7 @@ import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import {
   db, profiles, transactions, bonusHistory, clientTiers, clientDiscountRules,
-  eq, and, isNull, ilike, or, desc, asc, sql, count, inArray,
+  eq, and, isNull, isNotNull, ilike, or, desc, asc, sql, count, inArray,
 } from '@titan/database'
 
 // Роли, видимые в разделе «Клиенты». Сотрудники/владельцы — тоже клиенты (имеют
@@ -88,9 +88,14 @@ clientsRouter.get('/', async (c) => {
     return c.json({ clients: safe, total: safe.length, page: 1, limit: safe.length })
   }
 
+  // Архив — заблокированные (deletedAt задан). Иначе — активные.
+  const archived = filter === 'archived'
+  // Раздел по статусу: «Резиденты»/«Гости»/«Студенты» — фильтр по clientTier.
+  const tier = c.req.query('tier')
   const where = and(
     inArray(profiles.role, CLIENT_ROLES),
-    isNull(profiles.deletedAt),
+    archived ? isNotNull(profiles.deletedAt) : isNull(profiles.deletedAt),
+    tier ? eq(profiles.clientTier, tier) : undefined,
     search
       ? or(
           ilike(profiles.nickname, `%${search}%`),
@@ -250,6 +255,44 @@ clientsRouter.post('/:id/telegram-link', requireRole('owner', 'staff'), async (c
 
 clientsRouter.delete('/:id', requireRole('owner'), async (c) => {
   await db.update(profiles).set({ deletedAt: new Date() }).where(eq(profiles.id, c.req.param('id')))
+  return c.json({ ok: true })
+})
+
+// Полное удаление профиля (НАВСЕГДА). Только из архива (deletedAt задан) и только
+// владельцем. Все ссылки на профиль чистятся обобщённо по каталогу FK:
+//  - nullable-колонки → NULL (чек/уведомление сохраняются, но «обезличиваются»);
+//  - NOT NULL-колонки → строки удаляются (у клиента таких ссылок обычно нет —
+//    NOT NULL ссылки на профиль это действия персонала: открыл смену/создал и т.п.).
+// Так удаление не падает на FK и не разрушает финансовую историю заведения.
+clientsRouter.delete('/:id/permanent', requireRole('owner'), async (c) => {
+  const id = c.req.param('id')
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
+    return c.json({ error: 'Bad id' }, 400)
+  }
+  const [client] = await db.select({ id: profiles.id, deletedAt: profiles.deletedAt }).from(profiles).where(eq(profiles.id, id))
+  if (!client) return c.json({ error: 'Not found' }, 404)
+  if (!client.deletedAt) return c.json({ error: 'Сначала отправьте клиента в архив' }, 400)
+
+  await db.transaction(async (tx) => {
+    const fkRes = await tx.execute(sql`
+      SELECT cl.relname AS tbl, att.attname AS col, att.attnotnull AS notnull
+      FROM pg_constraint con
+      JOIN pg_class cl ON cl.oid = con.conrelid
+      JOIN pg_attribute att ON att.attrelid = con.conrelid AND att.attnum = con.conkey[1]
+      WHERE con.contype = 'f' AND con.confrelid = 'profiles'::regclass AND array_length(con.conkey, 1) = 1
+    `)
+    const fks: any[] = (fkRes as any).rows ?? fkRes ?? []
+    for (const fk of fks) {
+      const tbl = sql.identifier(String(fk.tbl))
+      const col = sql.identifier(String(fk.col))
+      if (fk.notnull) {
+        await tx.execute(sql`DELETE FROM ${tbl} WHERE ${col} = ${id}`)
+      } else {
+        await tx.execute(sql`UPDATE ${tbl} SET ${col} = NULL WHERE ${col} = ${id}`)
+      }
+    }
+    await tx.delete(profiles).where(eq(profiles.id, id))
+  })
   return c.json({ ok: true })
 })
 

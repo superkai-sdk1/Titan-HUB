@@ -42,6 +42,9 @@ export default function ClientsPage() {
   const qc = useQueryClient()
   const { show } = useToast()
   const [confirmBlock, setConfirmBlock] = useState(false)
+  const [confirmPurge, setConfirmPurge] = useState(false)
+  // Разделы: Все / Резиденты / Гости / Студенты / Архив (заблокированные).
+  const [seg, setSeg] = useState<'all' | 'resident' | 'guest' | 'student' | 'archive'>('all')
   const [search, setSearch] = useState('')
   const [dbSearch, setDbSearch] = useState('')
   const [showCreate, setShowCreate] = useState(false)
@@ -68,18 +71,20 @@ export default function ClientsPage() {
     return () => { if (timer.current) clearTimeout(timer.current) }
   }, [search])
 
-  // Новый поиск — сбрасываем пагинацию на первую страницу.
-  useEffect(() => { setPage(1) }, [dbSearch])
+  // Новый поиск или смена раздела — сбрасываем пагинацию на первую страницу.
+  useEffect(() => { setPage(1) }, [dbSearch, seg])
 
   // Аккумулируем страницы: query key включает page, а накопленный список
   // собираем через placeholderData (предыдущие страницы остаются в кэше по
   // своим ключам). Грузим страницы 1..page и склеиваем.
+  // Доп. параметр запроса для текущего раздела: архив или фильтр по статусу.
+  const segParam = seg === 'archive' ? '&filter=archived' : seg !== 'all' ? `&tier=${seg}` : ''
   const pageQueries = useQuery({
-    queryKey: ['clients', dbSearch, page],
+    queryKey: ['clients', dbSearch, seg, page],
     queryFn: async () => {
       const reqs = []
       for (let p = 1; p <= page; p++) {
-        reqs.push(api.get<any>(`/clients?search=${encodeURIComponent(dbSearch)}&page=${p}`))
+        reqs.push(api.get<any>(`/clients?search=${encodeURIComponent(dbSearch)}&page=${p}${segParam}`))
       }
       const pages = await Promise.all(reqs)
       const merged: any[] = []
@@ -115,14 +120,21 @@ export default function ClientsPage() {
     mutationFn: ({ id, ...b }: any) => api.patch(`/clients/${id}`, b),
     onSuccess: (res: any, vars: any) => {
       qc.invalidateQueries({ queryKey: ['clients'] })
-      // Блокировка или отвязка ТГ — закрываем/обновляем; обычное сохранение — назад в просмотр.
-      if (vars?.deletedAt) { setSelected(null); setConfirmBlock(false); return }
+      // Архивирование/восстановление (deletedAt задан или сброшен в null) — закрываем
+      // карточку; обычное сохранение — назад в просмотр.
+      if (vars?.deletedAt !== undefined) { setSelected(null); setConfirmBlock(false); return }
       const merged = { ...selected, ...vars }
       delete (merged as any).deletedAt
       setSelected(merged)
       setMode('view')
     },
     onError: () => show('Не удалось сохранить изменения', 'error'),
+  })
+  // Полное удаление из архива (НАВСЕГДА).
+  const purge = useMutation({
+    mutationFn: (id: string) => api.delete(`/clients/${id}/permanent`),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['clients'] }); setConfirmPurge(false); setSelected(null); show('Клиент удалён навсегда', 'success') },
+    onError: () => { setConfirmPurge(false); show('Не удалось удалить клиента', 'error') },
   })
   const adjBal = useMutation({ mutationFn: ({ id, amount, reason }: any) => api.post(`/clients/${id}/balance`, { amount, reason: reason ?? 'Корректировка баланса' }), onSuccess: (_r, vars: any) => { qc.invalidateQueries({ queryKey: ['clients'] }); setSelected((s: any) => s ? { ...s, balance: parseNum(s.balance) + parseNum(vars.amount) } : s) }, onError: () => show('Не удалось изменить баланс', 'error') })
   const adjBon = useMutation({ mutationFn: ({ id, amount, reason }: any) => api.post(`/clients/${id}/bonus`, { amount, reason: reason ?? 'Корректировка бонусов' }), onSuccess: (_r, vars: any) => { qc.invalidateQueries({ queryKey: ['clients'] }); setSelected((s: any) => s ? { ...s, bonusPoints: parseNum(s.bonusPoints) + parseNum(vars.amount) } : s) }, onError: () => show('Не удалось изменить бонусы', 'error') })
@@ -202,8 +214,20 @@ export default function ClientsPage() {
             <Icon name="search" size={18} color="var(--on-surface-variant)" style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }} />
             <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Поиск по нику или телефону…" style={{ ...INP, paddingLeft: 42, borderRadius: 12 }} />
           </div>
+          {/* Разделы */}
+          <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 2, marginBottom: 10 }}>
+            {([['all', 'Все', 'group'], ['resident', 'Резиденты', 'workspace_premium'], ['guest', 'Гости', 'person'], ['student', 'Студенты', 'school'], ['archive', 'Архив', 'archive']] as [typeof seg, string, string][]).map(([key, label, icon]) => {
+              const active = seg === key
+              const isArch = key === 'archive'
+              return (
+                <button key={key} onClick={() => setSeg(key)} style={{ flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 5, padding: '7px 13px', borderRadius: 9999, border: active ? 'none' : '1px solid rgba(255,255,255,0.08)', cursor: 'pointer', fontSize: 12.5, fontWeight: 700, whiteSpace: 'nowrap', color: active ? '#fff' : 'var(--on-surface-variant)', background: active ? (isArch ? 'linear-gradient(135deg,#64748B,#475569)' : 'linear-gradient(135deg,#8B5CF6,#6D28D9)') : 'rgba(255,255,255,0.05)', boxShadow: active ? (isArch ? '0 2px 12px rgba(100,116,139,0.3)' : '0 2px 12px rgba(139,92,246,0.3)') : 'none' }}>
+                  <Icon name={icon} size={14} /> {label}
+                </button>
+              )
+            })}
+          </div>
           <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 2, alignItems: 'center' }}>
-            {tierList.filter(t => (tierCounts[t.key] ?? 0) > 0).map(t => (
+            {seg === 'all' && tierList.filter(t => (tierCounts[t.key] ?? 0) > 0).map(t => (
               <span key={t.key} style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 8, background: `${t.color}22`, color: t.color, whiteSpace: 'nowrap', fontFamily: "'JetBrains Mono',monospace" }}>
                 {t.label} {tierCounts[t.key]}
               </span>
@@ -418,10 +442,21 @@ export default function ClientsPage() {
                     </button>
                   </div>
 
-                  {/* Блокировка */}
-                  <button onClick={() => setConfirmBlock(true)} style={{ width: '100%', padding: '13px 0', borderRadius: 14, border: '1px solid rgba(244,63,94,0.3)', background: 'rgba(244,63,94,0.08)', color: 'var(--danger)', fontSize: 13, fontWeight: 600, cursor: 'pointer', marginTop: 4, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-                    <Icon name="block" size={16} />Заблокировать
-                  </button>
+                  {/* Архив / восстановление / полное удаление */}
+                  {selected.deletedAt ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 4 }}>
+                      <button onClick={() => update.mutate({ id: selected.id, deletedAt: null })} disabled={update.isPending} style={{ width: '100%', padding: '13px 0', borderRadius: 14, border: '1px solid rgba(16,185,129,0.3)', background: 'rgba(16,185,129,0.1)', color: '#10B981', fontSize: 13, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, opacity: update.isPending ? 0.6 : 1 }}>
+                        <Icon name="restore" size={16} />Восстановить из архива
+                      </button>
+                      <button onClick={() => setConfirmPurge(true)} style={{ width: '100%', padding: '13px 0', borderRadius: 14, border: '1px solid rgba(244,63,94,0.3)', background: 'rgba(244,63,94,0.08)', color: 'var(--danger)', fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                        <Icon name="delete_forever" size={16} />Удалить навсегда
+                      </button>
+                    </div>
+                  ) : (
+                    <button onClick={() => setConfirmBlock(true)} style={{ width: '100%', padding: '13px 0', borderRadius: 14, border: '1px solid rgba(244,63,94,0.3)', background: 'rgba(244,63,94,0.08)', color: 'var(--danger)', fontSize: 13, fontWeight: 600, cursor: 'pointer', marginTop: 4, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                      <Icon name="archive" size={16} />В архив
+                    </button>
+                  )}
                 </div>
               )}
 
@@ -596,11 +631,22 @@ export default function ClientsPage() {
         open={confirmBlock}
         onClose={() => setConfirmBlock(false)}
         onConfirm={() => selected && update.mutate({ id: selected.id, deletedAt: new Date().toISOString() })}
-        title="Заблокировать клиента?"
-        message={`${selected?.nickname ?? 'Клиент'} будет скрыт из списка. Это можно отменить позже.`}
-        confirmLabel="Заблокировать"
+        title="В архив?"
+        message={`${selected?.nickname ?? 'Клиент'} будет перемещён в архив и скрыт из списка. Можно восстановить позже.`}
+        confirmLabel="В архив"
         danger
         loading={update.isPending}
+      />
+
+      <ConfirmDialog
+        open={confirmPurge}
+        onClose={() => setConfirmPurge(false)}
+        onConfirm={() => selected && purge.mutate(selected.id)}
+        title="Удалить навсегда?"
+        message={`${selected?.nickname ?? 'Клиент'} будет удалён безвозвратно. История чеков заведения сохранится, но будет обезличена. Это действие нельзя отменить.`}
+        confirmLabel="Удалить навсегда"
+        danger
+        loading={purge.isPending}
       />
     </div>
   )
