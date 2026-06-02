@@ -1,5 +1,6 @@
 'use client'
 import React, { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { Icon } from '@/components/Icon'
@@ -166,10 +167,10 @@ function BackupSection() {
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
 
       {/* Модалка восстановления */}
-      {restoreOpen && (
+      {restoreOpen && createPortal((
         <div onClick={(e) => { if (e.target === e.currentTarget && !restore.isPending) { setRestoreOpen(false); setPick(null) } }}
-          style={{ position: 'fixed', inset: 0, zIndex: 90, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
-          <div className="glass-l1" style={{ width: '100%', maxWidth: 560, maxHeight: '85dvh', overflowY: 'auto', borderRadius: '24px 24px 0 0', padding: '24px 20px 40px' }}>
+          style={{ position: 'fixed', inset: 0, zIndex: 4000, background: 'rgba(0,0,0,0.82)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
+          <div style={{ width: '100%', maxWidth: 560, maxHeight: '85dvh', overflowY: 'auto', borderRadius: '24px 24px 0 0', padding: '24px 20px 40px', background: 'var(--surface)', border: '1px solid rgba(255,255,255,0.12)', boxShadow: '0 -8px 40px rgba(0,0,0,0.55)' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
               <h2 style={{ fontSize: 18, fontWeight: 900, fontStyle: 'italic', textTransform: 'uppercase', margin: 0 }}>Восстановление</h2>
               <button onClick={() => { setRestoreOpen(false); setPick(null) }} disabled={restore.isPending} style={{ width: 36, height: 36, borderRadius: 10, border: 'none', cursor: 'pointer', background: 'rgba(255,255,255,0.06)', color: 'var(--on-surface-variant)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Icon name="close" size={18} /></button>
@@ -209,12 +210,12 @@ function BackupSection() {
             )}
           </div>
         </div>
-      )}
+      ), document.body)}
 
       {/* Подтверждение восстановления */}
-      {pick && (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 95, background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(10px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
-          <div className="glass-l1" style={{ width: '100%', maxWidth: 380, borderRadius: 20, padding: 24, textAlign: 'center' }}>
+      {pick && createPortal((
+        <div style={{ position: 'fixed', inset: 0, zIndex: 4001, background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(10px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+          <div style={{ width: '100%', maxWidth: 380, borderRadius: 20, padding: 24, textAlign: 'center', background: 'var(--surface)', border: '1px solid rgba(255,255,255,0.12)', boxShadow: '0 8px 40px rgba(0,0,0,0.55)' }}>
             <div style={{ width: 56, height: 56, borderRadius: '50%', background: 'rgba(244,63,94,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 14px' }}>
               <Icon name="warning" size={28} color="#f43f5e" />
             </div>
@@ -231,7 +232,7 @@ function BackupSection() {
             </div>
           </div>
         </div>
-      )}
+      ), document.body)}
     </div>
   )
 }
