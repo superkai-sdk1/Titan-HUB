@@ -1049,6 +1049,9 @@ posRouter.patch('/checks/:id/items/:itemId', requireRole('owner', 'staff', 'tabl
   }
 
   await recalcCheckTotal(checkId)
+  // Realtime: уведомляем планшет клиента (и кассу), что состав чека изменился —
+  // иначе изменение/удаление позиции персоналом не отражалось бы на планшете.
+  publishEvent('check:updated', { checkId })
   const data = await getCheckWithItems(checkId)
   return c.json({ check: data })
 })
@@ -1092,6 +1095,8 @@ posRouter.delete('/checks/:id/items/:itemId', requireRole('owner', 'staff', 'tab
     return c.json({ error: 'Internal error' }, 500)
   }
   await recalcCheckTotal(checkId)
+  // Realtime: удаление позиции персоналом должно сразу отражаться на планшете клиента.
+  publishEvent('check:updated', { checkId })
   const data = await getCheckWithItems(checkId)
   return c.json({ check: data })
 })
@@ -1150,6 +1155,7 @@ posRouter.post('/checks/:id/discount', requireRole('owner', 'staff'), zValidator
   })
 
   await recalcCheckTotal(checkId)
+  publishEvent('check:updated', { checkId })
   const data = await getCheckWithItems(checkId)
   return c.json({ check: data })
 })
@@ -1177,6 +1183,7 @@ posRouter.delete('/checks/:id/discount/:discountRowId', requireRole('owner', 'st
   }
 
   await recalcCheckTotal(checkId)
+  publishEvent('check:updated', { checkId })
   const data = await getCheckWithItems(checkId)
   return c.json({ check: data })
 })
@@ -1191,6 +1198,7 @@ posRouter.post('/checks/:id/discount/:discountId/restore', requireRole('owner', 
   const next = (check.excludedDiscountIds ?? []).filter(id => id !== discountId)
   await db.update(checks).set({ excludedDiscountIds: next }).where(eq(checks.id, checkId))
   await recalcCheckTotal(checkId)
+  publishEvent('check:updated', { checkId })
   const data = await getCheckWithItems(checkId)
   return c.json({ check: data })
 })
