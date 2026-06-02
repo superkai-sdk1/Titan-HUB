@@ -6,6 +6,7 @@ import { db, appSettings, eveningTypes, eq } from '@titan/database'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
 import { getCurrentShift } from '../shifts/shifts.service.js'
 import { Redis } from 'ioredis'
+import { createBackup, listBackups, lastBackup, restoreNamed, restoreFromUpload, rcloneConfigured } from '../../lib/backup.js'
 
 export const systemRouter = new Hono<AppEnv>()
 
@@ -105,4 +106,62 @@ systemRouter.get('/update', requireAuth, requireRole('owner', 'staff'), async (c
       'X-Accel-Buffering': 'no',
     },
   })
+})
+
+// ─── Резервное копирование БД (кнопки в «О системе») ─────────────────────────
+
+// Статус: последняя копия + настроен ли Google Drive. owner/staff (для отображения).
+systemRouter.get('/backup/status', requireAuth, requireRole('owner', 'staff'), async (c) => {
+  try {
+    const [last, driveConfigured] = await Promise.all([lastBackup(), rcloneConfigured()])
+    return c.json({ last, driveConfigured })
+  } catch (e: any) {
+    return c.json({ last: null, driveConfigured: false, error: e?.message })
+  }
+})
+
+// Список доступных копий (Google Drive, иначе локальные). owner.
+systemRouter.get('/backups', requireAuth, requireRole('owner'), async (c) => {
+  return c.json(await listBackups())
+})
+
+// Создать полную копию БД сейчас + выгрузить в Google Drive (если настроен). owner.
+systemRouter.post('/backup', requireAuth, requireRole('owner'), async (c) => {
+  try {
+    const r = await createBackup()
+    return c.json({ ok: true, ...r })
+  } catch (e: any) {
+    return c.json({ error: e?.message ?? 'Не удалось создать копию' }, 500)
+  }
+})
+
+// Восстановить из выбранной копии (Drive/локальной). СНАЧАЛА авто-бэкап текущей БД.
+systemRouter.post('/restore', requireAuth, requireRole('owner'), zValidator('json', z.object({
+  name: z.string().min(1),
+  source: z.enum(['drive', 'local']),
+})), async (c) => {
+  const { name, source } = c.req.valid('json')
+  try {
+    const safety = await createBackup() // страховочная копия ДО замены
+    await restoreNamed(name, source)
+    return c.json({ ok: true, safetyBackup: safety.name })
+  } catch (e: any) {
+    return c.json({ error: e?.message ?? 'Не удалось восстановить' }, 500)
+  }
+})
+
+// Восстановить из загруженного с устройства файла (.sql.gz). СНАЧАЛА авто-бэкап.
+systemRouter.post('/restore-upload', requireAuth, requireRole('owner'), async (c) => {
+  try {
+    const body = await c.req.parseBody()
+    const f = body['file']
+    if (!(f instanceof File)) return c.json({ error: 'Файл не передан' }, 400)
+    if (f.size > 200 * 1024 * 1024) return c.json({ error: 'Файл слишком большой (>200MB)' }, 413)
+    const buf = Buffer.from(await f.arrayBuffer())
+    const safety = await createBackup()
+    await restoreFromUpload(buf)
+    return c.json({ ok: true, safetyBackup: safety.name })
+  } catch (e: any) {
+    return c.json({ error: e?.message ?? 'Не удалось восстановить из файла' }, 500)
+  }
 })

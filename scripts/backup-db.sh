@@ -15,7 +15,9 @@ TS=$(date +%Y%m%d_%H%M%S)
 FILE="$BACKUP_DIR/titan_${TS}.sql.gz"
 
 # pg_dump из работающего контейнера postgres (без публикации порта на хост).
-docker compose exec -T postgres pg_dump -U titan -d titan_hub | gzip > "$FILE"
+# --clean --if-exists: дамп можно восстановить ПОВЕРХ существующей БД (DROP+CREATE),
+# что нужно для кнопки «Восстановить» в «О системе».
+docker compose exec -T postgres pg_dump -U titan -d titan_hub --clean --if-exists --no-owner --no-privileges | gzip > "$FILE"
 
 # Проверка, что файл не пустой (gzip с данными > ~1KB).
 SIZE=$(stat -f%z "$FILE" 2>/dev/null || stat -c%s "$FILE" 2>/dev/null || echo 0)

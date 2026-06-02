@@ -62,6 +62,13 @@ services:
     environment:
       DATABASE_URL: postgresql://titan:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/titan_hub
       REDIS_URL: redis://redis:6379
+      # Бэкап/восстановление выполняются из API (кнопки в «О системе»).
+      BACKUP_DIR: /backups
+      RCLONE_CONFIG: /root/.config/rclone/rclone.conf
+    volumes:
+      # Локальные бэкапы (общие с host-скриптом backup-db.sh) + конфиг rclone (ro).
+      - /opt/backups:/backups
+      - /root/.config/rclone:/root/.config/rclone:ro
     depends_on:
       postgres:
         condition: service_healthy

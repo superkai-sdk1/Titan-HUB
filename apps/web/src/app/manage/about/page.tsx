@@ -1,9 +1,11 @@
 'use client'
-import React, { useEffect, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import React, { useEffect, useRef, useState } from 'react'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { Icon } from '@/components/Icon'
 import { PageHeader } from '@/components/manage/DesignSystem'
+import { useToast } from '@/components/Toast'
+import { useAuthStore } from '@/store/auth.store'
 
 const LBL: React.CSSProperties = {
   fontFamily: "'JetBrains Mono',monospace",
@@ -64,6 +66,174 @@ function useServiceWorkerVersion(): string | null {
     return () => { active = false }
   }, [])
   return v
+}
+
+// ─── Резервное копирование ───────────────────────────────────────────────────
+interface BackupEntry { name: string; size: number; at: string; location: 'drive' | 'local' }
+
+function fmtBytes(n: number): string {
+  if (n < 1024) return `${n} Б`
+  if (n < 1024 * 1024) return `${Math.round(n / 1024)} КБ`
+  return `${(n / 1024 / 1024).toFixed(1)} МБ`
+}
+function fmtDateTime(s?: string | null): string {
+  if (!s) return '—'
+  try { return new Date(s).toLocaleString('ru', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) } catch { return '—' }
+}
+
+type RestorePick = { kind: 'named'; entry: BackupEntry } | { kind: 'upload'; file: File }
+
+function BackupSection() {
+  const qc = useQueryClient()
+  const { show } = useToast()
+  const fileRef = useRef<HTMLInputElement>(null)
+  const [restoreOpen, setRestoreOpen] = useState(false)
+  const [pick, setPick] = useState<RestorePick | null>(null)
+
+  const { data: status } = useQuery({
+    queryKey: ['system', 'backup', 'status'],
+    queryFn: () => api.get<{ last: BackupEntry | null; driveConfigured: boolean }>('/system/backup/status'),
+  })
+  const { data: list, isLoading: listLoading } = useQuery({
+    queryKey: ['system', 'backups'],
+    queryFn: () => api.get<{ entries: BackupEntry[]; driveConfigured: boolean }>('/system/backups'),
+    enabled: restoreOpen,
+  })
+
+  const create = useMutation({
+    mutationFn: () => api.post<{ name: string; uploaded: boolean }>('/system/backup', {}),
+    onSuccess: (r) => {
+      show(r.uploaded ? 'Копия создана и отправлена в Google Drive ☁️' : 'Копия создана (локально на сервере)', 'success')
+      qc.invalidateQueries({ queryKey: ['system', 'backup', 'status'] })
+      qc.invalidateQueries({ queryKey: ['system', 'backups'] })
+    },
+    onError: (e: any) => show(e?.message ?? 'Не удалось создать копию', 'error'),
+  })
+
+  const restore = useMutation({
+    mutationFn: async (p: RestorePick) => {
+      if (p.kind === 'named') {
+        return api.post<{ ok: boolean; safetyBackup: string }>('/system/restore', { name: p.entry.name, source: p.entry.location })
+      }
+      // upload — multipart, через сырой fetch (api-клиент шлёт только JSON)
+      const token = useAuthStore.getState().token
+      const base = process.env.NEXT_PUBLIC_API_URL ?? '/api'
+      const fd = new FormData(); fd.append('file', p.file)
+      const res = await fetch(`${base}/system/restore-upload`, { method: 'POST', headers: token ? { Authorization: `Bearer ${token}` } : {}, body: fd })
+      if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.error ?? 'Ошибка восстановления')
+      return res.json()
+    },
+    onSuccess: (r: any) => {
+      show(`База восстановлена. Страховочная копия: ${r?.safetyBackup ?? '—'}. Обновите страницу.`, 'success')
+      setPick(null); setRestoreOpen(false)
+      qc.invalidateQueries()
+    },
+    onError: (e: any) => { show(e?.message ?? 'Не удалось восстановить', 'error'); setPick(null) },
+  })
+
+  const driveOn = status?.driveConfigured ?? false
+  const last = status?.last ?? null
+  const entries = list?.entries ?? []
+
+  return (
+    <div style={{ ...CARD, marginBottom: 16 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+        <Icon name="backup" size={20} color="#10B981" />
+        <span style={{ fontWeight: 600, fontSize: 15, color: 'var(--on-surface)' }}>Резервное копирование</span>
+      </div>
+
+      {/* Последняя копия + статус Drive */}
+      <div style={{ ...CARD_INNER, marginBottom: 12 }}>
+        <span style={LBL}>Последняя копия</span>
+        <p style={{ ...VAL, fontSize: 14 }}>{fmtDateTime(last?.at)}{last ? `  ·  ${fmtBytes(last.size)}` : ''}</p>
+        <p style={{ fontSize: 11, margin: '8px 0 0', color: driveOn ? '#34D399' : '#fbbf24', display: 'flex', alignItems: 'center', gap: 6 }}>
+          <Icon name={driveOn ? 'cloud_done' : 'cloud_off'} size={14} />
+          {driveOn ? 'Google Drive подключён' : 'Google Drive не подключён — копии только локально на сервере'}
+        </p>
+      </div>
+
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+        <button onClick={() => create.mutate()} disabled={create.isPending}
+          style={{ flex: 1, minWidth: 150, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '12px 18px', borderRadius: 12, border: 'none', cursor: create.isPending ? 'default' : 'pointer', background: 'linear-gradient(135deg,#10B981,#4cd7f6)', color: '#fff', fontSize: 14, fontWeight: 700, opacity: create.isPending ? 0.7 : 1 }}>
+          <Icon name={create.isPending ? 'refresh' : 'cloud_upload'} size={18} style={create.isPending ? { animation: 'spin 1s linear infinite' } : undefined} />
+          {create.isPending ? 'Создаём…' : 'Создать копию'}
+        </button>
+        <button onClick={() => setRestoreOpen(true)}
+          style={{ flex: 1, minWidth: 150, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '12px 18px', borderRadius: 12, border: '1px solid rgba(245,158,11,0.4)', cursor: 'pointer', background: 'rgba(245,158,11,0.08)', color: '#fbbf24', fontSize: 14, fontWeight: 700 }}>
+          <Icon name="restore" size={18} /> Восстановить
+        </button>
+      </div>
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+
+      {/* Модалка восстановления */}
+      {restoreOpen && (
+        <div onClick={(e) => { if (e.target === e.currentTarget && !restore.isPending) { setRestoreOpen(false); setPick(null) } }}
+          style={{ position: 'fixed', inset: 0, zIndex: 90, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
+          <div className="glass-l1" style={{ width: '100%', maxWidth: 560, maxHeight: '85dvh', overflowY: 'auto', borderRadius: '24px 24px 0 0', padding: '24px 20px 40px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+              <h2 style={{ fontSize: 18, fontWeight: 900, fontStyle: 'italic', textTransform: 'uppercase', margin: 0 }}>Восстановление</h2>
+              <button onClick={() => { setRestoreOpen(false); setPick(null) }} disabled={restore.isPending} style={{ width: 36, height: 36, borderRadius: 10, border: 'none', cursor: 'pointer', background: 'rgba(255,255,255,0.06)', color: 'var(--on-surface-variant)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Icon name="close" size={18} /></button>
+            </div>
+            <p style={{ fontSize: 12.5, color: '#fbbf24', margin: '0 0 16px', display: 'flex', gap: 6, lineHeight: 1.45 }}>
+              <Icon name="warning" size={16} style={{ flexShrink: 0, marginTop: 1 }} />
+              Восстановление ПОЛНОСТЬЮ заменит текущую базу. Перед заменой автоматически создаётся страховочная копия.
+            </p>
+
+            {/* Загрузка локального файла */}
+            <input ref={fileRef} type="file" accept=".gz,.sql,.sql.gz,application/gzip" style={{ display: 'none' }}
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) setPick({ kind: 'upload', file: f }); e.currentTarget.value = '' }} />
+            <button onClick={() => fileRef.current?.click()} disabled={restore.isPending}
+              style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '12px 0', borderRadius: 12, border: '1px dashed rgba(255,255,255,0.25)', background: 'rgba(255,255,255,0.03)', color: 'var(--on-surface)', fontSize: 14, fontWeight: 600, cursor: 'pointer', marginBottom: 16 }}>
+              <Icon name="upload_file" size={18} /> Загрузить файл с устройства (.sql.gz)
+            </button>
+
+            <p style={LBL}>{driveOn ? 'Копии в Google Drive' : 'Локальные копии на сервере'}</p>
+            {listLoading ? (
+              <div style={{ textAlign: 'center', padding: 24, color: 'var(--on-surface-variant)' }}><Icon name="refresh" size={24} style={{ animation: 'spin 1s linear infinite' }} /></div>
+            ) : entries.length === 0 ? (
+              <p style={{ fontSize: 13, color: 'var(--on-surface-variant)', textAlign: 'center', padding: 16 }}>Копий пока нет</p>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {entries.map((e) => (
+                  <div key={e.name} style={{ ...CARD_INNER, display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px' }}>
+                    <Icon name={e.location === 'drive' ? 'cloud' : 'storage'} size={18} color="var(--on-surface-variant)" />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <p style={{ fontSize: 13, fontWeight: 600, margin: 0, color: 'var(--on-surface)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.name}</p>
+                      <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: '2px 0 0' }}>{fmtDateTime(e.at)} · {fmtBytes(e.size)}</p>
+                    </div>
+                    <button onClick={() => setPick({ kind: 'named', entry: e })} disabled={restore.isPending}
+                      style={{ padding: '8px 14px', borderRadius: 10, border: '1px solid rgba(245,158,11,0.4)', background: 'rgba(245,158,11,0.1)', color: '#fbbf24', fontSize: 12.5, fontWeight: 700, cursor: 'pointer', flexShrink: 0 }}>Восстановить</button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Подтверждение восстановления */}
+      {pick && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 95, background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(10px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+          <div className="glass-l1" style={{ width: '100%', maxWidth: 380, borderRadius: 20, padding: 24, textAlign: 'center' }}>
+            <div style={{ width: 56, height: 56, borderRadius: '50%', background: 'rgba(244,63,94,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 14px' }}>
+              <Icon name="warning" size={28} color="#f43f5e" />
+            </div>
+            <h3 style={{ fontSize: 17, fontWeight: 800, margin: '0 0 8px' }}>Заменить текущую базу?</h3>
+            <p style={{ fontSize: 13, color: 'var(--on-surface-variant)', margin: '0 0 6px', lineHeight: 1.5 }}>
+              {pick.kind === 'named' ? `Из копии «${pick.entry.name}».` : `Из файла «${pick.file.name}».`}
+            </p>
+            <p style={{ fontSize: 12, color: '#fbbf24', margin: '0 0 20px' }}>Текущие данные будут заменены. Сначала создастся страховочный бэкап.</p>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button onClick={() => setPick(null)} disabled={restore.isPending} style={{ flex: 1, padding: '12px 0', borderRadius: 12, border: '1px solid rgba(255,255,255,0.15)', background: 'transparent', color: 'var(--on-surface)', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>Отмена</button>
+              <button onClick={() => restore.mutate(pick)} disabled={restore.isPending} style={{ flex: 1, padding: '12px 0', borderRadius: 12, border: 'none', background: '#f43f5e', color: '#fff', fontSize: 14, fontWeight: 800, cursor: 'pointer', opacity: restore.isPending ? 0.7 : 1 }}>
+                {restore.isPending ? 'Восстановление…' : 'Восстановить'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
 }
 
 export default function AboutPage() {
@@ -157,6 +327,9 @@ export default function AboutPage() {
             </button>
           </div>
         </div>
+
+        {/* Резервное копирование */}
+        <BackupSection />
 
         {/* Документы */}
         <div style={{ ...CARD, marginBottom: 16 }}>

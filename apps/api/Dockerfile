@@ -31,6 +31,9 @@ RUN pnpm --filter @titan/api build
 
 FROM base AS runner
 ENV NODE_ENV=production
+# Инструменты для резервного копирования/восстановления из самого API:
+# pg_dump/psql (клиент v16 под Postgres 16) + rclone (выгрузка в Google Drive).
+RUN apk add --no-cache postgresql16-client rclone
 WORKDIR /app
 COPY --from=builder /app /app
 WORKDIR /app/apps/api
