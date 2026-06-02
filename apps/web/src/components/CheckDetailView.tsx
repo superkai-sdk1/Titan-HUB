@@ -1318,7 +1318,7 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
             </div>
 
             {/* Items grid — карточки с иконкой и цветом категории (как на планшете) */}
-            <div style={{ flex: 1, overflowY: 'auto', padding: '0 16px 24px', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(116px, 1fr))', gap: 10, alignContent: 'start' }}>
+            <div style={{ flex: 1, overflowY: 'auto', padding: '0 16px 24px', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(132px, 1fr))', gap: 12, alignContent: 'start' }}>
               {filteredItems.map(item => {
                 const cat = item.category ? catById.get(item.category) : undefined
                 const cc = catColor(cat?.color)
@@ -1329,19 +1329,21 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
                     key={item.id}
                     onClick={() => { addItem.mutate(item.id) }}
                     className="glass-l2"
-                    style={{ position: 'relative', overflow: 'hidden', borderRadius: 14, padding: '12px 10px', border: `1px solid ${qty > 0 ? cc.hex : cc.border}`, cursor: 'pointer', textAlign: 'left', transition: 'all 0.15s', background: qty > 0 ? cc.light : 'rgba(255,255,255,0.04)' }}
+                    style={{ position: 'relative', width: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', gap: 8, minHeight: 108, borderRadius: 14, padding: '12px', border: `1px solid ${qty > 0 ? cc.hex : cc.border}`, cursor: 'pointer', textAlign: 'left', transition: 'all 0.15s', background: qty > 0 ? cc.light : 'rgba(255,255,255,0.04)' }}
                     onMouseEnter={e => { e.currentTarget.style.background = cc.light; e.currentTarget.style.borderColor = cc.hex }}
                     onMouseLeave={e => { e.currentTarget.style.background = qty > 0 ? cc.light : 'rgba(255,255,255,0.04)'; e.currentTarget.style.borderColor = qty > 0 ? cc.hex : cc.border }}
                   >
                     {qty > 0 && (
-                      <span style={{ position: 'absolute', top: 6, right: 6, minWidth: 18, height: 18, padding: '0 5px', borderRadius: 9, background: cc.hex, color: '#fff', fontSize: 11, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{qty}</span>
+                      <span style={{ position: 'absolute', top: 8, right: 8, minWidth: 20, height: 20, padding: '0 6px', borderRadius: 10, background: cc.hex, color: '#fff', fontSize: 11, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{qty}</span>
                     )}
-                    <div style={{ width: 34, height: 34, borderRadius: 10, background: cc.light, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 8 }}>
-                      <CategoryIcon icon={cat?.icon ?? 'restaurant_menu'} size={20} color={cc.hex} />
+                    <div style={{ width: 30, height: 30, borderRadius: 9, background: cc.light, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                      <CategoryIcon icon={cat?.icon ?? 'restaurant_menu'} size={17} color={cc.hex} />
                     </div>
-                    <p style={{ fontSize: 13, fontWeight: 600, margin: '0 0 4px', color: 'var(--on-surface)', lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>{item.name}</p>
-                    <p style={{ fontSize: 13, fontWeight: 800, fontStyle: 'italic', color: cc.text, margin: 0, fontVariantNumeric: 'tabular-nums' }}>{parseFloat(item.price).toLocaleString('ru')} ₽</p>
-                    {item.trackStock && <p style={{ fontSize: 10, fontWeight: out ? 700 : 400, color: out ? '#f43f5e' : item.stockQuantity <= 3 ? '#F59E0B' : 'var(--on-surface-variant)', margin: '4px 0 0' }}>{out ? 'нет в наличии' : `×${item.stockQuantity}`}</p>}
+                    <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: 'var(--on-surface)', lineHeight: 1.3, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', wordBreak: 'break-word' }}>{item.name}</span>
+                    <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 6 }}>
+                      <span style={{ fontSize: 13.5, fontWeight: 800, fontStyle: 'italic', color: cc.text, fontVariantNumeric: 'tabular-nums' }}>{parseFloat(item.price).toLocaleString('ru')} ₽</span>
+                      {item.trackStock && <span style={{ fontSize: 10, fontWeight: out ? 700 : 500, color: out ? '#f43f5e' : item.stockQuantity <= 3 ? '#F59E0B' : 'var(--on-surface-variant)', whiteSpace: 'nowrap' }}>{out ? 'нет' : `×${item.stockQuantity}`}</span>}
+                    </div>
                   </button>
                 )
               })}
