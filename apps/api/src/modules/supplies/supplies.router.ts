@@ -2,7 +2,7 @@ import type { AppEnv } from '../../types.js'
 import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
-import { db, supplies, supplyItems, inventory, stockMovements, eq, desc } from '@titan/database'
+import { db, supplies, supplyItems, supplyCorrections, inventory, stockMovements, eq, asc, desc } from '@titan/database'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
 import { round2 } from '../../lib/money.js'
 import { notify } from '../notifications/push.js'
@@ -163,7 +163,19 @@ suppliesRouter.get('/:id', async (c) => {
     quantity: Number(r.supplyItem.quantity),
     costPerUnit: Number(r.supplyItem.costPerUnit),
   }))
-  return c.json({ supply: { ...supply, date: supply.createdAt }, items })
+  const corrections = await db
+    .select()
+    .from(supplyCorrections)
+    .where(eq(supplyCorrections.supplyId, supply.id))
+    .orderBy(asc(supplyCorrections.createdAt))
+  const correctionsOut = corrections.map(cr => ({
+    id: cr.id,
+    reason: cr.reason,
+    totalBefore: Number(cr.totalBefore),
+    totalAfter: Number(cr.totalAfter),
+    createdAt: cr.createdAt,
+  }))
+  return c.json({ supply: { ...supply, date: supply.createdAt }, items, corrections: correctionsOut })
 })
 
 // PATCH /supplies/:id — корректировка проведённой закупки (owner/staff). Остаток
@@ -175,6 +187,8 @@ suppliesRouter.get('/:id', async (c) => {
 // повредил бы её при последующих закупках; то же ограничение, что и у удаления.
 const SupplyEditSchema = z.object({
   note: z.string().optional(),
+  // Корректировка проведённой закупки требует обязательной причины (аудит).
+  reason: z.string().trim().min(3, 'Укажите причину корректировки'),
   items: z.array(z.object({
     itemId: z.string().uuid().optional(),
     name: z.string().optional(),
@@ -246,6 +260,16 @@ suppliesRouter.patch('/:id', requireRole('owner', 'staff'), zValidator('json', S
     }
 
     await tx.update(supplies).set({ totalCost: String(totalCost), note: body.note ?? supply.note }).where(eq(supplies.id, id))
+
+    // Фиксируем корректировку с причиной и суммами до/после (аудит закупки).
+    await tx.insert(supplyCorrections).values({
+      supplyId: id,
+      reason: body.reason,
+      totalBefore: String(supply.totalCost ?? '0'),
+      totalAfter: String(totalCost),
+      createdBy: user.sub,
+    })
+
     return { ...supply, totalCost: String(totalCost) }
   })
 

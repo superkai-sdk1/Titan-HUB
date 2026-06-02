@@ -115,6 +115,21 @@ export const supplyItems = pgTable('supply_items', {
   costPerUnit: numeric('cost_per_unit', { precision: 10, scale: 2 }).notNull(),
 })
 
+// Корректировки проведённых закупок — аудит с обязательной причиной. Каждая правка
+// состава/сумм закупки создаёт запись: причина + сумма до/после. История показывается
+// в карточке закупки (нельзя «молча» переписать приёмку задним числом).
+export const supplyCorrections = pgTable('supply_corrections', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  supplyId: uuid('supply_id')
+    .notNull()
+    .references(() => supplies.id, { onDelete: 'cascade' }),
+  reason: text('reason').notNull(),
+  totalBefore: numeric('total_before', { precision: 12, scale: 2 }).notNull().default('0'),
+  totalAfter: numeric('total_after', { precision: 12, scale: 2 }).notNull().default('0'),
+  createdBy: uuid('created_by').references(() => profiles.id),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+})
+
 // Журнал движений склада — аудит ручных корректировок остатка.
 export const stockMovements = pgTable('stock_movements', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -215,6 +230,7 @@ export type Discount = typeof discounts.$inferSelect
 export type Certificate = typeof certificates.$inferSelect
 export type Transaction = typeof transactions.$inferSelect
 export type Supply = typeof supplies.$inferSelect
+export type SupplyCorrection = typeof supplyCorrections.$inferSelect
 export type Expense = typeof expenses.$inferSelect
 export type Refund = typeof refunds.$inferSelect
 export type SalaryPayment = typeof salaryPayments.$inferSelect

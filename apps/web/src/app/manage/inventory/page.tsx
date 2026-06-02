@@ -118,31 +118,15 @@ export default function InventoryPage() {
     return result
   }, [allItems, filter, search])
 
-  // Какие позиции сейчас в процессе inline-обновления (по id).
-  // Защищает от двойного тапа по ОДНОЙ позиции, не блокируя другие строки.
-  const [pendingIds, setPendingIds] = useState<Set<string>>(new Set())
-
+  // Остаток со склада здесь НЕ редактируется — он меняется только через
+  // Закупки / Ревизии / Списания (аудируемые движения склада). На этой странице
+  // можно менять лишь порог пополнения (конфиг уведомлений).
   const patchMut = useMutation({
-    mutationFn: (body: { id: string; stockQuantity?: number; adjustDelta?: number; minThreshold?: number; reason?: string }) =>
-      api.patch(`/inventory/${body.id}`, { stockQuantity: body.stockQuantity, adjustDelta: body.adjustDelta, minThreshold: body.minThreshold, reason: body.reason }),
+    mutationFn: (body: { id: string; minThreshold: number }) =>
+      api.patch(`/inventory/${body.id}`, { minThreshold: body.minThreshold }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['menu-items-inventory'] }),
-    onError: () => show('Не удалось обновить остаток', 'error'),
+    onError: () => show('Не удалось сохранить порог', 'error'),
   })
-
-  function adjustInline(item: MenuItem, delta: number) {
-    if (pendingIds.has(item.id)) return // защита от двойного тапа по той же позиции
-    setPendingIds(prev => new Set(prev).add(item.id))
-    patchMut.mutate(
-      { id: item.id, adjustDelta: delta },
-      {
-        onSettled: () => setPendingIds(prev => {
-          const next = new Set(prev)
-          next.delete(item.id)
-          return next
-        }),
-      },
-    )
-  }
 
   function openDetail(item: MenuItem) { setSelected(item); setNewThreshold(String(item.minThreshold ?? 0)) }
   function closeSheet() { setSelected(null); setNewThreshold('') }
@@ -267,12 +251,8 @@ export default function InventoryPage() {
                   )}
 
                   {item.trackStock && (
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, marginTop: 10 }}>
+                    <div style={{ marginTop: 10 }}>
                       <span style={{ fontSize: 11, color: 'var(--on-surface-variant)' }}>порог: {item.minThreshold}</span>
-                      <div style={{ display: 'flex', gap: 6 }}>
-                        <button onClick={e => { e.stopPropagation(); adjustInline(item, -1) }} style={{ width: 32, height: 32, borderRadius: 8, border: '1px solid rgba(239,68,68,0.2)', background: 'rgba(239,68,68,0.08)', color: '#EF4444', fontSize: 18, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>−</button>
-                        <button onClick={e => { e.stopPropagation(); adjustInline(item, 1) }} style={{ width: 32, height: 32, borderRadius: 8, border: '1px solid rgba(16,185,129,0.2)', background: 'rgba(16,185,129,0.08)', color: '#10B981', fontSize: 18, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>+</button>
-                      </div>
                     </div>
                   )}
                 </div>
