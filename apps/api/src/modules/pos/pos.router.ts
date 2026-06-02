@@ -594,20 +594,27 @@ posRouter.get('/checks/closed', requireRole('owner', 'staff'), async (c) => {
     .where(eq(checks.status, 'closed'))
     .orderBy(desc(checks.closedAt))
     .limit(limit)
-  const enriched = await Promise.all(rows.map(async (ch) => {
-    const [{ count }] = await db
-      .select({ count: sql<number>`count(*)::int` })
-      .from(checkItems)
-      .where(eq(checkItems.checkId, ch.id))
+  // Set-based обогащение (было N+1: 1 + 2N запросов). Два агрегата на весь список:
+  // count(checkItems) group by checkId + ники игроков одной выборкой; сшивка Map.
+  const ids = rows.map(ch => ch.id)
+  const playerIds = [...new Set(rows.map(ch => ch.playerId).filter((v): v is string => !!v))]
+  const countRows = ids.length
+    ? await db.select({ checkId: checkItems.checkId, count: sql<number>`count(*)::int` })
+        .from(checkItems).where(inArray(checkItems.checkId, ids)).groupBy(checkItems.checkId)
+    : []
+  const countBy = new Map<string, number>()
+  for (const r of countRows) countBy.set(r.checkId, r.count)
+  const playerRows = playerIds.length
+    ? await db.select({ id: profiles.id, nickname: profiles.nickname }).from(profiles).where(inArray(profiles.id, playerIds))
+    : []
+  const nickBy = new Map<string, string | null>()
+  for (const p of playerRows) nickBy.set(p.id, p.nickname ?? null)
+  const enriched = rows.map((ch) => {
     let guestName: string | null = null
-    if (ch.playerId) {
-      const [p] = await db.select({ nickname: profiles.nickname }).from(profiles).where(eq(profiles.id, ch.playerId))
-      guestName = p?.nickname ?? null
-    } else if (ch.guestNames && ch.guestNames.length > 0) {
-      guestName = ch.guestNames[0]
-    }
-    return { id: ch.id, totalAmount: ch.totalAmount, closedAt: ch.closedAt, paymentMethod: ch.paymentMethod, itemCount: count, guestName }
-  }))
+    if (ch.playerId) guestName = nickBy.get(ch.playerId) ?? null
+    else if (ch.guestNames && ch.guestNames.length > 0) guestName = ch.guestNames[0]
+    return { id: ch.id, totalAmount: ch.totalAmount, closedAt: ch.closedAt, paymentMethod: ch.paymentMethod, itemCount: countBy.get(ch.id) ?? 0, guestName }
+  })
   return c.json({ checks: enriched })
 })
 
