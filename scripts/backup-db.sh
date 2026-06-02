@@ -26,5 +26,21 @@ fi
 
 echo "✅ Бэкап: $FILE ($(du -h "$FILE" | cut -f1))"
 
-# Ротация: удаляем бэкапы старше KEEP_DAYS дней.
+# Локальная ротация: удаляем бэкапы старше KEEP_DAYS дней.
 find "$BACKUP_DIR" -name 'titan_*.sql.gz' -mtime +"$KEEP_DAYS" -delete 2>/dev/null || true
+
+# ── Офсайт-копия в Google Drive через rclone (опционально) ────────────────────
+# Активируется автоматически, КОГДА на сервере настроен rclone-remote (по умолчанию
+# имя "gdrive"): `rclone config` → тип "drive" → одноразовый вход в Google.
+# Пока remote не настроен — шаг тихо пропускается (бэкап локально уже сделан).
+REMOTE="${BACKUP_RCLONE_REMOTE:-gdrive}"
+REMOTE_DIR="${BACKUP_RCLONE_DIR:-titan-backups}"
+if command -v rclone >/dev/null 2>&1 && rclone listremotes 2>/dev/null | grep -q "^${REMOTE}:"; then
+  if rclone copy "$FILE" "${REMOTE}:${REMOTE_DIR}/" --no-traverse 2>/dev/null; then
+    echo "☁️  Выгружено в ${REMOTE}:${REMOTE_DIR}/$(basename "$FILE")"
+    # Ротация на Drive: удаляем удалённые копии старше KEEP_DAYS дней.
+    rclone delete "${REMOTE}:${REMOTE_DIR}/" --min-age "${KEEP_DAYS}d" 2>/dev/null || true
+  else
+    echo "⚠️  Не удалось выгрузить бэкап в Google Drive (remote=${REMOTE}) — локальная копия сохранена"
+  fi
+fi
