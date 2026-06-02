@@ -123,6 +123,9 @@ menuRouter.post('/items', requireAuth, requireRole('owner', 'staff'), zValidator
   const body = c.req.valid('json')
   const [item] = await db.insert(inventory).values({
     ...body,
+    // Начальный остаток ВСЕГДА 0: количество меняется только через Закупки/
+    // Ревизии/Списания (аудируемый PATCH /inventory/:id), а не из меню.
+    stockQuantity: 0,
     price: String(body.price),
     costPrice: String(body.costPrice),
   }).returning()

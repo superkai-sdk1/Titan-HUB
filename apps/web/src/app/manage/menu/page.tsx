@@ -519,8 +519,15 @@ export default function MenuPage() {
               </div>
             ))}
           </div>
-          {form.trackStock && <div><label style={LBL}>Количество на складе</label><input type="number" value={form.stockQuantity} onChange={e => setForm((p: any) => ({ ...p, stockQuantity: e.target.value }))} style={INP} /></div>}
-          <button onClick={() => saveItem.mutate({ ...form, price: Number(form.price), costPrice: Number(form.costPrice), stockQuantity: Number(form.stockQuantity), isTabletVisible: form.isTabletVisible, searchTags: form.searchTags, linkedSpaceId: form.linkedSpaceId || undefined })} disabled={saveItem.isPending || !form.name} style={{ width: '100%', padding: '14px 0', borderRadius: 14, border: 'none', background: 'linear-gradient(135deg, #8B5CF6, #4cd7f6)', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer', marginTop: 4, opacity: !form.name ? 0.6 : 1 }}>
+          {form.trackStock && (
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '10px 12px', borderRadius: 10, background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)' }}>
+              <Icon name="info" size={16} color="#fbbf24" style={{ flexShrink: 0, marginTop: 1 }} />
+              <span style={{ fontSize: 12, color: 'var(--on-surface-variant)', lineHeight: 1.45 }}>
+                Остаток меняется только через <b style={{ color: 'var(--on-surface)' }}>Закупки</b>, <b style={{ color: 'var(--on-surface)' }}>Ревизии</b> и <b style={{ color: 'var(--on-surface)' }}>Списания</b> — здесь его задать нельзя.
+              </span>
+            </div>
+          )}
+          <button onClick={() => saveItem.mutate({ ...form, price: Number(form.price), costPrice: Number(form.costPrice), stockQuantity: Number(form.stockQuantity) || 0, isTabletVisible: form.isTabletVisible, searchTags: form.searchTags, linkedSpaceId: form.linkedSpaceId || undefined })} disabled={saveItem.isPending || !form.name} style={{ width: '100%', padding: '14px 0', borderRadius: 14, border: 'none', background: 'linear-gradient(135deg, #8B5CF6, #4cd7f6)', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer', marginTop: 4, opacity: !form.name ? 0.6 : 1 }}>
             {saveItem.isPending ? 'Сохраняем…' : 'Сохранить'}
           </button>
         </div>
