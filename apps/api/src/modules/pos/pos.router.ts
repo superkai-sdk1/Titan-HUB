@@ -388,7 +388,11 @@ posRouter.get('/players/search', requireRole('owner', 'staff'), async (c) => {
     bonusPoints: profiles.bonusPoints,
     photoUrl: profiles.photoUrl,
   }
-  const baseWhere = and(eq(profiles.role, 'client'), isNull(profiles.deletedAt))
+  // Плательщиком может быть и сотрудник/владелец (у них тот же профиль с балансом/
+  // тарифом и они есть в разделе «Клиенты»). Раньше фильтр role='client' исключал
+  // их из подбора — сотрудника нельзя было выбрать плательщиком. Исключаем только
+  // планшеты (role='tablet').
+  const baseWhere = and(inArray(profiles.role, ['client', 'staff', 'owner']), isNull(profiles.deletedAt))
 
   const [byNick, byTags] = await Promise.all([
     db.select(playerFields).from(profiles)

@@ -348,19 +348,7 @@ bot.on('message:text', async (ctx) => {
   }
   const st = pending.get(ctx.chat.id)
 
-  if (st?.mode === 'ai') {
-    const thinking = await ctx.reply('⏳ Анализирую базу…')
-    try {
-      const r = await apiPost<{ result?: string; error?: string }>(p, '/ai/chat', { action: 'custom_query', payload: { query: textIn } })
-      const answer = r.result || r.error || 'Не удалось получить ответ.'
-      await ctx.api.editMessageText(ctx.chat.id, thinking.message_id, answer.slice(0, 3900)).catch(() => ctx.reply(answer.slice(0, 3900)))
-    } catch (err) {
-      console.error('[bot-admin] ai_ask:', err)
-      await ctx.api.editMessageText(ctx.chat.id, thinking.message_id, '❌ ИИ недоступен, попробуйте позже.').catch(() => {})
-    }
-    return
-  }
-
+  // Закрытие смены — ждём фактическую сумму в кассе.
   if (st?.mode === 'close_cash') {
     const cashEnd = parseFloat(textIn.replace(/[^\d.,]/g, '').replace(',', '.'))
     if (!Number.isFinite(cashEnd) || cashEnd < 0) { await ctx.reply('Отправьте сумму числом, например: 12500'); return }
@@ -375,7 +363,25 @@ bot.on('message:text', async (ctx) => {
     return
   }
 
-  await ctx.reply('Используйте кнопки меню ниже 👇', { reply_markup: mainKeyboard })
+  // Ждём подтверждения закрытия кнопкой — не перехватываем в ИИ.
+  if (st?.mode === 'close_confirm') {
+    await ctx.reply('Подтвердите или отмените закрытие кнопками выше 👆')
+    return
+  }
+
+  // Команды (/start и т.п.) обрабатываются своими хендлерами; прочие «/…» игнорируем.
+  if (textIn.startsWith('/')) return
+
+  // Любой другой текст — сразу вопрос к ИИ (кнопку «Спросить Titan» жать не нужно).
+  const thinking = await ctx.reply('⏳ Анализирую базу…')
+  try {
+    const r = await apiPost<{ result?: string; error?: string }>(p, '/ai/chat', { action: 'custom_query', payload: { query: textIn } })
+    const answer = r.result || r.error || 'Не удалось получить ответ.'
+    await ctx.api.editMessageText(ctx.chat.id, thinking.message_id, answer.slice(0, 3900)).catch(() => ctx.reply(answer.slice(0, 3900)))
+  } catch (err) {
+    console.error('[bot-admin] ai_ask:', err)
+    await ctx.api.editMessageText(ctx.chat.id, thinking.message_id, '❌ ИИ недоступен, попробуйте позже.').catch(() => {})
+  }
 })
 
 bot.catch((err) => {
