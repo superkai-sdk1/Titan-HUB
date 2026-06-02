@@ -8,6 +8,8 @@ const KEY = 'titan_tablet_space'
 export interface TabletSpace {
   id: string
   name: string
+  /** Ник ответственного сотрудника (ввёл PIN при входе) — для шапки. */
+  staff?: string
 }
 
 export function getTabletSpace(): TabletSpace | null {

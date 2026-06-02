@@ -84,10 +84,15 @@ function TabletGate({ onReady }: { onReady: (sp: TabletSpace) => void }) {
     setBusy(true)
     setError(null)
     try {
-      const res = await api.post<{ token: string; user: any }>('/auth/login/pin', { pin: fullPin })
+      // ВАЖНО: устройству выдаётся УЗКИЙ tablet-токен (привязан к зоне), а не
+      // staff-JWT. PIN лишь подтверждает ответственного сотрудника.
+      const res = await api.post<{ token: string; user: any; staff?: { nickname: string } }>(
+        '/auth/tablet-session', { spaceId: selected.id, pin: fullPin },
+      )
       useAuthStore.getState().setAuth(res.token, res.user)
-      setTabletSpace(selected)
-      onReady(selected)
+      const sp = { ...selected, staff: res.staff?.nickname }
+      setTabletSpace(sp)
+      onReady(sp)
     } catch (e: any) {
       setError(e?.message ?? 'Неверный PIN')
       setPin('')
@@ -242,7 +247,6 @@ function FinishScreen({ kind, onDone }: { kind: 'paid' | 'closed'; onDone: () =>
 function TabletMain({ space, onLogout }: { space: TabletSpace; onLogout: () => void }) {
   const router = useRouter()
   const qc = useQueryClient()
-  const { user } = useAuthStore()
   const [spaceRental, setSpaceRental] = useState(0)
   const [toastMsg, setToastMsg] = useState<string | null>(null)
   const [qr, setQr] = useState<{ qrDataUrl: string; chargedAmount: number; tip: number } | null>(null)
@@ -386,7 +390,7 @@ function TabletMain({ space, onLogout }: { space: TabletSpace; onLogout: () => v
           {space.name}
         </h1>
         <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: '2px 0 0', display: 'flex', alignItems: 'center', gap: 5 }}>
-          <Icon name="badge" size={13} /> {user?.nickname ?? 'Сотрудник'}
+          <Icon name="badge" size={13} /> {space.staff ?? 'Сотрудник'}
         </p>
       </div>
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexShrink: 0 }}>

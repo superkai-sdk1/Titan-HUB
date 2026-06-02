@@ -59,6 +59,18 @@ const OpenCheckSchema = z.object({
 export const posRouter = new Hono<AppEnv>()
 posRouter.use('*', requireAuth)
 
+// IDOR-гард зоны для роли tablet: планшет может трогать ТОЛЬКО чек своей зоны
+// (profiles.linkedSpaceId === check.spaceId). owner/staff — без ограничений.
+// Возвращает Response 403 при нарушении, иначе null.
+async function tabletZoneForbidden(c: any, checkId: string): Promise<Response | null> {
+  const user = c.get('user')
+  if (user.role !== 'tablet') return null
+  const [me] = await db.select({ spaceId: profiles.linkedSpaceId }).from(profiles).where(eq(profiles.id, user.sub))
+  const [chk] = await db.select({ spaceId: checks.spaceId }).from(checks).where(eq(checks.id, checkId))
+  if (!me?.spaceId || !chk || chk.spaceId !== me.spaceId) return c.json({ error: 'Forbidden' }, 403)
+  return null
+}
+
 async function getCheckWithItems(checkId: string) {
   const [check] = await db.select().from(checks).where(eq(checks.id, checkId))
   if (!check) return null
@@ -421,7 +433,13 @@ posRouter.get('/players/:id', requireRole('owner', 'staff', 'tablet'), async (c)
 posRouter.get('/checks', async (c) => {
   const shift = await getCurrentShift()
   if (!shift) return c.json({ checks: [] })
-  const spaceId = c.req.query('spaceId')
+  const reqUser = c.get('user')
+  let spaceId = c.req.query('spaceId')
+  // tablet видит чеки ТОЛЬКО своей зоны (нельзя подсмотреть чужие через ?spaceId).
+  if (reqUser.role === 'tablet') {
+    const [me] = await db.select({ spaceId: profiles.linkedSpaceId }).from(profiles).where(eq(profiles.id, reqUser.sub))
+    spaceId = me?.spaceId ?? '00000000-0000-0000-0000-000000000000'
+  }
   const eventId = c.req.query('eventId')
   const conditions: any[] = [
     eq(checks.shiftId, shift.id),
@@ -718,6 +736,7 @@ posRouter.delete('/checks/:id', requireRole('owner', 'staff'), async (c) => {
 })
 
 posRouter.post('/checks/:id/items', requireRole('owner', 'staff', 'tablet'), zValidator('json', AddItemSchema), async (c) => {
+  const _tf = await tabletZoneForbidden(c, c.req.param('id')); if (_tf) return _tf
   const { itemId, quantity, modifierIds } = c.req.valid('json')
   const checkId = c.req.param('id')
   const user = c.get('user')
@@ -771,6 +790,7 @@ const CreateOrderSchema = z.object({
 // добавляет в чек), шлёт уведомление персоналу (тип client_order). Позиции
 // попадут в чек только при подтверждении сотрудником.
 posRouter.post('/checks/:id/orders', requireRole('owner', 'staff', 'tablet'), zValidator('json', CreateOrderSchema), async (c) => {
+  const _tf = await tabletZoneForbidden(c, c.req.param('id')); if (_tf) return _tf
   const checkId = c.req.param('id')
   const user = c.get('user')
   const { items } = c.req.valid('json')
@@ -879,6 +899,7 @@ posRouter.post('/orders/:orderId/cancel', requireRole('owner', 'staff', 'tablet'
   const [order] = await db.select().from(pendingOrders).where(eq(pendingOrders.id, orderId))
   if (!order) return c.json({ error: 'Not found' }, 404)
   if (order.status !== 'pending') return c.json({ error: 'Already resolved' }, 409)
+  const _tf = await tabletZoneForbidden(c, order.checkId); if (_tf) return _tf
   await db.update(pendingOrders)
     .set({ status: 'cancelled', resolvedAt: new Date() })
     .where(and(eq(pendingOrders.id, orderId), eq(pendingOrders.status, 'pending')))
@@ -897,6 +918,7 @@ const ChatSendSchema = z.object({
 
 // GET /checks/:id/chat — история сообщений чека (по возрастанию времени).
 posRouter.get('/checks/:id/chat', requireRole('owner', 'staff', 'tablet'), async (c) => {
+  const _tf = await tabletZoneForbidden(c, c.req.param('id')); if (_tf) return _tf
   const checkId = c.req.param('id')
   const rows = await db
     .select()
@@ -911,6 +933,7 @@ posRouter.get('/checks/:id/chat', requireRole('owner', 'staff', 'tablet'), async
 // персоналу (тип chat_message, настраивается). Живое обновление — через SSE
 // (chat:message по titan:updates, фильтр по checkId).
 posRouter.post('/checks/:id/chat', requireRole('owner', 'staff', 'tablet'), zValidator('json', ChatSendSchema), async (c) => {
+  const _tf = await tabletZoneForbidden(c, c.req.param('id')); if (_tf) return _tf
   const checkId = c.req.param('id')
   const user = c.get('user')
   const body = c.req.valid('json')
@@ -949,6 +972,7 @@ posRouter.post('/checks/:id/chat', requireRole('owner', 'staff', 'tablet'), zVal
 // POST /checks/:id/chat/read — читающая сторона ({as}) видит чат: помечаем
 // прочитанными сообщения ПРОТИВОПОЛОЖНОЙ стороны (read_at = now).
 posRouter.post('/checks/:id/chat/read', requireRole('owner', 'staff', 'tablet'), zValidator('json', z.object({ as: z.enum(['guest', 'staff']) })), async (c) => {
+  const _tf = await tabletZoneForbidden(c, c.req.param('id')); if (_tf) return _tf
   const checkId = c.req.param('id')
   const { as } = c.req.valid('json')
   const other = as === 'guest' ? 'staff' : 'guest'
@@ -960,6 +984,7 @@ posRouter.post('/checks/:id/chat/read', requireRole('owner', 'staff', 'tablet'),
 })
 
 posRouter.patch('/checks/:id/items/:itemId', requireRole('owner', 'staff', 'tablet'), zValidator('json', z.object({ quantity: z.number().int().min(0) })), async (c) => {
+  const _tf = await tabletZoneForbidden(c, c.req.param('id')); if (_tf) return _tf
   const checkId = c.req.param('id')
   const itemId = c.req.param('itemId')
   const { quantity } = c.req.valid('json')
@@ -1020,6 +1045,7 @@ posRouter.patch('/checks/:id/items/:itemId', requireRole('owner', 'staff', 'tabl
 })
 
 posRouter.delete('/checks/:id/items/:itemId', requireRole('owner', 'staff', 'tablet'), async (c) => {
+  const _tf = await tabletZoneForbidden(c, c.req.param('id')); if (_tf) return _tf
   const checkId = c.req.param('id')
   const itemId = c.req.param('itemId')
   const user = c.get('user')

@@ -61,6 +61,77 @@ authRouter.get('/tablet-spaces', async (c) => {
   return c.json({ spaces: rows })
 })
 
+// ── POST /auth/tablet-session — вход киоска: выбор пространства + PIN сотрудника ──
+// БЕЗОПАСНОСТЬ: PIN лишь ПОДТВЕРЖДАЕТ сотрудника (ответственного), но устройству
+// выдаётся УЗКИЙ токен role='tablet', привязанный к пространству (с IDOR-проверками
+// по зоне на сервере), а НЕ полноценный staff-JWT. Раньше киоск ходил под staff-
+// токеном в localStorage гостевого устройства — это был блокер безопасности.
+authRouter.post('/tablet-session', zValidator('json', z.object({
+  spaceId: z.string().uuid(),
+  pin: z.string().length(4).regex(/^\d{4}$/),
+})), async (c) => {
+  const { spaceId, pin } = c.req.valid('json')
+  const ip = clientIp(c)
+  const key = `pin:fail:${ip}:tablet`
+  const redis = getRedis()
+  try {
+    await redis.connect()
+    const fails = parseInt((await redis.get(key)) ?? '0')
+    if (fails >= PIN_MAX_ATTEMPTS) {
+      const ttl = await redis.ttl(key)
+      return c.json({ error: `Слишком много попыток. Попробуйте через ${Math.ceil(ttl / 60)} мин.` }, 429)
+    }
+    const globalFails = parseInt((await redis.get(PIN_GLOBAL_FAIL_KEY)) ?? '0')
+    if (globalFails >= PIN_GLOBAL_MAX) {
+      const ttl = await redis.ttl(PIN_GLOBAL_FAIL_KEY)
+      return c.json({ error: `Слишком много попыток. Попробуйте через ${Math.ceil(Math.max(ttl, 0) / 60)} мин.` }, 429)
+    }
+
+    const [space] = await db.select({ id: spaces.id, name: spaces.name })
+      .from(spaces).where(and(eq(spaces.id, spaceId), eq(spaces.isActive, true)))
+    if (!space) return c.json({ error: 'Пространство не найдено' }, 404)
+
+    // PIN сверяется со ВСЕМИ staff/owner (fan-out, как /login/pin без userId).
+    const staffList = await db.select().from(profiles)
+      .where(and(isNull(profiles.deletedAt), inArray(profiles.role, ['owner', 'staff'])))
+    let staff: typeof staffList[number] | null = null
+    for (const p of staffList) {
+      if (p.pin && await verifyPin(pin, p.pin)) { staff = p; break }
+    }
+    if (!staff) {
+      await redis.incr(key); await redis.expire(key, PIN_WINDOW_SECONDS)
+      await redis.incr(PIN_GLOBAL_FAIL_KEY); await redis.expire(PIN_GLOBAL_FAIL_KEY, PIN_WINDOW_SECONDS)
+      return c.json({ error: 'Неверный PIN' }, 401)
+    }
+    await redis.del(key)
+
+    // Один tablet-профиль на зону (переиспользуем; не плодим на каждый вход).
+    const existing = await db.select().from(profiles)
+      .where(and(eq(profiles.role, 'tablet'), eq(profiles.linkedSpaceId, spaceId), isNull(profiles.deletedAt)))
+      .limit(1)
+    let profile = existing[0]
+    if (!profile) {
+      const inserted = await db.insert(profiles).values({
+        nickname: `Планшет: ${space.name}`,
+        role: 'tablet',
+        linkedSpaceId: spaceId,
+      } as any).returning()
+      profile = inserted[0]
+    }
+    if (!profile) return c.json({ error: 'Не удалось создать сессию планшета' }, 500)
+
+    const token = await signToken({ sub: profile.id, role: 'tablet', nickname: profile.nickname }, '30d')
+    return c.json({
+      token,
+      user: { id: profile.id, nickname: profile.nickname, role: 'tablet', photoUrl: profile.photoUrl, linkedSpaceId: spaceId },
+      space: { id: space.id, name: space.name },
+      staff: { id: staff.id, nickname: staff.nickname },
+    })
+  } finally {
+    redis.disconnect()
+  }
+})
+
 authRouter.post('/login/pin', zValidator('json', LoginPinSchema), async (c) => {
   const { pin, userId } = c.req.valid('json')
 
