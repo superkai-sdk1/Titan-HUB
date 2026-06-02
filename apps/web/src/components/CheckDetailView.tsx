@@ -310,6 +310,13 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
   }, [checkId, checkSpaceId, markReadByCheck])
   const categories = categoriesData?.categories ?? []
   const catById = new Map(categories.map((cc) => [cc.id, cc]))
+  // Тарифные категории (название содержит «тариф») всегда в самом конце —
+  // и во вкладках, и в сгруппированном виде «Все». Остальной порядок наследуется
+  // из меню (sortOrder, уже применён сервером).
+  const isTariffCat = (cc: any) => String(cc?.name ?? '').toLowerCase().includes('тариф')
+  const nonTariffCats = categories.filter((cc) => !isTariffCat(cc))
+  const tariffCats = categories.filter((cc) => isTariffCat(cc))
+  const orderedCats = [...nonTariffCats, ...tariffCats]
   // Сколько каждой позиции уже в чеке — для бейджа «×N» на карточке меню.
   const qtyInCheck = new Map<string, number>()
   for (const ci of (check?.items ?? [])) {
@@ -325,6 +332,52 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
     const matchSearch = !search || item.name.toLowerCase().includes(search.toLowerCase())
     return matchCat && matchSearch
   })
+  // Карточка товара в меню кассы (общая для плоского и сгруппированного видов).
+  const renderItemCard = (item: any) => {
+    const cat = item.category ? catById.get(item.category) : undefined
+    const cc = catColor(cat?.color)
+    const qty = qtyInCheck.get(item.id) ?? 0
+    const out = item.trackStock && item.stockQuantity <= 0
+    return (
+      <button
+        key={item.id}
+        onClick={() => { addItem.mutate(item.id) }}
+        className="glass-l2"
+        style={{ position: 'relative', width: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', gap: 8, minHeight: 108, borderRadius: 14, padding: '12px', border: `1px solid ${qty > 0 ? cc.hex : cc.border}`, cursor: 'pointer', textAlign: 'left', transition: 'all 0.15s', background: qty > 0 ? cc.light : 'rgba(255,255,255,0.04)' }}
+        onMouseEnter={e => { e.currentTarget.style.background = cc.light; e.currentTarget.style.borderColor = cc.hex }}
+        onMouseLeave={e => { e.currentTarget.style.background = qty > 0 ? cc.light : 'rgba(255,255,255,0.04)'; e.currentTarget.style.borderColor = qty > 0 ? cc.hex : cc.border }}
+      >
+        {qty > 0 && (
+          <span style={{ position: 'absolute', top: 8, right: 8, minWidth: 20, height: 20, padding: '0 6px', borderRadius: 10, background: cc.hex, color: '#fff', fontSize: 11, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{qty}</span>
+        )}
+        <div style={{ width: 30, height: 30, borderRadius: 9, background: cc.light, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+          <CategoryIcon icon={cat?.icon ?? 'restaurant_menu'} size={17} color={cc.hex} />
+        </div>
+        <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: 'var(--on-surface)', lineHeight: 1.3, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', wordBreak: 'break-word' }}>{item.name}</span>
+        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 6 }}>
+          <span style={{ fontSize: 13.5, fontWeight: 800, fontStyle: 'italic', color: cc.text, fontVariantNumeric: 'tabular-nums' }}>{parseFloat(item.price).toLocaleString('ru')} ₽</span>
+          {item.trackStock && <span style={{ fontSize: 10, fontWeight: out ? 700 : 500, color: out ? '#f43f5e' : item.stockQuantity <= 3 ? '#F59E0B' : 'var(--on-surface-variant)', whiteSpace: 'nowrap' }}>{out ? 'нет' : `×${item.stockQuantity}`}</span>}
+        </div>
+      </button>
+    )
+  }
+  // Сгруппированный вид «Все»: секции по категориям в порядке меню, тарифы — в конце,
+  // «Прочее» (без категории) — перед тарифами.
+  const groupedSections = (() => {
+    if (search || activeCat) return null
+    const sections: { key: string; cat?: any; items: any[] }[] = []
+    for (const cat of nonTariffCats) {
+      const items = allItems.filter(i => i.category === cat.id)
+      if (items.length) sections.push({ key: cat.id, cat, items })
+    }
+    const uncategorized = allItems.filter(i => !i.category || !catById.has(i.category))
+    if (uncategorized.length) sections.push({ key: '__uncat__', items: uncategorized })
+    for (const cat of tariffCats) {
+      const items = allItems.filter(i => i.category === cat.id)
+      if (items.length) sections.push({ key: cat.id, cat, items })
+    }
+    return sections
+  })()
 
   // Space rental calc — та же epoch-логика, что и на бэкенде при оплате:
   // ceil(минуты/60) × ставка. До spaceEndAt (если задан) либо до now (живой счётчик).
@@ -1304,7 +1357,7 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
                 <button onClick={() => setActiveCat(null)} style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px', borderRadius: 9999, border: !activeCat ? 'none' : '1px solid rgba(255,255,255,0.08)', cursor: 'pointer', fontSize: 12, fontWeight: 600, background: !activeCat ? 'linear-gradient(135deg, #8B5CF6, #6D28D9)' : 'rgba(255,255,255,0.06)', color: !activeCat ? '#fff' : 'var(--on-surface-variant)', boxShadow: !activeCat ? '0 2px 12px rgba(139,92,246,0.3)' : 'none' }}>
                   <Icon name="grid_view" size={14} /> Все
                 </button>
-                {categories.map(cat => {
+                {orderedCats.map(cat => {
                   const isActive = activeCat === cat.id
                   const cc = catColor(cat.color)
                   return (
@@ -1317,37 +1370,32 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
               </div>
             </div>
 
-            {/* Items grid — карточки с иконкой и цветом категории (как на планшете) */}
-            <div style={{ flex: 1, overflowY: 'auto', padding: '0 16px 24px', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(132px, 1fr))', gap: 12, alignContent: 'start' }}>
-              {filteredItems.map(item => {
-                const cat = item.category ? catById.get(item.category) : undefined
-                const cc = catColor(cat?.color)
-                const qty = qtyInCheck.get(item.id) ?? 0
-                const out = item.trackStock && item.stockQuantity <= 0
-                return (
-                  <button
-                    key={item.id}
-                    onClick={() => { addItem.mutate(item.id) }}
-                    className="glass-l2"
-                    style={{ position: 'relative', width: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', gap: 8, minHeight: 108, borderRadius: 14, padding: '12px', border: `1px solid ${qty > 0 ? cc.hex : cc.border}`, cursor: 'pointer', textAlign: 'left', transition: 'all 0.15s', background: qty > 0 ? cc.light : 'rgba(255,255,255,0.04)' }}
-                    onMouseEnter={e => { e.currentTarget.style.background = cc.light; e.currentTarget.style.borderColor = cc.hex }}
-                    onMouseLeave={e => { e.currentTarget.style.background = qty > 0 ? cc.light : 'rgba(255,255,255,0.04)'; e.currentTarget.style.borderColor = qty > 0 ? cc.hex : cc.border }}
-                  >
-                    {qty > 0 && (
-                      <span style={{ position: 'absolute', top: 8, right: 8, minWidth: 20, height: 20, padding: '0 6px', borderRadius: 10, background: cc.hex, color: '#fff', fontSize: 11, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{qty}</span>
-                    )}
-                    <div style={{ width: 30, height: 30, borderRadius: 9, background: cc.light, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                      <CategoryIcon icon={cat?.icon ?? 'restaurant_menu'} size={17} color={cc.hex} />
+            {/* Items — карточки с иконкой и цветом категории (как на планшете).
+                «Все» (без поиска/фильтра) — секции по категориям в порядке меню,
+                тарифы в конце; иначе — плоская сетка отфильтрованных позиций. */}
+            {groupedSections ? (
+              <div style={{ flex: 1, overflowY: 'auto', padding: '0 16px 24px', display: 'flex', flexDirection: 'column', gap: 18 }}>
+                {groupedSections.map(sec => {
+                  const cc = catColor(sec.cat?.color)
+                  return (
+                    <div key={sec.key}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '0 0 10px', paddingBottom: 6, borderBottom: `1px solid ${sec.cat ? cc.border : 'rgba(255,255,255,0.08)'}` }}>
+                        <CategoryIcon icon={sec.cat?.icon ?? 'inventory_2'} size={16} color={sec.cat ? cc.hex : 'var(--on-surface-variant)'} />
+                        <span style={{ fontSize: 13, fontWeight: 800, fontStyle: 'italic', textTransform: 'uppercase', letterSpacing: '0.04em', color: sec.cat ? cc.text : 'var(--on-surface-variant)' }}>{sec.cat?.name ?? 'Прочее'}</span>
+                        <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--on-surface-variant)' }}>{sec.items.length}</span>
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(132px, 1fr))', gap: 12, alignContent: 'start' }}>
+                        {sec.items.map(renderItemCard)}
+                      </div>
                     </div>
-                    <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: 'var(--on-surface)', lineHeight: 1.3, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', wordBreak: 'break-word' }}>{item.name}</span>
-                    <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 6 }}>
-                      <span style={{ fontSize: 13.5, fontWeight: 800, fontStyle: 'italic', color: cc.text, fontVariantNumeric: 'tabular-nums' }}>{parseFloat(item.price).toLocaleString('ru')} ₽</span>
-                      {item.trackStock && <span style={{ fontSize: 10, fontWeight: out ? 700 : 500, color: out ? '#f43f5e' : item.stockQuantity <= 3 ? '#F59E0B' : 'var(--on-surface-variant)', whiteSpace: 'nowrap' }}>{out ? 'нет' : `×${item.stockQuantity}`}</span>}
-                    </div>
-                  </button>
-                )
-              })}
-            </div>
+                  )
+                })}
+              </div>
+            ) : (
+              <div style={{ flex: 1, overflowY: 'auto', padding: '0 16px 24px', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(132px, 1fr))', gap: 12, alignContent: 'start' }}>
+                {filteredItems.map(renderItemCard)}
+              </div>
+            )}
           </div>
         </>
       )}

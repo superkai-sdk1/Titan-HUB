@@ -139,6 +139,21 @@ function FolderTile({ cat, count, onOpen, onEdit, uncat }: { cat: any; count: nu
   )
 }
 
+/* ─── Перетаскиваемая папка-категория (сортировка на корневом экране) ─── */
+function SortableFolderTile({ cat, count, onOpen, onEdit }: { cat: any; count: number; onOpen: () => void; onEdit?: () => void }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: cat.id })
+  return (
+    <div
+      ref={setNodeRef}
+      {...attributes}
+      {...listeners}
+      style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.4 : 1, touchAction: 'none', cursor: isDragging ? 'grabbing' : undefined }}
+    >
+      <FolderTile cat={cat} count={count} onOpen={onOpen} onEdit={onEdit} />
+    </div>
+  )
+}
+
 /* ─── Sidebar folder (droppable target inside a folder) ───────── */
 function SidebarFolder({ cat, count, active, onOpen, uncat }: { cat?: any; count: number; active: boolean; onOpen: () => void; uncat?: boolean }) {
   const dropId = uncat ? 'drop-none' : `drop-${cat.id}`
@@ -256,6 +271,12 @@ export default function MenuPage() {
     mutationFn: (items: { id: string; sortOrder: number }[]) => api.patch('/menu/items/reorder', { items }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['menu', 'items'] })
   })
+  // Сортировка категорий перетаскиванием (порядок наследуется в меню POS).
+  const reorderCats = useMutation({
+    mutationFn: (items: { id: string; sortOrder: number }[]) => api.patch('/menu/categories/reorder', { items }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['menu', 'categories'] }),
+    onError: () => { show('Не удалось изменить порядок', 'error'); qc.invalidateQueries({ queryKey: ['menu', 'categories'] }) },
+  })
   // Перенос позиции в другую категорию (drag на папку в боковой панели). category=null → «Без категории».
   const moveItem = useMutation({
     mutationFn: ({ id, category }: { id: string; category: string | null }) => api.patch(`/menu/items/${id}`, { category }),
@@ -271,6 +292,21 @@ export default function MenuPage() {
     if (!over) return
     const activeId = String(active.id)
     const overId = String(over.id)
+
+    // Перетаскивание КАТЕГОРИИ (корневой экран папок) → смена порядка категорий.
+    if (catIds.has(activeId)) {
+      if (activeId === overId || !catIds.has(overId)) return
+      const order = cats.map((c: any) => c.id)
+      const oldI = order.indexOf(activeId), newI = order.indexOf(overId)
+      if (oldI < 0 || newI < 0) return
+      const newCats = arrayMove(cats, oldI, newI)
+      const tariffCats = allCats.filter((c: any) => tariffCatIds.has(c.id))
+      const allOrdered = [...newCats, ...tariffCats]
+      // Оптимистично переписываем кэш категорий новым порядком (мгновенный UI).
+      qc.setQueryData(['menu', 'categories'], { categories: allOrdered.map((c: any, idx: number) => ({ ...c, sortOrder: idx })) })
+      reorderCats.mutate(allOrdered.map((c: any, idx: number) => ({ id: c.id, sortOrder: idx })))
+      return
+    }
 
     // Брошено на папку в боковой панели → перенос в другую категорию.
     if (overId.startsWith('drop-')) {
@@ -367,10 +403,18 @@ export default function MenuPage() {
         ) : !folderValid ? (
           /* ── Корень: сетка папок ── */
           <div style={{ padding: '16px 16px var(--bottom-nav-clear, 96px)', flex: 1, maxWidth: 760, margin: '0 auto', width: '100%', boxSizing: 'border-box' }}>
+            {cats.length > 1 && (
+              <p style={{ fontSize: 11, color: 'rgba(204,195,216,0.45)', margin: '0 0 10px', display: 'flex', alignItems: 'center', gap: 5 }}>
+                <Icon name="drag_indicator" size={13} color="rgba(204,195,216,0.45)" />
+                Перетаскивайте категории, чтобы изменить порядок — он применится и в меню кассы
+              </p>
+            )}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 12 }}>
-              {cats.map((c: any) => (
-                <FolderTile key={c.id} cat={c} count={countForCat(c.id)} onOpen={() => setOpenCat(c.id)} onEdit={() => openEditCat(c)} />
-              ))}
+              <SortableContext items={cats.map((c: any) => c.id)} strategy={rectSortingStrategy}>
+                {cats.map((c: any) => (
+                  <SortableFolderTile key={c.id} cat={c} count={countForCat(c.id)} onOpen={() => setOpenCat(c.id)} onEdit={() => openEditCat(c)} />
+                ))}
+              </SortableContext>
               {uncategorizedCount > 0 && (
                 <FolderTile cat={{}} uncat count={uncategorizedCount} onOpen={() => setOpenCat('none')} />
               )}
