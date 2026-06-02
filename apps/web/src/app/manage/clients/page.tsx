@@ -45,6 +45,8 @@ export default function ClientsPage() {
   const [confirmPurge, setConfirmPurge] = useState(false)
   // Разделы: Все / Резиденты / Гости / Студенты / Архив (заблокированные).
   const [seg, setSeg] = useState<'all' | 'resident' | 'guest' | 'student' | 'archive'>('all')
+  // Сортировка списка: по дате добавления (recent) или по нику А→Я (name).
+  const [sort, setSort] = useState<'recent' | 'name'>('recent')
   const [search, setSearch] = useState('')
   const [dbSearch, setDbSearch] = useState('')
   const [showCreate, setShowCreate] = useState(false)
@@ -71,20 +73,21 @@ export default function ClientsPage() {
     return () => { if (timer.current) clearTimeout(timer.current) }
   }, [search])
 
-  // Новый поиск или смена раздела — сбрасываем пагинацию на первую страницу.
-  useEffect(() => { setPage(1) }, [dbSearch, seg])
+  // Новый поиск, смена раздела или сортировки — сбрасываем пагинацию на первую страницу.
+  useEffect(() => { setPage(1) }, [dbSearch, seg, sort])
 
   // Аккумулируем страницы: query key включает page, а накопленный список
   // собираем через placeholderData (предыдущие страницы остаются в кэше по
   // своим ключам). Грузим страницы 1..page и склеиваем.
-  // Доп. параметр запроса для текущего раздела: архив или фильтр по статусу.
+  // Доп. параметры запроса: раздел (архив/статус) и сортировка.
   const segParam = seg === 'archive' ? '&filter=archived' : seg !== 'all' ? `&tier=${seg}` : ''
+  const sortParam = sort === 'name' ? '&sort=name' : ''
   const pageQueries = useQuery({
-    queryKey: ['clients', dbSearch, seg, page],
+    queryKey: ['clients', dbSearch, seg, sort, page],
     queryFn: async () => {
       const reqs = []
       for (let p = 1; p <= page; p++) {
-        reqs.push(api.get<any>(`/clients?search=${encodeURIComponent(dbSearch)}&page=${p}${segParam}`))
+        reqs.push(api.get<any>(`/clients?search=${encodeURIComponent(dbSearch)}&page=${p}${segParam}${sortParam}`))
       }
       const pages = await Promise.all(reqs)
       const merged: any[] = []
@@ -227,6 +230,9 @@ export default function ClientsPage() {
             })}
           </div>
           <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 2, alignItems: 'center' }}>
+            <button onClick={() => setSort(s => s === 'name' ? 'recent' : 'name')} style={{ flexShrink: 0, fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 8, border: '1px solid rgba(255,255,255,0.1)', background: sort === 'name' ? 'rgba(139,92,246,0.15)' : 'rgba(255,255,255,0.05)', color: sort === 'name' ? '#a78bfa' : 'var(--on-surface-variant)', whiteSpace: 'nowrap', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              <Icon name={sort === 'name' ? 'sort_by_alpha' : 'schedule'} size={13} /> {sort === 'name' ? 'А–Я' : 'Новые'}
+            </button>
             {seg === 'all' && tierList.filter(t => (tierCounts[t.key] ?? 0) > 0).map(t => (
               <span key={t.key} style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 8, background: `${t.color}22`, color: t.color, whiteSpace: 'nowrap', fontFamily: "'JetBrains Mono',monospace" }}>
                 {t.label} {tierCounts[t.key]}

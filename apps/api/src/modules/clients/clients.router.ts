@@ -104,11 +104,14 @@ clientsRouter.get('/', async (c) => {
       : undefined,
   )
 
+  // Сортировка: по алфавиту (ник, регистронезависимо) либо по дате добавления.
+  const sort = c.req.query('sort')
+  const orderExpr = sort === 'name' ? asc(sql`lower(${profiles.nickname})`) : desc(profiles.createdAt)
   const clients = await db
     .select()
     .from(profiles)
     .where(where)
-    .orderBy(desc(profiles.createdAt))
+    .orderBy(orderExpr)
     .limit(limit)
     .offset(offset)
 

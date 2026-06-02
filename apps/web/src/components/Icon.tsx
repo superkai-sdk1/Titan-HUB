@@ -1154,6 +1154,14 @@ const ICONS: Record<string, React.ReactNode> = {
       <path d="M21 9v4" />
     </>
   ),
+  sort_by_alpha: (
+    // Сортировка А→Я: буквы слева, стрелка вниз справа.
+    <>
+      <path d="M5 5l2.5 6M5 5l-2.5 6M3.3 9h3.4" />
+      <path d="M4 15h4l-4 5h4" />
+      <path d="M17 4v14M17 18l-3-3M17 18l3-3" />
+    </>
+  ),
   upload_file: (
     <>
       <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5z" />
