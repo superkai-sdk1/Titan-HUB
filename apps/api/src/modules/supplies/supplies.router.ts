@@ -67,6 +67,8 @@ suppliesRouter.post('/', requireRole('owner', 'staff'), zValidator('json', Suppl
       totalCost: String(totalCost),
       createdBy: user.sub,
       idempotencyKey: body.idempotencyKey,
+    // Уникальный индекс на idempotency_key — полный (см. 034_supplies_idem_full_index.sql),
+    // как у expenses/salary/cash_operations, поэтому ON CONFLICT по колонке его находит.
     }).onConflictDoNothing({ target: supplies.idempotencyKey }).returning()
 
     // Двойной клик/ретрай с тем же ключом — приёмка уже создана. Прерываем
