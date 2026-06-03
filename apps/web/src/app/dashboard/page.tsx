@@ -1,8 +1,9 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Icon } from '@/components/Icon'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
+import { PullToRefreshContainer } from '@/components/PullToRefreshContainer'
 import { format, subDays, startOfMonth, endOfMonth } from 'date-fns'
 import { ru } from 'date-fns/locale'
 import { useCountUp } from '@/hooks/useCountUp'
@@ -1641,6 +1642,12 @@ function StaffTab({ staff, periodText, from, to }: { staff: any; periodText: str
 export default function DashboardPage() {
   const [activeTab, setActiveTab] = useState<MainTab>('overview')
   const period = usePeriod()
+  const qc = useQueryClient()
+
+  // Свайп для обновления (как на экране кассы) — перезагружает все витрины аналитики.
+  const onRefresh = useCallback(async () => {
+    await qc.invalidateQueries({ queryKey: ['analytics'] })
+  }, [qc])
 
   // Телеметрия: смена периода (и первичная отрисовка) — какой период смотрят.
   useEffect(() => { track('period_change', { preset: period.preset, from: period.from, to: period.to }) }, [period.preset, period.from, period.to])
@@ -1679,9 +1686,9 @@ export default function DashboardPage() {
   ]
 
   return (
-    <div style={{ minHeight: '100dvh', overflowX: 'hidden', width: '100%' }}>
-      {/* Header */}
-      <div style={{ padding: '16px 16px 0', flexShrink: 0, position: 'sticky', top: 0, zIndex: 10, background: 'rgba(21,18,27,0.92)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)' }}>
+    <div style={{ height: '100dvh', overflow: 'hidden', display: 'flex', flexDirection: 'column', width: '100%' }}>
+      {/* Header (фикс. шапка, контент скроллится отдельно — нужно для свайп-обновления) */}
+      <div style={{ padding: '16px 16px 0', flexShrink: 0, zIndex: 10, background: 'rgba(21,18,27,0.92)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)' }}>
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
           <div>
             <h1 style={{ fontSize: 20, fontWeight: 800, margin: 0 }}>Аналитика</h1>
@@ -1721,14 +1728,18 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Content */}
-      <div style={{ padding: '16px 16px var(--bottom-nav-clear)', flex: 1, width: '100%', boxSizing: 'border-box' }}>
-        {activeTab === 'overview'  && (overview ? <OverviewTab overview={overview} periodText={period.label} /> : ovError ? <StateView state="error" description="Не удалось загрузить аналитику." action={{ label: 'Повторить', onClick: () => refetchOv() }} /> : <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}><Skeleton h={156} /><SkeletonCards /></div>)}
-        {activeTab === 'finance'   && <FinanceTab from={period.from} to={period.to} />}
-        {activeTab === 'games'     && <TariffsTab from={period.from} to={period.to} />}
-        {activeTab === 'bar'       && <ProductsTab products={products} from={period.from} to={period.to} />}
-        {activeTab === 'players'   && <PlayersTab clients={clients} />}
-        {activeTab === 'staff'     && <StaffTab staff={staff} periodText={period.label} from={period.from} to={period.to} />}
+      {/* Content — со свайпом для обновления (потяните вниз, как на экране кассы) */}
+      <div style={{ flex: 1, minHeight: 0 }}>
+        <PullToRefreshContainer onRefresh={onRefresh}>
+          <div style={{ padding: '16px 16px var(--bottom-nav-clear)', width: '100%', boxSizing: 'border-box' }}>
+            {activeTab === 'overview'  && (overview ? <OverviewTab overview={overview} periodText={period.label} /> : ovError ? <StateView state="error" description="Не удалось загрузить аналитику." action={{ label: 'Повторить', onClick: () => refetchOv() }} /> : <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}><Skeleton h={156} /><SkeletonCards /></div>)}
+            {activeTab === 'finance'   && <FinanceTab from={period.from} to={period.to} />}
+            {activeTab === 'games'     && <TariffsTab from={period.from} to={period.to} />}
+            {activeTab === 'bar'       && <ProductsTab products={products} from={period.from} to={period.to} />}
+            {activeTab === 'players'   && <PlayersTab clients={clients} />}
+            {activeTab === 'staff'     && <StaffTab staff={staff} periodText={period.label} from={period.from} to={period.to} />}
+          </div>
+        </PullToRefreshContainer>
       </div>
 
       <style>{`
