@@ -238,13 +238,34 @@ function BackupSection() {
 }
 
 export default function AboutPage() {
-  const { data, isLoading, isError, refetch } = useQuery<SystemInfo>({
+  const { data, isLoading, isError } = useQuery<SystemInfo>({
     queryKey: ['system', 'info'],
     queryFn: () => api.get<SystemInfo>('/system/info'),
     refetchInterval: false,
   })
   const swVersion = useServiceWorkerVersion()
   const info = data
+  const [refreshing, setRefreshing] = useState(false)
+
+  // «Обновить» — проверяем наличие новой версии Service Worker и перезагружаем
+  // страницу, чтобы устройство подхватило свежую сборку. SW при install делает
+  // skipWaiting + clients.claim, поэтому новый воркер активируется сразу, а
+  // network-first HTML и новые хэшированные ассеты подтянутся при reload.
+  const hardRefresh = async () => {
+    setRefreshing(true)
+    try {
+      if ('serviceWorker' in navigator) {
+        const reg = await navigator.serviceWorker.getRegistration()
+        if (reg) {
+          await reg.update().catch(() => { /* офлайн/нет обновления */ })
+          // Если новый воркер «ждёт» — просим активироваться немедленно.
+          reg.waiting?.postMessage?.({ type: 'SKIP_WAITING' })
+        }
+      }
+    } catch { /* ignore */ }
+    // Небольшая пауза, чтобы проверка обновления успела стартовать, затем reload.
+    setTimeout(() => { window.location.reload() }, 350)
+  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100dvh' }}>
@@ -314,19 +335,23 @@ export default function AboutPage() {
 
           <div style={{ marginTop: 16 }}>
             <button
-              onClick={() => refetch()}
-              disabled={isLoading}
+              onClick={hardRefresh}
+              disabled={refreshing}
               style={{
                 display: 'inline-flex', alignItems: 'center', gap: 8, padding: '10px 20px', borderRadius: 12,
                 background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.12)',
                 color: 'var(--on-surface)', fontSize: 13, fontWeight: 600,
-                cursor: isLoading ? 'not-allowed' : 'pointer', opacity: isLoading ? 0.6 : 1, transition: 'all 0.2s',
+                cursor: refreshing ? 'not-allowed' : 'pointer', opacity: refreshing ? 0.6 : 1, transition: 'all 0.2s',
               }}
             >
-              <Icon name="refresh" size={16} />
-              Обновить
+              <Icon name="refresh" size={16} style={refreshing ? { animation: 'spin 1s linear infinite' } : undefined} />
+              {refreshing ? 'Обновляем…' : 'Обновить'}
             </button>
+            <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: '8px 0 0' }}>
+              Перезагружает приложение и подтягивает новую версию, если она вышла.
+            </p>
           </div>
+          <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
         </div>
 
         {/* Резервное копирование */}
