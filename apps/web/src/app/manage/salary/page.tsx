@@ -74,23 +74,28 @@ export default function SalaryPage() {
   const estSalary = est?.salary ?? 0
   const effectiveAmount = amount !== '' ? (parseFloat(amount) || 0) : estSalary
 
+  const [confirming, setConfirming] = useState(false)
   const idemRef = useRef(crypto.randomUUID())
   const pay = useMutation({
     // API ждёт profileId (не staffId) и не имеет поля period — period кладём в note.
-    mutationFn: (body: { staffId: string; amount: number; period: string; note?: string }) =>
+    mutationFn: (body: { staffId: string; amount: number; period: string; note?: string; paymentMethod: 'cash' | 'transfer' }) =>
       api.post('/salary/pay', {
         profileId: body.staffId,
         amount: body.amount,
+        paymentMethod: body.paymentMethod,
         note: body.note ? `${body.period}: ${body.note}` : body.period,
         idempotencyKey: idemRef.current,
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['salary'] })
+      qc.invalidateQueries({ queryKey: ['expenses'] })
+      qc.invalidateQueries({ queryKey: ['cashops'] })
       setAmount('')
       setNote('')
+      setConfirming(false)
       idemRef.current = crypto.randomUUID()
     },
-    onError: () => show('Не удалось начислить зарплату', 'error'),
+    onError: () => { setConfirming(false); show('Не удалось начислить зарплату', 'error') },
   })
 
   const staffList: StaffMember[] = staffData?.staff ?? staffData?.clients ?? []
@@ -168,16 +173,45 @@ export default function SalaryPage() {
               <input value={note} onChange={e => setNote(e.target.value)} placeholder="например: аванс / премия" style={INP} />
             </div>
 
-            <Button
-              fullWidth
-              size="lg"
-              icon="payments"
-              loading={pay.isPending}
-              disabled={!selectedStaffId || !(effectiveAmount > 0)}
-              onClick={() => pay.mutate({ staffId: selectedStaffId, amount: effectiveAmount, period: day, note: note.trim() || undefined })}
-            >
-              Начислить — {formatMoney(effectiveAmount)}
-            </Button>
+            {!confirming ? (
+              <Button
+                fullWidth
+                size="lg"
+                icon="payments"
+                disabled={!selectedStaffId || !(effectiveAmount > 0)}
+                onClick={() => setConfirming(true)}
+              >
+                Начислить — {formatMoney(effectiveAmount)}
+              </Button>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <p style={{ margin: 0, fontSize: 13, fontWeight: 600, textAlign: 'center', color: 'var(--on-surface)' }}>
+                  Способ выплаты — {formatMoney(effectiveAmount)}
+                </p>
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <button
+                    type="button"
+                    disabled={pay.isPending}
+                    onClick={() => pay.mutate({ staffId: selectedStaffId, amount: effectiveAmount, period: day, note: note.trim() || undefined, paymentMethod: 'cash' })}
+                    style={{ flex: 1, padding: '16px 0', borderRadius: 14, border: '1px solid rgba(16,185,129,0.4)', background: 'rgba(16,185,129,0.12)', color: '#10B981', fontSize: 14, fontWeight: 700, cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, opacity: pay.isPending ? 0.5 : 1 }}
+                  >
+                    <Icon name="payments" size={22} color="#10B981" /> Наличными
+                  </button>
+                  <button
+                    type="button"
+                    disabled={pay.isPending}
+                    onClick={() => pay.mutate({ staffId: selectedStaffId, amount: effectiveAmount, period: day, note: note.trim() || undefined, paymentMethod: 'transfer' })}
+                    style={{ flex: 1, padding: '16px 0', borderRadius: 14, border: '1px solid rgba(139,92,246,0.4)', background: 'rgba(139,92,246,0.12)', color: 'var(--primary-violet)', fontSize: 14, fontWeight: 700, cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, opacity: pay.isPending ? 0.5 : 1 }}
+                  >
+                    <Icon name="account_balance_wallet" size={22} color="#8B5CF6" /> Переводом
+                  </button>
+                </div>
+                <p style={{ margin: 0, fontSize: 11, color: 'var(--on-surface-variant)', textAlign: 'center', lineHeight: 1.4 }}>
+                  Наличными — спишется из кассы. Переводом — попадёт в расходы, графа «Зарплатный фонд».
+                </p>
+                <button type="button" onClick={() => setConfirming(false)} disabled={pay.isPending} style={{ padding: '10px 0', borderRadius: 12, border: '1px solid rgba(255,255,255,0.1)', background: 'transparent', color: 'var(--on-surface-variant)', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Отмена</button>
+              </div>
+            )}
           </div>
         </div>
 
