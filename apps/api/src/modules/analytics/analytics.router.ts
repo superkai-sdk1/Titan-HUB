@@ -4,13 +4,28 @@ import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import {
   db, checks, checkItems, checkPayments, checkDiscounts, inventory, menuCategories, profiles, shifts, expenses,
-  supplies, supplyItems, salaryPayments, refunds, tariffs, eveningTypes,
+  supplies, supplyItems, salaryPayments, refunds, tariffs, eveningTypes, analyticsEvents,
   eq, and, gte, lte, lt, desc, asc, sql, sum, count, avg, isNull, isNotNull, ne, inArray,
 } from '@titan/database'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
 
 export const analyticsRouter = new Hono<AppEnv>()
 analyticsRouter.use('*', requireAuth, requireRole('owner', 'staff'))
+
+// ─── Телеметрия аналитики (лёгкие UX-события) ──────────────────────────────────
+// Фронт шлёт fire-and-forget: открытие раздела, смена периода, drill-down. Никогда
+// не блокирует UI и не роняет запрос — при ошибке просто игнорируем.
+analyticsRouter.post('/track', zValidator('json', z.object({
+  event: z.string().min(1).max(64),
+  props: z.record(z.unknown()).optional(),
+})), async (c) => {
+  const user = c.get('user')
+  const { event, props } = c.req.valid('json')
+  try {
+    await db.insert(analyticsEvents).values({ userId: user.sub, event, props: props ?? {} })
+  } catch { /* телеметрия не критична */ }
+  return c.json({ ok: true })
+})
 
 // ─── Helper ──────────────────────────────────────────────────────────────────
 function parseNum(v: unknown) {

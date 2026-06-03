@@ -130,6 +130,16 @@ export const supplyCorrections = pgTable('supply_corrections', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 })
 
+// Телеметрия аналитики: какие разделы/метрики реально смотрят (для оценки UX).
+// Лёгкие события с фронта: открытие раздела, смена периода, открытие drill-down.
+export const analyticsEvents = pgTable('analytics_events', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').references(() => profiles.id),
+  event: text('event').notNull(),
+  props: jsonb('props').$type<Record<string, unknown>>().default({}),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+})
+
 // Журнал движений склада — аудит ручных корректировок остатка.
 export const stockMovements = pgTable('stock_movements', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -231,6 +241,7 @@ export type Certificate = typeof certificates.$inferSelect
 export type Transaction = typeof transactions.$inferSelect
 export type Supply = typeof supplies.$inferSelect
 export type SupplyCorrection = typeof supplyCorrections.$inferSelect
+export type AnalyticsEvent = typeof analyticsEvents.$inferSelect
 export type Expense = typeof expenses.$inferSelect
 export type Refund = typeof refunds.$inferSelect
 export type SalaryPayment = typeof salaryPayments.$inferSelect

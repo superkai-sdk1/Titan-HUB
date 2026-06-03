@@ -38,6 +38,48 @@ function payLabel(m: string) { return PAY_LABELS_FULL[m] ?? m }
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function parseNum(v: unknown) { return parseFloat(String(v ?? 0)) || 0 }
 function fmt(n: number) { return n.toLocaleString('ru', { maximumFractionDigits: 0 }) }
+
+// Телеметрия аналитики (fire-and-forget): какие разделы/метрики реально смотрят.
+function track(event: string, props?: Record<string, unknown>) {
+  api.post('/analytics/track', { event, props: props ?? {} }).catch(() => { /* не критично */ })
+}
+
+// Экспорт в CSV (разделитель «;» + BOM — корректно открывается в Excel с кириллицей).
+function downloadCsv(filename: string, headers: string[], rows: (string | number)[][]) {
+  const esc = (v: string | number) => { const s = String(v ?? ''); return /[";\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s }
+  const csv = [headers, ...rows].map(r => r.map(esc).join(';')).join('\r\n')
+  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a'); a.href = url; a.download = filename; a.click()
+  setTimeout(() => URL.revokeObjectURL(url), 1000)
+}
+
+// Предыдущий равный период (для сравнения) — сдвиг на длину периода в днях назад.
+function prevPeriodRange(from: string, to: string): { from: string; to: string } {
+  const f = new Date(`${from}T00:00:00+03:00`).getTime()
+  const t = new Date(`${to}T00:00:00+03:00`).getTime()
+  const days = Math.max(1, Math.round((t - f) / 86400000) + 1)
+  const shift = (d: string) => new Date(new Date(`${d}T00:00:00+03:00`).getTime() - days * 86400000 + 3 * 3600000).toISOString().split('T')[0]
+  return { from: shift(from), to: shift(to) }
+}
+function pctDelta(cur: number, prev: number): number { return prev > 0 ? Math.round(((cur - prev) / prev) * 100) : (cur > 0 ? 100 : 0) }
+
+// Скелетоны загрузки (вместо спиннера) — карточки-плейсхолдеры.
+function Skeleton({ h = 88, style }: { h?: number; style?: React.CSSProperties }) {
+  return <div className="ti-skeleton" style={{ borderRadius: 16, height: h, ...style }} />
+}
+function SkeletonCards({ n = 4 }: { n?: number }) {
+  return <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px,1fr))', gap: 12 }}>{Array.from({ length: n }).map((_, i) => <Skeleton key={i} h={92} />)}</div>
+}
+
+// Кнопка экспорта CSV (компактная, для шапок секций).
+function ExportBtn({ onClick }: { onClick: () => void }) {
+  return (
+    <button onClick={onClick} title="Экспорт в CSV" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 10px', borderRadius: 8, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.05)', color: 'var(--on-surface-variant)', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>
+      <Icon name="upload_file" size={14} /> CSV
+    </button>
+  )
+}
 function getRange(range: ReportRange, from: string, to: string): [string, string] {
   const now = new Date()
   if (range === '7d') return [format(subDays(now, 6), 'yyyy-MM-dd'), format(now, 'yyyy-MM-dd')]
@@ -303,6 +345,7 @@ function Sheet({ title, subtitle, onClose, children }: { title: string; subtitle
 
 // Модалка детализации KPI: показывает раскладку gross→net.
 function KpiBreakdownModal({ title, subtitle, b, onClose }: { title: string; subtitle?: string; b: NetBreak; onClose: () => void }) {
+  useEffect(() => { track('drilldown', { title }) }, [title])
   return (
     <Sheet title={title} subtitle={subtitle} onClose={onClose}>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 18 }}>
@@ -326,6 +369,7 @@ function MetricDetailModal({ title, subtitle, value, valueColor = '#8B5CF6', row
   title: string; subtitle?: string; value: string; valueColor?: string
   rows: { label: string; value: string; color?: string }[]; onClose: () => void
 }) {
+  useEffect(() => { track('drilldown', { title }) }, [title])
   return (
     <Sheet title={title} subtitle={subtitle} onClose={onClose}>
       <div style={{ padding: '16px 18px', borderRadius: 14, background: 'rgba(255,255,255,0.04)', marginBottom: 16 }}>
@@ -909,10 +953,20 @@ function ReportsTab({ from, to }: { from: string; to: string }) {
 }
 
 // ─── Tab: Продукты (ABC) ──────────────────────────────────────────────────────
-function ProductsTab({ products }: { products: any }) {
+function ProductsTab({ products, from, to }: { products: any; from: string; to: string }) {
+  const [openItem, setOpenItem] = useState<any | null>(null)
+  const { data: prevProd } = useQuery({
+    queryKey: ['analytics', 'products', from, to, 'prev'],
+    queryFn: () => { const p = prevPeriodRange(from, to); return api.get<any>(`/analytics/products?from=${p.from}&to=${p.to}`) },
+    enabled: !!from && !!to,
+  })
   const rows: any[] = products?.products ?? []
   const totalRev: number = parseNum(products?.totalRev)
-  const [openItem, setOpenItem] = useState<any | null>(null)
+  const revDelta = pctDelta(totalRev, parseNum(prevProd?.totalRev))
+  const exportCsv = () => downloadCsv(`bar_${from}_${to}.csv`, ['Позиция', 'Категория', 'Кол-во', 'Выручка', 'Доля %', 'ABC'],
+    rows.map((r: any) => [r.name ?? '—', r.category ?? 'Прочее', parseNum(r.totalQty), parseNum(r.totalRev), r.share ?? 0, r.abc ?? 'C']))
+
+  if (!products) return <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}><Skeleton h={70} /><Skeleton h={56} /><Skeleton h={260} /></div>
 
   const catMap: Record<string, number> = {}
   rows.forEach((r: any) => {
@@ -924,6 +978,17 @@ function ProductsTab({ products }: { products: any }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+      <div className="glass-l2" style={{ borderRadius: 16, padding: '16px 18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+        <div>
+          <span style={{ ...LBL, margin: 0 }}>Выручка бара за период</span>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginTop: 4 }}>
+            <p style={{ fontSize: 24, fontWeight: 900, fontStyle: 'italic', color: '#4cd7f6', margin: 0, lineHeight: 1 }}>{fmt(totalRev)} ₽</p>
+            <DeltaBadge delta={revDelta} />
+          </div>
+        </div>
+        <ExportBtn onClick={exportCsv} />
+      </div>
+
       <div style={{ display: 'flex', gap: 10 }}>
         {['A', 'B', 'C'].map(l => {
           const desc = l === 'A' ? '0–80% выручки' : l === 'B' ? '80–95%' : '95–100%'
@@ -1022,6 +1087,8 @@ function PlayersTab({ clients }: { clients: any }) {
   const [metricModal, setMetricModal] = useState<null | { title: string; subtitle?: string; value: string; valueColor?: string; rows: { label: string; value: string; color?: string }[] }>(null)
   const [openPlayer, setOpenPlayer] = useState<any | null>(null)
   const [segOpen, setSegOpen] = useState<null | { key: 'new' | 'active' | 'sleeping'; label: string }>(null)
+
+  if (!clients) return <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}><SkeletonCards n={3} /><Skeleton h={120} /><Skeleton h={220} /></div>
 
   const segTotal = segments.new + segments.active + segments.sleeping || 1
   const segData = [
@@ -1274,6 +1341,8 @@ function ChecksTab({ from, to }: { from: string; to: string }) {
 
   const summary: NetBreak | undefined = data?.summary
   const checks: any[] = data?.checks ?? []
+  const exportCsv = () => downloadCsv(`checks_${from}_${to}.csv`, ['Время', 'Клиент', 'Кассир', 'Позиций', 'Сумма', 'Оплата'],
+    checks.map((c: any) => [fmtMsk(c.createdAt), c.guestName || 'Гость', c.staffNickname || '—', c.itemCount ?? 0, parseNum(c.totalAmount), (c.payments ?? []).map((p: any) => `${payLabel(p.method)} ${fmt(parseNum(p.amount))}`).join(' + ')]))
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -1288,9 +1357,12 @@ function ChecksTab({ from, to }: { from: string; to: string }) {
 
       {/* Checks list */}
       <div className="glass-l2" style={{ borderRadius: 16, overflow: 'hidden' }}>
-        <div style={{ padding: '14px 18px', borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ padding: '14px 18px', borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
           <span style={{ ...LBL, margin: 0 }}>Чеки</span>
-          <span style={{ fontSize: 11, color: 'var(--on-surface-variant)' }}>{checks.length}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ fontSize: 11, color: 'var(--on-surface-variant)' }}>{checks.length}</span>
+            {checks.length > 0 && <ExportBtn onClick={exportCsv} />}
+          </div>
         </div>
         {isLoading ? <StateView state="loading" />
           : isError ? <StateView state="error" description="Не удалось загрузить чеки." action={{ label: 'Повторить', onClick: () => refetch() }} />
@@ -1327,17 +1399,24 @@ function TariffsTab({ from, to }: { from: string; to: string }) {
     queryFn: () => api.get<any>(`/analytics/tariffs?from=${from}&to=${to}`),
     enabled: !!from && !!to,
   })
+  const { data: prevT } = useQuery({
+    queryKey: ['analytics', 'tariffs', from, to, 'prev'],
+    queryFn: () => { const p = prevPeriodRange(from, to); return api.get<any>(`/analytics/tariffs?from=${p.from}&to=${p.to}`) },
+    enabled: !!from && !!to,
+  })
 
   const byTariff: any[] = data?.byTariff ?? []
   const byEvening: any[] = data?.byEvening ?? []
   const totalCount: number = parseNum(data?.total?.count)
   const totalRevenue: number = parseNum(data?.total?.revenue)
+  const revDelta = pctDelta(totalRevenue, parseNum(prevT?.total?.revenue))
   const maxTariffRev = byTariff.length ? Math.max(...byTariff.map((t: any) => parseNum(t.revenue))) : 1
   const maxEveningRev = byEvening.length ? Math.max(...byEvening.map((e: any) => parseNum(e.revenue))) : 1
+  const exportCsv = () => downloadCsv(`tariffs_${from}_${to}.csv`, ['Тариф', 'Кол-во', 'Выручка'], byTariff.map((t: any) => [t.name ?? '—', parseNum(t.count), parseNum(t.revenue)]))
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      {isLoading ? <StateView state="loading" />
+      {isLoading ? <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}><SkeletonCards n={2} /><Skeleton h={220} /></div>
       : isError ? <StateView state="error" description="Не удалось загрузить аналитику тарифов." action={{ label: 'Повторить', onClick: () => refetch() }} />
       : (
         <>
@@ -1349,14 +1428,18 @@ function TariffsTab({ from, to }: { from: string; to: string }) {
             </div>
             <div className="glass-l2" style={{ borderRadius: 14, padding: '14px 16px' }}>
               <p style={{ fontSize: 20, fontWeight: 900, fontStyle: 'italic', color: '#4cd7f6', margin: '0 0 4px', lineHeight: 1 }}>{fmt(totalRevenue)} ₽</p>
-              <p style={{ fontSize: 10, color: 'var(--on-surface-variant)', margin: 0, textTransform: 'uppercase', letterSpacing: '0.06em', fontFamily: "'JetBrains Mono',monospace" }}>Выручка по тарифам</p>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
+                <p style={{ fontSize: 10, color: 'var(--on-surface-variant)', margin: 0, textTransform: 'uppercase', letterSpacing: '0.06em', fontFamily: "'JetBrains Mono',monospace" }}>Выручка по тарифам</p>
+                <DeltaBadge delta={revDelta} />
+              </div>
             </div>
           </div>
 
           {/* По тарифам — кликабельные строки */}
           <div className="glass-l2" style={{ borderRadius: 16, overflow: 'hidden' }}>
-            <div style={{ padding: '14px 18px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+            <div style={{ padding: '14px 18px', borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <span style={{ ...LBL, margin: 0 }}>По тарифам</span>
+              <ExportBtn onClick={exportCsv} />
             </div>
             {byTariff.length === 0 ? <p style={{ padding: 24, textAlign: 'center', fontSize: 13, color: 'var(--on-surface-variant)' }}>Нет данных за период</p>
               : byTariff.map((t: any, i: number) => {
@@ -1456,6 +1539,9 @@ export default function DashboardPage() {
   const [activeTab, setActiveTab] = useState<MainTab>('overview')
   const period = usePeriod()
 
+  // Телеметрия: смена периода (и первичная отрисовка) — какой период смотрят.
+  useEffect(() => { track('period_change', { preset: period.preset, from: period.from, to: period.to }) }, [period.preset, period.from, period.to])
+
   // Обзор за выбранный период (финансовое здоровье + способы оплаты за период).
   const { data: overview, isError: ovError, refetch: refetchOv } = useQuery({
     queryKey: ['analytics', 'overview', period.from, period.to],
@@ -1494,7 +1580,12 @@ export default function DashboardPage() {
               {format(new Date(), 'd MMMM yyyy', { locale: ru })}
             </p>
           </div>
-          <PeriodSelector p={period} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <PeriodSelector p={period} />
+            <button onClick={() => { track('export_pdf', { section: activeTab }); if (typeof window !== 'undefined') window.print() }} title="Печать / сохранить в PDF" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 10px', borderRadius: 8, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.05)', color: 'var(--on-surface-variant)', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>
+              <Icon name="upload_file" size={14} /> PDF
+            </button>
+          </div>
         </div>
         {/* Tabs — горизонтальный скролл только внутри таб-бара, не страницы */}
         <div style={{
@@ -1505,7 +1596,7 @@ export default function DashboardPage() {
           WebkitOverflowScrolling: 'touch' as any,
         }}>
           {TABS.map(tab => (
-            <button key={tab.key} onClick={() => setActiveTab(tab.key)} style={{
+            <button key={tab.key} onClick={() => { setActiveTab(tab.key); track('section_open', { section: tab.key }) }} style={{
               display: 'flex', alignItems: 'center', gap: 5,
               padding: '9px 12px',
               border: 'none', background: 'transparent', cursor: 'pointer',
@@ -1523,10 +1614,10 @@ export default function DashboardPage() {
 
       {/* Content */}
       <div style={{ padding: '16px 16px var(--bottom-nav-clear)', flex: 1, width: '100%', boxSizing: 'border-box' }}>
-        {activeTab === 'overview'  && (overview ? <OverviewTab overview={overview} periodText={period.label} /> : ovError ? <StateView state="error" description="Не удалось загрузить аналитику." action={{ label: 'Повторить', onClick: () => refetchOv() }} /> : <StateView state="loading" />)}
+        {activeTab === 'overview'  && (overview ? <OverviewTab overview={overview} periodText={period.label} /> : ovError ? <StateView state="error" description="Не удалось загрузить аналитику." action={{ label: 'Повторить', onClick: () => refetchOv() }} /> : <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}><Skeleton h={156} /><SkeletonCards /></div>)}
         {activeTab === 'finance'   && <FinanceTab from={period.from} to={period.to} />}
         {activeTab === 'games'     && <TariffsTab from={period.from} to={period.to} />}
-        {activeTab === 'bar'       && <ProductsTab products={products} />}
+        {activeTab === 'bar'       && <ProductsTab products={products} from={period.from} to={period.to} />}
         {activeTab === 'players'   && <PlayersTab clients={clients} />}
       </div>
 
@@ -1534,6 +1625,8 @@ export default function DashboardPage() {
         @media (max-width: 768px) { .dash-row { grid-template-columns: 1fr !important; } }
         /* Скрываем скроллбар у таб-бара */
         div::-webkit-scrollbar { display: none; }
+        .ti-skeleton { background: linear-gradient(90deg, rgba(255,255,255,0.04), rgba(255,255,255,0.09), rgba(255,255,255,0.04)); background-size: 200% 100%; animation: ti-shimmer 1.3s ease-in-out infinite; }
+        @keyframes ti-shimmer { 0% { background-position: 200% 0 } 100% { background-position: -200% 0 } }
       `}</style>
     </div>
   )
