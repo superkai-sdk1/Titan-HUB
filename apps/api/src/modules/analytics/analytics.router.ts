@@ -793,7 +793,27 @@ analyticsRouter.get('/staff', zValidator('query', dateRangeQuerySchema), async (
 
   const staff = rows.map((r: any) => ({ staffId: r.staffId, nickname: r.nickname ?? '—', clientTier: r.clientTier, checksCount: r.checksCount ?? 0, retail: parseNum(r.retail), cost: parseNum(r.cost) }))
   const totals = staff.reduce((a, s) => ({ retail: a.retail + s.retail, cost: a.cost + s.cost, checks: a.checks + (s.checksCount || 0) }), { retail: 0, cost: 0, checks: 0 })
-  return c.json({ staff, totals, period: { from, to } })
+
+  // Отдельные транзакции (каждый comp-чек) — кликабельны в UI → состав чека.
+  const compRows = await db.select({
+    id: checks.id,
+    createdAt: checks.createdAt,
+    staffId: checks.staffCompId,
+    nickname: profiles.nickname,
+    retail: sql<number>`sum(${checkItems.quantity}::numeric * ${checkItems.priceAtTime})`,
+    cost: sql<number>`sum(${checkItems.quantity}::numeric * coalesce(${inventory.costPrice}, 0)::numeric)`,
+  })
+    .from(checks)
+    .innerJoin(checkItems, eq(checkItems.checkId, checks.id))
+    .leftJoin(inventory, eq(inventory.id, checkItems.itemId))
+    .leftJoin(profiles, eq(profiles.id, checks.staffCompId))
+    .where(and(eq(checks.status, 'closed'), isNotNull(checks.staffCompId), gte(checks.createdAt, pStart), lt(checks.createdAt, pEnd)))
+    .groupBy(checks.id, checks.createdAt, checks.staffCompId, profiles.nickname)
+    .orderBy(desc(checks.createdAt))
+    .limit(100)
+  const transactions = compRows.map((r: any) => ({ id: r.id, createdAt: r.createdAt, staffId: r.staffId, nickname: r.nickname ?? '—', retail: parseNum(r.retail), cost: parseNum(r.cost) }))
+
+  return c.json({ staff, totals, transactions, period: { from, to } })
 })
 
 // ─── Карточка игрока: статистика визитов/трат + последние чеки ─────────────────
@@ -1107,6 +1127,7 @@ analyticsRouter.get('/checks/:id', async (c) => {
       category: inventory.category,
       quantity: checkItems.quantity,
       priceAtTime: checkItems.priceAtTime,
+      costPrice: inventory.costPrice,
     })
     .from(checkItems)
     .leftJoin(inventory, eq(inventory.id, checkItems.itemId))
@@ -1148,7 +1169,10 @@ analyticsRouter.get('/checks/:id', async (c) => {
       tipAmount: parseNum(check.tipAmount),
     },
     guestName,
-    items: items.map((i: any) => ({ ...i, priceAtTime: parseNum(i.priceAtTime), lineTotal: parseNum(i.priceAtTime) * Number(i.quantity) })),
+    staffComp: !!check.staffCompId,
+    retailTotal: items.reduce((s: number, i: any) => s + parseNum(i.priceAtTime) * Number(i.quantity), 0),
+    costTotal: items.reduce((s: number, i: any) => s + parseNum(i.costPrice) * Number(i.quantity), 0),
+    items: items.map((i: any) => ({ ...i, priceAtTime: parseNum(i.priceAtTime), lineTotal: parseNum(i.priceAtTime) * Number(i.quantity), lineCost: parseNum(i.costPrice) * Number(i.quantity) })),
     payments: payments.map((p: any) => ({ method: p.method, amount: parseNum(p.amount) })),
     discounts: discountRows.map((d: any) => ({ id: d.id, name: d.name, type: d.type, value: parseNum(d.value), amount: parseNum(d.amount), target: d.target, itemId: d.itemId })),
     player,

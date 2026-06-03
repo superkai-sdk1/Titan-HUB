@@ -4,9 +4,10 @@ import React, { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { Icon } from '@/components/Icon'
-import { PageHeader, Sheet, Button, ConfirmDialog, INP, SEL, LBL, formatMoney } from '@/components/manage/DesignSystem'
+import { PageHeader, Sheet, Button, ConfirmDialog, INP, SEL, LBL, formatMoney, Toggle } from '@/components/manage/DesignSystem'
 import { StateView } from '@/components/StateView'
 import { useToast } from '@/components/Toast'
+import { useAuthStore } from '@/store/auth.store'
 
 interface Discount {
   id: string
@@ -57,6 +58,26 @@ export default function DiscountsPage() {
 
   const discounts = data?.discounts ?? []
   const invalidate = () => qc.invalidateQueries({ queryKey: ['discounts'] })
+
+  // Скидка для персонала/владельца (тумблер): когда включена, чеки, где плательщик —
+  // сотрудник/владелец, автоматически списываются на персонал (итог 0₽).
+  const isOwner = useAuthStore((s) => s.user?.role) === 'owner'
+  const { data: settingsData } = useQuery<{ settings: Record<string, string> }>({
+    queryKey: ['system', 'settings'],
+    queryFn: () => api.get('/system/settings'),
+  })
+  const staffDiscountOn = settingsData?.settings?.['staff_discount_enabled'] === '1'
+  const toggleStaffDiscount = useMutation({
+    mutationFn: (on: boolean) => api.patch('/system/settings', { staff_discount_enabled: on ? '1' : '0' }),
+    onMutate: async (on) => {
+      await qc.cancelQueries({ queryKey: ['system', 'settings'] })
+      const prev = qc.getQueryData<{ settings: Record<string, string> }>(['system', 'settings'])
+      qc.setQueryData(['system', 'settings'], { settings: { ...(prev?.settings ?? {}), staff_discount_enabled: on ? '1' : '0' } })
+      return { prev }
+    },
+    onError: (_e, _v, ctx) => { if (ctx?.prev) qc.setQueryData(['system', 'settings'], ctx.prev); show('Не удалось сохранить', 'error') },
+    onSettled: () => qc.invalidateQueries({ queryKey: ['system', 'settings'] }),
+  })
 
   const { data: menuData } = useQuery<{ items: MenuItem[] }>({
     queryKey: ['menu', 'items', 'all'],
@@ -155,6 +176,20 @@ export default function DiscountsPage() {
       />
 
       <div style={{ padding: '16px 16px var(--bottom-nav-clear, 24px)', flex: 1, maxWidth: 680, margin: '0 auto', width: '100%' }}>
+        {/* Скидка для персонала/владельца — тумблер */}
+        {isOwner && (
+          <div className="glass-l2" style={{ borderRadius: 16, padding: '16px 18px', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 14 }}>
+            <div style={{ width: 42, height: 42, borderRadius: 12, background: 'rgba(245,158,11,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              <Icon name="badge" size={22} color="#F59E0B" />
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <p style={{ fontSize: 15, fontWeight: 700, margin: 0 }}>Скидка для персонала (100%)</p>
+              <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: '2px 0 0', lineHeight: 1.4 }}>Когда включена, чек с плательщиком-сотрудником/владельцем списывается на персонал: итог 0&nbsp;₽, остаток уходит, а в аналитике «Персонал» видна товарная сумма и себестоимость.</p>
+            </div>
+            <Toggle value={staffDiscountOn} onChange={(v) => toggleStaffDiscount.mutate(v)} color="#F59E0B" ariaLabel="Скидка для персонала" />
+          </div>
+        )}
+
         {isLoading && !data ? (
           <StateView state="loading" />
         ) : discounts.length === 0 ? (

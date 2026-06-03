@@ -13,7 +13,7 @@ import { getCurrentShift } from '../shifts/shifts.service.js'
 import { notify, notifyClient } from '../notifications/push.js'
 import { maybePromoteToResident } from '../../lib/loyalty.js'
 import { accrueBonusLot, spendBonusLots, getBonusExpiryDays } from '../../lib/bonusLots.js'
-import { getNumericSetting, LARGE_CHECK_KEY, DEFAULT_LARGE_CHECK } from '../../lib/appSettings.js'
+import { getNumericSetting, LARGE_CHECK_KEY, DEFAULT_LARGE_CHECK, getBoolSetting, STAFF_DISCOUNT_KEY } from '../../lib/appSettings.js'
 import { round2, computeRental, computeTotals } from '../../lib/money.js'
 import { Redis } from 'ioredis'
 import { streamSSE } from 'hono/streaming'
@@ -334,16 +334,36 @@ async function applyAutoDiscounts(exec: DbOrTx, checkId: string) {
   if (toInsert.length) await exec.insert(checkDiscounts).values(toInsert)
 }
 
+// Скидка персоналу/владельцу (тумблер в разделе скидок): если включена И плательщик
+// чека — owner/staff, чек помечается списанием на персонал (staffCompId = плательщик),
+// иначе метка снимается. Применяется автоматически (без ручной кнопки).
+async function applyStaffComp(exec: DbOrTx, checkId: string) {
+  const [check] = await exec.select({ playerId: checks.playerId, staffCompId: checks.staffCompId }).from(checks).where(eq(checks.id, checkId))
+  if (!check) return
+  let target: string | null = null
+  if (check.playerId && await getBoolSetting(STAFF_DISCOUNT_KEY, false)) {
+    const [p] = await exec.select({ role: profiles.role }).from(profiles).where(eq(profiles.id, check.playerId))
+    if (p && (p.role === 'owner' || p.role === 'staff')) target = check.playerId
+  }
+  if ((check.staffCompId ?? null) !== target) {
+    await exec.update(checks).set({ staffCompId: target }).where(eq(checks.id, checkId))
+  }
+}
+
 async function recalcCheckTotal(checkId: string, exec: DbOrTx = db) {
-  // Сначала пересчитываем авто-скидки от текущих позиций, затем итог.
+  // Сначала пересчитываем авто-скидки от текущих позиций, затем списание на персонал, затем итог.
   await applyAutoDiscounts(exec, checkId)
+  await applyStaffComp(exec, checkId)
   const items = await exec.select().from(checkItems).where(eq(checkItems.checkId, checkId))
   const ids = items.map(i => i.id)
   const mods = ids.length
     ? await exec.select().from(checkItemModifiers).where(inArray(checkItemModifiers.checkItemId, ids))
     : []
   const discountRows = await exec.select().from(checkDiscounts).where(eq(checkDiscounts.checkId, checkId))
-  const { discountTotal, total } = computeTotals(items, mods, discountRows)
+  const [chk] = await exec.select({ staffCompId: checks.staffCompId }).from(checks).where(eq(checks.id, checkId))
+  let { discountTotal, total } = computeTotals(items, mods, discountRows)
+  // Списание на персонал: итог 0₽, а вся товарная сумма уходит в «скидку» (−100%).
+  if (chk?.staffCompId) { discountTotal = round2(total + discountTotal); total = 0 }
   await exec.update(checks).set({
     totalAmount: String(total),
     discountTotal: String(discountTotal),
@@ -362,6 +382,8 @@ async function computeRentalForCheck(exec: DbOrTx, check: typeof checks.$inferSe
 // Авторитетный итог чека к оплате = позиции+модификаторы−скидки + аренда.
 // Используется для QR (сумма НЕ берётся с клиента) и сверки.
 async function computeCheckGrandTotal(exec: DbOrTx, check: typeof checks.$inferSelect): Promise<number> {
+  // Списание на персонал — итог всегда 0₽.
+  if (check.staffCompId) return 0
   const items = await exec.select().from(checkItems).where(eq(checkItems.checkId, check.id))
   const ids = items.map(i => i.id)
   const mods = ids.length
@@ -1407,7 +1429,8 @@ posRouter.post('/checks/:id/pay', requireRole('owner', 'staff'), zValidator('jso
       }
       // База события (фикс/ручная сумма мероприятия) — слагаемое итога к оплате.
       const eventBase = parseFloat(check.eventBaseAmount ?? '0') || 0
-      const total = round2(itemsTotal + rental + eventBase)
+      // Списание на персонал — итог 0₽ (закрывается бесплатно, остаток уже списан).
+      const total = check.staffCompId ? 0 : round2(itemsTotal + rental + eventBase)
 
       // Суммы по способам оплаты
       const sumBy = (m: string) => body.payments.filter(p => p.method === m).reduce((s, p) => s + p.amount, 0)

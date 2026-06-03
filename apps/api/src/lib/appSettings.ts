@@ -15,6 +15,20 @@ export async function getNumericSetting(key: string, fallback: number): Promise<
   }
 }
 
+// Булева настройка из app_settings ('1'/'true' → true). При ошибке → дефолт.
+export async function getBoolSetting(key: string, fallback = false): Promise<boolean> {
+  try {
+    const [row] = await db.select({ value: appSettings.value }).from(appSettings).where(eq(appSettings.key, key))
+    if (row?.value == null) return fallback
+    const v = String(row.value).trim().toLowerCase()
+    return v === '1' || v === 'true' || v === 'on' || v === 'yes'
+  } catch {
+    return fallback
+  }
+}
+
+export const STAFF_DISCOUNT_KEY = 'staff_discount_enabled'
+
 // Ключи настроек порогов (валидны под regex /^[a-z][a-z0-9_]{0,63}$/).
 export const LARGE_CHECK_KEY = 'large_check_threshold'
 export const LARGE_REFUND_KEY = 'large_refund_threshold'

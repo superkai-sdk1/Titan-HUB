@@ -1288,6 +1288,23 @@ function CheckDetailModal({ id, onClose }: { id: string; onClose: () => void }) 
             </div>
           )}
 
+          {/* Списание на персонал — товарная сумма и себестоимость («как бы оплачено») */}
+          {data?.staffComp && (
+            <div style={{ padding: '12px 14px', borderRadius: 12, background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)', display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#F59E0B', display: 'flex', alignItems: 'center', gap: 6 }}>
+                <Icon name="badge" size={14} color="#F59E0B" /> Списание на персонал
+              </span>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ fontSize: 12, color: 'var(--on-surface-variant)' }}>Товарная сумма</span>
+                <span style={{ fontSize: 13, fontWeight: 700 }}>{fmt(parseNum(data.retailTotal))} ₽</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ fontSize: 12, color: 'var(--on-surface-variant)' }}>Себестоимость («оплачено»)</span>
+                <span style={{ fontSize: 13, fontWeight: 800, color: '#F59E0B' }}>{fmt(parseNum(data.costTotal))} ₽</span>
+              </div>
+            </div>
+          )}
+
           {/* Итог + оплата */}
           <div style={{ padding: '12px 14px', borderRadius: 12, background: 'rgba(139,92,246,0.08)', display: 'flex', flexDirection: 'column', gap: 10 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -1537,8 +1554,10 @@ function FinanceTab({ from, to }: { from: string; to: string }) {
 
 // ─── Tab: Персонал (списания на сотрудников) ───────────────────────────────────
 function StaffTab({ staff, periodText, from, to }: { staff: any; periodText: string; from: string; to: string }) {
+  const [openCheckId, setOpenCheckId] = useState<string | null>(null)
   if (!staff) return <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}><SkeletonCards n={3} /><Skeleton h={220} /></div>
   const rows: any[] = staff?.staff ?? []
+  const transactions: any[] = staff?.transactions ?? []
   const totals = staff?.totals ?? { retail: 0, cost: 0, checks: 0 }
   const exportCsv = () => downloadCsv(`staff_${from}_${to}.csv`, ['Сотрудник', 'Чеков', 'Товарная сумма', 'Себестоимость'],
     rows.map((r: any) => [r.nickname ?? '—', r.checksCount ?? 0, parseNum(r.retail), parseNum(r.cost)]))
@@ -1587,9 +1606,34 @@ function StaffTab({ staff, periodText, from, to }: { staff: any; periodText: str
           </div>
         ))}
       </div>
+
+      {/* Транзакции (каждое списание) — кликабельны → состав чека с розницей и себестоимостью */}
+      {transactions.length > 0 && (
+        <div className="glass-l2" style={{ borderRadius: 16, overflow: 'hidden' }}>
+          <div style={{ padding: '14px 18px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+            <span style={{ ...LBL, margin: 0 }}>Транзакции персонала</span>
+          </div>
+          {transactions.map((t: any) => (
+            <button key={t.id} onClick={() => setOpenCheckId(t.id)} style={{ width: '100%', textAlign: 'left', display: 'flex', alignItems: 'center', gap: 12, padding: '12px 18px', borderBottom: '1px solid rgba(255,255,255,0.04)', background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--on-surface)' }}>
+              <span style={{ fontSize: 12, fontFamily: "'JetBrains Mono',monospace", color: 'var(--on-surface-variant)', flexShrink: 0 }}>{fmtMskDate(t.createdAt)} {fmtMsk(t.createdAt)}</span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <p style={{ fontSize: 13, fontWeight: 600, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.nickname ?? '—'}</p>
+                <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: 0 }}>товар {fmt(parseNum(t.retail))} ₽</p>
+              </div>
+              <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                <p style={{ fontSize: 13, fontWeight: 800, fontStyle: 'italic', color: '#F59E0B', margin: 0 }}>{fmt(parseNum(t.cost))} ₽</p>
+                <p style={{ fontSize: 9, color: 'var(--on-surface-variant)', margin: 0 }}>себест.</p>
+              </div>
+              <Icon name="chevron_right" size={14} color="rgba(204,195,216,0.4)" />
+            </button>
+          ))}
+        </div>
+      )}
+
       <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: '0 4px', lineHeight: 1.5 }}>
         Это бесплатные чеки (списание на персонал/владельца): в выручку они идут как 0&nbsp;₽, остаток списан. Здесь — товарная сумма и себестоимость, которую сотрудник «как бы оплатил».
       </p>
+      {openCheckId && <CheckDetailModal id={openCheckId} onClose={() => setOpenCheckId(null)} />}
     </div>
   )
 }
