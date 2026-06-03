@@ -9,7 +9,7 @@ import { useCountUp } from '@/hooks/useCountUp'
 import { StateView } from '@/components/StateView'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-type MainTab = 'overview' | 'finance' | 'games' | 'bar' | 'players'
+type MainTab = 'overview' | 'finance' | 'games' | 'bar' | 'players' | 'staff'
 type ReportRange = '7d' | '30d' | 'month' | 'custom'
 
 const PAY_COLORS: Record<string, string> = {
@@ -1535,6 +1535,65 @@ function FinanceTab({ from, to }: { from: string; to: string }) {
   )
 }
 
+// ─── Tab: Персонал (списания на сотрудников) ───────────────────────────────────
+function StaffTab({ staff, periodText, from, to }: { staff: any; periodText: string; from: string; to: string }) {
+  if (!staff) return <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}><SkeletonCards n={3} /><Skeleton h={220} /></div>
+  const rows: any[] = staff?.staff ?? []
+  const totals = staff?.totals ?? { retail: 0, cost: 0, checks: 0 }
+  const exportCsv = () => downloadCsv(`staff_${from}_${to}.csv`, ['Сотрудник', 'Чеков', 'Товарная сумма', 'Себестоимость'],
+    rows.map((r: any) => [r.nickname ?? '—', r.checksCount ?? 0, parseNum(r.retail), parseNum(r.cost)]))
+  const maxCost = rows.length ? Math.max(...rows.map((r: any) => parseNum(r.cost))) : 1
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))', gap: 12 }}>
+        <div className="glass-l2" style={{ borderRadius: 14, padding: '16px 18px' }}>
+          <p style={{ fontSize: 22, fontWeight: 900, fontStyle: 'italic', color: '#4cd7f6', margin: '0 0 4px', lineHeight: 1 }}>{fmt(parseNum(totals.retail))} ₽</p>
+          <p style={{ fontSize: 10, color: 'var(--on-surface-variant)', margin: 0, textTransform: 'uppercase', letterSpacing: '0.06em', fontFamily: "'JetBrains Mono',monospace" }}>Товарная сумма</p>
+        </div>
+        <div className="glass-l2" style={{ borderRadius: 14, padding: '16px 18px' }}>
+          <p style={{ fontSize: 22, fontWeight: 900, fontStyle: 'italic', color: '#F59E0B', margin: '0 0 4px', lineHeight: 1 }}>{fmt(parseNum(totals.cost))} ₽</p>
+          <p style={{ fontSize: 10, color: 'var(--on-surface-variant)', margin: 0, textTransform: 'uppercase', letterSpacing: '0.06em', fontFamily: "'JetBrains Mono',monospace" }}>Себестоимость («оплачено»)</p>
+        </div>
+        <div className="glass-l2" style={{ borderRadius: 14, padding: '16px 18px' }}>
+          <p style={{ fontSize: 22, fontWeight: 900, fontStyle: 'italic', color: '#8B5CF6', margin: '0 0 4px', lineHeight: 1 }}>{totals.checks ?? 0}</p>
+          <p style={{ fontSize: 10, color: 'var(--on-surface-variant)', margin: 0, textTransform: 'uppercase', letterSpacing: '0.06em', fontFamily: "'JetBrains Mono',monospace" }}>Списаний</p>
+        </div>
+      </div>
+
+      <div className="glass-l2" style={{ borderRadius: 16, overflow: 'hidden' }}>
+        <div style={{ padding: '14px 18px', borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+          <span style={{ ...LBL, margin: 0 }}>Списания на персонал — {periodText}</span>
+          {rows.length > 0 && <ExportBtn onClick={exportCsv} />}
+        </div>
+        {rows.length === 0 ? (
+          <p style={{ padding: 28, textAlign: 'center', fontSize: 13, color: 'var(--on-surface-variant)' }}>Списаний на персонал за период нет</p>
+        ) : rows.map((r: any, i: number) => (
+          <div key={r.staffId ?? i} style={{ padding: '12px 18px', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
+              <div style={{ width: 30, height: 30, borderRadius: '50%', background: 'rgba(245,158,11,0.18)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, color: '#F59E0B', flexShrink: 0 }}>{(r.nickname ?? '??').slice(0, 2).toUpperCase()}</div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <p style={{ fontSize: 13, fontWeight: 600, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.nickname ?? '—'}</p>
+                <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: 0 }}>{r.checksCount ?? 0} списаний · товар {fmt(parseNum(r.retail))} ₽</p>
+              </div>
+              <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                <p style={{ fontSize: 14, fontWeight: 800, fontStyle: 'italic', color: '#F59E0B', margin: 0 }}>{fmt(parseNum(r.cost))} ₽</p>
+                <p style={{ fontSize: 9, color: 'var(--on-surface-variant)', margin: 0, textTransform: 'uppercase', letterSpacing: '0.05em' }}>себестоимость</p>
+              </div>
+            </div>
+            <div style={{ height: 4, borderRadius: 9999, background: 'rgba(255,255,255,0.06)', overflow: 'hidden' }}>
+              <div style={{ height: '100%', width: `${(parseNum(r.cost) / maxCost) * 100}%`, background: '#F59E0B', borderRadius: 9999 }} />
+            </div>
+          </div>
+        ))}
+      </div>
+      <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: '0 4px', lineHeight: 1.5 }}>
+        Это бесплатные чеки (списание на персонал/владельца): в выручку они идут как 0&nbsp;₽, остаток списан. Здесь — товарная сумма и себестоимость, которую сотрудник «как бы оплатил».
+      </p>
+    </div>
+  )
+}
+
 export default function DashboardPage() {
   const [activeTab, setActiveTab] = useState<MainTab>('overview')
   const period = usePeriod()
@@ -1560,6 +1619,11 @@ export default function DashboardPage() {
     queryFn: () => api.get<any>(`/analytics/clients?from=${period.from}&to=${period.to}`),
     enabled: activeTab === 'players',
   })
+  const { data: staff } = useQuery({
+    queryKey: ['analytics', 'staff', period.from, period.to],
+    queryFn: () => api.get<any>(`/analytics/staff?from=${period.from}&to=${period.to}`),
+    enabled: activeTab === 'staff',
+  })
 
   const TABS = [
     { key: 'overview' as MainTab, label: 'Обзор',          icon: 'dashboard' },
@@ -1567,6 +1631,7 @@ export default function DashboardPage() {
     { key: 'games'    as MainTab, label: 'Игры и тарифы',  icon: 'confirmation_number' },
     { key: 'bar'      as MainTab, label: 'Бар',            icon: 'inventory_2' },
     { key: 'players'  as MainTab, label: 'Игроки',         icon: 'group' },
+    { key: 'staff'    as MainTab, label: 'Персонал',       icon: 'badge' },
   ]
 
   return (
@@ -1619,6 +1684,7 @@ export default function DashboardPage() {
         {activeTab === 'games'     && <TariffsTab from={period.from} to={period.to} />}
         {activeTab === 'bar'       && <ProductsTab products={products} from={period.from} to={period.to} />}
         {activeTab === 'players'   && <PlayersTab clients={clients} />}
+        {activeTab === 'staff'     && <StaffTab staff={staff} periodText={period.label} from={period.from} to={period.to} />}
       </div>
 
       <style>{`

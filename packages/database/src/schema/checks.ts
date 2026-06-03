@@ -42,6 +42,10 @@ export const checks = pgTable('checks', {
   certificateUsed: numeric('certificate_used', { precision: 12, scale: 2 }).default('0'),
   certificateId: uuid('certificate_id'),
   discountTotal: numeric('discount_total', { precision: 12, scale: 2 }).default('0'),
+  // Списание на персонал/владельца: если задан — чек бесплатный (итог 0), товар
+  // «продан за 0₽», а в аналитике «Персонал» учитывается товарная сумма и
+  // себестоимость, которую сотрудник «как бы оплатил». Ссылка на потребителя.
+  staffCompId: uuid('staff_comp_id').references(() => profiles.id),
   spaceId: uuid('space_id').references(() => spaces.id),
   spaceStartAt: timestamp('space_start_at', { withTimezone: true }),
   spaceEndAt: timestamp('space_end_at', { withTimezone: true }),

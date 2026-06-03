@@ -248,7 +248,7 @@ analyticsRouter.get('/dashboard', async (c) => {
     .leftJoin(inventory, eq(inventory.id, checkItems.itemId))
     .leftJoin(menuCategories, eq(menuCategories.id, inventory.category))
     .leftJoin(checks, eq(checks.id, checkItems.checkId))
-    .where(and(eq(checks.status, 'closed'), gte(checks.createdAt, thirtyDaysAgo)))
+    .where(and(eq(checks.status, 'closed'), gte(checks.createdAt, thirtyDaysAgo), isNull(checks.staffCompId)))
     .groupBy(checkItems.itemId, inventory.name, menuCategories.name, inventory.category)
     .orderBy(desc(sql`sum(${checkItems.quantity}::numeric * ${checkItems.priceAtTime})`))
     .limit(20)
@@ -483,6 +483,8 @@ analyticsRouter.get('/products', zValidator('query', dateRangeQuerySchema), asyn
       eq(checks.status, 'closed'),
       gte(checks.createdAt, fromStart),
       lt(checks.createdAt, toEndExclusive),
+      // Списания на персонал (бесплатные) не учитываем в выручке бара — они в «Персонал».
+      isNull(checks.staffCompId),
     ))
     .groupBy(checkItems.itemId, inventory.name, menuCategories.name, inventory.category)
     .orderBy(desc(sql`sum(${checkItems.quantity}::numeric * ${checkItems.priceAtTime})`))
@@ -761,6 +763,37 @@ analyticsRouter.get('/segment-members', zValidator('query', z.object({ segment: 
     .map((v: any) => ({ playerId: v.playerId, nickname: v.nickname, clientTier: v.clientTier, total: parseNum(v.total), visits: v.visits, lastVisit: v.lastVisit }))
     .sort((a: any, b: any) => b.total - a.total)
   return c.json({ players })
+})
+
+// ─── Персонал: списания на сотрудников/владельца за период ─────────────────────
+// Чеки со staffCompId (бесплатные, итог 0₽). По каждому сотруднику — товарная
+// сумма (сколько бы стоило в рознице) и себестоимость («как бы оплатил»).
+analyticsRouter.get('/staff', zValidator('query', dateRangeQuerySchema), async (c) => {
+  const q = c.req.valid('query')
+  const from = q.from ?? mskDateStr(30)
+  const to = q.to ?? mskDateStr(0)
+  const pStart = mskBoundary(from)
+  const pEnd = new Date(mskBoundary(to).getTime() + 86400000)
+
+  const rows = await db.select({
+    staffId: checks.staffCompId,
+    nickname: profiles.nickname,
+    clientTier: profiles.clientTier,
+    checksCount: sql<number>`count(distinct ${checks.id})`,
+    retail: sql<number>`sum(${checkItems.quantity}::numeric * ${checkItems.priceAtTime})`,
+    cost: sql<number>`sum(${checkItems.quantity}::numeric * coalesce(${inventory.costPrice}, 0)::numeric)`,
+  })
+    .from(checks)
+    .innerJoin(checkItems, eq(checkItems.checkId, checks.id))
+    .leftJoin(inventory, eq(inventory.id, checkItems.itemId))
+    .leftJoin(profiles, eq(profiles.id, checks.staffCompId))
+    .where(and(eq(checks.status, 'closed'), isNotNull(checks.staffCompId), gte(checks.createdAt, pStart), lt(checks.createdAt, pEnd)))
+    .groupBy(checks.staffCompId, profiles.nickname, profiles.clientTier)
+    .orderBy(desc(sql`sum(${checkItems.quantity}::numeric * coalesce(${inventory.costPrice}, 0)::numeric)`))
+
+  const staff = rows.map((r: any) => ({ staffId: r.staffId, nickname: r.nickname ?? '—', clientTier: r.clientTier, checksCount: r.checksCount ?? 0, retail: parseNum(r.retail), cost: parseNum(r.cost) }))
+  const totals = staff.reduce((a, s) => ({ retail: a.retail + s.retail, cost: a.cost + s.cost, checks: a.checks + (s.checksCount || 0) }), { retail: 0, cost: 0, checks: 0 })
+  return c.json({ staff, totals, period: { from, to } })
 })
 
 // ─── Карточка игрока: статистика визитов/трат + последние чеки ─────────────────

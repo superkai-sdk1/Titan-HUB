@@ -1208,6 +1208,47 @@ posRouter.post('/checks/:id/discount/:discountId/restore', requireRole('owner', 
   return c.json({ check: data })
 })
 
+// Списание на персонал/владельца (100%): закрываем чек бесплатно (итог 0₽).
+// Остаток уже списан при добавлении позиций. Товар «продан за 0₽», а в аналитике
+// «Персонал» учитывается товарная сумма и себестоимость по staffCompId.
+posRouter.post('/checks/:id/comp', requireRole('owner', 'staff'), zValidator('json', z.object({ staffId: z.string().uuid().optional() })), async (c) => {
+  const checkId = c.req.param('id')
+  const user = c.get('user')
+  const { staffId } = c.req.valid('json')
+  const consumerId = staffId ?? user.sub
+  try {
+    await db.transaction(async (tx) => {
+      const [check] = await tx.select().from(checks).where(eq(checks.id, checkId)).for('update')
+      if (!check || check.status !== 'open') throw new Error('CHECK_NOT_OPEN')
+      const [consumer] = await tx.select({ id: profiles.id, role: profiles.role }).from(profiles).where(eq(profiles.id, consumerId))
+      if (!consumer || !['owner', 'staff'].includes(consumer.role)) throw new Error('NOT_STAFF')
+      // Товарная сумма (до обнуления) — кладём в discountTotal для отображения «−100%».
+      const itemRows = await tx.select().from(checkItems).where(eq(checkItems.checkId, checkId))
+      const ciIds = itemRows.map(i => i.id)
+      const modRows = ciIds.length ? await tx.select().from(checkItemModifiers).where(inArray(checkItemModifiers.checkItemId, ciIds)) : []
+      const discRows = await tx.select().from(checkDiscounts).where(eq(checkDiscounts.checkId, checkId))
+      const { total: base } = computeTotals(itemRows, modRows, discRows)
+      await tx.update(checks).set({
+        status: 'closed',
+        closedAt: new Date(),
+        staffCompId: consumerId,
+        totalAmount: '0',
+        discountTotal: String(round2(base)),
+        paymentMethod: null,
+      }).where(eq(checks.id, checkId))
+    })
+  } catch (err: any) {
+    if (err.message === 'CHECK_NOT_OPEN') return c.json({ error: 'Check not open' }, 400)
+    if (err.message === 'NOT_STAFF') return c.json({ error: 'Списание возможно только на сотрудника или владельца' }, 400)
+    console.error('POST /checks/:id/comp error:', err)
+    return c.json({ error: 'Internal error' }, 500)
+  }
+  publishEvent('check:paid', { checkId })
+  publishEvent('check:closed', { checkId })
+  const data = await getCheckWithItems(checkId)
+  return c.json({ check: data })
+})
+
 posRouter.post('/checks/:id/qr', requireRole('owner', 'staff', 'tablet'), async (c) => {
   const checkId = c.req.param('id')
   const user = c.get('user')

@@ -257,6 +257,7 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
   const [showDiscount, setShowDiscount] = useState(false)
   const [discType, setDiscType] = useState<'percent' | 'fixed'>('percent')
   const [discValue, setDiscValue] = useState('')
+  const [compConfirm, setCompConfirm] = useState(false)  // подтверждение списания на персонал
 
   // Payment drawer state
   const [payScreen, setPayScreen] = useState<PayScreen>('methods')
@@ -636,6 +637,13 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
   const removeDiscount = useMutation({
     mutationFn: (discountId: string) => api.delete<{ check: CheckData }>(`/pos/checks/${checkId}/discount/${discountId}`),
     onSuccess: writeCheck,
+    onError: toastError,
+  })
+  // Списание на персонал/владельца (100%): чек закрывается бесплатно (итог 0₽),
+  // остаток уже списан; в аналитике «Персонал» учтётся товарная сумма и себестоимость.
+  const compStaff = useMutation({
+    mutationFn: () => api.post<{ check: CheckData }>(`/pos/checks/${checkId}/comp`, {}),
+    onSuccess: (res) => { writeCheck(res); setShowDiscount(false); setCompConfirm(false); qc.invalidateQueries({ queryKey: ['checks', 'active'] }) },
     onError: toastError,
   })
   // Вернуть снятую авто/тир-скидку (по discountId из excludedDiscounts).
@@ -1230,7 +1238,7 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
                   <span className="check-pay-add-label">Добавить</span>
                 </button>
                 <button
-                  onClick={() => { setDiscType('percent'); setDiscValue(''); setShowDiscount(true) }}
+                  onClick={() => { setDiscType('percent'); setDiscValue(''); setCompConfirm(false); setShowDiscount(true) }}
                   className="check-pay-add"
                   aria-label="Добавить скидку"
                   title="Скидка"
@@ -1431,6 +1439,23 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
                 disabled={applyDiscount.isPending || !(parseFloat(discValue) > 0)}
                 style={{ flex: 1, padding: '13px 0', borderRadius: 14, border: 'none', background: 'linear-gradient(135deg, #34D399, #10B981)', color: '#fff', fontSize: 13, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.06em', cursor: 'pointer', opacity: (applyDiscount.isPending || !(parseFloat(discValue) > 0)) ? 0.5 : 1 }}
               >{applyDiscount.isPending ? '...' : 'Применить'}</button>
+            </div>
+
+            {/* Списание на персонал/владельца — 100% бесплатно (закрывает чек). */}
+            <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+              {!compConfirm ? (
+                <button type="button" onClick={() => setCompConfirm(true)} style={{ width: '100%', padding: '13px 0', borderRadius: 14, border: '1px solid rgba(245,158,11,0.4)', background: 'rgba(245,158,11,0.1)', color: '#F59E0B', fontSize: 13, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                  <Icon name="badge" size={16} /> Списать на персонал (100%, бесплатно)
+                </button>
+              ) : (
+                <div>
+                  <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: '0 0 10px', textAlign: 'center' }}>Закрыть чек бесплатно как списание на персонал? Остаток уже списан, сумма станет 0&nbsp;₽.</p>
+                  <div style={{ display: 'flex', gap: 10 }}>
+                    <button type="button" onClick={() => setCompConfirm(false)} disabled={compStaff.isPending} style={{ flex: 1, padding: '13px 0', borderRadius: 14, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.04)', color: 'var(--on-surface)', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>Отмена</button>
+                    <button type="button" onClick={() => compStaff.mutate()} disabled={compStaff.isPending} style={{ flex: 1, padding: '13px 0', borderRadius: 14, border: 'none', background: 'linear-gradient(135deg, #F59E0B, #D97706)', color: '#fff', fontSize: 13, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.06em', cursor: 'pointer', opacity: compStaff.isPending ? 0.5 : 1 }}>{compStaff.isPending ? '...' : 'Списать'}</button>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Снятые авто/тир-скидки — отдельным блоком, можно вернуть. */}
