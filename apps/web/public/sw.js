@@ -67,7 +67,10 @@ self.addEventListener('push', (event) => {
   const title = payload.title || 'Titan HUB'
   const body = payload.body || ''
   const url = payload.url || '/'
-  const tag = payload.type || undefined
+  // Группировка на уровне ОС «по объекту»: один и тот же объект (groupKey) заменяет
+  // предыдущее системное уведомление, а не плодит новые. renotify — чтобы обновление
+  // (новый ×N) снова подсветилось. Фоллбэк — тип уведомления.
+  const tag = (payload.meta && payload.meta.groupKey) || payload.type || undefined
   event.waitUntil(
     self.registration.showNotification(title, {
       body,
@@ -75,6 +78,7 @@ self.addEventListener('push', (event) => {
       badge: '/icon-192.png',
       data: { url, meta: payload.meta },
       tag,
+      renotify: !!tag,
     })
   )
 })

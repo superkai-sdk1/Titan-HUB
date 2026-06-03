@@ -9,10 +9,11 @@
  *    при открытии важные помечаются прочитанными (тряска прекращается).
  */
 import { useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import { Icon } from '@/components/Icon'
 import { Sheet } from '@/components/manage/DesignSystem'
 import {
-  useNotifications, notifIcon, notifColor, type AppNotification,
+  useNotifications, notifIcon, notifColor, notifUrl, type AppNotification,
 } from '@/components/NotificationsProvider'
 
 function formatTime(iso: string): string {
@@ -30,6 +31,7 @@ function formatTime(iso: string): string {
 
 export function NotificationBell() {
   const { unreadCount, hasImportantUnread, markRead, markAllRead, notifications } = useNotifications()
+  const router = useRouter()
   const [open, setOpen] = useState(false)
   const [shaking, setShaking] = useState(false)
 
@@ -45,14 +47,24 @@ export function NotificationBell() {
     return () => { clearTimeout(off); clearInterval(interval) }
   }, [hasImportantUnread])
 
-  // Открытие центра — гасим важные (тряска прекращается).
-  const openCenter = () => {
-    setOpen(true)
-    if (hasImportantUnread) {
-      notifications.forEach((n) => {
-        if (!n.isRead && (n.type === 'staff_call' || n.type === 'request_bill')) markRead(n.id)
-      })
-    }
+  const openCenter = () => setOpen(true)
+
+  // «Прочитано при просмотре»: пока центр открыт, через ~1.2с помечаем всё
+  // показанное прочитанным — тапать каждое не нужно. Новые уведомления, пришедшие
+  // при открытом центре, тоже погасятся (эффект перезапустится по unreadCount).
+  useEffect(() => {
+    if (!open || unreadCount === 0) return
+    const t = setTimeout(() => markAllRead(), 1200)
+    return () => clearTimeout(t)
+  }, [open, unreadCount, markAllRead])
+
+  // Переход по уведомлению — на нужный экран (и в приложении, и из PWA-пуша это
+  // один и тот же маршрут notifUrl). Сразу помечаем прочитанным и закрываем центр.
+  const openItem = (n: AppNotification) => {
+    markRead(n.id)
+    setOpen(false)
+    const url = notifUrl(n)
+    if (url && url !== '/') router.push(url)
   }
 
   return (
@@ -101,7 +113,7 @@ export function NotificationBell() {
         onClose={() => setOpen(false)}
         notifications={notifications}
         unreadCount={unreadCount}
-        onMarkRead={markRead}
+        onOpenItem={openItem}
         onMarkAllRead={markAllRead}
       />
     </>
@@ -109,13 +121,13 @@ export function NotificationBell() {
 }
 
 function NotificationCenter({
-  open, onClose, notifications, unreadCount, onMarkRead, onMarkAllRead,
+  open, onClose, notifications, unreadCount, onOpenItem, onMarkAllRead,
 }: {
   open: boolean
   onClose: () => void
   notifications: AppNotification[]
   unreadCount: number
-  onMarkRead: (id: string) => void
+  onOpenItem: (n: AppNotification) => void
   onMarkAllRead: () => void
 }) {
   return (
@@ -153,23 +165,32 @@ function NotificationCenter({
           notifications.map((n) => {
             const icon = notifIcon(n.type)
             const color = notifColor(n.type)
+            const count = Number((n.meta as Record<string, unknown> | undefined)?.['count'] ?? 1)
             return (
               <button
                 key={n.id}
-                onClick={() => { if (!n.isRead) onMarkRead(n.id) }}
+                onClick={() => onOpenItem(n)}
                 style={{
                   display: 'flex', gap: 12, alignItems: 'flex-start', textAlign: 'left',
-                  padding: '12px 14px', borderRadius: 14, width: '100%',
-                  cursor: n.isRead ? 'default' : 'pointer',
+                  padding: '12px 14px', borderRadius: 14, width: '100%', cursor: 'pointer',
                   background: n.isRead ? 'rgba(255,255,255,0.03)' : `${color}14`,
                   border: `1px solid ${n.isRead ? 'rgba(255,255,255,0.06)' : `${color}40`}`,
                 }}
               >
                 <div style={{
+                  position: 'relative',
                   width: 36, height: 36, borderRadius: 10, background: `${color}22`,
                   display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
                 }}>
                   <Icon name={icon} size={20} color={color} />
+                  {count > 1 && (
+                    <span style={{
+                      position: 'absolute', top: -6, right: -6, minWidth: 16, height: 16, padding: '0 4px',
+                      borderRadius: 999, background: color, color: '#fff',
+                      fontSize: 10, fontWeight: 800, lineHeight: '16px', textAlign: 'center',
+                      boxShadow: '0 0 0 2px var(--surface, #1d1a24)',
+                    }}>×{count > 99 ? '99+' : count}</span>
+                  )}
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -182,9 +203,10 @@ function NotificationCenter({
                     )}
                   </div>
                   <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: '2px 0 0' }}>{n.body}</p>
-                  <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', opacity: 0.7, margin: '4px 0 0' }}>
-                    {formatTime(n.createdAt)}
-                  </p>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, margin: '4px 0 0' }}>
+                    <span style={{ fontSize: 11, color: 'var(--on-surface-variant)', opacity: 0.7 }}>{formatTime(n.createdAt)}</span>
+                    <Icon name="chevron_right" size={14} color="var(--on-surface-variant)" />
+                  </div>
                 </div>
               </button>
             )

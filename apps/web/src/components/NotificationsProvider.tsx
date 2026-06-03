@@ -18,7 +18,7 @@
 import {
   createContext, useContext, useState, useEffect, useRef, useCallback, useMemo,
 } from 'react'
-import { usePathname } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useAuthStore } from '@/store/auth.store'
 import { api } from '@/lib/api'
@@ -58,15 +58,74 @@ export const NOTIF_ICONS: Record<string, string> = {
   request_bill: 'receipt_long',
   client_order: 'room_service',
   chat_message: 'chat',
+  check_paid: 'payments',
+  large_check: 'payments',
+  check_opened: 'receipt_long',
+  rental_started: 'schedule',
+  low_stock: 'warning',
+  refund: 'undo',
+  large_refund: 'undo',
+  supply_received: 'local_shipping',
+  shift_open: 'schedule',
+  shift_close: 'schedule',
+  cash_discrepancy: 'account_balance_wallet',
+  birthday: 'card_giftcard',
+  event_created: 'event',
+  event_completed: 'event',
+  new_client: 'group',
+  debt_created: 'account_balance_wallet',
+  deposit_topup: 'account_balance_wallet',
+  certificate_used: 'card_giftcard',
 }
 export const NOTIF_COLORS: Record<string, string> = {
   staff_call: '#F59E0B',
   request_bill: '#10B981',
   client_order: '#8B5CF6',
   chat_message: '#4cd7f6',
+  check_paid: '#10B981',
+  large_check: '#34D399',
+  check_opened: '#8B5CF6',
+  rental_started: '#8B5CF6',
+  low_stock: '#F43F5E',
+  refund: '#F59E0B',
+  large_refund: '#F87171',
+  supply_received: '#34D399',
+  shift_open: '#4cd7f6',
+  shift_close: '#4cd7f6',
+  cash_discrepancy: '#F59E0B',
+  birthday: '#EC4899',
+  event_created: '#A78BFA',
+  event_completed: '#A78BFA',
+  new_client: '#60A5FA',
+  debt_created: '#F43F5E',
+  deposit_topup: '#10B981',
+  certificate_used: '#14B8A6',
 }
 export function notifIcon(type: string) { return NOTIF_ICONS[type] ?? 'notifications' }
 export function notifColor(type: string) { return NOTIF_COLORS[type] ?? '#A78BFA' }
+
+// Зеркало серверного resolveNotifUrl (push.ts): целевой экран для перехода по
+// уведомлению. Новые уведомления уже несут meta.url; этот фоллбэк покрывает старые.
+export function notifUrl(n: { type: string; meta?: Record<string, unknown> }): string {
+  const meta = (n.meta ?? {}) as Record<string, unknown>
+  if (typeof meta['url'] === 'string' && meta['url']) return meta['url'] as string
+  const checkId = typeof meta['checkId'] === 'string' ? (meta['checkId'] as string) : null
+  switch (n.type) {
+    case 'low_stock': return '/manage/inventory'
+    case 'supply_received': return '/manage/supplies'
+    case 'shift_open': case 'shift_close': case 'cash_discrepancy': return '/shifts'
+    case 'event_created': case 'event_completed': return '/events'
+    case 'new_client': case 'birthday': return '/manage/clients'
+    case 'staff_call': return checkId ? `/pos/${checkId}` : '/pos'
+  }
+  if (checkId) return `/pos/${checkId}`
+  if (typeof meta['itemId'] === 'string') return '/manage/inventory'
+  if (typeof meta['supplyId'] === 'string') return '/manage/supplies'
+  if (typeof meta['eventId'] === 'string') return '/events'
+  if (typeof meta['playerId'] === 'string') return '/manage/clients'
+  if (typeof meta['spaceId'] === 'string') return '/pos'
+  return '/'
+}
 
 function playChime() {
   if (typeof window === 'undefined' || !('AudioContext' in window)) return
@@ -86,6 +145,7 @@ function playChime() {
 export function NotificationsProvider({ children }: { children: React.ReactNode }) {
   const { token, user } = useAuthStore()
   const pathname = usePathname()
+  const router = useRouter()
   const [notifications, setNotifications] = useState<AppNotification[]>([])
   const [toasts, setToasts] = useState<TransientToast[]>([])
   // id уже виденных уведомлений — защита от дублей (load + SSE re-emit одного и того же).
@@ -125,11 +185,12 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
       stream.onmessage = (e) => {
         try {
           const data = JSON.parse(e.data) as AppNotification
-          if (seenRef.current.has(data.id)) return
-          seenRef.current.add(data.id)
           const incoming: AppNotification = { ...data, isRead: false }
-          setNotifications((prev) => [incoming, ...prev])
-          setToasts((prev) => [...prev, { ...incoming, shownAt: Date.now() }])
+          // Upsert по id: при группировке «по объекту» сервер обновляет ту же запись
+          // (тот же id, новый count) — заменяем её на месте и поднимаем наверх,
+          // а не плодим дубль.
+          setNotifications((prev) => [incoming, ...prev.filter((n) => n.id !== incoming.id)])
+          setToasts((prev) => [...prev.filter((t) => t.id !== incoming.id), { ...incoming, shownAt: Date.now() }])
           playChime()
         } catch {}
       }
@@ -154,6 +215,16 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
   const dismissToast = useCallback((id: string) => {
     setToasts((prev) => prev.filter((tt) => tt.id !== id))
   }, [])
+
+  // Тап по нижней карточке — переход на нужный экран (как и из PWA-пуша), плюс
+  // пометка прочитанным.
+  const openToast = useCallback((t: AppNotification) => {
+    setToasts((prev) => prev.filter((tt) => tt.id !== t.id))
+    setNotifications((prev) => prev.map((n) => (n.id === t.id ? { ...n, isRead: true } : n)))
+    api.put(`/notifications/${t.id}/read`).catch(() => {})
+    const url = notifUrl(t)
+    if (url && url !== '/') router.push(url)
+  }, [router])
 
   const markRead = useCallback((id: string) => {
     setNotifications((prev) => {
@@ -204,7 +275,7 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
   return (
     <NotificationsContext.Provider value={value}>
       {children}
-      <TransientToasts toasts={toasts} onDismiss={dismissToast} />
+      <TransientToasts toasts={toasts} onDismiss={dismissToast} onOpen={openToast} />
     </NotificationsContext.Provider>
   )
 }
@@ -216,7 +287,7 @@ export function useNotifications() {
 }
 
 // ── Нижние временные карточки (над навигацией) ────────────────────────────
-function TransientToasts({ toasts, onDismiss }: { toasts: TransientToast[]; onDismiss: (id: string) => void }) {
+function TransientToasts({ toasts, onDismiss, onOpen }: { toasts: TransientToast[]; onDismiss: (id: string) => void; onOpen: (n: AppNotification) => void }) {
   return (
     <div style={{
       position: 'fixed',
@@ -236,7 +307,7 @@ function TransientToasts({ toasts, onDismiss }: { toasts: TransientToast[]; onDi
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 8, scale: 0.95 }}
               transition={{ type: 'spring', damping: 25, stiffness: 350 }}
-              onClick={() => onDismiss(t.id)}
+              onClick={() => onOpen(t)}
               style={{
                 padding: '14px 16px', borderRadius: 16,
                 background: 'rgba(29,26,36,0.96)', backdropFilter: 'blur(24px)', WebkitBackdropFilter: 'blur(24px)',
@@ -256,6 +327,13 @@ function TransientToasts({ toasts, onDismiss }: { toasts: TransientToast[]; onDi
                 <p style={{ fontSize: 13, fontWeight: 700, margin: '0 0 2px', color: 'var(--on-surface)' }}>{t.title}</p>
                 <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: 0 }}>{t.body}</p>
               </div>
+              <button
+                onClick={(e) => { e.stopPropagation(); onDismiss(t.id) }}
+                aria-label="Закрыть"
+                style={{ flexShrink: 0, width: 24, height: 24, borderRadius: 8, border: 'none', background: 'rgba(255,255,255,0.06)', color: 'var(--on-surface-variant)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: -2, marginRight: -4 }}
+              >
+                <Icon name="close" size={14} />
+              </button>
             </motion.div>
           )
         })}

@@ -1,12 +1,13 @@
 'use client'
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api, ApiError } from '@/lib/api'
 import { Icon } from '@/components/Icon'
-import { PageHeader, Toggle } from '@/components/manage/DesignSystem'
+import { PageHeader, Toggle, INP } from '@/components/manage/DesignSystem'
 import { StateView } from '@/components/StateView'
 import { useToast } from '@/components/Toast'
 import { getPushStatus, enablePush, disablePush, type PushStatus } from '@/lib/push'
+import { useAuthStore } from '@/store/auth.store'
 
 // Описание типа уведомления с бэкенда (GET /notifications/types).
 interface NotifType {
@@ -108,6 +109,30 @@ export default function NotificationsPage() {
     mutationFn: () => api.post('/notifications/push/test'),
     onSuccess: () => show('Тестовое уведомление отправлено', 'success'),
     onError: () => show('Не удалось отправить тест', 'error'),
+  })
+
+  // ─── Настраиваемые пороги сумм (крупный чек / крупный возврат) — только владелец ─
+  const isOwner = useAuthStore((s) => s.user?.role) === 'owner'
+  const { data: appSettingsData } = useQuery({
+    queryKey: ['system', 'settings'],
+    queryFn: () => api.get<{ settings: Record<string, string> }>('/system/settings'),
+    enabled: isOwner,
+  })
+  const [largeCheck, setLargeCheck] = useState('')
+  const [largeRefund, setLargeRefund] = useState('')
+  useEffect(() => {
+    const s = appSettingsData?.settings
+    if (!s) return
+    setLargeCheck((prev) => (prev === '' ? (s['large_check_threshold'] ?? '3000') : prev))
+    setLargeRefund((prev) => (prev === '' ? (s['large_refund_threshold'] ?? '3000') : prev))
+  }, [appSettingsData])
+  const saveThresholds = useMutation({
+    mutationFn: () => api.patch('/system/settings', {
+      large_check_threshold: String(Math.max(0, parseInt(largeCheck) || 0)),
+      large_refund_threshold: String(Math.max(0, parseInt(largeRefund) || 0)),
+    }),
+    onSuccess: () => { show('Пороги сохранены', 'success'); qc.invalidateQueries({ queryKey: ['system', 'settings'] }) },
+    onError: () => show('Не удалось сохранить пороги', 'error'),
   })
 
   const notifTypes: NotifType[] = typesData?.types ?? []
@@ -254,6 +279,38 @@ export default function NotificationsPage() {
             <p style={{ fontSize: 12.5, color: 'var(--on-surface)', margin: 0, lineHeight: 1.5 }}>
               На iPhone push-уведомления работают только после установки приложения на главный экран. Откройте меню «Поделиться» в Safari и выберите «На экран „Домой“».
             </p>
+          </div>
+        )}
+
+        {/* ─── Пороги сумм (настраиваемые) — только владелец ──────────────── */}
+        {isOwner && (
+          <div className="glass-l2" style={{ borderRadius: 16, padding: '16px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
+              <div style={{ width: 44, height: 44, borderRadius: 12, background: 'rgba(52,211,153,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <Icon name="payments" size={22} color="#34D399" />
+              </div>
+              <div style={{ minWidth: 0 }}>
+                <p style={{ fontSize: 15, fontWeight: 700, margin: 0, color: 'var(--on-surface)' }}>Пороги «крупных» сумм</p>
+                <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: '2px 0 0', lineHeight: 1.4 }}>С какой суммы чек/возврат считается крупным и шлёт уведомление «Крупный…».</p>
+              </div>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--on-surface-variant)', display: 'block', marginBottom: 6 }}>Крупный чек, ₽</label>
+                <input type="number" inputMode="numeric" min={0} value={largeCheck} onChange={(e) => setLargeCheck(e.target.value)} style={INP} placeholder="3000" />
+              </div>
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--on-surface-variant)', display: 'block', marginBottom: 6 }}>Крупный возврат, ₽</label>
+                <input type="number" inputMode="numeric" min={0} value={largeRefund} onChange={(e) => setLargeRefund(e.target.value)} style={INP} placeholder="3000" />
+              </div>
+            </div>
+            <button
+              onClick={() => saveThresholds.mutate()}
+              disabled={saveThresholds.isPending}
+              style={{ width: '100%', marginTop: 14, padding: '12px 0', borderRadius: 12, border: 'none', cursor: 'pointer', background: 'linear-gradient(135deg, #8B5CF6, #4cd7f6)', color: '#fff', fontSize: 14, fontWeight: 700, opacity: saveThresholds.isPending ? 0.6 : 1 }}
+            >
+              {saveThresholds.isPending ? 'Сохраняем…' : 'Сохранить пороги'}
+            </button>
           </div>
         )}
       </div>

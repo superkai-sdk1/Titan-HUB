@@ -13,6 +13,7 @@ import { getCurrentShift } from '../shifts/shifts.service.js'
 import { notify, notifyClient } from '../notifications/push.js'
 import { maybePromoteToResident } from '../../lib/loyalty.js'
 import { accrueBonusLot, spendBonusLots, getBonusExpiryDays } from '../../lib/bonusLots.js'
+import { getNumericSetting, LARGE_CHECK_KEY, DEFAULT_LARGE_CHECK } from '../../lib/appSettings.js'
 import { round2, computeRental, computeTotals } from '../../lib/money.js'
 import { Redis } from 'ioredis'
 import { streamSSE } from 'hono/streaming'
@@ -1576,36 +1577,19 @@ posRouter.post('/checks/:id/pay', requireRole('owner', 'staff'), zValidator('jso
 
     // Уведомления вне денежной транзакции (fire-and-forget, не блокируют ответ).
     const paidTotal = parseFloat(String(closedCheck?.totalAmount ?? 0)) || 0
+    // ОДНО сводное уведомление о закрытии чека вместо 3–4 (оплата/крупный/сертификат/
+    // долг несли близкий смысл и раздували ленту). Порог «крупного» — настраиваемый.
+    const largeThreshold = await getNumericSetting(LARGE_CHECK_KEY, DEFAULT_LARGE_CHECK)
+    const isLargeCheck = paidTotal >= largeThreshold
+    const checkExtras: string[] = []
+    if ((closed?.certSent ?? 0) > 0.005) checkExtras.push(`сертификат ${Number(closed!.certSent).toLocaleString('ru')} ₽`)
+    if ((closed?.debtAmount ?? 0) > 0) checkExtras.push(`в долг ${Number(closed!.debtAmount).toLocaleString('ru')} ₽`)
     void notify({
-      type: 'check_paid',
-      title: 'Чек оплачен',
-      body: `${paidTotal} ₽`,
-      meta: { checkId },
+      type: isLargeCheck ? 'large_check' : 'check_paid',
+      title: isLargeCheck ? 'Крупный чек оплачен' : 'Чек оплачен',
+      body: `${paidTotal.toLocaleString('ru')} ₽${checkExtras.length ? ' · ' + checkExtras.join(' · ') : ''}`,
+      meta: { checkId, playerId: closed?.playerId ?? undefined },
     }).catch(() => {})
-    if (paidTotal >= 3000) {
-      void notify({
-        type: 'large_check',
-        title: 'Крупный чек',
-        body: `${paidTotal} ₽`,
-        meta: { checkId },
-      }).catch(() => {})
-    }
-    if ((closed?.certSent ?? 0) > 0.005) {
-      void notify({
-        type: 'certificate_used',
-        title: 'Сертификат',
-        body: `${closed!.certSent} ₽`,
-        meta: { checkId },
-      }).catch(() => {})
-    }
-    if ((closed?.debtAmount ?? 0) > 0) {
-      void notify({
-        type: 'debt_created',
-        title: 'Оплата в долг',
-        body: `${closed!.debtAmount} ₽`,
-        meta: { checkId, playerId: closed!.playerId },
-      }).catch(() => {})
-    }
     // Личные уведомления клиенту в Wallet-бот (о ЕГО событиях).
     if (closed?.playerId) {
       const pid = closed.playerId

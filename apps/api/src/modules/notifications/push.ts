@@ -2,10 +2,44 @@ import webpush from 'web-push'
 import { Redis } from 'ioredis'
 import {
   db, notifications, userNotificationSettings, pushSubscriptions, profiles,
-  eq, and, inArray, isNull,
+  eq, and, inArray, isNull, desc, gt, sql,
 } from '@titan/database'
 
 const NOTIF_CHANNEL = 'titan:staff-notifications'
+
+// ── Deep-link: единая карта «тип+meta → экран приложения» ──────────────────────
+// Используется и для in-app перехода (meta.url хранится в записи), и для PWA-push.
+// Маршруты должны совпадать с реальными путями фронта (apps/web/src/app/*).
+export function resolveNotifUrl(type: string, meta: Record<string, unknown> = {}): string {
+  if (typeof meta['url'] === 'string' && meta['url']) return meta['url'] as string
+  const checkId = typeof meta['checkId'] === 'string' ? (meta['checkId'] as string) : null
+  switch (type) {
+    case 'low_stock': return '/manage/inventory'
+    case 'supply_received': return '/manage/supplies'
+    case 'shift_open': case 'shift_close': case 'cash_discrepancy': return '/shifts'
+    case 'event_created': case 'event_completed': return '/events'
+    case 'new_client': case 'birthday': return '/manage/clients'
+    case 'staff_call': return checkId ? `/pos/${checkId}` : '/pos'
+  }
+  if (checkId) return `/pos/${checkId}`
+  if (typeof meta['itemId'] === 'string') return '/manage/inventory'
+  if (typeof meta['supplyId'] === 'string') return '/manage/supplies'
+  if (typeof meta['eventId'] === 'string') return '/events'
+  if (typeof meta['playerId'] === 'string') return '/manage/clients'
+  if (typeof meta['spaceId'] === 'string') return '/pos'
+  return '/'
+}
+
+// Ключ группировки «по объекту»: одинаковый тип по одному объекту (чек/товар/зона/
+// событие/закупка/клиент) сворачивается в одну запись со счётчиком. Без объекта
+// (напр. открытие/закрытие смены) — не группируем.
+function groupKeyFor(type: string, meta: Record<string, unknown>): string | null {
+  const entity = ['checkId', 'itemId', 'spaceId', 'eventId', 'supplyId', 'playerId']
+    .map((k) => (typeof meta[k] === 'string' ? (meta[k] as string) : null))
+    .find(Boolean)
+  return entity ? `${type}:${entity}` : null
+}
+const GROUP_WINDOW_MS = 12 * 60 * 60 * 1000
 
 // ── VAPID init ─────────────────────────────────────────────────────────────
 // Поднимаем web-push только если есть все три переменные. Иначе sendWebPush —
@@ -167,16 +201,7 @@ function buildPushPayload(opts: {
   meta?: Record<string, unknown>
 }): string {
   const meta = opts.meta ?? {}
-  // Deep link: если в meta есть готовый url — берём его, иначе пытаемся собрать
-  // из известных идентификаторов, иначе '/'.
-  let url = '/'
-  if (typeof meta['url'] === 'string') {
-    url = meta['url'] as string
-  } else if (typeof meta['checkId'] === 'string') {
-    url = `/pos/checks/${meta['checkId']}`
-  } else if (typeof meta['itemId'] === 'string') {
-    url = '/inventory'
-  }
+  const url = resolveNotifUrl(opts.type, meta)
   return JSON.stringify({
     title: opts.title,
     body: opts.body,
@@ -217,17 +242,52 @@ export async function notify(opts: {
 }): Promise<void> {
   const targetUserId = opts.userId ?? null
   try {
-    // 1) Persist
-    const [row] = await db
-      .insert(notifications)
-      .values({
-        type: opts.type,
-        title: opts.title,
-        body: opts.body,
-        meta: opts.meta ?? {},
-        userId: targetUserId,
-      })
-      .returning()
+    // 0) Обогащаем meta: deep-link url + ключ группировки «по объекту».
+    const baseMeta: Record<string, unknown> = { ...(opts.meta ?? {}) }
+    baseMeta['url'] = resolveNotifUrl(opts.type, baseMeta)
+    const gk = groupKeyFor(opts.type, baseMeta)
+
+    // 1) Persist с группировкой: если есть свежая (≤12ч) запись с тем же groupKey
+    //    в той же области видимости — обновляем её (счётчик ×N, свежий текст/время,
+    //    снова непрочитана), иначе вставляем новую. Так похожие уведомления по
+    //    одному объекту не плодятся.
+    let row
+    if (gk) {
+      baseMeta['groupKey'] = gk
+      const [existing] = await db
+        .select()
+        .from(notifications)
+        .where(and(
+          sql`${notifications.meta}->>'groupKey' = ${gk}`,
+          targetUserId ? eq(notifications.userId, targetUserId) : isNull(notifications.userId),
+          gt(notifications.createdAt, new Date(Date.now() - GROUP_WINDOW_MS)),
+        ))
+        .orderBy(desc(notifications.createdAt))
+        .limit(1)
+      if (existing) {
+        const prevCount = Number((existing.meta as Record<string, unknown> | null)?.['count'] ?? 1)
+        const mergedMeta = { ...baseMeta, count: prevCount + 1 }
+        ;[row] = await db
+          .update(notifications)
+          .set({ title: opts.title, body: opts.body, meta: mergedMeta, isRead: false, createdAt: new Date() })
+          .where(eq(notifications.id, existing.id))
+          .returning()
+      }
+    }
+    if (!row) {
+      ;[row] = await db
+        .insert(notifications)
+        .values({
+          type: opts.type,
+          title: opts.title,
+          body: opts.body,
+          meta: { ...baseMeta, count: 1 },
+          userId: targetUserId,
+        })
+        .returning()
+    }
+    // Дальше используем обогащённую meta (url/count) для push/SSE/telegram.
+    opts.meta = (row?.meta as Record<string, unknown>) ?? baseMeta
 
     // 2) Redis SSE (та же форма, что использовал publishStaffNotification)
     if (row) {

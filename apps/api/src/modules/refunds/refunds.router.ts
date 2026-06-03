@@ -7,6 +7,7 @@ import { requireAuth, requireRole } from '../../middleware/auth.js'
 import { accrueBonusLot, spendBonusLots, getBonusExpiryDays } from '../../lib/bonusLots.js'
 import { round2 } from '../../lib/money.js'
 import { notify } from '../notifications/push.js'
+import { getNumericSetting, LARGE_REFUND_KEY, DEFAULT_LARGE_REFUND } from '../../lib/appSettings.js'
 
 const TENDER_METHODS = ['cash', 'card', 'transfer', 'deposit', 'bonus', 'certificate', 'debt'] as const
 
@@ -251,10 +252,12 @@ refundsRouter.post('/', requireRole('owner', 'staff'), zValidator('json', Refund
 
     // Уведомление вне денежной транзакции (fire-and-forget, не блокирует ответ).
     const refundAmt = parseFloat(String(refund?.totalAmount ?? 0)) || 0
+    const largeRefund = await getNumericSetting(LARGE_REFUND_KEY, DEFAULT_LARGE_REFUND)
+    const isLargeRefund = refundAmt >= largeRefund
     void notify({
-      type: 'refund',
-      title: 'Возврат',
-      body: `${refundAmt} ₽`,
+      type: isLargeRefund ? 'large_refund' : 'refund',
+      title: isLargeRefund ? 'Крупный возврат' : 'Возврат',
+      body: `${refundAmt.toLocaleString('ru')} ₽`,
       meta: { checkId: body.checkId },
     }).catch(() => {})
 
