@@ -2,7 +2,7 @@ import type { AppEnv } from '../../types.js'
 import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
-import { db, salaryPayments, shifts, checks, checkPayments, cashOperations, profiles, eq, and, desc, sum, gte, lte, lt } from '@titan/database'
+import { db, salaryPayments, shifts, checks, checkPayments, cashOperations, profiles, eq, and, desc, sum, gte, lte, lt, sql } from '@titan/database'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
 import { getCurrentShift } from '../shifts/shifts.service.js'
 
@@ -10,7 +10,8 @@ import { getCurrentShift } from '../shifts/shifts.service.js'
 // Достаём его в отдельное поле period, остаток оставляем как комментарий.
 function splitNote(note: string | null): { period: string | null; note: string | null } {
   if (!note) return { period: null, note: null }
-  const m = note.match(/^(\d{4}-\d{2})(?::\s*(.*))?$/)
+  // period может быть месяцем (YYYY-MM) или днём (YYYY-MM-DD).
+  const m = note.match(/^(\d{4}-\d{2}(?:-\d{2})?)(?::\s*(.*))?$/)
   if (m) return { period: m[1], note: m[2]?.trim() || null }
   return { period: null, note }
 }
@@ -56,6 +57,22 @@ salaryRouter.get('/', requireRole('owner'), async (c) => {
 })
 
 salaryRouter.get('/estimate', requireRole('owner', 'staff'), async (c) => {
+  // Дневной расчёт по БИЗНЕС-ДНЮ (09:00→06:00): зарплата зависит от выручки КЛУБА
+  // за бизнес-день по той же формуле, но БЕЗ учёта мероприятий — из суммы чеков
+  // вычитаем базовую сумму мероприятия (event_base_amount). Списания на персонал
+  // имеют итог 0₽ и в выручку не идут. Зарплата выдаётся ежедневно.
+  const day = c.req.query('day')
+  if (day && /^\d{4}-\d{2}-\d{2}$/.test(day)) {
+    const start = new Date(`${day}T09:00:00+03:00`)
+    const end = new Date(start.getTime() + 86400000)
+    const [r] = await db
+      .select({ revenue: sql<string>`coalesce(sum(${checks.totalAmount}::numeric - coalesce(${checks.eventBaseAmount}, 0)::numeric), 0)` })
+      .from(checks)
+      .where(and(eq(checks.status, 'closed'), gte(checks.createdAt, start), lt(checks.createdAt, end)))
+    const revenue = Math.max(0, parseFloat(String(r?.revenue ?? '0')) || 0)
+    return c.json({ day, revenue, salary: calculateSalary(revenue) })
+  }
+
   const from = c.req.query('from')
   const to = c.req.query('to')
   const staffId = c.req.query('staffId') ?? c.get('user').sub

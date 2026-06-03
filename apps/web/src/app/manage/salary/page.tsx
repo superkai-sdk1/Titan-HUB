@@ -1,5 +1,5 @@
 'use client'
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { format } from 'date-fns'
@@ -15,10 +15,6 @@ const ROLE_LABELS: Record<string, string> = {
   staff: 'Персонал',
   tablet: 'Планшет',
   client: 'Клиент',
-}
-
-function calcSalary(rev: number): number {
-  return Math.ceil(Math.max(0, rev - 7000) / 1000) * 100 + 700
 }
 
 interface StaffMember {
@@ -46,9 +42,15 @@ export default function SalaryPage() {
   // чтобы staff не упирался в битую страницу с 403-запросами.
   const role = useAuthStore(s => s.user?.role)
   const isOwner = role === 'owner'
-  const [revenue, setRevenue] = useState('')
   const [selectedStaffId, setSelectedStaffId] = useState('')
-  const [period, setPeriod] = useState(new Date().toISOString().split('T')[0].slice(0, 7))
+  // Бизнес-день (09:00→06:00 МСК) — по умолчанию текущий. Зарплата выдаётся ежедневно.
+  const todayBiz = new Date(Date.now() + 3 * 3600 * 1000 - 9 * 3600000).toISOString().split('T')[0]
+  const [day, setDay] = useState(todayBiz)
+  // Сумма к выплате: '' → берём авторасчёт за день; иначе — ручное значение.
+  const [amount, setAmount] = useState('')
+  const [note, setNote] = useState('')
+  // При смене дня сбрасываем ручную сумму, чтобы подставился новый авторасчёт.
+  useEffect(() => { setAmount('') }, [day])
 
   const { data: staffData } = useQuery<{ staff?: StaffMember[]; clients?: StaffMember[] }>({
     queryKey: ['staff'],
@@ -62,6 +64,16 @@ export default function SalaryPage() {
     enabled: isOwner,
   })
 
+  // Авторасчёт за бизнес-день: выручка КЛУБА без учёта мероприятий + зарплата по формуле.
+  const { data: est, isFetching: estFetching } = useQuery<{ day: string; revenue: number; salary: number }>({
+    queryKey: ['salary', 'estimate', day],
+    queryFn: () => api.get(`/salary/estimate?day=${day}`),
+    enabled: isOwner && !!day,
+  })
+  const estRevenue = est?.revenue ?? 0
+  const estSalary = est?.salary ?? 0
+  const effectiveAmount = amount !== '' ? (parseFloat(amount) || 0) : estSalary
+
   const idemRef = useRef(crypto.randomUUID())
   const pay = useMutation({
     // API ждёт profileId (не staffId) и не имеет поля period — period кладём в note.
@@ -74,7 +86,8 @@ export default function SalaryPage() {
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['salary'] })
-      setRevenue('')
+      setAmount('')
+      setNote('')
       idemRef.current = crypto.randomUUID()
     },
     onError: () => show('Не удалось начислить зарплату', 'error'),
@@ -83,12 +96,7 @@ export default function SalaryPage() {
   const staffList: StaffMember[] = staffData?.staff ?? staffData?.clients ?? []
   const payments = paymentsData?.payments ?? []
 
-  const rev = parseFloat(revenue) || 0
-  const calculated = calcSalary(rev)
-  const over7k = Math.max(0, rev - 7000)
-  const bonus = Math.ceil(over7k / 1000) * 100
-
-  const currentMonthName = format(new Date(), 'LLLL yyyy', { locale: ru })
+  const dayLabel = (() => { try { return format(new Date(`${day}T12:00:00`), 'd MMMM yyyy', { locale: ru }) } catch { return day } })()
 
   const formatDate = (dateStr: string) => {
     try {
@@ -115,7 +123,7 @@ export default function SalaryPage() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100dvh' }}>
-      <PageHeader title="Зарплаты" subtitle={currentMonthName} />
+      <PageHeader title="Зарплаты" subtitle={`Ежедневная выплата · ${dayLabel}`} />
 
       <div style={{ padding: '16px 16px var(--bottom-nav-clear, 24px)', maxWidth: 600, margin: '0 auto', width: '100%' }}>
         {/* Calculator Card */}
@@ -137,27 +145,27 @@ export default function SalaryPage() {
             </div>
 
             <div>
-              <label style={LBL}>Выручка за смену (₽)</label>
-              <input type="number" inputMode="decimal" placeholder="0" value={revenue} onChange={e => setRevenue(e.target.value)} style={INP} />
+              <label style={LBL}>Бизнес-день</label>
+              <input type="date" value={day} max={todayBiz} onChange={e => setDay(e.target.value)} style={INP} />
+            </div>
+
+            {/* Выручка клуба за бизнес-день (без мероприятий) — авто */}
+            <div style={{ background: 'rgba(255,255,255,0.04)', borderRadius: 12, padding: '12px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+              <span style={{ fontSize: 12, color: 'var(--on-surface-variant)' }}>Выручка клуба за день · без мероприятий</span>
+              <span style={{ fontSize: 15, fontWeight: 800, fontStyle: 'italic', color: '#4cd7f6', fontVariantNumeric: 'tabular-nums' }}>{estFetching && !est ? '…' : formatMoney(estRevenue)}</span>
             </div>
 
             <div>
-              <label style={LBL}>Период (месяц)</label>
-              <input type="month" value={period} onChange={e => setPeriod(e.target.value)} style={INP} />
+              <label style={LBL}>Сумма к выплате (₽)</label>
+              <input type="number" inputMode="decimal" value={amount} onChange={e => setAmount(e.target.value)} placeholder={String(estSalary)} style={INP} />
+              <p style={{ margin: '6px 2px 0', fontSize: 11, color: 'var(--on-surface-variant)', lineHeight: 1.5 }}>
+                Авторасчёт по формуле: <b style={{ color: 'var(--on-surface)' }}>{formatMoney(estSalary)}</b> — 700 ₽ + ⌈(выручка − 7 000) / 1000⌉ × 100. Можно изменить вручную.
+              </p>
             </div>
 
-            {/* Result display */}
-            <div style={{ background: 'rgba(139,92,246,0.12)', border: '1px solid rgba(139,92,246,0.25)', borderRadius: 14, padding: '16px 20px' }}>
-              <div style={{ fontSize: 34, fontWeight: 800, fontStyle: 'italic', color: 'var(--primary-violet)', fontVariantNumeric: 'tabular-nums', marginBottom: 8 }}>
-                {formatMoney(calculated)}
-              </div>
-              <p style={{ margin: 0, fontSize: 12, color: 'var(--on-surface-variant)', lineHeight: 1.6 }}>
-                Базовая ставка: 700 ₽
-                {rev > 0 && (<>{' '}+ бонус: {formatMoney(bonus)}{over7k > 0 && (<span style={{ color: 'var(--on-surface-variant)', opacity: 0.7 }}>{' '}(⌈{over7k.toLocaleString('ru')} / 1000⌉ × 100)</span>)}</>)}
-              </p>
-              {rev <= 7000 && rev > 0 && (
-                <p style={{ margin: '4px 0 0', fontSize: 11, color: 'var(--on-surface-variant)', opacity: 0.7 }}>Выручка до 7 000 ₽ — только базовая ставка</p>
-              )}
+            <div>
+              <label style={LBL}>Комментарий (необязательно)</label>
+              <input value={note} onChange={e => setNote(e.target.value)} placeholder="например: аванс / премия" style={INP} />
             </div>
 
             <Button
@@ -165,10 +173,10 @@ export default function SalaryPage() {
               size="lg"
               icon="payments"
               loading={pay.isPending}
-              disabled={!selectedStaffId || !revenue}
-              onClick={() => pay.mutate({ staffId: selectedStaffId, amount: calculated, period, note: `Выручка ${rev.toLocaleString('ru')} ₽` })}
+              disabled={!selectedStaffId || !(effectiveAmount > 0)}
+              onClick={() => pay.mutate({ staffId: selectedStaffId, amount: effectiveAmount, period: day, note: note.trim() || undefined })}
             >
-              Начислить — {formatMoney(calculated)}
+              Начислить — {formatMoney(effectiveAmount)}
             </Button>
           </div>
         </div>
@@ -196,7 +204,7 @@ export default function SalaryPage() {
                     )}
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <span style={{ fontSize: 11, color: 'var(--on-surface-variant)' }}>за смену</span>
+                    <span style={{ fontSize: 11, color: 'var(--on-surface-variant)' }}>за день</span>
                     {p.period && (<><span style={{ fontSize: 11, color: 'var(--on-surface-variant)', opacity: 0.5 }}>·</span><span style={{ fontSize: 11, color: 'var(--on-surface-variant)' }}>{p.period}</span></>)}
                     {p.note && (<><span style={{ fontSize: 11, color: 'var(--on-surface-variant)', opacity: 0.5 }}>·</span><span style={{ fontSize: 11, color: 'var(--on-surface-variant)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.note}</span></>)}
                   </div>
