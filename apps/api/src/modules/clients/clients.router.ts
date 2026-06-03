@@ -100,6 +100,8 @@ clientsRouter.get('/', async (c) => {
       ? or(
           ilike(profiles.nickname, `%${search}%`),
           ilike(profiles.phone ?? '', `%${search}%`),
+          // Поиск и по тегам клиента (search_tags), как в /pos/players/search.
+          sql`exists (select 1 from unnest(${profiles.searchTags}) as tag where lower(tag) like ${`%${search.toLowerCase()}%`})`,
         )
       : undefined,
   )

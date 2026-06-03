@@ -15,7 +15,7 @@ const num = (s: string) => { const n = parseFloat(String(s).replace(',', '.')); 
 
 interface SupplyItemDto { itemId?: string | null; name: string; unit: string; quantity: number; costPerUnit: number }
 interface Supply { id: string; date: string; totalCost?: string; items: SupplyItemDto[] }
-interface InvItem { id: string; name: string; stockQuantity: number }
+interface InvItem { id: string; name: string; stockQuantity: number; searchTags?: string[] }
 
 interface DraftItem {
   _key: number
@@ -203,7 +203,7 @@ function SupplyEditor({ open, supply, onClose, onSaved, onDelete }: {
         {items.map((it, idx) => {
           const err = rowError(it)
           const sugg = (it.name.trim()
-            ? invItems.filter(inv => inv.name.toLowerCase().includes(it.name.toLowerCase()))
+            ? invItems.filter(inv => { const q = it.name.toLowerCase(); return inv.name.toLowerCase().includes(q) || (inv.searchTags ?? []).some(t => t.toLowerCase().includes(q)) })
             : invItems
           ).filter(inv => inv.id !== it.itemId).slice(0, 6)
           const showDrop = focusedKey === it._key && sugg.length > 0

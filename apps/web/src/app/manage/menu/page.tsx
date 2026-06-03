@@ -241,7 +241,10 @@ export default function MenuPage() {
   const inFolderItems = (catId: string) => visibleItemsAll.filter((i: any) =>
     catId === 'none' ? (!i.category || !catIds.has(i.category)) : i.category === catId)
   const visibleItems = isSearching
-    ? visibleItemsAll.filter((i: any) => i.name?.toLowerCase().includes(search.toLowerCase()))
+    ? visibleItemsAll.filter((i: any) => {
+        const q = search.toLowerCase()
+        return i.name?.toLowerCase().includes(q) || (i.searchTags ?? []).some((t: string) => t.toLowerCase().includes(q))
+      })
     : openCat !== null ? inFolderItems(openCat) : []
 
   // DnD активен только внутри папки (без поиска): там reorder и перенос корректны.

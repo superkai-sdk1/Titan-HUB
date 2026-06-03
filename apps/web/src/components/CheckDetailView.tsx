@@ -330,7 +330,10 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
   const tariffItems = allTariffs.filter(t => t.isActive !== false)
   const filteredItems = allItems.filter(item => {
     const matchCat = !activeCat || item.category === activeCat
-    const matchSearch = !search || item.name.toLowerCase().includes(search.toLowerCase())
+    const q = search.toLowerCase()
+    const matchSearch = !search
+      || item.name.toLowerCase().includes(q)
+      || ((item as { searchTags?: string[] }).searchTags ?? []).some(t => t.toLowerCase().includes(q))
     return matchCat && matchSearch
   })
   // Карточка товара в меню кассы (общая для плоского и сгруппированного видов).

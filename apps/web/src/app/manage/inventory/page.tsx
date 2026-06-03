@@ -58,6 +58,7 @@ interface MenuItem {
   costPrice?: string | number
   isService?: boolean
   linkedSpaceId?: string | null
+  searchTags?: string[]
 }
 
 export default function InventoryPage() {
@@ -114,7 +115,10 @@ export default function InventoryPage() {
     let result = allItems
     if (filter === 'low') result = result.filter(i => i.trackStock && i.stockQuantity <= i.minThreshold)
     else if (filter === 'untracked') result = result.filter(i => !i.trackStock)
-    if (search) result = result.filter(i => i.name?.toLowerCase().includes(search.toLowerCase()))
+    if (search) {
+      const q = search.toLowerCase()
+      result = result.filter(i => i.name?.toLowerCase().includes(q) || (i.searchTags ?? []).some(t => t.toLowerCase().includes(q)))
+    }
     return result
   }, [allItems, filter, search])
 
