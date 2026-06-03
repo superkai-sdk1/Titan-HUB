@@ -571,19 +571,24 @@ analyticsRouter.get('/tariffs', zValidator('query', dateRangeQuerySchema), async
 })
 
 // ─── Clients / Players ────────────────────────────────────────────────────────
-analyticsRouter.get('/clients', async (c) => {
+analyticsRouter.get('/clients', zValidator('query', dateRangeQuerySchema), async (c) => {
+  const q = c.req.valid('query')
+  const from = q.from ?? mskDateStr(30)
+  const to = q.to ?? mskDateStr(0)
+  const pStart = mskBoundary(from)
+  const pEnd = new Date(mskBoundary(to).getTime() + 86400000)
+
   const now = new Date()
-  const thirtyDaysAgo = new Date(now.getTime() - 30 * 86400000)
   const fourteenDaysAgo = new Date(now.getTime() - 14 * 86400000)
-  const prevFourteenStart = new Date(now.getTime() - 28 * 86400000)
+  const thirtyDaysAgo = new Date(now.getTime() - 30 * 86400000)
 
   // Total clients
   const [total] = await db.select({ count: count() }).from(profiles)
     .where(and(eq(profiles.role, 'client'), isNull(profiles.deletedAt)))
 
-  // New this month
-  const [newThisMonth] = await db.select({ count: count() }).from(profiles)
-    .where(and(eq(profiles.role, 'client'), isNull(profiles.deletedAt), gte(profiles.createdAt, thirtyDaysAgo)))
+  // Новые за выбранный период (регистрации в окне [from, to]).
+  const [newThisPeriod] = await db.select({ count: count() }).from(profiles)
+    .where(and(eq(profiles.role, 'client'), isNull(profiles.deletedAt), gte(profiles.createdAt, pStart), lt(profiles.createdAt, pEnd)))
 
   // Tier distribution
   const tierDist = await db.select({ tier: profiles.clientTier, count: count() })
@@ -667,7 +672,7 @@ analyticsRouter.get('/clients', async (c) => {
     ))
   segments.new = newClientRows.filter((r: any) => !visitedIds.has(r.id)).length
 
-  // Top spenders (30d) — ТОЛЬКО реальные игроки (playerId задан). Обезличенные
+  // Top spenders ЗА ПЕРИОД — ТОЛЬКО реальные игроки (playerId задан). Обезличенные
   // продажи («Гость», playerId IS NULL) НЕ участвуют в рейтинге, иначе они
   // перебивали бы реальных игроков (§9.4). Их сумму отдаём отдельной строкой.
   const topSpenders = await db
@@ -680,27 +685,67 @@ analyticsRouter.get('/clients', async (c) => {
     })
     .from(checks)
     .leftJoin(profiles, eq(profiles.id, checks.playerId))
-    .where(and(eq(checks.status, 'closed'), gte(checks.createdAt, thirtyDaysAgo), isNotNull(checks.playerId)))
+    .where(and(eq(checks.status, 'closed'), gte(checks.createdAt, pStart), lt(checks.createdAt, pEnd), isNotNull(checks.playerId)))
     .groupBy(checks.playerId, profiles.nickname, profiles.clientTier)
     .orderBy(desc(sum(checks.totalAmount)))
     .limit(10)
 
-  // Обезличенные продажи (без игрока) — отдельной строкой «Без игрока».
+  // Обезличенные продажи (без игрока) за период — отдельной строкой «Без игрока».
   const [guestRow] = await db
     .select({ total: sum(checks.totalAmount), visits: count() })
     .from(checks)
-    .where(and(eq(checks.status, 'closed'), gte(checks.createdAt, thirtyDaysAgo), isNull(checks.playerId)))
+    .where(and(eq(checks.status, 'closed'), gte(checks.createdAt, pStart), lt(checks.createdAt, pEnd), isNull(checks.playerId)))
   const guestSales = { total: parseNum(guestRow?.total), visits: guestRow?.visits ?? 0 }
 
   return c.json({
     total: total.count,
-    newThisMonth: newThisMonth.count,
+    newThisPeriod: newThisPeriod.count,
+    period: { from, to },
     tierDist,
     retentionRate,
     segments,
     topSpenders,
     guestSales,
   })
+})
+
+// ─── Список игроков сегмента (клик по сегменту в «Игроках») ────────────────────
+analyticsRouter.get('/segment-members', zValidator('query', z.object({ segment: z.enum(['new', 'active', 'sleeping']) })), async (c) => {
+  const { segment } = c.req.valid('query')
+  const now = Date.now()
+  const d14 = new Date(now - 14 * 86400000)
+  const d30 = new Date(now - 30 * 86400000)
+  const d90 = new Date(now - 90 * 86400000)
+
+  if (segment === 'new') {
+    // Зарегистрированы <30 дней назад и без закрытого чека за 90 дней (как в counts).
+    const visited = await db.selectDistinct({ playerId: checks.playerId }).from(checks)
+      .where(and(eq(checks.status, 'closed'), gte(checks.createdAt, d90), isNotNull(checks.playerId)))
+    const visitedSet = new Set(visited.map((r: any) => r.playerId).filter(Boolean))
+    const rows = await db.select({ id: profiles.id, nickname: profiles.nickname, clientTier: profiles.clientTier })
+      .from(profiles).where(and(eq(profiles.role, 'client'), isNull(profiles.deletedAt), gte(profiles.createdAt, d30)))
+      .orderBy(desc(profiles.createdAt))
+    const players = rows.filter((r: any) => !visitedSet.has(r.id)).map((r: any) => ({ playerId: r.id, nickname: r.nickname, clientTier: r.clientTier, total: 0, visits: 0 }))
+    return c.json({ players })
+  }
+
+  // active / sleeping: агрегируем визиты за 90 дней, делим по порогу 14 дней.
+  const visits = await db.select({
+    playerId: checks.playerId,
+    nickname: profiles.nickname,
+    clientTier: profiles.clientTier,
+    lastVisit: sql<string>`max(${checks.createdAt})::text`,
+    total: sum(checks.totalAmount),
+    visits: count(),
+  }).from(checks).leftJoin(profiles, eq(profiles.id, checks.playerId))
+    .where(and(eq(checks.status, 'closed'), gte(checks.createdAt, d90), isNotNull(checks.playerId)))
+    .groupBy(checks.playerId, profiles.nickname, profiles.clientTier)
+  const cutoff = d14.getTime()
+  const players = visits
+    .filter((v: any) => (segment === 'active' ? new Date(v.lastVisit).getTime() > cutoff : new Date(v.lastVisit).getTime() <= cutoff))
+    .map((v: any) => ({ playerId: v.playerId, nickname: v.nickname, clientTier: v.clientTier, total: parseNum(v.total), visits: v.visits, lastVisit: v.lastVisit }))
+    .sort((a: any, b: any) => b.total - a.total)
+  return c.json({ players })
 })
 
 // ─── Карточка игрока: статистика визитов/трат + последние чеки ─────────────────

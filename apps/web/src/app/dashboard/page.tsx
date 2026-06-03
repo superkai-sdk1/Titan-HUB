@@ -726,6 +726,13 @@ function ReportsTab({ from, to }: { from: string; to: string }) {
     queryFn: () => api.get<any>(`/analytics/payments?from=${from}&to=${to}`),
     enabled: !!from && !!to,
   })
+  // Сравнение с предыдущим равным периодом (дельты) — из /overview за тот же период.
+  const { data: ov } = useQuery({
+    queryKey: ['analytics', 'overview', from, to],
+    queryFn: () => api.get<any>(`/analytics/overview?from=${from}&to=${to}`),
+    enabled: !!from && !!to,
+  })
+  const deltas = ov?.deltas ?? {}
 
   // /analytics/revenue → { revenue: [{date,revenue,count}], expenses: [{date,total}], cogs: [{date,total}] }
   // Это РАЗДЕЛЬНЫЕ дневные серии (даты по выручке/расходам/себестоимости могут
@@ -763,11 +770,11 @@ function ReportsTab({ from, to }: { from: string; to: string }) {
           { label: 'Эквайринг (потери)', value: `− ${fmt(acquiring)} ₽`, color: '#F59E0B' },
           { label: 'Прибыль', value: `${fmt(profit)} ₽`, color: '#10B981' },
         ]
-        const cards = [
-          { label: 'Выручка', value: `${fmt(totalRevenue)} ₽`, color: '#4cd7f6', onClick: () => setMetricModal({ title: 'Выручка · период', subtitle: periodSub, value: `${fmt(totalRevenue)} ₽`, valueColor: '#4cd7f6', rows: breakdownRows }) },
-          { label: 'Прибыль', value: `${fmt(profit)} ₽`, color: '#10B981', onClick: () => setMetricModal({ title: 'Прибыль · период', subtitle: periodSub, value: `${fmt(profit)} ₽`, valueColor: '#10B981', rows: breakdownRows }) },
-          { label: 'Расходы', value: `${fmt(totalExpenses)} ₽`, color: '#F43F5E', onClick: () => setMetricModal({ title: 'Расходы · период', subtitle: periodSub, value: `${fmt(totalExpenses)} ₽`, valueColor: '#F43F5E', rows: [{ label: 'Операционные расходы', value: `${fmt(totalExpenses)} ₽` }, { label: 'Себестоимость', value: `${fmt(totalCogs)} ₽`, color: '#F59E0B' }, { label: 'Эквайринг (потери)', value: `${fmt(acquiring)} ₽`, color: '#F59E0B' }] }) },
-          { label: 'Чеков', value: String(checksCount), color: '#8B5CF6', onClick: () => setMetricModal({ title: 'Чеки · период', subtitle: periodSub, value: String(checksCount), valueColor: '#8B5CF6', rows: [{ label: 'Средний чек', value: `${fmt(avgCheck)} ₽` }, { label: 'Выручка', value: `${fmt(totalRevenue)} ₽`, color: '#4cd7f6' }] }) },
+        const cards: { label: string; value: string; color: string; delta?: number; onClick: () => void }[] = [
+          { label: 'Выручка', value: `${fmt(totalRevenue)} ₽`, color: '#4cd7f6', delta: deltas.revenue, onClick: () => setMetricModal({ title: 'Выручка · период', subtitle: periodSub, value: `${fmt(totalRevenue)} ₽`, valueColor: '#4cd7f6', rows: breakdownRows }) },
+          { label: 'Прибыль', value: `${fmt(profit)} ₽`, color: '#10B981', delta: deltas.profit, onClick: () => setMetricModal({ title: 'Прибыль · период', subtitle: periodSub, value: `${fmt(profit)} ₽`, valueColor: '#10B981', rows: breakdownRows }) },
+          { label: 'Расходы', value: `${fmt(totalExpenses)} ₽`, color: '#F43F5E', delta: deltas.expenses, onClick: () => setMetricModal({ title: 'Расходы · период', subtitle: periodSub, value: `${fmt(totalExpenses)} ₽`, valueColor: '#F43F5E', rows: [{ label: 'Операционные расходы', value: `${fmt(totalExpenses)} ₽` }, { label: 'Себестоимость', value: `${fmt(totalCogs)} ₽`, color: '#F59E0B' }, { label: 'Эквайринг (потери)', value: `${fmt(acquiring)} ₽`, color: '#F59E0B' }] }) },
+          { label: 'Чеков', value: String(checksCount), color: '#8B5CF6', delta: deltas.checks, onClick: () => setMetricModal({ title: 'Чеки · период', subtitle: periodSub, value: String(checksCount), valueColor: '#8B5CF6', rows: [{ label: 'Средний чек', value: `${fmt(avgCheck)} ₽` }, { label: 'Выручка', value: `${fmt(totalRevenue)} ₽`, color: '#4cd7f6' }] }) },
           { label: 'Средний чек', value: `${fmt(avgCheck)} ₽`, color: '#A78BFA', onClick: () => setMetricModal({ title: 'Средний чек · период', subtitle: periodSub, value: `${fmt(avgCheck)} ₽`, valueColor: '#A78BFA', rows: [{ label: 'Выручка', value: `${fmt(totalRevenue)} ₽`, color: '#4cd7f6' }, { label: 'Чеков', value: String(checksCount), color: '#8B5CF6' }] }) },
         ]
         return (
@@ -775,7 +782,10 @@ function ReportsTab({ from, to }: { from: string; to: string }) {
             {cards.map(k => (
               <button key={k.label} onClick={k.onClick} className="glass-l2" style={{ borderRadius: 14, padding: '14px 16px', textAlign: 'left', border: 'none', cursor: 'pointer', color: 'var(--on-surface)' }}>
                 <p style={{ fontSize: 20, fontWeight: 900, fontStyle: 'italic', color: k.color, margin: '0 0 4px', lineHeight: 1 }}>{k.value}</p>
-                <p style={{ fontSize: 10, color: 'var(--on-surface-variant)', margin: 0, textTransform: 'uppercase', letterSpacing: '0.06em', fontFamily: "'JetBrains Mono',monospace" }}>{k.label}</p>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
+                  <p style={{ fontSize: 10, color: 'var(--on-surface-variant)', margin: 0, textTransform: 'uppercase', letterSpacing: '0.06em', fontFamily: "'JetBrains Mono',monospace" }}>{k.label}</p>
+                  {typeof k.delta === 'number' && <DeltaBadge delta={k.delta} />}
+                </div>
               </button>
             ))}
           </div>
@@ -967,6 +977,39 @@ function ProductsTab({ products }: { products: any }) {
   )
 }
 
+// Список игроков сегмента (клик по сегменту) — шторка со списком, тап → карточка.
+function SegmentMembersSheet({ seg, onClose, onPlayer }: { seg: { key: string; label: string }; onClose: () => void; onPlayer: (p: any) => void }) {
+  const { data, isLoading } = useQuery({
+    queryKey: ['analytics', 'segment-members', seg.key],
+    queryFn: () => api.get<any>(`/analytics/segment-members?segment=${seg.key}`),
+  })
+  const players: any[] = data?.players ?? []
+  return (
+    <Sheet title={`Сегмент · ${seg.label}`} subtitle={`${players.length} игроков`} onClose={onClose}>
+      {isLoading ? <StateView state="loading" /> : players.length === 0 ? (
+        <p style={{ fontSize: 13, color: 'var(--on-surface-variant)', textAlign: 'center', padding: '24px 0' }}>Нет игроков в сегменте</p>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {players.map((p, i) => {
+            const tier = p.clientTier ?? 'null'
+            return (
+              <button key={p.playerId ?? i} onClick={() => onPlayer(p)} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px', borderRadius: 10, background: 'rgba(255,255,255,0.03)', border: 'none', cursor: 'pointer', color: 'var(--on-surface)', textAlign: 'left' }}>
+                <div style={{ width: 30, height: 30, borderRadius: '50%', background: 'rgba(139,92,246,0.18)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, color: '#A78BFA', flexShrink: 0 }}>{(p.nickname ?? '??').slice(0, 2).toUpperCase()}</div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <p style={{ fontSize: 13, fontWeight: 600, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.nickname ?? 'Игрок'}</p>
+                  <p style={{ fontSize: 11, color: TIER_COLORS[tier] ?? 'var(--on-surface-variant)', margin: 0 }}>{TIER_LABELS[tier] ?? tier}{p.visits ? ` · ${p.visits} визитов` : ''}</p>
+                </div>
+                {parseNum(p.total) > 0 && <span style={{ fontSize: 13, fontWeight: 800, fontStyle: 'italic', flexShrink: 0 }}>{fmt(parseNum(p.total))} ₽</span>}
+                <Icon name="chevron_right" size={14} color="rgba(204,195,216,0.4)" />
+              </button>
+            )
+          })}
+        </div>
+      )}
+    </Sheet>
+  )
+}
+
 // ─── Tab: Игроки ──────────────────────────────────────────────────────────────
 function PlayersTab({ clients }: { clients: any }) {
   const segments    = clients?.segments ?? { new: 0, active: 0, sleeping: 0 }
@@ -975,23 +1018,24 @@ function PlayersTab({ clients }: { clients: any }) {
   const guestSales = clients?.guestSales ?? { total: 0, visits: 0 }
   const retentionRate: number = clients?.retentionRate ?? 0
   const totalClients: number  = clients?.total ?? 0
-  const newThisMonth: number  = clients?.newThisMonth ?? 0
+  const newThisPeriod: number = clients?.newThisPeriod ?? 0
   const [metricModal, setMetricModal] = useState<null | { title: string; subtitle?: string; value: string; valueColor?: string; rows: { label: string; value: string; color?: string }[] }>(null)
   const [openPlayer, setOpenPlayer] = useState<any | null>(null)
+  const [segOpen, setSegOpen] = useState<null | { key: 'new' | 'active' | 'sleeping'; label: string }>(null)
 
   const segTotal = segments.new + segments.active + segments.sleeping || 1
   const segData = [
-    { label: 'Новые',    value: segments.new,      color: '#10B981', icon: 'person_add', desc: 'Регистрация < 30 дней' },
-    { label: 'Активные', value: segments.active,   color: '#8B5CF6', icon: 'people',     desc: 'Визит < 14 дней' },
-    { label: 'Спящие',   value: segments.sleeping, color: '#F59E0B', icon: 'bedtime',    desc: 'Последний > 14 дней' },
+    { key: 'new' as const,      label: 'Новые',    value: segments.new,      color: '#10B981', icon: 'person_add', desc: 'Регистрация < 30 дней' },
+    { key: 'active' as const,   label: 'Активные', value: segments.active,   color: '#8B5CF6', icon: 'people',     desc: 'Визит < 14 дней' },
+    { key: 'sleeping' as const, label: 'Спящие',   value: segments.sleeping, color: '#F59E0B', icon: 'bedtime',    desc: 'Последний > 14 дней' },
   ]
   const tierTotal = tierDist.reduce((s: number, t: any) => s + (t.count ?? 0), 0) || 1
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))', gap: 12 }}>
-        <KpiCard label="Всего игроков" value={String(totalClients)} sub="зарегистрировано" icon="group" iconColor="#8B5CF6" iconBg="rgba(139,92,246,0.1)" onClick={() => setMetricModal({ title: 'Всего игроков', subtitle: 'клиентская база', value: String(totalClients), valueColor: '#8B5CF6', rows: [{ label: 'Новые за месяц', value: String(newThisMonth), color: '#10B981' }, { label: 'Активные (14д)', value: String(segments.active), color: '#8B5CF6' }, { label: 'Спящие', value: String(segments.sleeping), color: '#F59E0B' }] })} />
-        <KpiCard label="Новые за месяц" value={String(newThisMonth)} sub="последние 30 дней" icon="person_add" iconColor="#10B981" iconBg="rgba(16,185,129,0.1)" onClick={() => setMetricModal({ title: 'Новые за месяц', subtitle: 'регистрация < 30 дней', value: String(newThisMonth), valueColor: '#10B981', rows: [{ label: 'Всего игроков', value: String(totalClients) }, { label: 'Новые сегмент', value: String(segments.new), color: '#10B981' }] })} />
+        <KpiCard label="Всего игроков" value={String(totalClients)} sub="зарегистрировано" icon="group" iconColor="#8B5CF6" iconBg="rgba(139,92,246,0.1)" onClick={() => setMetricModal({ title: 'Всего игроков', subtitle: 'клиентская база', value: String(totalClients), valueColor: '#8B5CF6', rows: [{ label: 'Новые за период', value: String(newThisPeriod), color: '#10B981' }, { label: 'Активные (14д)', value: String(segments.active), color: '#8B5CF6' }, { label: 'Спящие', value: String(segments.sleeping), color: '#F59E0B' }] })} />
+        <KpiCard label="Новые за период" value={String(newThisPeriod)} sub="регистрации в периоде" icon="person_add" iconColor="#10B981" iconBg="rgba(16,185,129,0.1)" onClick={() => setMetricModal({ title: 'Новые за период', subtitle: 'регистрации в выбранном периоде', value: String(newThisPeriod), valueColor: '#10B981', rows: [{ label: 'Всего игроков', value: String(totalClients) }, { label: 'Сегмент «Новые»', value: String(segments.new), color: '#10B981' }] })} />
         <KpiCard label="Retention" value={`${retentionRate}%`} sub="повторные визиты 14д" icon="repeat" iconColor="#4cd7f6" iconBg="rgba(76,215,246,0.1)" onClick={() => setMetricModal({ title: 'Retention', subtitle: 'повторные визиты за 14 дней', value: `${retentionRate}%`, valueColor: '#4cd7f6', rows: [{ label: 'Активные (14д)', value: String(segments.active), color: '#8B5CF6' }, { label: 'Спящие', value: String(segments.sleeping), color: '#F59E0B' }] })} />
       </div>
 
@@ -999,7 +1043,7 @@ function PlayersTab({ clients }: { clients: any }) {
         <span style={LBL}>Сегменты</span>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
           {segData.map(seg => (
-            <button key={seg.label} onClick={() => setMetricModal({ title: `Сегмент · ${seg.label}`, subtitle: seg.desc, value: String(seg.value), valueColor: seg.color, rows: [{ label: 'Доля сегментов', value: `${Math.round((seg.value / segTotal) * 100)}%`, color: seg.color }, { label: 'Всего в сегментах', value: String(segTotal) }] })} style={{ textAlign: 'left', padding: 14, borderRadius: 12, background: `${seg.color}10`, border: `1px solid ${seg.color}22`, cursor: 'pointer', color: 'var(--on-surface)' }}>
+            <button key={seg.label} onClick={() => setSegOpen({ key: seg.key, label: seg.label })} style={{ textAlign: 'left', padding: 14, borderRadius: 12, background: `${seg.color}10`, border: `1px solid ${seg.color}22`, cursor: 'pointer', color: 'var(--on-surface)' }}>
               <Icon name={seg.icon} size={18} color={seg.color} />
               <p style={{ fontSize: 24, fontWeight: 900, fontStyle: 'italic', color: 'var(--on-surface)', margin: '8px 0 2px', lineHeight: 1 }}>{seg.value}</p>
               <p style={{ fontSize: 11, color: seg.color, fontWeight: 600, margin: '0 0 2px' }}>{seg.label}</p>
@@ -1036,7 +1080,7 @@ function PlayersTab({ clients }: { clients: any }) {
         </div>
 
         <div className="glass-l2" style={{ borderRadius: 16, padding: 20 }}>
-          <span style={LBL}>Топ игроки — 30 дней</span>
+          <span style={LBL}>Топ игроки за период</span>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {topSpenders.length === 0 ? <p style={{ fontSize: 12, color: 'rgba(204,195,216,0.4)', textAlign: 'center' }}>Нет данных</p> : topSpenders.slice(0, 8).map((sp: any, i: number) => {
               const tier = sp.clientTier ?? 'null'
@@ -1071,6 +1115,7 @@ function PlayersTab({ clients }: { clients: any }) {
       </div>
 
       {metricModal && <MetricDetailModal title={metricModal.title} subtitle={metricModal.subtitle} value={metricModal.value} valueColor={metricModal.valueColor} rows={metricModal.rows} onClose={() => setMetricModal(null)} />}
+      {segOpen && <SegmentMembersSheet seg={segOpen} onClose={() => setSegOpen(null)} onPlayer={(p) => { setSegOpen(null); setOpenPlayer(p) }} />}
       {openPlayer && <PlayerDetailModal player={openPlayer} onClose={() => setOpenPlayer(null)} />}
     </div>
   )
@@ -1424,7 +1469,11 @@ export default function DashboardPage() {
     queryFn: () => api.get<any>(`/analytics/products?from=${period.from}&to=${period.to}`),
     enabled: activeTab === 'bar',
   })
-  const { data: clients } = useQuery({ queryKey: ['analytics', 'clients'], queryFn: () => api.get<any>('/analytics/clients'), refetchInterval: 300000, enabled: activeTab === 'players' })
+  const { data: clients } = useQuery({
+    queryKey: ['analytics', 'clients', period.from, period.to],
+    queryFn: () => api.get<any>(`/analytics/clients?from=${period.from}&to=${period.to}`),
+    enabled: activeTab === 'players',
+  })
 
   const TABS = [
     { key: 'overview' as MainTab, label: 'Обзор',          icon: 'dashboard' },
@@ -1445,7 +1494,7 @@ export default function DashboardPage() {
               {format(new Date(), 'd MMMM yyyy', { locale: ru })}
             </p>
           </div>
-          {activeTab !== 'players' && <PeriodSelector p={period} />}
+          <PeriodSelector p={period} />
         </div>
         {/* Tabs — горизонтальный скролл только внутри таб-бара, не страницы */}
         <div style={{
