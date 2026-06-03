@@ -3,9 +3,9 @@ import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import {
-  db, checks, checkItems, checkPayments, checkDiscounts, inventory, profiles, shifts, expenses,
+  db, checks, checkItems, checkPayments, checkDiscounts, inventory, menuCategories, profiles, shifts, expenses,
   supplies, supplyItems, salaryPayments, refunds, tariffs, eveningTypes,
-  eq, and, gte, lte, lt, desc, asc, sql, sum, count, avg, isNull, ne, inArray,
+  eq, and, gte, lte, lt, desc, asc, sql, sum, count, avg, isNull, isNotNull, ne, inArray,
 } from '@titan/database'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
 
@@ -224,15 +224,17 @@ analyticsRouter.get('/dashboard', async (c) => {
     .select({
       itemId: checkItems.itemId,
       name: inventory.name,
-      category: inventory.category,
+      category: menuCategories.name,
+      categoryId: inventory.category,
       totalQty: sum(checkItems.quantity),
       totalRev: sql<number>`sum(${checkItems.quantity}::numeric * ${checkItems.priceAtTime})`,
     })
     .from(checkItems)
     .leftJoin(inventory, eq(inventory.id, checkItems.itemId))
+    .leftJoin(menuCategories, eq(menuCategories.id, inventory.category))
     .leftJoin(checks, eq(checks.id, checkItems.checkId))
     .where(and(eq(checks.status, 'closed'), gte(checks.createdAt, thirtyDaysAgo)))
-    .groupBy(checkItems.itemId, inventory.name, inventory.category)
+    .groupBy(checkItems.itemId, inventory.name, menuCategories.name, inventory.category)
     .orderBy(desc(sql`sum(${checkItems.quantity}::numeric * ${checkItems.priceAtTime})`))
     .limit(20)
 
@@ -391,30 +393,37 @@ analyticsRouter.get('/products', zValidator('query', dateRangeQuerySchema), asyn
     .select({
       itemId: checkItems.itemId,
       name: inventory.name,
-      category: inventory.category,
+      // Человекочитаемое название категории (резолв UUID → name). categoryId
+      // отдаём отдельно для группировки/навигации на фронте.
+      category: menuCategories.name,
+      categoryId: inventory.category,
       totalQty: sum(checkItems.quantity),
       totalRev: sql<number>`sum(${checkItems.quantity}::numeric * ${checkItems.priceAtTime})`,
     })
     .from(checkItems)
     .leftJoin(inventory, eq(inventory.id, checkItems.itemId))
+    .leftJoin(menuCategories, eq(menuCategories.id, inventory.category))
     .leftJoin(checks, eq(checks.id, checkItems.checkId))
     .where(and(
       eq(checks.status, 'closed'),
       gte(checks.createdAt, fromStart),
       lt(checks.createdAt, toEndExclusive),
     ))
-    .groupBy(checkItems.itemId, inventory.name, inventory.category)
+    .groupBy(checkItems.itemId, inventory.name, menuCategories.name, inventory.category)
     .orderBy(desc(sql`sum(${checkItems.quantity}::numeric * ${checkItems.priceAtTime})`))
     .limit(50)
 
-  // Calculate cumulative % for proper ABC classification
+  // ABC по накопленной доле выручки. Класс присваиваем по доле, накопленной ДО
+  // данной позиции: A — пока накопление < 80% («топ до 80%»), B — 80–95%, C — 95–100%.
+  // Так позиция, перешагивающая порог, остаётся в нижнем (более ценном) классе.
   const totalRev = rows.reduce((s: number, r: any) => s + parseNum(r.totalRev), 0)
   let cumulative = 0
   const withAbc = rows.map((r: any) => {
     const rev = parseNum(r.totalRev)
     const share = totalRev > 0 ? (rev / totalRev) * 100 : 0
+    const startCum = cumulative
     cumulative += share
-    const abc = cumulative <= 80 ? 'A' : cumulative <= 95 ? 'B' : 'C'
+    const abc = startCum < 80 ? 'A' : startCum < 95 ? 'B' : 'C'
     return { ...r, share: Math.round(share * 10) / 10, cumulative: Math.round(cumulative * 10) / 10, abc }
   })
 
@@ -522,29 +531,27 @@ analyticsRouter.get('/clients', async (c) => {
     .where(and(eq(profiles.role, 'client'), isNull(profiles.deletedAt)))
     .groupBy(profiles.clientTier)
 
-  // Clients who visited in current 14d window (visited = have a check)
-  const currentActiveIds = await db
-    .selectDistinct({ playerId: checks.playerId })
+  // Retention (14 дней) по §8: доля игроков, вернувшихся хотя бы раз в окне.
+  // Визит = отдельный день с закрытым чеком (несколько чеков за один вечер — один
+  // визит). retention = (игроки с ≥2 визит-днями) / (игроки с ≥1 визитом) × 100%.
+  // Обезличенные продажи (playerId IS NULL) не считаем — иначе знаменатель/числитель
+  // искажаются (раньше метрика давала 0% при сотне игроков).
+  const retentionRows = await db
+    .select({
+      playerId: checks.playerId,
+      days: sql<number>`count(distinct (${checks.createdAt} AT TIME ZONE 'Europe/Moscow')::date)`,
+    })
     .from(checks)
     .where(and(
       eq(checks.status, 'closed'),
       gte(checks.createdAt, fourteenDaysAgo),
+      isNotNull(checks.playerId),
     ))
+    .groupBy(checks.playerId)
 
-  // Clients who visited in previous 14d window
-  const prevActiveIds = await db
-    .selectDistinct({ playerId: checks.playerId })
-    .from(checks)
-    .where(and(
-      eq(checks.status, 'closed'),
-      gte(checks.createdAt, prevFourteenStart),
-      lte(checks.createdAt, fourteenDaysAgo),
-    ))
-
-  const currentSet = new Set(currentActiveIds.map((r: any) => r.playerId).filter(Boolean))
-  const prevSet = new Set(prevActiveIds.map((r: any) => r.playerId).filter(Boolean))
-  const retainedCount = [...prevSet].filter(id => id && currentSet.has(id)).length
-  const retentionRate = prevSet.size > 0 ? Math.round((retainedCount / prevSet.size) * 100) : 0
+  const retentionDenom = retentionRows.length
+  const retentionNumer = retentionRows.filter((r: any) => Number(r.days) >= 2).length
+  const retentionRate = retentionDenom > 0 ? Math.round((retentionNumer / retentionDenom) * 100) : 0
 
   // Сегменты игроков: new / active / sleeping
   // New = регистрация < 30 дней назад (берётся отдельным запросом ниже)
@@ -600,7 +607,9 @@ analyticsRouter.get('/clients', async (c) => {
     ))
   segments.new = newClientRows.filter((r: any) => !visitedIds.has(r.id)).length
 
-  // Top spenders (30d)
+  // Top spenders (30d) — ТОЛЬКО реальные игроки (playerId задан). Обезличенные
+  // продажи («Гость», playerId IS NULL) НЕ участвуют в рейтинге, иначе они
+  // перебивали бы реальных игроков (§9.4). Их сумму отдаём отдельной строкой.
   const topSpenders = await db
     .select({
       playerId: checks.playerId,
@@ -611,10 +620,17 @@ analyticsRouter.get('/clients', async (c) => {
     })
     .from(checks)
     .leftJoin(profiles, eq(profiles.id, checks.playerId))
-    .where(and(eq(checks.status, 'closed'), gte(checks.createdAt, thirtyDaysAgo)))
+    .where(and(eq(checks.status, 'closed'), gte(checks.createdAt, thirtyDaysAgo), isNotNull(checks.playerId)))
     .groupBy(checks.playerId, profiles.nickname, profiles.clientTier)
     .orderBy(desc(sum(checks.totalAmount)))
     .limit(10)
+
+  // Обезличенные продажи (без игрока) — отдельной строкой «Без игрока».
+  const [guestRow] = await db
+    .select({ total: sum(checks.totalAmount), visits: count() })
+    .from(checks)
+    .where(and(eq(checks.status, 'closed'), gte(checks.createdAt, thirtyDaysAgo), isNull(checks.playerId)))
+  const guestSales = { total: parseNum(guestRow?.total), visits: guestRow?.visits ?? 0 }
 
   return c.json({
     total: total.count,
@@ -623,6 +639,7 @@ analyticsRouter.get('/clients', async (c) => {
     retentionRate,
     segments,
     topSpenders,
+    guestSales,
   })
 })
 

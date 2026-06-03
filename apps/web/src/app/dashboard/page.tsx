@@ -851,6 +851,7 @@ function PlayersTab({ clients }: { clients: any }) {
   const segments    = clients?.segments ?? { new: 0, active: 0, sleeping: 0 }
   const tierDist: any[]    = clients?.tierDist ?? []
   const topSpenders: any[] = clients?.topSpenders ?? []
+  const guestSales = clients?.guestSales ?? { total: 0, visits: 0 }
   const retentionRate: number = clients?.retentionRate ?? 0
   const totalClients: number  = clients?.total ?? 0
   const newThisMonth: number  = clients?.newThisMonth ?? 0
@@ -925,12 +926,25 @@ function PlayersTab({ clients }: { clients: any }) {
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <p style={{ fontSize: 13, fontWeight: 600, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sp.nickname ?? 'Гость'}</p>
-                    <p style={{ fontSize: 11, color: TIER_COLORS[tier] ?? 'var(--on-surface-variant)', margin: 0 }}>{TIER_LABELS[tier] ?? tier} · {sp.cnt ?? 0} визитов</p>
+                    <p style={{ fontSize: 11, color: TIER_COLORS[tier] ?? 'var(--on-surface-variant)', margin: 0 }}>{TIER_LABELS[tier] ?? tier} · {sp.visits ?? 0} визитов</p>
                   </div>
                   <p style={{ fontSize: 14, fontWeight: 800, fontStyle: 'italic', color: 'var(--on-surface)', margin: 0, flexShrink: 0 }}>{fmt(parseNum(sp.total))} ₽</p>
                 </button>
               )
             })}
+            {/* Обезличенные продажи — отдельной строкой, НЕ в рейтинге игроков. */}
+            {parseNum(guestSales.total) > 0 && (
+              <div style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 12, padding: '8px 10px', borderRadius: 10, background: 'rgba(255,255,255,0.02)', border: '1px dashed rgba(255,255,255,0.1)', marginTop: 4 }}>
+                <div style={{ width: 30, height: 30, borderRadius: '50%', background: 'rgba(148,163,184,0.18)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  <Icon name="person" size={16} color="#94A3B8" />
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <p style={{ fontSize: 13, fontWeight: 600, margin: 0, color: 'var(--on-surface-variant)' }}>Без игрока</p>
+                  <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: 0 }}>обезличенные продажи · {guestSales.visits ?? 0} чеков</p>
+                </div>
+                <p style={{ fontSize: 14, fontWeight: 800, fontStyle: 'italic', color: 'var(--on-surface-variant)', margin: 0, flexShrink: 0 }}>{fmt(parseNum(guestSales.total))} ₽</p>
+              </div>
+            )}
           </div>
         </div>
       </div>
