@@ -9,7 +9,7 @@ import { useCountUp } from '@/hooks/useCountUp'
 import { StateView } from '@/components/StateView'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-type MainTab = 'today' | 'overview' | 'reports' | 'products' | 'players' | 'checks' | 'tariffs'
+type MainTab = 'overview' | 'finance' | 'games' | 'bar' | 'players'
 type ReportRange = '7d' | '30d' | 'month' | 'custom'
 
 const PAY_COLORS: Record<string, string> = {
@@ -704,15 +704,10 @@ function OverviewTab({ overview, periodText }: { overview: any; periodText: stri
 }
 
 // ─── Tab: Отчёты (period-based) ───────────────────────────────────────────────
-function ReportsTab() {
-  const [range, setRange] = useState<ReportRange>('30d')
-  const [customFrom, setCustomFrom] = useState(format(subDays(new Date(), 29), 'yyyy-MM-dd'))
-  const [customTo, setCustomTo] = useState(format(new Date(), 'yyyy-MM-dd'))
+function ReportsTab({ from, to }: { from: string; to: string }) {
   const [subTab, setSubTab] = useState<'revenue' | 'products' | 'payments'>('revenue')
   const [metricModal, setMetricModal] = useState<null | { title: string; subtitle?: string; value: string; valueColor?: string; rows: { label: string; value: string; color?: string }[] }>(null)
   const [openItem, setOpenItem] = useState<any | null>(null)
-
-  const [from, to] = getRange(range, customFrom, customTo)
 
   const { data: revData } = useQuery({
     queryKey: ['analytics', 'revenue', from, to],
@@ -758,22 +753,6 @@ function ReportsTab() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      {/* Range selector */}
-      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-        {(['7d', '30d', 'month', 'custom'] as ReportRange[]).map(r => (
-          <button key={r} onClick={() => setRange(r)} style={{ padding: '6px 14px', borderRadius: 9999, border: `1px solid ${range === r ? '#8B5CF6' : 'rgba(255,255,255,0.08)'}`, background: range === r ? 'rgba(139,92,246,0.15)' : 'transparent', color: range === r ? '#A78BFA' : 'var(--on-surface-variant)', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
-            {r === '7d' ? '7 дней' : r === '30d' ? '30 дней' : r === 'month' ? 'Этот месяц' : 'Период'}
-          </button>
-        ))}
-        {range === 'custom' && (
-          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-            <input type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)} style={INP} />
-            <span style={{ color: 'var(--on-surface-variant)', fontSize: 12 }}>—</span>
-            <input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)} style={INP} />
-          </div>
-        )}
-      </div>
-
       {/* KPI row — все карточки кликабельны (раскрывают раскладку за цифрой) */}
       {(() => {
         const periodSub = `${format(new Date(from), 'd MMM', { locale: ru })} — ${format(new Date(to), 'd MMM yyyy', { locale: ru })}`
@@ -1239,67 +1218,20 @@ function CheckDetailModal({ id, onClose }: { id: string; onClose: () => void }) 
   )
 }
 
-function ChecksTab() {
-  type CMode = 'day' | 'range'
-  const todayBiz = format(new Date(), 'yyyy-MM-dd')
-  const [cmode, setCmode] = useState<CMode>('day')
-  const [day, setDay] = useState(todayBiz)
-  const [from, setFrom] = useState(format(subDays(new Date(), 6), 'yyyy-MM-dd'))
-  const [to, setTo] = useState(todayBiz)
+function ChecksTab({ from, to }: { from: string; to: string }) {
   const [openId, setOpenId] = useState<string | null>(null)
 
-  const qFrom = cmode === 'day' ? day : from
-  const qTo = cmode === 'day' ? day : to
-
   const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ['analytics', 'checks', qFrom, qTo],
-    queryFn: () => api.get<any>(`/analytics/checks?from=${qFrom}&to=${qTo}`),
-    enabled: !!qFrom && !!qTo,
+    queryKey: ['analytics', 'checks', from, to],
+    queryFn: () => api.get<any>(`/analytics/checks?from=${from}&to=${to}`),
+    enabled: !!from && !!to,
   })
 
   const summary: NetBreak | undefined = data?.summary
   const checks: any[] = data?.checks ?? []
 
-  const preset: React.CSSProperties = { padding: '6px 12px', borderRadius: 9999, border: '1px solid rgba(255,255,255,0.08)', background: 'transparent', color: 'var(--on-surface-variant)', fontSize: 12, fontWeight: 600, cursor: 'pointer' }
-
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      {/* Mode switch */}
-      <div style={{ display: 'inline-flex', padding: 3, borderRadius: 9999, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', alignSelf: 'flex-start' }}>
-        <button onClick={() => setCmode('day')} style={{ padding: '7px 16px', borderRadius: 9999, border: 'none', background: cmode === 'day' ? 'rgba(139,92,246,0.25)' : 'transparent', color: cmode === 'day' ? '#A78BFA' : 'var(--on-surface-variant)', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>Бизнес-день</button>
-        <button onClick={() => setCmode('range')} style={{ padding: '7px 16px', borderRadius: 9999, border: 'none', background: cmode === 'range' ? 'rgba(139,92,246,0.25)' : 'transparent', color: cmode === 'range' ? '#A78BFA' : 'var(--on-surface-variant)', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>Период</button>
-      </div>
-
-      {/* Day navigator OR range inputs */}
-      {cmode === 'day' ? (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <button onClick={() => setDay(d => shiftBizDay(d, -1))} style={{ width: 32, height: 32, borderRadius: 8, border: '1px solid rgba(255,255,255,0.1)', background: 'transparent', color: 'var(--on-surface-variant)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <Icon name="chevron_left" size={18} />
-            </button>
-            <span style={{ fontSize: 13, fontWeight: 700, minWidth: 150, textAlign: 'center' }}>
-              {day === todayBiz ? 'Сегодня' : day === shiftBizDay(todayBiz, -1) ? 'Вчера' : ''} {bizDayLabel(day)}
-            </span>
-            <button onClick={() => setDay(d => shiftBizDay(d, 1))} disabled={day >= todayBiz} style={{ width: 32, height: 32, borderRadius: 8, border: '1px solid rgba(255,255,255,0.1)', background: 'transparent', color: day >= todayBiz ? 'rgba(204,195,216,0.2)' : 'var(--on-surface-variant)', cursor: day >= todayBiz ? 'default' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <Icon name="chevron_right" size={18} />
-            </button>
-          </div>
-          <div style={{ display: 'flex', gap: 6 }}>
-            <button onClick={() => { setDay(todayBiz) }} style={preset}>Сегодня</button>
-            <button onClick={() => { setDay(shiftBizDay(todayBiz, -1)) }} style={preset}>Вчера</button>
-            <button onClick={() => { setCmode('range'); setFrom(format(subDays(new Date(), 6), 'yyyy-MM-dd')); setTo(todayBiz) }} style={preset}>7 дней</button>
-          </div>
-        </div>
-      ) : (
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-          <input type="date" value={from} onChange={e => setFrom(e.target.value)} style={INP} />
-          <span style={{ color: 'var(--on-surface-variant)', fontSize: 12 }}>—</span>
-          <input type="date" value={to} onChange={e => setTo(e.target.value)} style={INP} />
-          <button onClick={() => { setFrom(todayBiz); setTo(todayBiz) }} style={preset}>Сегодня</button>
-          <button onClick={() => { setFrom(shiftBizDay(todayBiz, -1)); setTo(shiftBizDay(todayBiz, -1)) }} style={preset}>Вчера</button>
-          <button onClick={() => { setFrom(format(subDays(new Date(), 6), 'yyyy-MM-dd')); setTo(todayBiz) }} style={preset}>7 дней</button>
-        </div>
-      )}
 
       {/* Summary */}
       {summary && (
@@ -1341,11 +1273,7 @@ function ChecksTab() {
 }
 
 // ─── Tab: Тарифы (выручка/количество по тарифам + по типам вечеров) ───────────
-function TariffsTab() {
-  const [range, setRange] = useState<ReportRange>('30d')
-  const [customFrom, setCustomFrom] = useState(format(subDays(new Date(), 29), 'yyyy-MM-dd'))
-  const [customTo, setCustomTo] = useState(format(new Date(), 'yyyy-MM-dd'))
-  const [from, to] = getRange(range, customFrom, customTo)
+function TariffsTab({ from, to }: { from: string; to: string }) {
   // Кликабельный тариф → раскрываем строку с деталями (count/revenue).
   const [openTariff, setOpenTariff] = useState<any | null>(null)
 
@@ -1364,22 +1292,6 @@ function TariffsTab() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      {/* Range selector */}
-      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-        {(['7d', '30d', 'month', 'custom'] as ReportRange[]).map(r => (
-          <button key={r} onClick={() => setRange(r)} style={{ padding: '6px 14px', borderRadius: 9999, border: `1px solid ${range === r ? '#8B5CF6' : 'rgba(255,255,255,0.08)'}`, background: range === r ? 'rgba(139,92,246,0.15)' : 'transparent', color: range === r ? '#A78BFA' : 'var(--on-surface-variant)', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
-            {r === '7d' ? '7 дней' : r === '30d' ? '30 дней' : r === 'month' ? 'Этот месяц' : 'Период'}
-          </button>
-        ))}
-        {range === 'custom' && (
-          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-            <input type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)} style={INP} />
-            <span style={{ color: 'var(--on-surface-variant)', fontSize: 12 }}>—</span>
-            <input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)} style={INP} />
-          </div>
-        )}
-      </div>
-
       {isLoading ? <StateView state="loading" />
       : isError ? <StateView state="error" description="Не удалось загрузить аналитику тарифов." action={{ label: 'Повторить', onClick: () => refetch() }} />
       : (
@@ -1479,11 +1391,26 @@ function TariffsTab() {
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
+// ─── Раздел «Финансы»: Отчёт (P&L + по дням + товары/платежи) и Чеки ───────────
+// Единый период приходит сверху (глобальный селектор), локальных фильтров нет.
+function FinanceTab({ from, to }: { from: string; to: string }) {
+  const [sub, setSub] = useState<'report' | 'checks'>('report')
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <div style={{ display: 'inline-flex', padding: 3, borderRadius: 9999, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', alignSelf: 'flex-start' }}>
+        {([['report', 'Отчёт'], ['checks', 'Чеки']] as const).map(([k, l]) => (
+          <button key={k} onClick={() => setSub(k)} style={{ padding: '7px 16px', borderRadius: 9999, border: 'none', background: sub === k ? 'rgba(139,92,246,0.25)' : 'transparent', color: sub === k ? '#A78BFA' : 'var(--on-surface-variant)', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>{l}</button>
+        ))}
+      </div>
+      {sub === 'report' ? <ReportsTab from={from} to={to} /> : <ChecksTab from={from} to={to} />}
+    </div>
+  )
+}
+
 export default function DashboardPage() {
   const [activeTab, setActiveTab] = useState<MainTab>('overview')
   const period = usePeriod()
 
-  const { data: dash } = useQuery({ queryKey: ['analytics', 'dashboard'], queryFn: () => api.get<any>('/analytics/dashboard'), refetchInterval: 60000 })
   // Обзор за выбранный период (финансовое здоровье + способы оплаты за период).
   const { data: overview, isError: ovError, refetch: refetchOv } = useQuery({
     queryKey: ['analytics', 'overview', period.from, period.to],
@@ -1491,20 +1418,20 @@ export default function DashboardPage() {
     refetchInterval: 60000,
     enabled: activeTab === 'overview',
   })
-  const { data: products } = useQuery({ queryKey: ['analytics', 'products'], queryFn: () => api.get<any>('/analytics/products'), refetchInterval: 300000, enabled: activeTab === 'products' })
+  // Товары (Бар) — за выбранный период.
+  const { data: products } = useQuery({
+    queryKey: ['analytics', 'products', period.from, period.to],
+    queryFn: () => api.get<any>(`/analytics/products?from=${period.from}&to=${period.to}`),
+    enabled: activeTab === 'bar',
+  })
   const { data: clients } = useQuery({ queryKey: ['analytics', 'clients'], queryFn: () => api.get<any>('/analytics/clients'), refetchInterval: 300000, enabled: activeTab === 'players' })
 
-  // Бизнес-день для вкладки «Сегодня»: берём с дашборда, иначе вычисляем локально.
-  const businessDay: string = dash?.businessDay ?? format(new Date(), 'yyyy-MM-dd')
-
   const TABS = [
-    { key: 'today'    as MainTab, label: 'Сегодня', icon: 'today' },
-    { key: 'overview' as MainTab, label: 'Обзор',   icon: 'dashboard' },
-    { key: 'reports'  as MainTab, label: 'Отчёты',  icon: 'bar_chart' },
-    { key: 'checks'   as MainTab, label: 'Чеки',    icon: 'receipt_long' },
-    { key: 'tariffs'  as MainTab, label: 'Тарифы',  icon: 'confirmation_number' },
-    { key: 'products' as MainTab, label: 'Товары',  icon: 'inventory_2' },
-    { key: 'players'  as MainTab, label: 'Игроки',  icon: 'group' },
+    { key: 'overview' as MainTab, label: 'Обзор',          icon: 'dashboard' },
+    { key: 'finance'  as MainTab, label: 'Финансы',        icon: 'payments' },
+    { key: 'games'    as MainTab, label: 'Игры и тарифы',  icon: 'confirmation_number' },
+    { key: 'bar'      as MainTab, label: 'Бар',            icon: 'inventory_2' },
+    { key: 'players'  as MainTab, label: 'Игроки',         icon: 'group' },
   ]
 
   return (
@@ -1518,7 +1445,7 @@ export default function DashboardPage() {
               {format(new Date(), 'd MMMM yyyy', { locale: ru })}
             </p>
           </div>
-          {activeTab === 'overview' && <PeriodSelector p={period} />}
+          {activeTab !== 'players' && <PeriodSelector p={period} />}
         </div>
         {/* Tabs — горизонтальный скролл только внутри таб-бара, не страницы */}
         <div style={{
@@ -1547,13 +1474,11 @@ export default function DashboardPage() {
 
       {/* Content */}
       <div style={{ padding: '16px 16px var(--bottom-nav-clear)', flex: 1, width: '100%', boxSizing: 'border-box' }}>
-        {activeTab === 'today'     && <TodayTab businessDay={businessDay} />}
         {activeTab === 'overview'  && (overview ? <OverviewTab overview={overview} periodText={period.label} /> : ovError ? <StateView state="error" description="Не удалось загрузить аналитику." action={{ label: 'Повторить', onClick: () => refetchOv() }} /> : <StateView state="loading" />)}
-        {activeTab === 'reports'   && <ReportsTab />}
-        {activeTab === 'checks'    && <ChecksTab />}
-        {activeTab === 'tariffs'   && <TariffsTab />}
-        {activeTab === 'products'  && <ProductsTab  products={products} />}
-        {activeTab === 'players'   && <PlayersTab   clients={clients} />}
+        {activeTab === 'finance'   && <FinanceTab from={period.from} to={period.to} />}
+        {activeTab === 'games'     && <TariffsTab from={period.from} to={period.to} />}
+        {activeTab === 'bar'       && <ProductsTab products={products} />}
+        {activeTab === 'players'   && <PlayersTab clients={clients} />}
       </div>
 
       <style>{`
