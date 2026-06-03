@@ -703,6 +703,57 @@ analyticsRouter.get('/clients', async (c) => {
   })
 })
 
+// ─── Карточка игрока: статистика визитов/трат + последние чеки ─────────────────
+analyticsRouter.get('/players/:id', async (c) => {
+  const id = c.req.param('id')
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) return c.json({ error: 'Bad id' }, 400)
+  const now = Date.now()
+  const d30 = new Date(now - 30 * 86400000)
+
+  const [prof] = await db.select({
+    id: profiles.id, nickname: profiles.nickname, fullName: profiles.fullName,
+    clientTier: profiles.clientTier, phone: profiles.phone,
+    balance: profiles.balance, bonusPoints: profiles.bonusPoints, createdAt: profiles.createdAt,
+  }).from(profiles).where(eq(profiles.id, id)).limit(1)
+  if (!prof) return c.json({ error: 'Not found' }, 404)
+
+  // Агрегаты за всё время: сумма, число чеков, визит-дни (distinct день МСК), первый/последний визит.
+  const [agg] = await db.select({
+    spend: sum(checks.totalAmount),
+    checksCount: count(),
+    visitDays: sql<number>`count(distinct (${checks.createdAt} AT TIME ZONE 'Europe/Moscow')::date)`,
+    firstVisit: sql<string>`min(${checks.createdAt})::text`,
+    lastVisit: sql<string>`max(${checks.createdAt})::text`,
+  }).from(checks).where(and(eq(checks.status, 'closed'), eq(checks.playerId, id)))
+
+  const [agg30] = await db.select({ spend: sum(checks.totalAmount), checksCount: count() })
+    .from(checks).where(and(eq(checks.status, 'closed'), eq(checks.playerId, id), gte(checks.createdAt, d30)))
+
+  const recentChecks = await db.select({ id: checks.id, createdAt: checks.createdAt, totalAmount: checks.totalAmount })
+    .from(checks).where(and(eq(checks.status, 'closed'), eq(checks.playerId, id)))
+    .orderBy(desc(checks.createdAt)).limit(10)
+
+  const spend = parseNum(agg?.spend)
+  const checksCount = agg?.checksCount ?? 0
+  const visitDays = Number(agg?.visitDays ?? 0)
+  const firstVisit = agg?.firstVisit ?? null
+  const lastVisit = agg?.lastVisit ?? null
+  const daysSinceLast = lastVisit ? Math.floor((now - new Date(lastVisit).getTime()) / 86400000) : null
+  const tenureDays = firstVisit ? Math.max(1, (now - new Date(firstVisit).getTime()) / 86400000) : 1
+  const visitsPerMonth = Math.round((visitDays / tenureDays) * 30 * 10) / 10
+
+  return c.json({
+    profile: prof,
+    allTime: {
+      spend, checksCount, visitDays,
+      avgCheck: checksCount > 0 ? Math.round((spend / checksCount) * 100) / 100 : 0,
+      firstVisit, lastVisit, daysSinceLast, visitsPerMonth,
+    },
+    last30: { spend: parseNum(agg30?.spend), checksCount: agg30?.checksCount ?? 0 },
+    recentChecks,
+  })
+})
+
 // ─── Shifts analytics ─────────────────────────────────────────────────────────
 analyticsRouter.get('/shifts', async (c) => {
   const rows = await db

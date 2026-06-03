@@ -375,25 +375,75 @@ function ItemDetailModal({ item, totalRev, onClose }: { item: any; totalRev: num
 
 // Детализация игрока: суммарная трата, визиты, уровень, средний чек.
 function PlayerDetailModal({ player, onClose }: { player: any; onClose: () => void }) {
-  const total = parseNum(player.total)
-  const visits = player.cnt ?? player.visits ?? 0
-  const tier = player.clientTier ?? 'null'
-  const avg = visits > 0 ? total / visits : 0
+  const pid: string | undefined = player?.playerId ?? player?.id
+  const { data } = useQuery({
+    queryKey: ['analytics', 'player', pid],
+    queryFn: () => api.get<any>(`/analytics/players/${pid}`),
+    enabled: !!pid,
+  })
+  const [openCheckId, setOpenCheckId] = useState<string | null>(null)
+
+  const prof = data?.profile
+  const at = data?.allTime ?? {}
+  const l30 = data?.last30 ?? {}
+  const recent: any[] = data?.recentChecks ?? []
+  const tier = prof?.clientTier ?? player?.clientTier ?? 'null'
+  const nickname = prof?.nickname ?? player?.nickname ?? 'Гость'
+
+  const spend = parseNum(at.spend ?? player?.total)
+  const visitDays = at.visitDays ?? player?.visits ?? 0
+  const avg = parseNum(at.avgCheck) || (visitDays > 0 ? spend / visitDays : 0)
+  const fmtDate = (iso?: string | null) => (iso ? new Date(iso).toLocaleDateString('ru', { day: '2-digit', month: 'short', year: 'numeric' }) : '—')
+
+  const kpis = [
+    { label: 'Потрачено всего', value: `${fmt(spend)} ₽`, color: '#4cd7f6' },
+    { label: 'Визитов (дней)', value: String(visitDays), color: '#A78BFA' },
+    { label: 'Средний чек', value: `${fmt(avg)} ₽`, color: '#10B981' },
+    { label: 'Частота', value: `${at.visitsPerMonth ?? 0}/мес`, color: '#F59E0B' },
+  ]
+  const rows: [string, string][] = [
+    ['За 30 дней', `${fmt(parseNum(l30.spend))} ₽ · ${l30.checksCount ?? 0} чек.`],
+    ['Последний визит', `${fmtDate(at.lastVisit)}${at.daysSinceLast != null ? ` · ${at.daysSinceLast} дн. назад` : ''}`],
+    ['Первый визит', fmtDate(at.firstVisit)],
+    ...(prof ? [['Баланс / бонусы', `${fmt(parseNum(prof.balance))} ₽ · ${fmt(parseNum(prof.bonusPoints))} ⭐`] as [string, string]] : []),
+    ...(prof?.phone ? [['Телефон', prof.phone] as [string, string]] : []),
+  ]
+
   return (
-    <Sheet title={player.nickname ?? 'Гость'} subtitle={`${TIER_LABELS[tier] ?? tier}`} onClose={onClose}>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-        {[
-          { label: 'Потрачено · 30 дней', value: `${fmt(total)} ₽`, color: '#4cd7f6' },
-          { label: 'Визитов', value: String(visits), color: '#A78BFA' },
-          { label: 'Средний чек', value: `${fmt(avg)} ₽`, color: '#10B981' },
-          { label: 'Уровень', value: TIER_LABELS[tier] ?? tier, color: TIER_COLORS[tier] ?? '#94A3B8' },
-        ].map(m => (
-          <div key={m.label} style={{ padding: '12px 14px', borderRadius: 10, background: 'rgba(255,255,255,0.04)' }}>
-            <p style={{ fontSize: 18, fontWeight: 800, fontStyle: 'italic', margin: '0 0 4px', color: m.color, lineHeight: 1 }}>{m.value}</p>
-            <p style={{ fontSize: 10, color: 'var(--on-surface-variant)', margin: 0, textTransform: 'uppercase', letterSpacing: '0.06em', fontFamily: "'JetBrains Mono',monospace" }}>{m.label}</p>
+    <Sheet title={nickname} subtitle={`${TIER_LABELS[tier] ?? tier}${prof?.fullName ? ' · ' + prof.fullName : ''}`} onClose={onClose}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+          {kpis.map(m => (
+            <div key={m.label} style={{ padding: '12px 14px', borderRadius: 10, background: 'rgba(255,255,255,0.04)' }}>
+              <p style={{ fontSize: 18, fontWeight: 800, fontStyle: 'italic', margin: '0 0 4px', color: m.color, lineHeight: 1 }}>{m.value}</p>
+              <p style={{ fontSize: 10, color: 'var(--on-surface-variant)', margin: 0, textTransform: 'uppercase', letterSpacing: '0.06em', fontFamily: "'JetBrains Mono',monospace" }}>{m.label}</p>
+            </div>
+          ))}
+        </div>
+
+        <div style={{ padding: '12px 14px', borderRadius: 12, background: 'rgba(255,255,255,0.04)', display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {rows.map(([label, value]) => (
+            <div key={label} style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+              <span style={{ fontSize: 12, color: 'var(--on-surface-variant)' }}>{label}</span>
+              <span style={{ fontSize: 12, fontWeight: 700, textAlign: 'right' }}>{value}</span>
+            </div>
+          ))}
+        </div>
+
+        <div>
+          <span style={LBL}>Последние чеки</span>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {recent.length === 0 ? <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', textAlign: 'center', padding: '12px 0' }}>Нет чеков</p> : recent.map(rc => (
+              <button key={rc.id} onClick={() => setOpenCheckId(rc.id)} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 10, background: 'rgba(255,255,255,0.03)', border: 'none', cursor: 'pointer', color: 'var(--on-surface)', textAlign: 'left' }}>
+                <span style={{ fontSize: 12, color: 'var(--on-surface-variant)', flex: 1, minWidth: 0 }}>{fmtMskDate(rc.createdAt)} · {fmtMsk(rc.createdAt)}</span>
+                <span style={{ fontSize: 13, fontWeight: 800, fontStyle: 'italic', flexShrink: 0 }}>{fmt(parseNum(rc.totalAmount))} ₽</span>
+                <Icon name="chevron_right" size={14} color="rgba(204,195,216,0.4)" />
+              </button>
+            ))}
           </div>
-        ))}
+        </div>
       </div>
+      {openCheckId && <CheckDetailModal id={openCheckId} onClose={() => setOpenCheckId(null)} />}
     </Sheet>
   )
 }
