@@ -1,5 +1,5 @@
 'use client'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Icon } from '@/components/Icon'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/lib/api'
@@ -44,6 +44,89 @@ function getRange(range: ReportRange, from: string, to: string): [string, string
   if (range === '30d') return [format(subDays(now, 29), 'yyyy-MM-dd'), format(now, 'yyyy-MM-dd')]
   if (range === 'month') return [format(startOfMonth(now), 'yyyy-MM-dd'), format(endOfMonth(now), 'yyyy-MM-dd')]
   return [from, to]
+}
+
+// ─── Глобальный фильтр периода ────────────────────────────────────────────────
+// Единый селектор периода. Даты — по БИЗНЕС-ДНЯМ МСК (09:00→06:00): «Сегодня» — это
+// текущий бизнес-день, а не календарные сутки. from/to (YYYY-MM-DD) шлём в
+// /analytics/overview, где они разворачиваются в окно [from 09:00, to+1 09:00).
+type PeriodPreset = 'today' | 'yesterday' | '7d' | '30d' | 'month' | 'custom'
+const PERIOD_OPTS: { key: PeriodPreset; label: string }[] = [
+  { key: 'today', label: 'Сегодня' },
+  { key: 'yesterday', label: 'Вчера' },
+  { key: '7d', label: '7 дней' },
+  { key: '30d', label: '30 дней' },
+  { key: 'month', label: 'Этот месяц' },
+  { key: 'custom', label: 'Период' },
+]
+const MSK_OFFSET = 3 * 3600 * 1000
+function mskBizDay(daysAgo = 0): string {
+  return new Date(Date.now() + MSK_OFFSET - 9 * 3600000 - daysAgo * 86400000).toISOString().split('T')[0]
+}
+function periodRange(preset: PeriodPreset, cf: string, ct: string): { from: string; to: string } {
+  switch (preset) {
+    case 'today': return { from: mskBizDay(0), to: mskBizDay(0) }
+    case 'yesterday': return { from: mskBizDay(1), to: mskBizDay(1) }
+    case '7d': return { from: mskBizDay(6), to: mskBizDay(0) }
+    case '30d': return { from: mskBizDay(29), to: mskBizDay(0) }
+    case 'month': { const m = new Date(Date.now() + MSK_OFFSET).toISOString().slice(0, 7); return { from: `${m}-01`, to: mskBizDay(0) } }
+    case 'custom': return { from: cf || mskBizDay(6), to: ct || mskBizDay(0) }
+  }
+}
+function periodLabel(preset: PeriodPreset, from: string, to: string): string {
+  if (preset === 'custom' || preset === 'month') return from === to ? from : `${from} — ${to}`
+  return PERIOD_OPTS.find(o => o.key === preset)?.label ?? ''
+}
+
+function usePeriod() {
+  const [preset, setPreset] = useState<PeriodPreset>('today')
+  const [customFrom, setCustomFrom] = useState('')
+  const [customTo, setCustomTo] = useState('')
+  // Гидратация из localStorage (персист выбора между заходами).
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('analytics:period')
+      if (raw) {
+        const p = JSON.parse(raw)
+        if (p.preset) setPreset(p.preset)
+        if (p.customFrom) setCustomFrom(p.customFrom)
+        if (p.customTo) setCustomTo(p.customTo)
+      }
+    } catch { /* ignore */ }
+  }, [])
+  useEffect(() => {
+    try { localStorage.setItem('analytics:period', JSON.stringify({ preset, customFrom, customTo })) } catch { /* ignore */ }
+  }, [preset, customFrom, customTo])
+  const { from, to } = periodRange(preset, customFrom, customTo)
+  return { preset, setPreset, customFrom, setCustomFrom, customTo, setCustomTo, from, to, label: periodLabel(preset, from, to) }
+}
+
+function PeriodSelector({ p }: { p: ReturnType<typeof usePeriod> }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', gap: 6, overflowX: 'auto', scrollbarWidth: 'none' }}>
+        {PERIOD_OPTS.map(o => {
+          const active = p.preset === o.key
+          return (
+            <button key={o.key} onClick={() => p.setPreset(o.key)} style={{
+              flexShrink: 0, padding: '6px 12px', borderRadius: 9999, cursor: 'pointer', fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap',
+              border: active ? 'none' : '1px solid rgba(255,255,255,0.1)',
+              background: active ? 'linear-gradient(135deg,#8B5CF6,#6D28D9)' : 'rgba(255,255,255,0.05)',
+              color: active ? '#fff' : 'var(--on-surface-variant)',
+              boxShadow: active ? '0 2px 12px rgba(139,92,246,0.3)' : 'none',
+            }}>{o.label}</button>
+          )
+        })}
+      </div>
+      {p.preset === 'custom' && (
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+          <input type="date" value={p.customFrom} onChange={e => p.setCustomFrom(e.target.value)} style={{ padding: '5px 8px', borderRadius: 8, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.05)', color: 'var(--on-surface)', fontSize: 12 }} />
+          <span style={{ color: 'var(--on-surface-variant)', fontSize: 12 }}>—</span>
+          <input type="date" value={p.customTo} onChange={e => p.setCustomTo(e.target.value)} style={{ padding: '5px 8px', borderRadius: 8, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.05)', color: 'var(--on-surface)', fontSize: 12 }} />
+        </div>
+      )}
+    </div>
+  )
 }
 
 // Время чека в МСК (UTC+3) → HH:MM, независимо от часового пояса устройства.
@@ -478,82 +561,91 @@ function TodayTab({ businessDay }: { businessDay: string }) {
 }
 
 // ─── Tab: Сводка (live overview) ──────────────────────────────────────────────
-function OverviewTab({ dash, revenue }: { dash: any; revenue: any }) {
+function OverviewTab({ overview, periodText }: { overview: any; periodText: string }) {
   const [modal, setModal] = useState<null | { title: string; subtitle?: string; b: NetBreak }>(null)
 
-  const businessDay: string = dash?.businessDay ?? format(new Date(), 'yyyy-MM-dd')
-  const netToday: NetBreak | undefined = dash?.netToday
-  const netMonth: NetBreak | undefined = dash?.netMonth
-
-  // Заголовочные суммы — ВСЕГДА реальная (валовая) выручка. Детализация
-  // gross→net доступна по клику на карточку (модалка-раскладка).
-  const dayHeadline   = parseNum(dash?.today?.revenue)
-  const dayChecks     = dash?.today?.checks ?? netToday?.checks ?? 0
-  const dayAvg        = parseNum(dash?.today?.avgCheck ?? netToday?.avgCheck)
-  const monthHeadline = parseNum(dash?.month?.revenue)
-
-  const monthProfit= parseNum(dash?.month?.profit)
-  const monthCogs  = parseNum(dash?.month?.cogs)
-  const monthExp   = parseNum(dash?.month?.expenses)
-  const monthDelta = dash?.month?.delta ?? 0
-  const monthRevGross = parseNum(dash?.month?.revenue)
-  const revenueRows: any[] = revenue?.revenue ?? []
+  const cur = (overview?.current ?? {}) as NetBreak & { margin: number | null }
+  const today: NetBreak | undefined = overview?.today
+  const deltas = overview?.deltas ?? {}
+  const gross = parseNum(cur.gross)
+  const net = parseNum(cur.net)
+  const cogs = parseNum(cur.cogs)
+  const expenses = parseNum(cur.expenses)
+  const commission = parseNum(cur.commission)
+  const refundsV = parseNum(cur.refunds)
+  const checks = cur.checks ?? 0
+  const avgCheck = parseNum(cur.avgCheck)
+  const margin = cur.margin
+  const outflow = cogs + expenses + commission + refundsV
+  const profitColor = net >= 0 ? '#10B981' : '#F43F5E'
+  const lossDriver = expenses >= cogs && expenses > 0 ? 'расходы и ЗП' : cogs > 0 ? 'себестоимость' : 'возвраты и эквайринг'
+  const healthLine = net >= 0 ? 'бизнес в плюсе за период' : `в минусе — основная статья: ${lossDriver}`
+  const seg = (v: number) => (gross > 0 ? `${Math.min(100, Math.max(0, (v / gross) * 100))}%` : '0%')
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-      {/* Month KPIs (clickable) */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))', gap: 12 }}>
-        <KpiCard label="Выручка месяц" rawValue={monthHeadline} sub="последние 30 дней" delta={monthDelta} icon="payments" iconColor="#8B5CF6" iconBg="rgba(139,92,246,0.1)" onClick={netMonth ? () => setModal({ title: 'Выручка · месяц', subtitle: 'последние 30 дней · нажмите для раскладки', b: netMonth }) : undefined} />
-        <KpiCard label="Прибыль месяц" rawValue={monthProfit} sub={`маржа ${monthRevGross > 0 ? Math.round((monthProfit / monthRevGross) * 100) : 0}%`} icon="trending_up" iconColor="#10B981" iconBg="rgba(16,185,129,0.1)" onClick={netMonth ? () => setModal({ title: 'Прибыль · месяц', subtitle: 'последние 30 дней', b: netMonth }) : undefined} />
-        <KpiCard label="Себестоимость" rawValue={monthCogs} sub="стоимость товаров" icon="inventory" iconColor="#F59E0B" iconBg="rgba(245,158,11,0.1)" onClick={netMonth ? () => setModal({ title: 'Себестоимость · месяц', subtitle: 'в составе раскладки прибыли', b: netMonth }) : undefined} />
-        <KpiCard label="Расходы" rawValue={monthExp} sub="операционные + ЗП" icon="receipt" iconColor="#F43F5E" iconBg="rgba(244,63,94,0.1)" onClick={netMonth ? () => setModal({ title: 'Расходы · месяц', subtitle: 'в составе раскладки прибыли', b: netMonth }) : undefined} />
+      {/* HERO — финансовое здоровье */}
+      <div className="glass-l2" onClick={() => setModal({ title: `Прибыль · ${periodText}`, subtitle: 'раскладка валовая → чистая', b: cur })}
+        style={{ borderRadius: 20, padding: '22px', cursor: 'pointer', border: `1px solid ${profitColor}33`, background: `${profitColor}0d` }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <span style={{ ...LBL, margin: 0 }}>Прибыль за период · {periodText}</span>
+          <Icon name="chevron_right" size={16} color="rgba(204,195,216,0.4)" />
+        </div>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, margin: '8px 0 4px', flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 34, fontWeight: 900, fontStyle: 'italic', color: profitColor, lineHeight: 1 }}>{net >= 0 ? '' : '−'}{fmt(Math.abs(net))} ₽</span>
+          <span style={{ fontSize: 12, fontWeight: 700, padding: '3px 10px', borderRadius: 9999, background: `${profitColor}22`, color: profitColor }}>маржа {margin == null ? '—' : `${margin}%`}</span>
+          {typeof deltas.profit === 'number' && <DeltaBadge delta={deltas.profit} />}
+        </div>
+        <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: '0 0 14px' }}>{healthLine}</p>
+        <div style={{ height: 12, borderRadius: 9999, overflow: 'hidden', display: 'flex', background: 'rgba(255,255,255,0.06)' }}>
+          <div title="Себестоимость" style={{ width: seg(cogs), background: '#F59E0B' }} />
+          <div title="Расходы + ЗП" style={{ width: seg(expenses), background: '#F43F5E' }} />
+          <div title="Эквайринг + возвраты" style={{ width: seg(commission + refundsV), background: '#a855f7' }} />
+          <div title="Прибыль" style={{ flex: 1, background: net >= 0 ? '#10B981' : 'transparent' }} />
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8, fontSize: 11, color: 'var(--on-surface-variant)' }}>
+          <span>+{fmt(gross)} ₽ пришло</span>
+          <span>−{fmt(outflow)} ₽ ушло</span>
+        </div>
       </div>
 
-      {/* Day navigator + chart */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) minmax(0,1fr)', gap: 16 }} className="dash-row">
-        <div
-          className="glass-l2"
-          onClick={netToday ? () => setModal({ title: 'Выручка · бизнес-день', subtitle: `${bizDayLabel(businessDay)} · 09:00–06:00`, b: netToday }) : undefined}
-          style={{ borderRadius: 16, padding: 20, cursor: netToday ? 'pointer' : 'default' }}
-        >
+      {/* 4 метрики (кликабельны → раскладка) */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px,1fr))', gap: 12 }}>
+        <KpiCard label="Выручка" rawValue={gross} sub="за период" delta={deltas.revenue} icon="payments" iconColor="#8B5CF6" iconBg="rgba(139,92,246,0.1)" onClick={() => setModal({ title: `Выручка · ${periodText}`, subtitle: 'нажмите для раскладки', b: cur })} />
+        <KpiCard label="Себестоимость" rawValue={cogs} sub={`${gross > 0 ? Math.round((cogs / gross) * 100) : 0}% от выручки`} icon="inventory" iconColor="#F59E0B" iconBg="rgba(245,158,11,0.1)" onClick={() => setModal({ title: `Себестоимость · ${periodText}`, b: cur })} />
+        <KpiCard label="Расходы + ЗП" rawValue={expenses} sub={net < 0 && expenses >= cogs ? 'главная причина убытка' : 'операционные + ЗП'} icon="receipt" iconColor="#F43F5E" iconBg="rgba(244,63,94,0.1)" onClick={() => setModal({ title: `Расходы + ЗП · ${periodText}`, b: cur })} />
+        <KpiCard label="Чеки" value={String(checks)} suffix="" sub={`средний ${fmt(avgCheck)} ₽`} delta={deltas.checks} icon="receipt_long" iconColor="#4cd7f6" iconBg="rgba(76,215,246,0.1)" onClick={() => setModal({ title: `Чеки · ${periodText}`, b: cur })} />
+      </div>
+
+      {/* Бизнес-день (сегодня) — всегда отдельно */}
+      {today && (
+        <div className="glass-l2" onClick={() => setModal({ title: 'Выручка · бизнес-день', subtitle: `${bizDayLabel(overview?.businessDay ?? '')} · 09:00–06:00`, b: today })}
+          style={{ borderRadius: 16, padding: 20, cursor: 'pointer' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-            <span style={{ ...LBL, margin: 0 }}>Бизнес-день</span>
-            {netToday && <Icon name="chevron_right" size={16} color="rgba(204,195,216,0.4)" />}
+            <span style={{ ...LBL, margin: 0 }}>Сегодня · бизнес-день</span>
+            <Icon name="chevron_right" size={16} color="rgba(204,195,216,0.4)" />
           </div>
-          <p style={{ fontSize: 11, color: 'rgba(204,195,216,0.45)', margin: '0 0 14px' }}>{bizDayLabel(businessDay)} · 09:00–06:00</p>
+          <p style={{ fontSize: 11, color: 'rgba(204,195,216,0.45)', margin: '0 0 14px' }}>{bizDayLabel(overview?.businessDay ?? '')} · 09:00–06:00</p>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
             {[
-              { label: 'Выручка', value: `${fmt(dayHeadline)} ₽`, color: '#8B5CF6' },
-              { label: 'Чеков', value: String(dayChecks), color: '#4cd7f6' },
-              { label: 'Средний чек', value: `${fmt(dayAvg)} ₽`, color: '#A78BFA' },
-              { label: 'Эквайринг (потери)', value: `${fmt(parseNum(netToday?.commission))} ₽`, color: '#F59E0B' },
-            ].map(item => (
-              <div key={item.label} style={{ padding: '12px 14px', borderRadius: 10, background: 'rgba(255,255,255,0.04)' }}>
-                <p style={{ fontSize: 18, fontWeight: 800, fontStyle: 'italic', margin: '0 0 4px', color: item.color, lineHeight: 1 }}>{item.value}</p>
-                <p style={{ fontSize: 10, color: 'var(--on-surface-variant)', margin: 0, textTransform: 'uppercase', letterSpacing: '0.06em', fontFamily: "'JetBrains Mono',monospace" }}>{item.label}</p>
+              { label: 'Выручка', value: `${fmt(parseNum(today.gross))} ₽`, color: '#8B5CF6' },
+              { label: 'Чеков', value: String(today.checks ?? 0), color: '#4cd7f6' },
+              { label: 'Средний чек', value: `${fmt(parseNum(today.avgCheck))} ₽`, color: '#A78BFA' },
+              { label: 'Эквайринг (потери)', value: `${fmt(parseNum(today.commission))} ₽`, color: '#F59E0B' },
+            ].map(it => (
+              <div key={it.label} style={{ padding: '12px 14px', borderRadius: 10, background: 'rgba(255,255,255,0.04)' }}>
+                <p style={{ fontSize: 18, fontWeight: 800, fontStyle: 'italic', margin: '0 0 4px', color: it.color, lineHeight: 1 }}>{it.value}</p>
+                <p style={{ fontSize: 10, color: 'var(--on-surface-variant)', margin: 0, textTransform: 'uppercase', letterSpacing: '0.06em', fontFamily: "'JetBrains Mono',monospace" }}>{it.label}</p>
               </div>
             ))}
           </div>
         </div>
+      )}
 
-        <div className="glass-l2" style={{ borderRadius: 16, padding: 20 }}>
-          <span style={LBL}>Выручка за 30 дней</span>
-          {revenueRows.length > 0 ? (
-            <>
-              <MiniBarChart data={revenueRows} color="rgba(139,92,246,0.7)" height={80} />
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6 }}>
-                <span style={{ fontSize: 10, color: 'rgba(204,195,216,0.4)' }}>{revenueRows[0]?.date?.slice(5) ?? ''}</span>
-                <span style={{ fontSize: 10, color: 'rgba(204,195,216,0.4)' }}>{revenueRows[revenueRows.length - 1]?.date?.slice(5) ?? ''}</span>
-              </div>
-            </>
-          ) : <p style={{ fontSize: 12, color: 'rgba(204,195,216,0.4)', textAlign: 'center', paddingTop: 20 }}>Нет данных</p>}
-        </div>
-      </div>
-
-      {/* Payment breakdown */}
+      {/* Способы оплаты — строго за выбранный период (§9.1) */}
       <div className="glass-l2" style={{ borderRadius: 16, padding: 20 }}>
-        <span style={LBL}>Методы оплаты — 30 дней</span>
-        <PayBreakdown data={dash?.paymentBreakdown ?? []} />
+        <span style={LBL}>Методы оплаты — {periodText}</span>
+        <PayBreakdown data={overview?.paymentBreakdown ?? []} />
       </div>
 
       {modal && <KpiBreakdownModal title={modal.title} subtitle={modal.subtitle} b={modal.b} onClose={() => setModal(null)} />}
@@ -1338,10 +1430,17 @@ function TariffsTab() {
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 export default function DashboardPage() {
-  const [activeTab, setActiveTab] = useState<MainTab>('today')
+  const [activeTab, setActiveTab] = useState<MainTab>('overview')
+  const period = usePeriod()
 
-  const { data: dash, isError: dashError, refetch: refetchDash } = useQuery({ queryKey: ['analytics', 'dashboard'], queryFn: () => api.get<any>('/analytics/dashboard'), refetchInterval: 60000 })
-  const { data: revenue } = useQuery({ queryKey: ['analytics', 'revenue', '30d'], queryFn: () => api.get<any>('/analytics/revenue'), refetchInterval: 300000 })
+  const { data: dash } = useQuery({ queryKey: ['analytics', 'dashboard'], queryFn: () => api.get<any>('/analytics/dashboard'), refetchInterval: 60000 })
+  // Обзор за выбранный период (финансовое здоровье + способы оплаты за период).
+  const { data: overview, isError: ovError, refetch: refetchOv } = useQuery({
+    queryKey: ['analytics', 'overview', period.from, period.to],
+    queryFn: () => api.get<any>(`/analytics/overview?from=${period.from}&to=${period.to}`),
+    refetchInterval: 60000,
+    enabled: activeTab === 'overview',
+  })
   const { data: products } = useQuery({ queryKey: ['analytics', 'products'], queryFn: () => api.get<any>('/analytics/products'), refetchInterval: 300000, enabled: activeTab === 'products' })
   const { data: clients } = useQuery({ queryKey: ['analytics', 'clients'], queryFn: () => api.get<any>('/analytics/clients'), refetchInterval: 300000, enabled: activeTab === 'players' })
 
@@ -1350,7 +1449,7 @@ export default function DashboardPage() {
 
   const TABS = [
     { key: 'today'    as MainTab, label: 'Сегодня', icon: 'today' },
-    { key: 'overview' as MainTab, label: 'Сводка',  icon: 'dashboard' },
+    { key: 'overview' as MainTab, label: 'Обзор',   icon: 'dashboard' },
     { key: 'reports'  as MainTab, label: 'Отчёты',  icon: 'bar_chart' },
     { key: 'checks'   as MainTab, label: 'Чеки',    icon: 'receipt_long' },
     { key: 'tariffs'  as MainTab, label: 'Тарифы',  icon: 'confirmation_number' },
@@ -1362,11 +1461,14 @@ export default function DashboardPage() {
     <div style={{ minHeight: '100dvh', overflowX: 'hidden', width: '100%' }}>
       {/* Header */}
       <div style={{ padding: '16px 16px 0', flexShrink: 0, position: 'sticky', top: 0, zIndex: 10, background: 'rgba(21,18,27,0.92)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)' }}>
-        <div style={{ marginBottom: 12 }}>
-          <h1 style={{ fontSize: 20, fontWeight: 800, margin: 0 }}>Аналитика</h1>
-          <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: '2px 0 0' }}>
-            {format(new Date(), 'd MMMM yyyy', { locale: ru })}
-          </p>
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
+          <div>
+            <h1 style={{ fontSize: 20, fontWeight: 800, margin: 0 }}>Аналитика</h1>
+            <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: '2px 0 0' }}>
+              {format(new Date(), 'd MMMM yyyy', { locale: ru })}
+            </p>
+          </div>
+          {activeTab === 'overview' && <PeriodSelector p={period} />}
         </div>
         {/* Tabs — горизонтальный скролл только внутри таб-бара, не страницы */}
         <div style={{
@@ -1396,7 +1498,7 @@ export default function DashboardPage() {
       {/* Content */}
       <div style={{ padding: '16px 16px var(--bottom-nav-clear)', flex: 1, width: '100%', boxSizing: 'border-box' }}>
         {activeTab === 'today'     && <TodayTab businessDay={businessDay} />}
-        {activeTab === 'overview'  && (dash ? <OverviewTab dash={dash} revenue={revenue} /> : dashError ? <StateView state="error" description="Не удалось загрузить аналитику." action={{ label: 'Повторить', onClick: () => refetchDash() }} /> : <StateView state="loading" />)}
+        {activeTab === 'overview'  && (overview ? <OverviewTab overview={overview} periodText={period.label} /> : ovError ? <StateView state="error" description="Не удалось загрузить аналитику." action={{ label: 'Повторить', onClick: () => refetchOv() }} /> : <StateView state="loading" />)}
         {activeTab === 'reports'   && <ReportsTab />}
         {activeTab === 'checks'    && <ChecksTab />}
         {activeTab === 'tariffs'   && <TariffsTab />}

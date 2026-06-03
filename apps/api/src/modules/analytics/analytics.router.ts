@@ -292,6 +292,66 @@ analyticsRouter.get('/dashboard', async (c) => {
   })
 })
 
+// ─── Обзор за период (финансовое здоровье) ─────────────────────────────────────
+// Период — по БИЗНЕС-ДНЯМ: окно = [from 09:00 МСК, to+1 09:00 МСК). «Сегодня» =
+// текущий бизнес-день (09:00→06:00), не календарные сутки. Возвращает чистую
+// разбивку за период, сравнение с предыдущим равным периодом и разбивку способов
+// оплаты ИМЕННО за период (проценты на фронте считаются от выручки периода — §9.1),
+// плюс отдельный блок текущего бизнес-дня.
+analyticsRouter.get('/overview', zValidator('query', dateRangeQuerySchema), async (c) => {
+  const q = c.req.valid('query')
+  const from = q.from ?? bizDayStr(0)
+  const to = q.to ?? bizDayStr(0)
+  const { start } = bizDayBounds(from)
+  const { end } = bizDayBounds(to)
+
+  // Кол-во дней в периоде (включительно) → предыдущее равное окно для сравнения.
+  const days = Math.max(1, Math.round((mskBoundary(to).getTime() - mskBoundary(from).getTime()) / 86400000) + 1)
+  const shiftDateStr = (dateStr: string, deltaDays: number) =>
+    new Date(mskBoundary(dateStr).getTime() + deltaDays * 86400000 + MSK_OFFSET_MS).toISOString().split('T')[0]
+  const prevFrom = shiftDateStr(from, -days)
+  const prevTo = shiftDateStr(to, -days)
+  const { start: prevStart } = bizDayBounds(prevFrom)
+  const { end: prevEnd } = bizDayBounds(prevTo)
+
+  const [current, previous] = await Promise.all([
+    netBreakdown(start, end, from, to),
+    netBreakdown(prevStart, prevEnd, prevFrom, prevTo),
+  ])
+
+  // Способы оплаты строго за период (фронт считает % от current.gross).
+  const paymentBreakdown = await db
+    .select({ method: checkPayments.method, total: sum(checkPayments.amount) })
+    .from(checkPayments)
+    .leftJoin(checks, eq(checks.id, checkPayments.checkId))
+    .where(and(eq(checks.status, 'closed'), gte(checks.createdAt, start), lt(checks.createdAt, end)))
+    .groupBy(checkPayments.method)
+
+  // Текущий бизнес-день — отдельный блок «Обзора».
+  const todayBizStr = bizDayStr(0)
+  const tb = bizDayBounds(todayBizStr)
+  const today = await netBreakdown(tb.start, tb.end, todayBizStr, todayBizStr)
+
+  const pct = (cur: number, prev: number) => (prev > 0 ? Math.round(((cur - prev) / prev) * 100) : (cur > 0 ? 100 : 0))
+  const margin = current.gross > 0 ? Math.round((current.net / current.gross) * 100) : null
+
+  return c.json({
+    period: { from, to, days },
+    current: { ...current, margin },
+    previous,
+    deltas: {
+      revenue: pct(current.gross, previous.gross),
+      profit: pct(current.net, previous.net),
+      checks: pct(current.checks, previous.checks),
+      cogs: pct(current.cogs, previous.cogs),
+      expenses: pct(current.expenses, previous.expenses),
+    },
+    paymentBreakdown,
+    today,
+    businessDay: todayBizStr,
+  })
+})
+
 // ─── Revenue by day ───────────────────────────────────────────────────────────
 analyticsRouter.get('/revenue', zValidator('query', dateRangeQuerySchema), async (c) => {
   // Период по МСК. from/to — YYYY-MM-DD (включительно). Окно по timestamptz —
