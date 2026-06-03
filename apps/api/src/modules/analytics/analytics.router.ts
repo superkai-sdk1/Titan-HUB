@@ -770,10 +770,14 @@ analyticsRouter.get('/segment-members', zValidator('query', z.object({ segment: 
 // сумма (сколько бы стоило в рознице) и себестоимость («как бы оплатил»).
 analyticsRouter.get('/staff', zValidator('query', dateRangeQuerySchema), async (c) => {
   const q = c.req.valid('query')
-  const from = q.from ?? mskDateStr(30)
-  const to = q.to ?? mskDateStr(0)
-  const pStart = mskBoundary(from)
-  const pEnd = new Date(mskBoundary(to).getTime() + 86400000)
+  // Окно — по БИЗНЕС-ДНЮ (09:00→06:00), как и весь остальной дашборд. Раньше тут
+  // были календарные сутки (mskBoundary = 00:00 МСК), из-за чего comp-чек, пробитый
+  // после полуночи (00:00–06:00), выпадал из «сегодня» — относился к прошлому
+  // бизнес-дню, но календарная граница его отрезала.
+  const from = q.from ?? bizDayStr(30)
+  const to = q.to ?? bizDayStr(0)
+  const { start: pStart } = bizDayBounds(from)
+  const { end: pEnd } = bizDayBounds(to)
 
   const rows = await db.select({
     staffId: checks.staffCompId,

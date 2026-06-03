@@ -2,7 +2,7 @@ import type { AppEnv } from '../../types.js'
 import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
-import { db, salaryPayments, shifts, checks, checkPayments, cashOperations, expenses, profiles, eq, and, desc, sum, gte, lte, lt, sql } from '@titan/database'
+import { db, salaryPayments, shifts, checks, checkPayments, cashOperations, profiles, eq, and, desc, sum, gte, lte, lt, sql } from '@titan/database'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
 import { getCurrentShift } from '../shifts/shifts.service.js'
 
@@ -130,22 +130,10 @@ salaryRouter.post('/pay', requireRole('owner'), zValidator('json', PaySalarySche
           idempotencyKey: body.idempotencyKey ? `${body.idempotencyKey}:salary-cashop` : undefined,
         }).onConflictDoNothing({ target: cashOperations.idempotencyKey })
       }
-    } else {
-      // Безналичная зарплата (перевод) — фиксируем в расходах, графа «Зарплатный
-      // фонд» (category 'salary'). В P&L не задвоится: netBreakdown исключает
-      // category='salary' из операционных расходов, а ФОТ берёт из salaryPayments.
-      const expDay = (body.note ?? '').match(/^\d{4}-\d{2}-\d{2}/)?.[0]
-        ?? new Date(Date.now() + 3 * 3600 * 1000).toISOString().split('T')[0]
-      await tx.insert(expenses).values({
-        category: 'salary',
-        amount: String(body.amount),
-        description: `Зарплатный фонд${body.note ? ' · ' + body.note : ''}`,
-        expenseDate: expDay,
-        createdBy: user.sub,
-        // Производный ключ — ретрай не задвоит расход.
-        idempotencyKey: body.idempotencyKey ? `${body.idempotencyKey}:salary-expense` : undefined,
-      }).onConflictDoNothing({ target: expenses.idempotencyKey })
     }
+    // Безналичная зарплата (перевод) кассу не трогает и отдельной строки-расхода
+    // не создаёт: в разделе «Расходы» и в P&L зарплата (нал+перевод) берётся из
+    // salaryPayments (см. /expenses/summary и netBreakdown). Это исключает задвоение.
 
     return pay
   })
