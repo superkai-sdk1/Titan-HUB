@@ -375,16 +375,18 @@ analyticsRouter.get('/revenue', zValidator('query', dateRangeQuerySchema), async
   // from/to валидированы (см. dateRangeQuerySchema): мусорные/Invalid даты уже
   // отброшены в undefined, поэтому здесь надёжно падаем на дефолты.
   const q = c.req.valid('query')
-  const from = q.from ?? mskDateStr(30)
-  const to = q.to ?? mskDateStr(0)
-  const fromStart = mskBoundary(from)
-  // следующий день после `to` в 00:00 МСК (верхняя граница, исключающая)
-  const toEndExclusive = new Date(mskBoundary(to).getTime() + 86400000)
+  const from = q.from ?? bizDayStr(30)
+  const to = q.to ?? bizDayStr(0)
+  // Окно и группировка — по БИЗНЕС-ДНЮ (09:00→06:00), как в остальной аналитике:
+  // чек в 02:00 относится к бизнес-дню предыдущей календарной даты, иначе ночная
+  // активность «разрывалась» по полуночи и попадала в соседний день графика.
+  const fromStart = bizDayBounds(from).start
+  const toEndExclusive = bizDayBounds(to).end
 
   const rows = await db
     .select({
-      // День агрегируем в МСК, чтобы метки совпадали с границами окна.
-      date: sql<string>`(${checks.createdAt} AT TIME ZONE 'Europe/Moscow')::date::text`,
+      // День агрегируем по БИЗНЕС-ДНЮ (сдвиг −9ч в МСК → 00:00–08:59 к прошлой дате).
+      date: sql<string>`((${checks.createdAt} AT TIME ZONE 'Europe/Moscow') - interval '9 hours')::date::text`,
       revenue: sum(checks.totalAmount),
       count: count(),
     })
@@ -394,8 +396,8 @@ analyticsRouter.get('/revenue', zValidator('query', dateRangeQuerySchema), async
       gte(checks.createdAt, fromStart),
       lt(checks.createdAt, toEndExclusive),
     ))
-    .groupBy(sql`(${checks.createdAt} AT TIME ZONE 'Europe/Moscow')::date`)
-    .orderBy(asc(sql`(${checks.createdAt} AT TIME ZONE 'Europe/Moscow')::date`))
+    .groupBy(sql`((${checks.createdAt} AT TIME ZONE 'Europe/Moscow') - interval '9 hours')::date`)
+    .orderBy(asc(sql`((${checks.createdAt} AT TIME ZONE 'Europe/Moscow') - interval '9 hours')::date`))
 
   // Expenses by day. expenseDate — text-дата в местном времени; сравниваем как
   // строки YYYY-MM-DD (от and до включительно), без каста ::date vs timestamptz,
@@ -435,10 +437,13 @@ analyticsRouter.get('/revenue', zValidator('query', dateRangeQuerySchema), async
 // Потребляется вкладкой «Отчёты → Платежи» на фронте.
 analyticsRouter.get('/payments', zValidator('query', dateRangeQuerySchema), async (c) => {
   const q = c.req.valid('query')
-  const from = q.from ?? mskDateStr(30)
-  const to = q.to ?? mskDateStr(0)
-  const fromStart = mskBoundary(from)
-  const toEndExclusive = new Date(mskBoundary(to).getTime() + 86400000)
+  const from = q.from ?? bizDayStr(30)
+  const to = q.to ?? bizDayStr(0)
+  // Окно — по БИЗНЕС-ДНЮ (09:00→06:00), как в /overview и /staff. Иначе активность,
+  // пробитая после полуночи (00:00–06:00), уезжала в следующие календарные сутки и
+  // выпадала из бизнес-дня (например, тариф «Гость» в 01:07 не попадал в разбивку).
+  const fromStart = bizDayBounds(from).start
+  const toEndExclusive = bizDayBounds(to).end
 
   const rows = await db
     .select({ method: checkPayments.method, total: sum(checkPayments.amount) })
@@ -459,10 +464,13 @@ analyticsRouter.get('/products', zValidator('query', dateRangeQuerySchema), asyn
   // Период по МСК, полуоткрытое окно [fromStart, toEndExclusive) — как в /revenue.
   // from/to валидированы (dateRangeQuerySchema), мусор отброшен → дефолты.
   const q = c.req.valid('query')
-  const from = q.from ?? mskDateStr(30)
-  const to = q.to ?? mskDateStr(0)
-  const fromStart = mskBoundary(from)
-  const toEndExclusive = new Date(mskBoundary(to).getTime() + 86400000)
+  const from = q.from ?? bizDayStr(30)
+  const to = q.to ?? bizDayStr(0)
+  // Окно — по БИЗНЕС-ДНЮ (09:00→06:00), как в /overview и /staff. Иначе активность,
+  // пробитая после полуночи (00:00–06:00), уезжала в следующие календарные сутки и
+  // выпадала из бизнес-дня (например, тариф «Гость» в 01:07 не попадал в разбивку).
+  const fromStart = bizDayBounds(from).start
+  const toEndExclusive = bizDayBounds(to).end
 
   const rows = await db
     .select({
@@ -514,10 +522,13 @@ analyticsRouter.get('/products', zValidator('query', dateRangeQuerySchema), asyn
 // только закрытые чеки. Тип вечера берём со смены чека (shifts.evening_type).
 analyticsRouter.get('/tariffs', zValidator('query', dateRangeQuerySchema), async (c) => {
   const q = c.req.valid('query')
-  const from = q.from ?? mskDateStr(30)
-  const to = q.to ?? mskDateStr(0)
-  const fromStart = mskBoundary(from)
-  const toEndExclusive = new Date(mskBoundary(to).getTime() + 86400000)
+  const from = q.from ?? bizDayStr(30)
+  const to = q.to ?? bizDayStr(0)
+  // Окно — по БИЗНЕС-ДНЮ (09:00→06:00), как в /overview и /staff. Иначе активность,
+  // пробитая после полуночи (00:00–06:00), уезжала в следующие календарные сутки и
+  // выпадала из бизнес-дня (например, тариф «Гость» в 01:07 не попадал в разбивку).
+  const fromStart = bizDayBounds(from).start
+  const toEndExclusive = bizDayBounds(to).end
 
   const lineRev = sql<number>`sum(${checkItems.quantity}::numeric * ${checkItems.priceAtTime})`
   const lineQty = sql<number>`sum(${checkItems.quantity})::int`
@@ -590,10 +601,12 @@ analyticsRouter.get('/tariffs', zValidator('query', dateRangeQuerySchema), async
 // ─── Clients / Players ────────────────────────────────────────────────────────
 analyticsRouter.get('/clients', zValidator('query', dateRangeQuerySchema), async (c) => {
   const q = c.req.valid('query')
-  const from = q.from ?? mskDateStr(30)
-  const to = q.to ?? mskDateStr(0)
-  const pStart = mskBoundary(from)
-  const pEnd = new Date(mskBoundary(to).getTime() + 86400000)
+  const from = q.from ?? bizDayStr(30)
+  const to = q.to ?? bizDayStr(0)
+  // Окно — по БИЗНЕС-ДНЮ (09:00→06:00), как в остальной аналитике (см. /tariffs):
+  // активность после полуночи не выпадает из своего бизнес-дня.
+  const pStart = bizDayBounds(from).start
+  const pEnd = bizDayBounds(to).end
 
   const now = new Date()
   const fourteenDaysAgo = new Date(now.getTime() - 14 * 86400000)
