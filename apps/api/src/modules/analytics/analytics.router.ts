@@ -636,7 +636,7 @@ analyticsRouter.get('/tariffs', zValidator('query', dateRangeQuerySchema), async
         )) AS qcount
       FROM shifts s
       LEFT JOIN checks c ON c.shift_id = s.id AND c.status = 'closed'
-      WHERE s.opened_at >= ${fromStart} AND s.opened_at < ${toEndExclusive}
+      WHERE s.opened_at >= ${fromStart.toISOString()}::timestamptz AND s.opened_at < ${toEndExclusive.toISOString()}::timestamptz
       GROUP BY s.id, s.evening_type
     ) sc
     WHERE sc.qcount >= 3
