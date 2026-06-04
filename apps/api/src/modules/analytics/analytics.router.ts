@@ -623,7 +623,38 @@ analyticsRouter.get('/tariffs', zValidator('query', dateRangeQuerySchema), async
   )
   total.revenue = Math.round(total.revenue * 100) / 100
 
-  return c.json({ byTariff, byEvening, total })
+  // Игровые вечера за период по типам. Вечер засчитывается, ТОЛЬКО если в смене
+  // ≥3 закрытых чеков с тарифом-местом игрока (Резидент/Гость/Студент) — считаем
+  // по факту игры, а не по типу вечера, выставленному при открытии смены.
+  const geRes: any = await db.execute(sql`
+    SELECT sc.evening_type AS evening_key, count(*)::int AS evenings
+    FROM (
+      SELECT s.id, s.evening_type,
+        count(DISTINCT c.id) FILTER (WHERE EXISTS (
+          SELECT 1 FROM check_items ci JOIN tariffs t ON t.item_id = ci.item_id
+          WHERE ci.check_id = c.id AND t.name IN ('Резидент', 'Гость', 'Студент')
+        )) AS qcount
+      FROM shifts s
+      LEFT JOIN checks c ON c.shift_id = s.id AND c.status = 'closed'
+      WHERE s.opened_at >= ${fromStart} AND s.opened_at < ${toEndExclusive}
+      GROUP BY s.id, s.evening_type
+    ) sc
+    WHERE sc.qcount >= 3
+    GROUP BY sc.evening_type
+  `)
+  const geRows = (geRes.rows ?? geRes ?? []) as { evening_key: string; evenings: number }[]
+  const geByKey = new Map(geRows.map(r => [r.evening_key, Number(r.evenings)]))
+  // Всегда показываем названные типы (даже с 0); прочие (например board_games) — если были.
+  const NAMED_EVENINGS = ['city_mafia', 'sport_mafia', 'kids_mafia', 'none']
+  const geKeys = [...NAMED_EVENINGS, ...[...geByKey.keys()].filter(k => !NAMED_EVENINGS.includes(k))]
+  const gameEvenings = geKeys.map(k => ({
+    eveningKey: k,
+    label: labelByKey.get(k) ?? (k === 'none' ? 'Без вечера' : k),
+    count: geByKey.get(k) ?? 0,
+  }))
+  const gameEveningsTotal = gameEvenings.reduce((a, e) => a + e.count, 0)
+
+  return c.json({ byTariff, byEvening, gameEvenings, gameEveningsTotal, total })
 })
 
 // ─── Clients / Players ────────────────────────────────────────────────────────

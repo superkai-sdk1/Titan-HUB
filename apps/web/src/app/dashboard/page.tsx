@@ -1460,6 +1460,8 @@ function TariffsTab({ from, to }: { from: string; to: string }) {
 
   const byTariff: any[] = data?.byTariff ?? []
   const byEvening: any[] = data?.byEvening ?? []
+  const gameEvenings: any[] = data?.gameEvenings ?? []
+  const gameEveningsTotal: number = parseNum(data?.gameEveningsTotal)
   const totalCount: number = parseNum(data?.total?.count)
   const totalRevenue: number = parseNum(data?.total?.revenue)
   const revDelta = pctDelta(totalRevenue, parseNum(prevT?.total?.revenue))
@@ -1486,6 +1488,28 @@ function TariffsTab({ from, to }: { from: string; to: string }) {
                 <DeltaBadge delta={revDelta} />
               </div>
             </div>
+          </div>
+
+          {/* Игровые вечера — по типам. Вечер засчитан, только если в смене было
+              ≥3 чеков с тарифом игрока (Резидент/Гость/Студент). */}
+          <div className="glass-l2" style={{ borderRadius: 16, padding: 16 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+              <span style={{ ...LBL, margin: 0 }}>Игровые вечера</span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 800, color: '#A78BFA' }}>
+                <Icon name="casino" size={16} color="#A78BFA" /> {gameEveningsTotal}
+              </span>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: 10 }}>
+              {gameEvenings.map((e: any) => (
+                <div key={e.eveningKey} style={{ padding: '12px 14px', borderRadius: 12, background: e.count > 0 ? 'rgba(167,139,250,0.1)' : 'rgba(255,255,255,0.04)' }}>
+                  <p style={{ fontSize: 22, fontWeight: 900, fontStyle: 'italic', color: e.count > 0 ? '#A78BFA' : 'var(--on-surface-variant)', margin: '0 0 4px', lineHeight: 1 }}>{e.count}</p>
+                  <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.label}</p>
+                </div>
+              ))}
+            </div>
+            <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: '12px 0 0', lineHeight: 1.4 }}>
+              Вечер засчитан, если в смене было не менее 3 чеков с тарифом «Резидент», «Гость» или «Студент» — по факту игры, а не по типу при открытии смены.
+            </p>
           </div>
 
           {/* По тарифам — кликабельные строки */}
