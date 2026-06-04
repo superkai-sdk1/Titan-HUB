@@ -1,5 +1,6 @@
 'use client'
 import { useState, useEffect, useCallback } from 'react'
+import { createPortal } from 'react-dom'
 import { Icon } from '@/components/Icon'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
@@ -323,7 +324,12 @@ function NetBreakdownRows({ b }: { b: NetBreak }) {
 
 // Базовая шторка (как в shifts/pos): затемнение + glass снизу.
 function Sheet({ title, subtitle, onClose, children }: { title: string; subtitle?: string; onClose: () => void; children: React.ReactNode }) {
-  return (
+  // Рендерим через портал в document.body: контент дашборда обёрнут в
+  // PullToRefreshContainer с transform на враппере, а любой transform создаёт
+  // содержащий блок для position:fixed — без портала шторка позиционировалась бы
+  // относительно длинного контента и «уезжала» в самый низ страницы (приходилось
+  // скроллить). Портал выносит её к body → fixed снова относительно вьюпорта.
+  const sheet = (
     <div
       style={{ position: 'fixed', inset: 0, zIndex: 100, background: 'rgba(10,8,14,0.8)', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}
       onClick={e => { if (e.target === e.currentTarget) onClose() }}
@@ -342,6 +348,8 @@ function Sheet({ title, subtitle, onClose, children }: { title: string; subtitle
       </div>
     </div>
   )
+  if (typeof document === 'undefined') return null
+  return createPortal(sheet, document.body)
 }
 
 // Модалка детализации KPI: показывает раскладку gross→net.
