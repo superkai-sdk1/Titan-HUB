@@ -79,7 +79,7 @@ function fmtBytes(n: number): string {
 }
 function fmtDateTime(s?: string | null): string {
   if (!s) return '—'
-  try { return new Date(s).toLocaleString('ru', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) } catch { return '—' }
+  try { return new Date(s).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) } catch { return '—' }
 }
 
 type RestorePick = { kind: 'named'; entry: BackupEntry } | { kind: 'upload'; file: File }

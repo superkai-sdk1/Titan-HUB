@@ -24,9 +24,9 @@ function formatTime(iso: string): string {
   if (diffMin < 60) return `${diffMin} мин назад`
   const diffH = Math.floor(diffMin / 60)
   if (diffH < 24 && date.toDateString() === new Date().toDateString()) {
-    return date.toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' })
+    return date.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
   }
-  return date.toLocaleString('ru', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
+  return date.toLocaleString('ru-RU', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
 }
 
 export function NotificationBell() {

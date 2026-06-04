@@ -567,7 +567,7 @@ export default function ClientsPage() {
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
                     <div>
                       <h3 style={{ fontSize: 17, fontWeight: 800, margin: 0 }}>Чек</h3>
-                      <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: '3px 0 0' }}>{(ch.closedAt || ch.createdAt) ? new Date(ch.closedAt || ch.createdAt).toLocaleString('ru') : ''}</p>
+                      <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: '3px 0 0' }}>{(ch.closedAt || ch.createdAt) ? new Date(ch.closedAt || ch.createdAt).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''}</p>
                     </div>
                     <button onClick={() => setCheckModalId(null)} style={{ width: 32, height: 32, borderRadius: 10, border: '1px solid rgba(255,255,255,0.1)', background: 'transparent', color: 'var(--on-surface-variant)', cursor: 'pointer', flexShrink: 0 }}><Icon name="close" size={16} /></button>
                   </div>

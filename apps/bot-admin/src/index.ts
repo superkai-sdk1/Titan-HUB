@@ -240,9 +240,11 @@ bot.callbackQuery('salary_estimate', async (ctx) => {
   pending.delete(ctx.chat!.id)
   const p = await getProfile(String(ctx.from?.id)); if (!p) return
   try {
-    const now = new Date()
-    const from = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
-    const to = now.toISOString().split('T')[0]
+    // По МСК и БИЗНЕС-ДНЮ: from = 1-е число текущего месяца (МСК), to = текущий
+    // бизнес-день (09:00→06:00), а не календарная дата локали сервера.
+    const mskNow = new Date(Date.now() + 3 * 3600 * 1000)
+    const from = `${mskNow.getUTCFullYear()}-${String(mskNow.getUTCMonth() + 1).padStart(2, '0')}-01`
+    const to = new Date(Date.now() + 3 * 3600 * 1000 - 9 * 3600000).toISOString().split('T')[0]
     const r = await apiGet<{ revenue: number; salary: number }>(p, `/salary/estimate?from=${from}&to=${to}`)
     await ctx.reply(
       `💵 *Расчёт зарплаты (этот месяц)*\n\n` +

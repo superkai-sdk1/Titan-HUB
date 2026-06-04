@@ -100,6 +100,18 @@ async function netBreakdown(start: Date, end: Date, expFrom: string, expTo: stri
     .from(checks)
     .where(and(eq(checks.status, 'closed'), gte(checks.createdAt, start), lt(checks.createdAt, end)))
 
+  // Чеки мероприятий за окно: event-чек = есть привязка к событию ИЛИ задана база
+  // мероприятия. Их выводим ОТДЕЛЬНО (полная выручка + кол-во) и исключаем из
+  // «среднего чека», чтобы крупная база мероприятия не раздувала клубный средний.
+  // В общую выручку/прибыль мероприятия по-прежнему входят (gross/net не меняем).
+  const [eventRow] = await db
+    .select({ revenue: sum(checks.totalAmount), cnt: count() })
+    .from(checks)
+    .where(and(
+      eq(checks.status, 'closed'), gte(checks.createdAt, start), lt(checks.createdAt, end),
+      sql`(${checks.linkedEventId} is not null or coalesce(${checks.eventBaseAmount}, 0) > 0)`,
+    ))
+
   // Возвраты за окно (по дате возврата).
   const [refundRow] = await db
     .select({ total: sum(refunds.totalAmount) })
@@ -134,6 +146,11 @@ async function netBreakdown(start: Date, end: Date, expFrom: string, expTo: stri
 
   const gross = parseNum(grossRow?.revenue)
   const cnt = grossRow?.cnt ?? 0
+  const eventRevenue = parseNum(eventRow?.revenue)
+  const eventChecks = eventRow?.cnt ?? 0
+  // Клубные (не-мероприятийные) чеки — для «среднего чека».
+  const clubGross = gross - eventRevenue
+  const clubChecks = cnt - eventChecks
   const refundsTotal = parseNum(refundRow?.total)
   const commission = Math.round(parseNum(sbpRow?.total) * 0.08 * 100) / 100
   const cogs = parseNum(cogsRow?.total)
@@ -144,7 +161,12 @@ async function netBreakdown(start: Date, end: Date, expFrom: string, expTo: stri
   return {
     gross,
     checks: cnt,
-    avgCheck: cnt > 0 ? gross / cnt : 0,
+    // Средний чек — только по клубным чекам (без мероприятий), чтобы база
+    // мероприятия не раздувала показатель.
+    avgCheck: clubChecks > 0 ? clubGross / clubChecks : 0,
+    eventRevenue,
+    eventChecks,
+    clubChecks,
     refunds: refundsTotal,
     commission,
     cogs,
@@ -164,8 +186,8 @@ analyticsRouter.get('/dashboard', async (c) => {
   const yesterdayBizStr = bizDayStr(1)
   const { start: todayStart } = bizDayBounds(todayBizStr)
   const { start: yesterdayStart } = bizDayBounds(yesterdayBizStr)
-  const thirtyDaysAgo = mskBoundary(mskDateStr(30))       // 00:00 МСК 30 дней назад
-  const sixtyDaysAgo = mskBoundary(mskDateStr(60))        // 00:00 МСК 60 дней назад
+  const thirtyDaysAgo = bizDayBounds(bizDayStr(30)).start  // 09:00 МСК бизнес-дня 30 дней назад
+  const sixtyDaysAgo = bizDayBounds(bizDayStr(60)).start   // 09:00 МСК бизнес-дня 60 дней назад
 
   // Today revenue (бизнес-день: с 09:00 текущего бизнес-дня)
   const [todayStats] = await db
@@ -218,7 +240,7 @@ analyticsRouter.get('/dashboard', async (c) => {
   const [expensesRow] = await db
     .select({ total: sum(expenses.amount) })
     .from(expenses)
-    .where(and(gte(expenses.expenseDate, mskDateStr(30)), lte(expenses.expenseDate, mskDateStr(0)), ne(expenses.category, 'salary')))
+    .where(and(gte(expenses.expenseDate, bizDayStr(30)), lte(expenses.expenseDate, bizDayStr(0)), ne(expenses.category, 'salary')))
 
   // Payroll this month — единый источник (таблица выплат ЗП).
   const [salaryRow] = await db
@@ -262,7 +284,7 @@ analyticsRouter.get('/dashboard', async (c) => {
   // Net-разбивка (с учётом расходов/комиссий/возвратов) для дня и месяца.
   const { end: todayEnd } = bizDayBounds(todayBizStr)
   const netToday = await netBreakdown(todayStart, todayEnd, todayBizStr, todayBizStr)
-  const netMonth = await netBreakdown(thirtyDaysAgo, todayEnd, mskDateStr(30), mskDateStr(0))
+  const netMonth = await netBreakdown(thirtyDaysAgo, todayEnd, bizDayStr(30), bizDayStr(0))
 
   const monthRev = parseNum(monthStats?.revenue)
   const prevMonthRev = parseNum(prevMonthStats?.revenue)
@@ -280,7 +302,10 @@ analyticsRouter.get('/dashboard', async (c) => {
     today: {
       revenue: parseNum(todayStats?.revenue),
       checks: todayStats?.count ?? 0,
-      avgCheck: (todayStats?.count ?? 0) > 0 ? parseNum(todayStats?.revenue) / (todayStats?.count ?? 1) : 0,
+      // Средний — клубный (без мероприятий), берём из net-разбивки.
+      avgCheck: netToday.avgCheck,
+      eventChecks: netToday.eventChecks,
+      eventRevenue: netToday.eventRevenue,
     },
     yesterday: {
       revenue: parseNum(yesterdayStats?.revenue),
@@ -289,7 +314,10 @@ analyticsRouter.get('/dashboard', async (c) => {
     month: {
       revenue: monthRev,
       checks: monthStats?.count ?? 0,
-      avgCheck: (monthStats?.count ?? 0) > 0 ? monthRev / (monthStats?.count ?? 1) : 0,
+      // Средний — клубный (без мероприятий), берём из net-разбивки.
+      avgCheck: netMonth.avgCheck,
+      eventChecks: netMonth.eventChecks,
+      eventRevenue: netMonth.eventRevenue,
       cogs,
       expenses: totalExpenses,
       profit,
@@ -417,7 +445,7 @@ analyticsRouter.get('/revenue', zValidator('query', dateRangeQuerySchema), async
   // COGS by day (supply costs) — те же полуоткрытые границы МСК.
   const cogsRows = await db
     .select({
-      date: sql<string>`(${supplies.createdAt} AT TIME ZONE 'Europe/Moscow')::date::text`,
+      date: sql<string>`((${supplies.createdAt} AT TIME ZONE 'Europe/Moscow') - interval '9 hours')::date::text`,
       total: sql<number>`sum(${supplyItems.quantity}::numeric * ${supplyItems.costPerUnit}::numeric)`,
     })
     .from(supplyItems)
@@ -426,7 +454,7 @@ analyticsRouter.get('/revenue', zValidator('query', dateRangeQuerySchema), async
       gte(supplies.createdAt, fromStart),
       lt(supplies.createdAt, toEndExclusive),
     ))
-    .groupBy(sql`(${supplies.createdAt} AT TIME ZONE 'Europe/Moscow')::date`)
+    .groupBy(sql`((${supplies.createdAt} AT TIME ZONE 'Europe/Moscow') - interval '9 hours')::date`)
 
   return c.json({ revenue: rows, expenses: expRows, cogs: cogsRows })
 })
@@ -634,7 +662,7 @@ analyticsRouter.get('/clients', zValidator('query', dateRangeQuerySchema), async
   const retentionRows = await db
     .select({
       playerId: checks.playerId,
-      days: sql<number>`count(distinct (${checks.createdAt} AT TIME ZONE 'Europe/Moscow')::date)`,
+      days: sql<number>`count(distinct ((${checks.createdAt} AT TIME ZONE 'Europe/Moscow') - interval '9 hours')::date)`,
     })
     .from(checks)
     .where(and(
@@ -851,7 +879,7 @@ analyticsRouter.get('/players/:id', async (c) => {
   const [agg] = await db.select({
     spend: sum(checks.totalAmount),
     checksCount: count(),
-    visitDays: sql<number>`count(distinct (${checks.createdAt} AT TIME ZONE 'Europe/Moscow')::date)`,
+    visitDays: sql<number>`count(distinct ((${checks.createdAt} AT TIME ZONE 'Europe/Moscow') - interval '9 hours')::date)`,
     firstVisit: sql<string>`min(${checks.createdAt})::text`,
     lastVisit: sql<string>`max(${checks.createdAt})::text`,
   }).from(checks).where(and(eq(checks.status, 'closed'), eq(checks.playerId, id)))

@@ -56,7 +56,7 @@ export default function SecurityPage() {
 
   function fmtDate(s: string | null): string {
     if (!s) return ''
-    try { return new Date(s).toLocaleDateString('ru', { day: 'numeric', month: 'long', year: 'numeric' }) } catch { return '' }
+    try { return new Date(s).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' }) } catch { return '' }
   }
 
   return (

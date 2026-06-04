@@ -82,8 +82,9 @@ salaryRouter.get('/estimate', requireRole('owner', 'staff'), async (c) => {
   // иначе new Date('YYYY-MM-DD') трактовалось как UTC и окно съезжало на 3ч,
   // а чек последнего дня после 21:00 МСК выпадал из расчёта.
   const conditions = [eq(checks.staffId, staffId), eq(checks.status, 'closed')]
-  if (from) conditions.push(gte(checks.createdAt, new Date(`${from}T00:00:00+03:00`)))
-  if (to) conditions.push(lt(checks.createdAt, new Date(new Date(`${to}T00:00:00+03:00`).getTime() + 86400000)))
+  // По БИЗНЕС-ДНЮ (09:00→06:00), как и дневная ветка выше: окно [from 09:00, to+1 09:00).
+  if (from) conditions.push(gte(checks.createdAt, new Date(`${from}T09:00:00+03:00`)))
+  if (to) conditions.push(lt(checks.createdAt, new Date(new Date(`${to}T09:00:00+03:00`).getTime() + 86400000)))
 
   const [result] = await db
     .select({ revenue: sum(checks.totalAmount) })

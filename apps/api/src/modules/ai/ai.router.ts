@@ -1,4 +1,5 @@
 import type { AppEnv } from '../../types.js'
+import { fmtMsk, bizDayStr, bizDayStart, bizMonthStart } from '../../lib/dateFmt.js'
 import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
@@ -104,8 +105,8 @@ const ActionSchema = z.object({
 // угадывал. Долг клиента = отрицательный profiles.balance; депозит = положительный.
 async function buildBusinessSnapshot(): Promise<string> {
   const parts: string[] = []
-  const now = new Date()
-  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  // Начало текущего БИЗНЕС-ДНЯ (09:00 МСК), а не календарной полуночи локали сервера.
+  const todayStart = bizDayStart(bizDayStr(0))
 
   // Должники (balance < 0) + общий долг.
   try {
@@ -175,7 +176,7 @@ async function buildBusinessSnapshot(): Promise<string> {
   try {
     const [openShift] = await db.select().from(shifts).where(eq(shifts.status, 'open')).orderBy(desc(shifts.openedAt)).limit(1)
     parts.push(openShift
-      ? `СМЕНА: открыта с ${new Date(openShift.openedAt).toLocaleString('ru-RU')}.`
+      ? `СМЕНА: открыта с ${fmtMsk(new Date(openShift.openedAt), true)}.`
       : 'СМЕНА: открытой смены нет.')
   } catch { /* skip */ }
 
@@ -267,13 +268,13 @@ async function answerFromDb(query: string): Promise<string | null> {
 }
 
 async function buildContext(action: string, payload?: Record<string, unknown>, question?: string): Promise<string> {
-  const now = new Date()
   const thirtyDays = new Date(Date.now() - 30 * 86400000)
   const fourteenDays = new Date(Date.now() - 14 * 86400000)
-  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-  const firstOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
-  const firstOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1)
-  const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59)
+  // Границы — по БИЗНЕС-ДНЮ/БИЗНЕС-МЕСЯЦУ в МСК (09:00), а не по локальной полуночи сервера.
+  const todayStart = bizDayStart(bizDayStr(0))
+  const firstOfMonth = bizMonthStart(0)
+  const firstOfLastMonth = bizMonthStart(-1)
+  const lastMonthEnd = new Date(firstOfMonth.getTime() - 1)
 
   switch (action) {
     case 'revenue_summary': {
@@ -308,7 +309,7 @@ async function buildContext(action: string, payload?: Record<string, unknown>, q
         const rev = Number(stats?.rev ?? 0).toFixed(2)
         const cnt = stats?.cnt ?? 0
         const avgC = Number(stats?.avgCheck ?? 0).toFixed(2)
-        return `Сводка за сегодня (${todayStart.toLocaleDateString('ru-RU')}):\n- Выручка: ${rev} руб\n- Чеков: ${cnt}\n- Средний чек: ${avgC} руб`
+        return `Сводка за сегодня (${fmtMsk(todayStart)}):\n- Выручка: ${rev} руб\n- Чеков: ${cnt}\n- Средний чек: ${avgC} руб`
       } catch (e) {
         return `Не удалось получить дневную сводку: ${String(e)}`
       }
@@ -348,7 +349,7 @@ async function buildContext(action: string, payload?: Record<string, unknown>, q
         const minutes = Math.floor((durationMs % 3600000) / 60000)
 
         const status = targetShift.status === 'open' ? 'Активная' : 'Последняя закрытая'
-        return `${status} смена:\n- Открыл: ${opener[0]?.nickname ?? 'неизвестно'}\n- Начало: ${new Date(targetShift.openedAt).toLocaleString('ru-RU')}\n- Длительность: ${hours}ч ${minutes}мин\n- Выручка: ${Number(revenue?.rev ?? 0).toFixed(2)} руб\n- Чеков: ${revenue?.cnt ?? 0}`
+        return `${status} смена:\n- Открыл: ${opener[0]?.nickname ?? 'неизвестно'}\n- Начало: ${fmtMsk(new Date(targetShift.openedAt), true)}\n- Длительность: ${hours}ч ${minutes}мин\n- Выручка: ${Number(revenue?.rev ?? 0).toFixed(2)} руб\n- Чеков: ${revenue?.cnt ?? 0}`
       } catch (e) {
         return `Не удалось получить данные смены: ${String(e)}`
       }
@@ -527,7 +528,7 @@ async function buildContext(action: string, payload?: Record<string, unknown>, q
             gte(salaryPayments.createdAt, firstOfLastMonth),
             lte(salaryPayments.createdAt, lastMonthEnd),
           ))
-        const lines = rows.map(r => `- ${r.nickname ?? 'неизвестно'}: ${Number(r.amount).toFixed(2)} руб (${new Date(r.date).toLocaleDateString('ru-RU')}, ${r.method})`).join('\n')
+        const lines = rows.map(r => `- ${r.nickname ?? 'неизвестно'}: ${Number(r.amount).toFixed(2)} руб (${fmtMsk(new Date(r.date))}, ${r.method})`).join('\n')
         return `Зарплаты за прошлый месяц:\n${lines}\nИтого: ${Number(totalRow?.total ?? 0).toFixed(2)} руб`
       } catch (e) {
         return `Не удалось получить отчёт по зарплатам: ${String(e)}`

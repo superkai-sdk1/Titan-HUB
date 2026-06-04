@@ -290,6 +290,7 @@ function PayBreakdown({ data }: { data: { method: string; total: string | number
 // ─── Net/Gross breakdown shared bits ──────────────────────────────────────────
 type NetBreak = {
   gross: number | string; checks: number; avgCheck: number | string
+  eventRevenue?: number | string; eventChecks?: number; clubChecks?: number
   refunds: number | string; commission: number | string; cogs: number | string
   opex: number | string; salary: number | string; expenses: number | string; net: number | string
 }
@@ -446,7 +447,7 @@ function PlayerDetailModal({ player, onClose }: { player: any; onClose: () => vo
   const spend = parseNum(at.spend ?? player?.total)
   const visitDays = at.visitDays ?? player?.visits ?? 0
   const avg = parseNum(at.avgCheck) || (visitDays > 0 ? spend / visitDays : 0)
-  const fmtDate = (iso?: string | null) => (iso ? new Date(iso).toLocaleDateString('ru', { day: '2-digit', month: 'short', year: 'numeric' }) : '—')
+  const fmtDate = (iso?: string | null) => (iso ? new Date(iso).toLocaleDateString('ru-RU', { day: '2-digit', month: 'short', year: 'numeric' }) : '—')
 
   const kpis = [
     { label: 'Потрачено всего', value: `${fmt(spend)} ₽`, color: '#4cd7f6' },
@@ -678,6 +679,8 @@ function OverviewTab({ overview, periodText }: { overview: any; periodText: stri
   const refundsV = parseNum(cur.refunds)
   const checks = cur.checks ?? 0
   const avgCheck = parseNum(cur.avgCheck)
+  const eventChecks = cur.eventChecks ?? 0
+  const eventRevenue = parseNum(cur.eventRevenue)
   const margin = cur.margin
   const outflow = cogs + expenses + commission + refundsV
   const profitColor = net >= 0 ? '#10B981' : '#F43F5E'
@@ -717,8 +720,32 @@ function OverviewTab({ overview, periodText }: { overview: any; periodText: stri
         <KpiCard label="Выручка" rawValue={gross} sub="за период" delta={deltas.revenue} icon="payments" iconColor="#8B5CF6" iconBg="rgba(139,92,246,0.1)" onClick={() => setModal({ title: `Выручка · ${periodText}`, subtitle: 'нажмите для раскладки', b: cur })} />
         <KpiCard label="Себестоимость" rawValue={cogs} sub={`${gross > 0 ? Math.round((cogs / gross) * 100) : 0}% от выручки`} icon="inventory" iconColor="#F59E0B" iconBg="rgba(245,158,11,0.1)" onClick={() => setModal({ title: `Себестоимость · ${periodText}`, b: cur })} />
         <KpiCard label="Расходы + ЗП" rawValue={expenses} sub={net < 0 && expenses >= cogs ? 'главная причина убытка' : 'операционные + ЗП'} icon="receipt" iconColor="#F43F5E" iconBg="rgba(244,63,94,0.1)" onClick={() => setModal({ title: `Расходы + ЗП · ${periodText}`, b: cur })} />
-        <KpiCard label="Чеки" value={String(checks)} suffix="" sub={`средний ${fmt(avgCheck)} ₽`} delta={deltas.checks} icon="receipt_long" iconColor="#4cd7f6" iconBg="rgba(76,215,246,0.1)" onClick={() => setModal({ title: `Чеки · ${periodText}`, b: cur })} />
+        <KpiCard label="Чеки" value={String(checks)} suffix="" sub={`${eventChecks > 0 ? 'средний клубный' : 'средний'} ${fmt(avgCheck)} ₽`} delta={deltas.checks} icon="receipt_long" iconColor="#4cd7f6" iconBg="rgba(76,215,246,0.1)" onClick={() => setModal({ title: `Чеки · ${periodText}`, b: cur })} />
       </div>
+
+      {/* Мероприятия — отдельно от клубовских цифр (в общую выручку входят, но
+          средний чек не раздувают). Квадратная панель: кол-во и полная выручка. */}
+      {eventChecks > 0 && (
+        <div className="glass-l2" style={{ borderRadius: 16, padding: 18, border: '1px solid rgba(236,72,153,0.25)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+            <span style={{ ...LBL, margin: 0 }}>Мероприятия — {periodText}</span>
+            <Icon name="celebration" size={18} color="#EC4899" />
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <div style={{ padding: '14px 16px', borderRadius: 12, background: 'rgba(236,72,153,0.08)' }}>
+              <p style={{ fontSize: 24, fontWeight: 900, fontStyle: 'italic', color: '#EC4899', margin: '0 0 4px', lineHeight: 1 }}>{eventChecks}</p>
+              <p style={{ fontSize: 10, color: 'var(--on-surface-variant)', margin: 0, textTransform: 'uppercase', letterSpacing: '0.06em', fontFamily: "'JetBrains Mono',monospace" }}>Мероприятий</p>
+            </div>
+            <div style={{ padding: '14px 16px', borderRadius: 12, background: 'rgba(236,72,153,0.08)' }}>
+              <p style={{ fontSize: 24, fontWeight: 900, fontStyle: 'italic', color: '#EC4899', margin: '0 0 4px', lineHeight: 1 }}>{fmt(eventRevenue)} ₽</p>
+              <p style={{ fontSize: 10, color: 'var(--on-surface-variant)', margin: 0, textTransform: 'uppercase', letterSpacing: '0.06em', fontFamily: "'JetBrains Mono',monospace" }}>Выручка</p>
+            </div>
+          </div>
+          <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: '12px 0 0', lineHeight: 1.4 }}>
+            Учтены в общей выручке и прибыли. В «среднем чеке» считаются отдельно, чтобы не искажать клубные показатели.
+          </p>
+        </div>
+      )}
 
       {/* Бизнес-день (сегодня) — всегда отдельно */}
       {today && (
