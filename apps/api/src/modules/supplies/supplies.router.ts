@@ -125,10 +125,17 @@ suppliesRouter.post('/', requireRole('owner', 'staff'), zValidator('json', Suppl
     return c.json({ error: 'Не удалось сохранить приёмку' }, 500)
   }
 
+  // Понятный текст: поставщик (если указан) · сколько позиций · сумма.
+  const supItemNames = body.items.map(i => i.name).filter(Boolean).slice(0, 3).join(', ')
+  const supBody = [
+    body.supplier ? `Поставщик: ${body.supplier}` : null,
+    `${body.items.length} поз. · ${totalCost.toLocaleString('ru')} ₽`,
+    supItemNames || null,
+  ].filter(Boolean).join('\n')
   void notify({
     type: 'supply_received',
     title: 'Приход на склад',
-    body: `${totalCost} ₽`,
+    body: supBody,
     meta: { supplyId: supply.id },
   }).catch(() => {})
 

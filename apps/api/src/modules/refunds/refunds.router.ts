@@ -254,10 +254,11 @@ refundsRouter.post('/', requireRole('owner', 'staff'), zValidator('json', Refund
     const refundAmt = parseFloat(String(refund?.totalAmount ?? 0)) || 0
     const largeRefund = await getNumericSetting(LARGE_REFUND_KEY, DEFAULT_LARGE_REFUND)
     const isLargeRefund = refundAmt >= largeRefund
+    const refundReason = ({ return: 'возврат', exchange: 'обмен', discount: 'скидка', damage: 'брак' } as Record<string, string>)[body.reason] ?? body.reason
     void notify({
       type: isLargeRefund ? 'large_refund' : 'refund',
       title: isLargeRefund ? 'Крупный возврат' : 'Возврат',
-      body: `${refundAmt.toLocaleString('ru')} ₽`,
+      body: `${refundAmt.toLocaleString('ru')} ₽ · причина: ${refundReason}`,
       meta: { checkId: body.checkId },
     }).catch(() => {})
 

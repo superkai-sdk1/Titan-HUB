@@ -200,10 +200,11 @@ clientsRouter.post('/', requireRole('owner', 'staff'), zValidator('json', Create
   }).returning()
   const { pin, passwordHash: _, ...safe } = client
 
+  const newClientTier = ({ guest: 'Гость', resident: 'Резидент', student: 'Студент' } as Record<string, string>)[client.clientTier ?? '']
   void notify({
     type: 'new_client',
     title: 'Новый клиент',
-    body: client.nickname,
+    body: newClientTier ? `${client.nickname} · ${newClientTier}` : client.nickname,
     meta: { clientId: client.id },
   }).catch(() => {})
 
@@ -398,22 +399,35 @@ clientsRouter.post('/:id/balance', requireRole('owner', 'staff'), zValidator('js
     return c.json({ error: `Превышен лимит долга (${result.maxDebt}₽). Запрошенный баланс: ${result.newBalance.toFixed(2)}₽` }, 400)
   }
 
-  // Уведомления (fire-and-forget, после транзакции)
+  // Уведомления (fire-and-forget, после транзакции). Имя клиента — чтобы из текста
+  // было ясно, КТО пополнил/закрыл долг.
+  const [cli] = await db.select({ nickname: profiles.nickname }).from(profiles).where(eq(profiles.id, clientId))
+  const who = cli?.nickname ?? 'Клиент'
+  const fmtAmt = Math.abs(amount).toLocaleString('ru')
+  const fmtBal = result.newBalance.toLocaleString('ru', { maximumFractionDigits: 0 })
+
   if (amount > 0) {
-    void notify({
-      type: 'deposit_topup',
-      title: 'Пополнение депозита',
-      body: `${amount} ₽`,
-      meta: { clientId },
-    }).catch(() => {})
-    void notifyClient(clientId, `💰 Депозит пополнен на ${amount.toLocaleString('ru')} ₽.\nБаланс: ${result.newBalance.toLocaleString('ru')} ₽`)
+    // Если до пополнения был долг — это его погашение (полное или частичное).
+    let depTitle = 'Пополнение депозита'
+    let depBody = `${who} · +${fmtAmt} ₽ · баланс ${fmtBal} ₽`
+    if (result.prevBalance < 0) {
+      if (result.newBalance >= 0) {
+        depTitle = 'Долг погашен'
+        depBody = `${who} · внёс ${fmtAmt} ₽ · долг закрыт, баланс ${fmtBal} ₽`
+      } else {
+        depTitle = 'Частичное погашение долга'
+        depBody = `${who} · внёс ${fmtAmt} ₽ · остаток долга ${Math.abs(result.newBalance).toLocaleString('ru', { maximumFractionDigits: 0 })} ₽`
+      }
+    }
+    void notify({ type: 'deposit_topup', title: depTitle, body: depBody, meta: { clientId } }).catch(() => {})
+    void notifyClient(clientId, `💰 Депозит пополнен на ${fmtAmt} ₽.\nБаланс: ${fmtBal} ₽`)
   }
   // Долг образовался: баланс только что ушёл в минус (раньше был неотрицателен).
   if (result.newBalance < 0 && result.prevBalance >= 0) {
     void notify({
       type: 'debt_created',
       title: 'Новый долг клиента',
-      body: `${result.newBalance.toFixed(2)} ₽`,
+      body: `${who} · долг ${Math.abs(result.newBalance).toLocaleString('ru', { maximumFractionDigits: 0 })} ₽`,
       meta: { clientId },
     }).catch(() => {})
     void notifyClient(clientId, `⚠️ У вас образовался долг: ${Math.abs(result.newBalance).toLocaleString('ru')} ₽`)
