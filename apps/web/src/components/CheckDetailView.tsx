@@ -1,4 +1,5 @@
 'use client'
+import type React from 'react'
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api, ApiError } from '@/lib/api'
@@ -247,6 +248,73 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
   const [showMenuDrawer, setShowMenuDrawer] = useState(false)
   const [showPayment, setShowPayment] = useState(false)
   const [isPaid, setIsPaid] = useState(false)
+
+  // ─── Выезжающая панель меню: тянется за пальцем, поднимается над клавиатурой,
+  //     свайпом вниз закрывается полностью (как нижние шторки в приложении). ──────
+  const dragRef = useRef<{ startY: number; startH: number } | null>(null)
+  const curHRef = useRef(0)
+  const [sheetH, setSheetH] = useState(0)     // высота панели, px
+  const [kbInset, setKbInset] = useState(0)   // высота, перекрытая клавиатурой, px
+  const [sheetDragging, setSheetDragging] = useState(false)
+  const MID_FRAC = 0.7, TOP_GAP = 8
+  const vpMetrics = () => {
+    const vv = typeof window !== 'undefined' ? window.visualViewport : null
+    const innerH = typeof window !== 'undefined' ? window.innerHeight : 800
+    const visH = vv ? vv.height : innerH
+    const inset = vv ? Math.max(0, innerH - vv.height - vv.offsetTop) : 0
+    return { innerH, visH, inset }
+  }
+  // При открытии — высота по умолчанию (70% видимой области).
+  useEffect(() => {
+    if (!showMenuDrawer) { setKbInset(0); return }
+    const { visH } = vpMetrics()
+    const h = Math.round(visH * MID_FRAC)
+    curHRef.current = h; setSheetH(h)
+  }, [showMenuDrawer])
+  // Клавиатура: следим за visualViewport — поднимаем панель над клавиатурой
+  // (bottom = inset) и не даём вылезти за верх экрана.
+  useEffect(() => {
+    if (!showMenuDrawer || typeof window === 'undefined') return
+    const vv = window.visualViewport
+    if (!vv) return
+    const onResize = () => {
+      const { visH, inset } = vpMetrics()
+      setKbInset(inset)
+      const maxH = visH - TOP_GAP
+      if (curHRef.current > maxH) { curHRef.current = maxH; setSheetH(maxH) }
+    }
+    vv.addEventListener('resize', onResize)
+    vv.addEventListener('scroll', onResize)
+    onResize()
+    return () => { vv.removeEventListener('resize', onResize); vv.removeEventListener('scroll', onResize) }
+  }, [showMenuDrawer])
+  const onSheetDragStart = (e: React.TouchEvent) => {
+    dragRef.current = { startY: e.touches[0].clientY, startH: curHRef.current }
+    setSheetDragging(true)
+  }
+  const onSheetDragMove = (e: React.TouchEvent) => {
+    if (!dragRef.current) return
+    const { visH } = vpMetrics()
+    const dy = dragRef.current.startY - e.touches[0].clientY   // палец вверх = рост
+    const h = Math.min(visH - TOP_GAP, Math.max(60, dragRef.current.startH + dy))
+    curHRef.current = h; setSheetH(h)
+  }
+  const onSheetDragEnd = () => {
+    if (!dragRef.current) return
+    dragRef.current = null
+    setSheetDragging(false)
+    const { visH } = vpMetrics()
+    const h = curHRef.current
+    if (h < visH * 0.38) { setShowMenuDrawer(false); return }  // свайп вниз → закрыть
+    const target = h > visH * 0.82 ? visH - TOP_GAP : Math.round(visH * MID_FRAC)
+    curHRef.current = target; setSheetH(target)
+  }
+  // Фокус в поиске → панель почти до верха, чтобы клавиатура не перекрывала позиции.
+  const expandSheetFull = () => {
+    const { visH } = vpMetrics()
+    const target = visH - TOP_GAP
+    curHRef.current = target; setSheetH(target)
+  }
 
   // Space rental live timer
   const [spaceRental, setSpaceRental] = useState(0)
@@ -1331,7 +1399,7 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
           />
           {/* Sheet */}
           <div style={{
-            position: 'absolute', bottom: 0, left: 0, right: 0, zIndex: 41,
+            position: 'absolute', bottom: kbInset, left: 0, right: 0, zIndex: 41,
             background: 'rgba(21,18,27,0.98)',
             backdropFilter: 'blur(32px)',
             WebkitBackdropFilter: 'blur(32px)',
@@ -1339,12 +1407,18 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
             border: '1px solid rgba(255,255,255,0.08)',
             borderBottom: 'none',
             boxShadow: '0 -8px 40px rgba(0,0,0,0.5)',
-            height: '70%',
+            height: sheetH ? `${sheetH}px` : '70%',
+            transition: sheetDragging ? 'none' : 'height 0.25s ease, bottom 0.2s ease',
             display: 'flex',
             flexDirection: 'column',
           }}>
-            {/* Handle + header */}
-            <div style={{ padding: '12px 16px 0', flexShrink: 0 }}>
+            {/* Handle + header — зона перетаскивания (тянем панель за палец) */}
+            <div
+              onTouchStart={onSheetDragStart}
+              onTouchMove={onSheetDragMove}
+              onTouchEnd={onSheetDragEnd}
+              style={{ padding: '12px 16px 0', flexShrink: 0, touchAction: 'none', cursor: 'grab' }}
+            >
               <div style={{ width: 36, height: 4, borderRadius: 2, background: 'rgba(255,255,255,0.15)', margin: '0 auto 12px' }} />
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
                 <h3 style={{ fontSize: 16, fontWeight: 800, margin: 0 }}>Добавить позицию</h3>
@@ -1355,12 +1429,16 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
                   <Icon name="close" size={16} />
                 </button>
               </div>
+            </div>
+            {/* Search + категории (вне зоны перетаскивания, чтобы не мешать вводу) */}
+            <div style={{ padding: '0 16px', flexShrink: 0 }}>
               {/* Search */}
               <div style={{ position: 'relative', marginBottom: 8 }}>
                 <Icon name="search" size={16} color="var(--on-surface-variant)" style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)' }} />
                 <input
                   value={search}
                   onChange={e => setSearch(e.target.value)}
+                  onFocus={expandSheetFull}
                   placeholder="Поиск..."
                   className="glass-l2"
                   style={{ width: '100%', padding: '9px 12px 9px 36px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.08)', color: 'var(--on-surface)', fontSize: 13, outline: 'none', background: 'none', boxSizing: 'border-box' }}
