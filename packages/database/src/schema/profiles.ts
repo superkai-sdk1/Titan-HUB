@@ -47,6 +47,9 @@ export const profiles = pgTable('profiles', {
   linkedSpaceId: uuid('linked_space_id'),
   searchTags: text('search_tags').array().default([]),
   isResident: boolean('is_resident').notNull().default(false),
+  // Ручные («виртуальные») посещения: ± к счётчику визитов (Новичок→Резидент)
+  // без влияния на кассу/баланс. См. lib/loyalty.countVisits.
+  manualVisits: integer('manual_visits').notNull().default(0),
   needsPinSetup: boolean('needs_pin_setup').notNull().default(false),
   // Клиентские уведомления в Wallet-боте (начисление бонусов, депозит, долг).
   // Клиент может отключить их прямо в боте. По умолчанию включены.

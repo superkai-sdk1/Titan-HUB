@@ -1177,6 +1177,38 @@ const ICONS: Record<string, React.ReactNode> = {
       <path d="M12 18.5v-5M9.8 15l2.2-2.2 2.2 2.2" />
     </>
   ),
+
+  /* ── Added: миникап / новички / категории расходов ──────────── */
+  emoji_events: (
+    <>
+      <path d="M7 4h10v5a5 5 0 0 1-10 0V4z" />
+      <path d="M7 6H4v1a3 3 0 0 0 3 3" />
+      <path d="M17 6h3v1a3 3 0 0 1-3 3" />
+      <path d="M9 21h6M12 14v7" />
+    </>
+  ),
+  fiber_new: (
+    <>
+      <rect x="3" y="6" width="18" height="12" rx="2.5" />
+      <path d="M6.5 15v-6l3 6v-6" />
+      <path d="M12 15V9h2.6M12 12h2.2M12 15h2.6" />
+      <path d="M16.8 9l1.1 6 1.1-6" />
+    </>
+  ),
+  cleaning_services: (
+    <>
+      <path d="M9 8h6v12a1 1 0 0 1-1 1h-4a1 1 0 0 1-1-1V8z" />
+      <path d="M9 8V5h6V3" />
+      <path d="M9 12h6" />
+    </>
+  ),
+  smoking_rooms: (
+    <>
+      <rect x="3" y="14" width="13" height="3.5" rx="1" />
+      <path d="M12.5 14v3.5" />
+      <path d="M18.5 5.5c0 2-1.6 2-1.6 3.8M21.5 7.5c0 1.6-1.4 1.6-1.4 3" />
+    </>
+  ),
 }
 
 export function Icon({ name, size = 24, color, style, className }: IconProps) {

@@ -52,7 +52,10 @@ export const transactionTypeEnum = pgEnum('transaction_type', [
 
 export const transactions = pgTable('transactions', {
   id: uuid('id').primaryKey().defaultRandom(),
-  type: transactionTypeEnum('type').notNull(),
+  // text + CHECK (миграция 041), а не enum — чтобы добавлять типы без ALTER TYPE
+  // в транзакции. Значения: deposit/withdrawal/payment/refund/bonus_accrual/
+  // bonus_spend/visit_adjust (последний — учёт виртуальных посещений, без денег).
+  type: text('type').notNull(),
   amount: numeric('amount', { precision: 12, scale: 2 }).notNull(),
   description: text('description'),
   checkId: uuid('check_id').references(() => checks.id),

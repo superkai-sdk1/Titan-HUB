@@ -14,7 +14,7 @@ import { requireAuth, requireRole } from '../../middleware/auth.js'
 import { accrueBonusLot, getBonusExpiryDays } from '../../lib/bonusLots.js'
 import { hashPassword } from '@titan/auth'
 import { notify, notifyClient } from '../notifications/push.js'
-import { visitProgress } from '../../lib/loyalty.js'
+import { visitProgress, maybePromoteToResident } from '../../lib/loyalty.js'
 import { createHmac } from 'node:crypto'
 
 const CreateClientSchema = z.object({
@@ -326,6 +326,28 @@ clientsRouter.delete('/:id/permanent', requireRole('owner'), async (c) => {
 // Прогресс к статусу Резидент (посещения) — для карточки клиента.
 clientsRouter.get('/:id/visit-progress', requireRole('owner', 'staff'), async (c) => {
   return c.json(await visitProgress(c.req.param('id')))
+})
+
+// Ручная корректировка «виртуальных» посещений (±). На кассу/баланс не влияет:
+// меняем profiles.manual_visits и пишем запись в историю (type='visit_adjust').
+clientsRouter.post('/:id/visits', requireRole('owner', 'staff'), zValidator('json', z.object({
+  delta: z.number().int().refine(v => v !== 0, 'Шаг не может быть 0'),
+})), async (c) => {
+  const user = c.get('user')
+  const id = c.req.param('id')
+  const { delta } = c.req.valid('json')
+  const [p] = await db.select({ id: profiles.id }).from(profiles).where(and(eq(profiles.id, id), isNull(profiles.deletedAt)))
+  if (!p) return c.json({ error: 'Not found' }, 404)
+  await db.update(profiles).set({ manualVisits: sql`${profiles.manualVisits} + ${delta}` }).where(eq(profiles.id, id))
+  await db.insert(transactions).values({
+    type: 'visit_adjust',
+    amount: String(delta),
+    playerId: id,
+    createdBy: user.sub,
+    description: delta > 0 ? `Начислено посещение (+${delta})` : `Снято посещение (${delta})`,
+  })
+  const promo = delta > 0 ? await maybePromoteToResident(id) : { promoted: false }
+  return c.json({ ...(await visitProgress(id)), promoted: promo.promoted })
 })
 
 clientsRouter.get('/:id/transactions', async (c) => {

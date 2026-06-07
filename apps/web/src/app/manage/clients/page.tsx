@@ -30,6 +30,16 @@ function pluralVisits(n: number) {
   if (b === 1) return 'посещение'
   return 'посещений'
 }
+// Кнопки ±1 «виртуальное» посещение (без влияния на кассу).
+function VisitButtons({ onAdj, disabled }: { onAdj: (d: number) => void; disabled?: boolean }) {
+  const btn = (label: string, d: number) => (
+    <button type="button" disabled={disabled} onClick={() => onAdj(d)}
+      style={{ width: 30, height: 30, borderRadius: 8, border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(255,255,255,0.05)', color: 'var(--on-surface)', fontSize: 16, fontWeight: 800, lineHeight: 1, cursor: disabled ? 'default' : 'pointer', opacity: disabled ? 0.5 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      {label}
+    </button>
+  )
+  return <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>{btn('−', -1)}{btn('+', 1)}</div>
+}
 function adjBtnStyle(color: string): React.CSSProperties {
   return { flex: 1, padding: '12px 0', borderRadius: 12, border: `1px solid ${color}40`, background: `${color}14`, color, fontSize: 14, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6 }
 }
@@ -141,6 +151,16 @@ export default function ClientsPage() {
   })
   const adjBal = useMutation({ mutationFn: ({ id, amount, reason }: any) => api.post(`/clients/${id}/balance`, { amount, reason: reason ?? 'Корректировка баланса' }), onSuccess: (_r, vars: any) => { qc.invalidateQueries({ queryKey: ['clients'] }); setSelected((s: any) => s ? { ...s, balance: parseNum(s.balance) + parseNum(vars.amount) } : s) }, onError: () => show('Не удалось изменить баланс', 'error') })
   const adjBon = useMutation({ mutationFn: ({ id, amount, reason }: any) => api.post(`/clients/${id}/bonus`, { amount, reason: reason ?? 'Корректировка бонусов' }), onSuccess: (_r, vars: any) => { qc.invalidateQueries({ queryKey: ['clients'] }); setSelected((s: any) => s ? { ...s, bonusPoints: parseNum(s.bonusPoints) + parseNum(vars.amount) } : s) }, onError: () => show('Не удалось изменить бонусы', 'error') })
+  // Виртуальные посещения (±) — без влияния на кассу; могут повысить до Резидента.
+  const adjVisits = useMutation({
+    mutationFn: ({ id, delta }: { id: string; delta: number }) => api.post<any>(`/clients/${id}/visits`, { delta }),
+    onSuccess: (res: any) => {
+      qc.invalidateQueries({ queryKey: ['clients', selected?.id, 'visit'] })
+      qc.invalidateQueries({ queryKey: ['clients', selected?.id, 'tx'] })
+      if (res?.promoted) { qc.invalidateQueries({ queryKey: ['clients'] }); show('Клиент повышен до «Резидент» 🎉', 'success') }
+    },
+    onError: () => show('Не удалось изменить посещения', 'error'),
+  })
 
   function openAdj(kind: 'balance' | 'bonus', op: 'add' | 'sub') { setAdjModal({ kind, op }); setAdjAmount(''); setAdjComment('') }
   function confirmAdj() {
@@ -471,20 +491,29 @@ export default function ClientsPage() {
                   {vpData && (vpData.isResident ? (
                     <div style={{ padding: '12px 14px', borderRadius: 12, background: 'rgba(139,92,246,0.1)', border: '1px solid rgba(139,92,246,0.25)', display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
                       <Icon name="workspace_premium" size={18} color="#a78bfa" />
-                      <span style={{ fontSize: 13, fontWeight: 600 }}>Статус «Резидент» · {vpData.visits} посещений</span>
+                      <span style={{ flex: 1, fontSize: 13, fontWeight: 600 }}>Статус «Резидент» · {vpData.visits} посещений</span>
+                      {selected && <VisitButtons disabled={adjVisits.isPending} onAdj={(d) => adjVisits.mutate({ id: selected.id, delta: d })} />}
                     </div>
-                  ) : vpData.tier === 'guest' ? (
+                  ) : vpData.tier === 'newbie' ? (
                     <div style={{ padding: 14, borderRadius: 12, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', marginBottom: 4 }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                        <span style={{ fontSize: 13, fontWeight: 600 }}>Гость → Резидент</span>
+                        <span style={{ fontSize: 13, fontWeight: 600 }}>Новичок → Резидент</span>
                         <span style={{ fontSize: 13, fontWeight: 700, color: '#a78bfa', fontFamily: "'JetBrains Mono',monospace" }}>{vpData.visits}/{vpData.threshold}</span>
                       </div>
                       <div style={{ height: 8, borderRadius: 4, background: 'rgba(255,255,255,0.08)', overflow: 'hidden' }}>
                         <div style={{ height: '100%', width: `${Math.min(100, (vpData.visits / vpData.threshold) * 100)}%`, background: 'linear-gradient(90deg,#8B5CF6,#4cd7f6)', borderRadius: 4, transition: 'width 0.4s' }} />
                       </div>
-                      <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: '8px 0 0' }}>
-                        {vpData.remaining > 0 ? `Осталось ${vpData.remaining} ${pluralVisits(vpData.remaining)} до статуса «Резидент»` : 'Порог достигнут — статус повысится после следующего визита'}
-                      </p>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, margin: '8px 0 0' }}>
+                        <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: 0, flex: 1 }}>
+                          {vpData.remaining > 0 ? `Осталось ${vpData.remaining} ${pluralVisits(vpData.remaining)} до статуса «Резидент»` : 'Порог достигнут — статус повысится сейчас'}
+                        </p>
+                        {selected && <VisitButtons disabled={adjVisits.isPending} onAdj={(d) => adjVisits.mutate({ id: selected.id, delta: d })} />}
+                      </div>
+                    </div>
+                  ) : selected ? (
+                    <div style={{ padding: '10px 14px', borderRadius: 12, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
+                      <span style={{ flex: 1, fontSize: 13, color: 'var(--on-surface-variant)' }}>Посещений: {vpData.visits}</span>
+                      <VisitButtons disabled={adjVisits.isPending} onAdj={(d) => adjVisits.mutate({ id: selected.id, delta: d })} />
                     </div>
                   ) : null)}
                   {(() => {
@@ -495,17 +524,18 @@ export default function ClientsPage() {
                     return rows.map((tx: any) => {
                       const clickable = !!tx.checkId
                       const amt = parseNum(tx.amount)
+                      const isVisit = tx.type === 'visit_adjust'
                       return (
                         <div key={tx.id} onClick={() => clickable && setCheckModalId(tx.checkId)}
                           style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 12, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.05)', cursor: clickable ? 'pointer' : 'default' }}>
                           <div style={{ minWidth: 0 }}>
                             <p style={{ fontSize: 13, fontWeight: 500, margin: 0, display: 'flex', alignItems: 'center', gap: 5 }}>
-                              {tx.description ?? tx.type}{clickable && <Icon name="receipt_long" size={13} color="#a78bfa" />}
+                              {isVisit && <Icon name="event" size={13} color="#4cd7f6" />}{tx.description ?? tx.type}{clickable && <Icon name="receipt_long" size={13} color="#a78bfa" />}
                             </p>
                             <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: '2px 0 0' }}>{tx.createdAt ? formatDistanceToNow(new Date(tx.createdAt), { locale: ru, addSuffix: true }) : ''}</p>
                           </div>
                           <p style={{ fontSize: 14, fontWeight: 700, fontStyle: 'italic', color: amt >= 0 ? '#10B981' : '#F43F5E', margin: 0, fontFamily: "'JetBrains Mono',monospace", flexShrink: 0 }}>
-                            {amt >= 0 ? '+' : ''}{fmt(amt)} ₽
+                            {amt >= 0 ? '+' : ''}{isVisit ? `${amt} ${pluralVisits(Math.abs(amt))}` : `${fmt(amt)} ₽`}
                           </p>
                         </div>
                       )
