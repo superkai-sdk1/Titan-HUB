@@ -166,9 +166,15 @@ export const expenseCategoryEnum = pgEnum('expense_category', [
 export const expenses = pgTable('expenses', {
   id: uuid('id').primaryKey().defaultRandom(),
   idempotencyKey: text('idempotency_key'),
-  category: expenseCategoryEnum('category').notNull().default('other'),
+  // text + CHECK (миграция 039), а не enum — чтобы добавлять категории без
+  // ALTER TYPE в транзакции. Значения: rent/utilities/supplies/salary/marketing/
+  // equipment/other/consumables/tobacco.
+  category: text('category').notNull().default('other'),
   amount: numeric('amount', { precision: 12, scale: 2 }).notNull(),
   description: text('description'),
+  // Позиция расхода: цена за единицу и количество (amount = unit_price × quantity).
+  unitPrice: numeric('unit_price', { precision: 12, scale: 2 }),
+  quantity: numeric('quantity', { precision: 12, scale: 2 }),
   expenseDate: text('expense_date').notNull(),
   // Привязка расхода к мероприятию (расходы миникапа: приз/обед/иные).
   eventId: uuid('event_id'),

@@ -17,11 +17,30 @@ function bizDayStr(daysAgo = 0): string {
 }
 const num = (v: unknown) => { const n = parseFloat(String(v ?? '0')); return Number.isFinite(n) ? n : 0 }
 
+const CATEGORIES = ['rent', 'utilities', 'supplies', 'salary', 'marketing', 'equipment', 'other', 'consumables', 'tobacco'] as const
+
+// Одиночный расход (для PATCH/правки позиции).
 const ExpenseSchema = z.object({
-  category: z.enum(['rent', 'utilities', 'supplies', 'salary', 'marketing', 'equipment', 'other']).default('other'),
+  category: z.enum(CATEGORIES).default('other'),
   amount: z.number().positive(),
   description: z.string().optional(),
+  unitPrice: z.number().nonnegative().optional(),
+  quantity: z.number().positive().optional(),
   expenseDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Дата в формате ГГГГ-ММ-ДД'),
+  idempotencyKey: z.string().max(80).optional(),
+})
+
+// Позиция расхода: название, категория, цена за ед., кол-во, сумма (как в поставке).
+const ExpenseItemSchema = z.object({
+  category: z.enum(CATEGORIES).default('other'),
+  description: z.string().optional(),
+  unitPrice: z.number().nonnegative().optional(),
+  quantity: z.number().positive().optional(),
+  amount: z.number().positive(),
+})
+const CreateExpensesSchema = z.object({
+  expenseDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Дата в формате ГГГГ-ММ-ДД'),
+  items: z.array(ExpenseItemSchema).min(1),
   idempotencyKey: z.string().max(80).optional(),
 })
 
@@ -138,22 +157,39 @@ expensesRouter.get('/summary', requireRole('owner', 'staff'), async (c) => {
   })
 })
 
-expensesRouter.post('/', requireRole('owner', 'staff'), zValidator('json', ExpenseSchema), async (c) => {
+// Создание расхода — список позиций (каждая: название/категория/цена/кол-во/сумма).
+// Сохраняем по строке на позицию (amount = сумма позиции), как делает аналитика.
+expensesRouter.post('/', requireRole('owner', 'staff'), zValidator('json', CreateExpensesSchema), async (c) => {
   const user = c.get('user')
   const body = c.req.valid('json')
-  const [expense] = await db.insert(expenses).values({
-    ...body,
-    amount: String(body.amount),
+  const rows = body.items.map((it, i) => ({
+    category: it.category,
+    amount: String(it.amount),
+    description: it.description?.trim() || null,
+    unitPrice: it.unitPrice != null ? String(it.unitPrice) : null,
+    quantity: it.quantity != null ? String(it.quantity) : null,
+    expenseDate: body.expenseDate,
     createdBy: user.sub,
-  }).onConflictDoNothing({ target: expenses.idempotencyKey }).returning()
-  if (!expense) {
-    if (body.idempotencyKey) {
-      const [existing] = await db.select().from(expenses).where(eq(expenses.idempotencyKey, body.idempotencyKey))
-      if (existing) return c.json({ expense: existing, duplicate: true })
-    }
-    return c.json({ error: 'Не удалось сохранить расход' }, 500)
-  }
-  return c.json({ expense }, 201)
+    // Производный ключ на позицию — повтор/двойной клик не задвоит.
+    idempotencyKey: body.idempotencyKey ? `${body.idempotencyKey}:${i}` : null,
+  }))
+  const inserted = await db.insert(expenses).values(rows).onConflictDoNothing({ target: expenses.idempotencyKey }).returning()
+  return c.json({ expenses: inserted }, 201)
+})
+
+// Подбор позиций по названию + последняя цена (для аналитики и быстрого повтора).
+expensesRouter.get('/catalog', requireRole('owner', 'staff'), async (c) => {
+  const q = (c.req.query('q') ?? '').trim().toLowerCase()
+  const res: any = await db.execute(sql`
+    SELECT DISTINCT ON (lower(description)) description AS name, unit_price, category
+    FROM expenses
+    WHERE description IS NOT NULL AND description <> ''
+    ${q ? sql`AND lower(description) LIKE ${'%' + q + '%'}` : sql``}
+    ORDER BY lower(description), created_at DESC
+    LIMIT 20
+  `)
+  const rows = (res.rows ?? res ?? []) as any[]
+  return c.json({ items: rows.map(r => ({ name: r.name, unitPrice: r.unit_price != null ? parseFloat(String(r.unit_price)) : null, category: r.category })) })
 })
 
 expensesRouter.get('/:id', async (c) => {
@@ -166,6 +202,8 @@ expensesRouter.patch('/:id', requireRole('owner', 'staff'), zValidator('json', E
   const body = c.req.valid('json')
   const update: Record<string, any> = { ...body }
   if (body.amount !== undefined) update.amount = String(body.amount)
+  if (body.unitPrice !== undefined) update.unitPrice = body.unitPrice != null ? String(body.unitPrice) : null
+  if (body.quantity !== undefined) update.quantity = body.quantity != null ? String(body.quantity) : null
   const [expense] = await db.update(expenses).set(update).where(eq(expenses.id, c.req.param('id'))).returning()
   if (!expense) return c.json({ error: 'Not found' }, 404)
   return c.json({ expense })
