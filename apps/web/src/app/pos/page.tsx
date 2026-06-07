@@ -219,8 +219,10 @@ function PosPageInner() {
   })
 
   const createClient = useMutation({
+    // POST /clients возвращает { client: {...} } — раньше читали .profile.id (undefined),
+    // из-за чего открытие чека падало молча: клиент создавался, а чек не открывался.
     mutationFn: (body: { nickname: string; clientTier: string }) =>
-      api.post<{ profile: { id: string } }>('/clients', body),
+      api.post<{ client: { id: string } }>('/clients', body),
   })
 
   // Open shift modal state
@@ -233,7 +235,7 @@ function PosPageInner() {
   const [searchResults, setSearchResults] = useState<PlayerResult[]>([])
   const [selectedPlayer, setSelectedPlayer] = useState<PlayerResult | null>(null)
   const [newClientNick, setNewClientNick] = useState('')
-  const [newClientTier, setNewClientTier] = useState('guest')
+  const [newClientTier, setNewClientTier] = useState('newbie')
   const [selectedTariffId, setSelectedTariffId] = useState<string | null>(null)
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -1117,6 +1119,7 @@ function PosPageInner() {
                       className="glass-l2"
                       style={{ width: '100%', padding: '14px 16px', borderRadius: 14, border: '1px solid rgba(255,255,255,0.08)', color: 'var(--on-surface)', fontSize: 14, outline: 'none', background: 'rgba(255,255,255,0.04)' }}
                     >
+                      <option value="newbie">Новичок</option>
                       <option value="guest">Гость</option>
                       <option value="resident">Резидент</option>
                       <option value="student">Студент</option>
@@ -1126,7 +1129,7 @@ function PosPageInner() {
                     onClick={async () => {
                       if (!newClientNick.trim()) return
                       const clientRes = await createClient.mutateAsync({ nickname: newClientNick.trim(), clientTier: newClientTier })
-                      createCheck.mutate({ playerId: clientRes.profile.id })
+                      createCheck.mutate({ playerId: clientRes.client.id })
                     }}
                     disabled={!newClientNick.trim() || createClient.isPending || createCheck.isPending}
                     style={{

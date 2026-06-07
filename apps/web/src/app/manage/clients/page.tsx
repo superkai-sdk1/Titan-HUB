@@ -11,11 +11,11 @@ import { Icon } from '@/components/Icon'
 import { telLink, openContact } from '@/lib/contact'
 
 const TIER_COLORS: Record<string, string> = {
-  guest: 'rgba(204,195,216,0.6)', resident: '#8B5CF6', student: '#3B82F6',
+  newbie: '#22D3EE', guest: 'rgba(204,195,216,0.6)', resident: '#8B5CF6', student: '#3B82F6',
   bronze: '#cd7f32', silver: '#94A3B8', gold: '#F59E0B', platinum: '#E2E8F0',
 }
 const TIER_LABELS: Record<string, string> = {
-  guest: 'Гость', resident: 'Резидент', student: 'Студент',
+  newbie: 'Новичок', guest: 'Гость', resident: 'Резидент', student: 'Студент',
   bronze: 'Бронза', silver: 'Серебро', gold: 'Золото', platinum: 'Платина',
 }
 
@@ -44,7 +44,7 @@ export default function ClientsPage() {
   const [confirmBlock, setConfirmBlock] = useState(false)
   const [confirmPurge, setConfirmPurge] = useState(false)
   // Разделы: Все / Резиденты / Гости / Студенты / Архив (заблокированные).
-  const [seg, setSeg] = useState<'all' | 'resident' | 'guest' | 'student' | 'archive'>('all')
+  const [seg, setSeg] = useState<'all' | 'newbie' | 'resident' | 'guest' | 'student' | 'archive'>('all')
   // Сортировка списка: по дате добавления (recent) или по нику А→Я (name).
   const [sort, setSort] = useState<'recent' | 'name'>('recent')
   const [search, setSearch] = useState('')
@@ -53,7 +53,7 @@ export default function ClientsPage() {
   const [selected, setSelected] = useState<any>(null)
   const [mode, setMode] = useState<'view' | 'edit'>('view')
   const [tab, setTab] = useState<'info' | 'tx'>('info')
-  const [form, setForm] = useState({ nickname: '', fullName: '', phone: '', birthday: '', clientTier: 'guest', password: '' })
+  const [form, setForm] = useState({ nickname: '', fullName: '', phone: '', birthday: '', clientTier: 'newbie', password: '' })
   const [editForm, setEditForm] = useState<any>(null)
   const [showTiers, setShowTiers] = useState(false)
   const [newTier, setNewTier] = useState({ label: '', color: '#8B5CF6' })
@@ -111,14 +111,14 @@ export default function ClientsPage() {
   // Справочник статусов (динамический). Фоллбек на встроенные метки/цвета, если
   // справочник ещё не загрузился, чтобы UI не «прыгал».
   const { data: tiersData } = useQuery({ queryKey: ['client-tiers'], queryFn: () => api.get<{ tiers: TierRow[] }>('/clients/tiers') })
-  const tierList: TierRow[] = tiersData?.tiers ?? Object.keys(TIER_LABELS).map((k, i) => ({ key: k, label: TIER_LABELS[k], color: TIER_COLORS[k] ?? '#8B5CF6', sortOrder: i, isSystem: ['guest', 'resident', 'student'].includes(k) }))
+  const tierList: TierRow[] = tiersData?.tiers ?? Object.keys(TIER_LABELS).map((k, i) => ({ key: k, label: TIER_LABELS[k], color: TIER_COLORS[k] ?? '#8B5CF6', sortOrder: i, isSystem: ['newbie', 'guest', 'resident', 'student'].includes(k) }))
   const labelOf = (k: string) => tierList.find(t => t.key === k)?.label ?? TIER_LABELS[k] ?? k
   const colorOf = (k: string) => tierList.find(t => t.key === k)?.color ?? TIER_COLORS[k] ?? '#8B5CF6'
 
   const createTier = useMutation({ mutationFn: (b: { label: string; color: string }) => api.post('/clients/tiers', b), onSuccess: () => { qc.invalidateQueries({ queryKey: ['client-tiers'] }); setNewTier({ label: '', color: '#8B5CF6' }) }, onError: () => show('Не удалось создать статус', 'error') })
   const deleteTier = useMutation({ mutationFn: (key: string) => api.delete(`/clients/tiers/${key}`), onSuccess: (res: any) => { qc.invalidateQueries({ queryKey: ['client-tiers'] }); qc.invalidateQueries({ queryKey: ['clients'] }); if (res?.reassigned > 0) show(`Статус удалён, ${res.reassigned} клиент(ов) переведены в «Гость»`, 'success') }, onError: () => show('Не удалось удалить статус', 'error') })
 
-  const create = useMutation({ mutationFn: (b: any) => api.post('/clients', b), onSuccess: () => { qc.invalidateQueries({ queryKey: ['clients'] }); setShowCreate(false); setForm({ nickname: '', fullName: '', phone: '', birthday: '', clientTier: 'guest', password: '' }) }, onError: () => show('Не удалось создать клиента', 'error') })
+  const create = useMutation({ mutationFn: (b: any) => api.post('/clients', b), onSuccess: () => { qc.invalidateQueries({ queryKey: ['clients'] }); setShowCreate(false); setForm({ nickname: '', fullName: '', phone: '', birthday: '', clientTier: 'newbie', password: '' }) }, onError: () => show('Не удалось создать клиента', 'error') })
   const update = useMutation({
     mutationFn: ({ id, ...b }: any) => api.patch(`/clients/${id}`, b),
     onSuccess: (res: any, vars: any) => {
@@ -219,7 +219,7 @@ export default function ClientsPage() {
           </div>
           {/* Разделы */}
           <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 2, marginBottom: 10 }}>
-            {([['all', 'Все', 'group'], ['resident', 'Резиденты', 'workspace_premium'], ['guest', 'Гости', 'person'], ['student', 'Студенты', 'school'], ['archive', 'Архив', 'archive']] as [typeof seg, string, string][]).map(([key, label, icon]) => {
+            {([['all', 'Все', 'group'], ['newbie', 'Новички', 'fiber_new'], ['resident', 'Резиденты', 'workspace_premium'], ['guest', 'Гости', 'person'], ['student', 'Студенты', 'school'], ['archive', 'Архив', 'archive']] as [typeof seg, string, string][]).map(([key, label, icon]) => {
               const active = seg === key
               const isArch = key === 'archive'
               return (

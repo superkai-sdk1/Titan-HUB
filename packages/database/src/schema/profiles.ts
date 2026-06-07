@@ -33,7 +33,7 @@ export const profiles = pgTable('profiles', {
   fullName: text('full_name'),
   role: roleEnum('role').notNull().default('staff'),
   // text + справочник client_tiers (а не enum) — статусы динамические.
-  clientTier: text('client_tier').notNull().default('guest'),
+  clientTier: text('client_tier').notNull().default('newbie'),
   balance: numeric('balance', { precision: 12, scale: 2 }).notNull().default('0'),
   bonusPoints: numeric('bonus_points', { precision: 12, scale: 2 }).notNull().default('0'),
   pin: text('pin'),

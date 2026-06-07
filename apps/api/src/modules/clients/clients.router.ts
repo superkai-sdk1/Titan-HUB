@@ -22,7 +22,7 @@ const CreateClientSchema = z.object({
   fullName: z.string().nullable().optional(),
   phone: z.string().optional(),
   birthday: z.string().optional(),
-  clientTier: z.string().min(1).default('guest'),
+  clientTier: z.string().min(1).default('newbie'),
   password: z.string().optional(),
   tgId: z.string().optional(),
   tgUsername: z.string().optional(),
@@ -200,7 +200,7 @@ clientsRouter.post('/', requireRole('owner', 'staff'), zValidator('json', Create
   }).returning()
   const { pin, passwordHash: _, ...safe } = client
 
-  const newClientTier = ({ guest: 'Гость', resident: 'Резидент', student: 'Студент' } as Record<string, string>)[client.clientTier ?? '']
+  const newClientTier = ({ newbie: 'Новичок', guest: 'Гость', resident: 'Резидент', student: 'Студент' } as Record<string, string>)[client.clientTier ?? '']
   void notify({
     type: 'new_client',
     title: 'Новый клиент',
