@@ -6,6 +6,7 @@ import { api } from '@/lib/api'
 import { Sheet, INP, LBL } from '@/components/manage/DesignSystem'
 import { useToast } from '@/components/Toast'
 import { telLink, whatsappLink, telegramLink, openContact } from '@/lib/contact'
+import { MinicapSheet } from './MinicapSheet'
 
 const STATUS: Record<string, [string, string, string]> = {
   planned:            ['Запланировано',     '#3B82F6', 'schedule'],
@@ -21,6 +22,8 @@ const TYPES: Record<string, [string, string, string]> = {
   titan: ['Titan клуб', 'home',            '#8B5CF6'],
   exit:  ['Выезд',      'directions_car',  '#F59E0B'],
 }
+// Метка для карточек миникапа (format='minicap'; type у него titan).
+const MINICAP_LABEL: [string, string, string] = ['Миникап', 'emoji_events', '#EC4899']
 
 const BLANK = {
   type: 'titan',
@@ -80,7 +83,10 @@ export default function EventsPage() {
   const [selected, setSelected] = useState<any>(null)
   const [form, setForm] = useState<any>(BLANK)
   const [analyticsId, setAnalyticsId] = useState<string | null>(null)
+  const [minicapOpen, setMinicapOpen] = useState(false)
+  const [minicapId, setMinicapId] = useState<string | null>(null)
   const [formError, setFormError] = useState<string | null>(null)
+  const openMinicap = (id: string | null) => { setSelected(null); setShowForm(false); setMinicapId(id); setMinicapOpen(true) }
   const [custResults, setCustResults] = useState<any[]>([])
   const [custFocus, setCustFocus] = useState(false)
 
@@ -245,7 +251,8 @@ export default function EventsPage() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {events.map((ev: any) => {
               const [statusLabel, statusColor, statusIcon] = STATUS[ev.status] ?? ['—', '#94A3B8', 'help']
-              const [typeLabel, typeIcon, typeColor] = TYPES[ev.type] ?? ['—', 'event', '#94A3B8']
+              const isMini = ev.format === 'minicap'
+              const [typeLabel, typeIcon, typeColor] = isMini ? MINICAP_LABEL : (TYPES[ev.type] ?? ['—', 'event', '#94A3B8'])
               const day = ev.date.split('-')[2]
               const month = MONTHS_SHORT[Number(ev.date.split('-')[1])] ?? ''
               const responsible = staffById(ev.responsibleStaffId)
@@ -257,7 +264,7 @@ export default function EventsPage() {
                 ? `${parseFloat(ev.manualAmount).toLocaleString('ru')} ₽`
                 : null
               return (
-                <div key={ev.id} className="glass-l2" onClick={() => setSelected(ev)}
+                <div key={ev.id} className="glass-l2" onClick={() => isMini ? openMinicap(ev.id) : setSelected(ev)}
                   style={{ borderRadius: 16, padding: '16px', cursor: 'pointer', display: 'flex', gap: 14, alignItems: 'flex-start', transition: 'border-color 0.2s, transform 0.15s' }}
                   onMouseEnter={e => { e.currentTarget.style.borderColor = `${statusColor}44`; e.currentTarget.style.transform = 'translateY(-1px)' }}
                   onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)'; e.currentTarget.style.transform = 'translateY(0)' }}>
@@ -291,7 +298,7 @@ export default function EventsPage() {
                     {ev.comment && <p style={{ fontSize: 12, color: 'rgba(204,195,216,0.5)', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ev.comment}</p>}
                   </div>
                   {ev.status === 'planned' ? (
-                    <button onClick={(e) => { e.stopPropagation(); startEvent(ev) }} disabled={update.isPending}
+                    <button onClick={(e) => { e.stopPropagation(); isMini ? openMinicap(ev.id) : startEvent(ev) }} disabled={update.isPending}
                       style={{ alignSelf: 'center', display: 'flex', alignItems: 'center', gap: 5, padding: '8px 14px', borderRadius: 12, border: 'none', cursor: 'pointer', background: 'linear-gradient(135deg, #10B981, #4cd7f6)', color: '#fff', fontSize: 12, fontWeight: 700, flexShrink: 0, boxShadow: '0 4px 14px rgba(16,185,129,0.3)' }}>
                       <Icon name="play_arrow" size={15} />Начать
                     </button>
@@ -322,6 +329,13 @@ export default function EventsPage() {
                 </button>
               )
             })}
+            {/* Миникап — отдельная форма/логика. */}
+            <button onClick={() => { setShowForm(false); openMinicap(null) }}
+              style={{ flex: 1, padding: '16px 12px', borderRadius: 16, border: `1.5px solid ${MINICAP_LABEL[2]}`, background: `${MINICAP_LABEL[2]}1f`, color: MINICAP_LABEL[2], cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, boxShadow: `0 0 18px ${MINICAP_LABEL[2]}25` }}>
+              <Icon name={MINICAP_LABEL[1]} size={26} />
+              <span style={{ fontSize: 13, fontWeight: 700 }}>{MINICAP_LABEL[0]}</span>
+              <span style={{ fontSize: 10, opacity: 0.7, textAlign: 'center' }}>состав + взносы</span>
+            </button>
           </div>
 
           {/* Адрес (выезд) */}
@@ -550,6 +564,9 @@ export default function EventsPage() {
           )
         })()}
       </Sheet>
+
+      {/* Миникап — отдельная форма создания/управления */}
+      <MinicapSheet open={minicapOpen} onClose={() => { setMinicapOpen(false); setMinicapId(null) }} eventId={minicapId} />
 
       {/* Analytics sheet */}
       <Sheet open={!!analyticsId} onClose={() => setAnalyticsId(null)} title="Аналитика мероприятия">

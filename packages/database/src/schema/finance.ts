@@ -170,6 +170,8 @@ export const expenses = pgTable('expenses', {
   amount: numeric('amount', { precision: 12, scale: 2 }).notNull(),
   description: text('description'),
   expenseDate: text('expense_date').notNull(),
+  // Привязка расхода к мероприятию (расходы миникапа: приз/обед/иные).
+  eventId: uuid('event_id'),
   createdBy: uuid('created_by')
     .notNull()
     .references(() => profiles.id),

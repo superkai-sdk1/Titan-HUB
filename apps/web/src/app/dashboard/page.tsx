@@ -290,7 +290,7 @@ function PayBreakdown({ data }: { data: { method: string; total: string | number
 // ─── Net/Gross breakdown shared bits ──────────────────────────────────────────
 type NetBreak = {
   gross: number | string; checks: number; avgCheck: number | string
-  eventRevenue?: number | string; eventChecks?: number; clubChecks?: number
+  eventRevenue?: number | string; eventChecks?: number; eventCosts?: number | string; clubChecks?: number
   refunds: number | string; commission: number | string; cogs: number | string
   opex: number | string; salary: number | string; expenses: number | string; net: number | string
 }
@@ -681,6 +681,7 @@ function OverviewTab({ overview, periodText }: { overview: any; periodText: stri
   const avgCheck = parseNum(cur.avgCheck)
   const eventChecks = cur.eventChecks ?? 0
   const eventRevenue = parseNum(cur.eventRevenue)
+  const eventCosts = parseNum(cur.eventCosts)
   const margin = cur.margin
   const outflow = cogs + expenses + commission + refundsV
   const profitColor = net >= 0 ? '#10B981' : '#F43F5E'
@@ -741,6 +742,16 @@ function OverviewTab({ overview, periodText }: { overview: any; periodText: stri
               <p style={{ fontSize: 10, color: 'var(--on-surface-variant)', margin: 0, textTransform: 'uppercase', letterSpacing: '0.06em', fontFamily: "'JetBrains Mono',monospace" }}>Выручка</p>
             </div>
           </div>
+          {eventCosts > 0 && (
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: 10, paddingTop: 10, borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+              <span style={{ fontSize: 12, color: 'var(--on-surface-variant)' }}>Расходы мероприятий · нетто</span>
+              <span style={{ fontSize: 13, fontWeight: 800 }}>
+                <span style={{ color: '#F43F5E' }}>−{fmt(eventCosts)} ₽</span>
+                <span style={{ color: 'var(--on-surface-variant)', margin: '0 6px' }}>→</span>
+                <span style={{ color: eventRevenue - eventCosts >= 0 ? '#10B981' : '#F43F5E' }}>{fmt(eventRevenue - eventCosts)} ₽</span>
+              </span>
+            </div>
+          )}
           <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: '12px 0 0', lineHeight: 1.4 }}>
             Учтены в общей выручке и прибыли. В «среднем чеке» считаются отдельно, чтобы не искажать клубные показатели.
           </p>

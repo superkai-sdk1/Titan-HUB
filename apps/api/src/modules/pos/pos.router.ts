@@ -1431,6 +1431,12 @@ posRouter.post('/checks/:id/pay', requireRole('owner', 'staff'), zValidator('jso
       const eventBase = parseFloat(check.eventBaseAmount ?? '0') || 0
       // Списание на персонал — итог 0₽ (закрывается бесплатно, остаток уже списан).
       const total = check.staffCompId ? 0 : round2(itemsTotal + rental + eventBase)
+      // Предоплаченная часть (напр. взнос участия миникапа): пробивается ПОЛНЫЙ total,
+      // но в этой сессии кассир собирает только остаток `due`. Предоплата затем войдёт
+      // в записанные платежи как наличные (cashRequired = total − безнал), т.е. выручка
+      // считается один раз по полному total, а на экране оплаты виден лишь остаток.
+      const prepaid = check.staffCompId ? 0 : Math.min(parseFloat(check.prepaidAmount ?? '0') || 0, total)
+      const due = round2(total - prepaid)
 
       // Суммы по способам оплаты
       const sumBy = (m: string) => body.payments.filter(p => p.method === m).reduce((s, p) => s + p.amount, 0)
@@ -1440,13 +1446,13 @@ posRouter.post('/checks/:id/pay', requireRole('owner', 'staff'), zValidator('jso
       const certSent = round2(sumBy('certificate'))
       const debtAmount = round2(sumBy('debt'))
 
-      // Недоплата
-      if (sentPaid < total - 0.01) throw new Error('UNDERPAYMENT')
-      // Безналичные тендеры (всё кроме наличных) не могут превышать сумму чека —
+      // Недоплата (в сессии собираем остаток за вычетом предоплаты).
+      if (sentPaid < due - 0.01) throw new Error('UNDERPAYMENT')
+      // Безналичные тендеры (всё кроме наличных) не могут превышать остаток к оплате —
       // защита от «отрицательной сдачи» и переоплаты бонусом/депозитом/картой.
       const nonCash = body.payments.filter(p => p.method !== 'cash')
       const nonCashSum = round2(nonCash.reduce((s, p) => s + p.amount, 0))
-      if (nonCashSum > total + 0.01) throw new Error('OVERPAYMENT')
+      if (nonCashSum > due + 0.01) throw new Error('OVERPAYMENT')
       // Бонус-тендер обязан совпадать с bonusAmount (иначе «оплата» бонусом без списания).
       if (Math.abs((body.bonusAmount ?? 0) - bonusSent) > 0.01) throw new Error('BONUS_MISMATCH')
       // Бонусы списываются только с клиента: без playerId списание не произойдёт

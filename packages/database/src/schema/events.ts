@@ -35,6 +35,13 @@ export const events = pgTable('events', {
   manualAmount: numeric('manual_amount', { precision: 10, scale: 2 }),
   maxGuests: integer('max_guests'),
   attendeesCount: integer('attendees_count').notNull().default(0),
+  // Формат события: 'regular' (titan/exit) | 'minicap'. text + дефолт (не enum).
+  format: text('format').notNull().default('regular'),
+  // Миникап: стоимость участия (взнос, вместо тарифа) и расходы события.
+  participationFee: numeric('participation_fee', { precision: 12, scale: 2 }),
+  prizeFund: numeric('prize_fund', { precision: 12, scale: 2 }),
+  lunchCost: numeric('lunch_cost', { precision: 12, scale: 2 }),
+  otherCost: numeric('other_cost', { precision: 12, scale: 2 }),
   // text + CHECK (см. EVENT_STATUSES / миграция 018), а не pgEnum.
   status: text('status').notNull().default('planned').$type<EventStatus>(),
   comment: text('comment'),
@@ -64,3 +71,19 @@ export const eventHourlyRates = pgTable('event_hourly_rates', {
 })
 
 export type EventHourlyRate = typeof eventHourlyRates.$inferSelect
+
+// Ростер участников миникапа: игроки (role='player') и судья (role='judge').
+// check_id — индивидуальный чек участника (открывается при старте миникапа).
+// prepaid — отметка «оплатил участие предварительно» (учитывается при закрытии чека).
+export const eventParticipants = pgTable('event_participants', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  eventId: uuid('event_id').notNull().references(() => events.id, { onDelete: 'cascade' }),
+  profileId: uuid('profile_id').notNull().references(() => profiles.id),
+  role: text('role').notNull().default('player'),
+  prepaid: boolean('prepaid').notNull().default(false),
+  checkId: uuid('check_id'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+})
+
+export type EventParticipant = typeof eventParticipants.$inferSelect
+export type NewEventParticipant = typeof eventParticipants.$inferInsert

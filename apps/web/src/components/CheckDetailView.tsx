@@ -67,6 +67,7 @@ interface CheckData {
   spaceEndAt?: string | null
   spaceHourlyRate?: string | null
   eventBaseAmount?: string | null
+  prepaidAmount?: string | null
   linkedEventId?: string | null
   discounts?: { id: string; name: string; type: string; value: string; amount: string; discountId: string | null }[]
   excludedDiscounts?: { id: string; name: string; type: string; value: string }[]
@@ -475,8 +476,12 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
   // как и аренда. Сервер так же считает grandTotal в /pay (computeCheckGrandTotal).
   const eventBase = parseFloat(check?.eventBaseAmount ?? '0') || 0
   const total = baseTotal + spaceRental + eventBase
+  // Предоплаченная часть (взнос участия миникапа): пробивается полный total, но в
+  // этой сессии собираем только остаток `due`. Предоплата уйдёт в кассу при закрытии.
+  const prepaidAmount = Math.min(parseFloat(check?.prepaidAmount ?? '0') || 0, total)
+  const due = Math.max(0, total - prepaidAmount)
   const splitSum = splitParts.reduce((s, p) => s + p.amount, 0)
-  const remaining = Math.max(0, total - splitSum)
+  const remaining = Math.max(0, due - splitSum)
 
   // Чек редактируем (можно менять позиции/мероприятие), пока он открыт.
   const isEditable = check?.status === 'open'
@@ -892,8 +897,8 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
     const amt = Math.round(parseFloat(splitAmtInput.replace(',', '.')) || 0)
     if (amt <= 0) return
     addSplitPart({ method: splitMethod, amount: amt, label: METHOD_CONFIGS[splitMethod]?.label })
-    // Подготовить следующий ввод на оставшийся остаток.
-    const nextRemaining = Math.max(0, total - (splitSum + amt))
+    // Подготовить следующий ввод на оставшийся остаток (с учётом предоплаты).
+    const nextRemaining = Math.max(0, due - (splitSum + amt))
     setSplitAmtInput(nextRemaining > 0 ? String(nextRemaining) : '')
   }
 
@@ -929,7 +934,7 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
   }
 
   if (isPaid) {
-    const change = splitSum - total
+    const change = splitSum - due
     return (
       <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
         <div style={{ textAlign: 'center' }}>
@@ -2195,6 +2200,12 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
                       {remaining > 0.01 ? `ОСТАТОК: ${remaining.toLocaleString('ru')} ₽` : '✓ ПОЛНОСТЬЮ'}
                     </span>
                   </div>
+                  {prepaidAmount > 0.01 && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6, padding: '6px 10px', borderRadius: 8, background: 'rgba(236,72,153,0.1)' }}>
+                      <span style={{ fontSize: 11, color: '#EC4899', fontWeight: 700 }}>Предоплата участия: {prepaidAmount.toLocaleString('ru')} ₽</span>
+                      <span style={{ fontSize: 11, color: 'var(--on-surface-variant)' }}>итог {total.toLocaleString('ru')} ₽ · к оплате {due.toLocaleString('ru')} ₽</span>
+                    </div>
+                  )}
                 </div>
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>

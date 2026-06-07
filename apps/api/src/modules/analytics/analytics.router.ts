@@ -3,7 +3,7 @@ import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import {
-  db, checks, checkItems, checkPayments, checkDiscounts, inventory, menuCategories, profiles, shifts, expenses,
+  db, checks, checkItems, checkPayments, checkDiscounts, inventory, menuCategories, profiles, shifts, expenses, events,
   supplies, supplyItems, salaryPayments, refunds, tariffs, eveningTypes, analyticsEvents,
   eq, and, gte, lte, lt, desc, asc, sql, sum, count, avg, isNull, isNotNull, ne, inArray,
 } from '@titan/database'
@@ -144,6 +144,13 @@ async function netBreakdown(start: Date, end: Date, expFrom: string, expTo: stri
     .from(salaryPayments)
     .where(and(gte(salaryPayments.createdAt, start), lt(salaryPayments.createdAt, end)))
 
+  // Расходы, привязанные к мероприятиям (приз/обед/иные миникапа) — подмножество
+  // opex, показываем отдельно для «нетто по мероприятиям». В прибыль уже входят.
+  const [eventCostRow] = await db
+    .select({ total: sum(expenses.amount) })
+    .from(expenses)
+    .where(and(gte(expenses.expenseDate, expFrom), lte(expenses.expenseDate, expTo), isNotNull(expenses.eventId)))
+
   const gross = parseNum(grossRow?.revenue)
   const cnt = grossRow?.cnt ?? 0
   const eventRevenue = parseNum(eventRow?.revenue)
@@ -166,6 +173,7 @@ async function netBreakdown(start: Date, end: Date, expFrom: string, expTo: stri
     avgCheck: clubChecks > 0 ? clubGross / clubChecks : 0,
     eventRevenue,
     eventChecks,
+    eventCosts: parseNum(eventCostRow?.total),
     clubChecks,
     refunds: refundsTotal,
     commission,
@@ -652,6 +660,13 @@ analyticsRouter.get('/tariffs', zValidator('query', dateRangeQuerySchema), async
     label: labelByKey.get(k) ?? (k === 'none' ? 'Без вечера' : k),
     count: geByKey.get(k) ?? 0,
   }))
+  // Миникапы — отдельной строкой (у участников взнос, а не тариф игрока, поэтому в
+  // обычный счётчик вечеров они не попадают). Считаем по событиям format='minicap'.
+  const [{ cnt: minicapCnt }] = await db
+    .select({ cnt: sql<number>`count(*)::int` })
+    .from(events)
+    .where(and(eq(events.format, 'minicap'), gte(events.date, from), lte(events.date, to), ne(events.status, 'cancelled')))
+  gameEvenings.push({ eveningKey: 'minicap', label: 'Миникап', count: Number(minicapCnt ?? 0) })
   const gameEveningsTotal = gameEvenings.reduce((a, e) => a + e.count, 0)
 
   return c.json({ byTariff, byEvening, gameEvenings, gameEveningsTotal, total })

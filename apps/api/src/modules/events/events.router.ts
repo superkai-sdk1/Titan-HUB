@@ -3,12 +3,55 @@ import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import {
-  db, events, eventHourlyRates, checks, checkItems, checkPayments, inventory, customers,
-  eq, and, gte, lte, desc, sql, or, ne,
+  db, events, eventHourlyRates, eventParticipants, checks, checkItems, checkPayments, inventory, customers, expenses, profiles,
+  eq, and, gte, lte, desc, sql, or, ne, isNull, inArray,
 } from '@titan/database'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
 import { getCurrentShift } from '../shifts/shifts.service.js'
 import { notify } from '../notifications/push.js'
+
+const num = (v: unknown) => { const n = parseFloat(String(v ?? '0')); return Number.isFinite(n) ? n : 0 }
+
+// Расходы миникапа (приз/обед/иные) → строки expenses с привязкой к событию.
+// Апсерт по idempotencyKey, чтобы редактирование не плодило дубликаты; 0 → удалить.
+async function upsertEventCosts(exec: any, ev: { id: string; title: string | null; date: string; prizeFund: unknown; lunchCost: unknown; otherCost: unknown; createdBy: string }) {
+  const buckets: [string, string, number][] = [
+    ['prize', 'Призовой фонд', num(ev.prizeFund)],
+    ['lunch', 'Обед', num(ev.lunchCost)],
+    ['other', 'Иные расходы', num(ev.otherCost)],
+  ]
+  const label = ev.title ? ` «${ev.title}»` : ''
+  for (const [key, name, amount] of buckets) {
+    const idem = `minicap:${ev.id}:${key}`
+    if (amount > 0) {
+      await exec.insert(expenses).values({
+        idempotencyKey: idem, category: 'other', amount: String(amount),
+        description: `Миникап${label}: ${name}`, expenseDate: ev.date, eventId: ev.id, createdBy: ev.createdBy,
+      }).onConflictDoUpdate({
+        target: expenses.idempotencyKey,
+        set: { amount: String(amount), description: `Миникап${label}: ${name}`, expenseDate: ev.date, eventId: ev.id },
+      })
+    } else {
+      await exec.delete(expenses).where(eq(expenses.idempotencyKey, idem))
+    }
+  }
+}
+
+// Открыть индивидуальный чек участнику миникапа: игроку база = взнос; судье = 0
+// (бар платит). prepaid_amount = взнос, если отмечена предоплата.
+async function openParticipantCheck(exec: any, ev: any, p: any, shiftId: string, staffId: string): Promise<string> {
+  const isJudge = p.role === 'judge'
+  const fee = isJudge ? 0 : num(ev.participationFee)
+  const prepaid = (!isJudge && p.prepaid) ? fee : 0
+  const [chk] = await exec.insert(checks).values({
+    staffId, shiftId, status: 'open', playerId: p.profileId,
+    linkedEventId: ev.id, eventBaseAmount: String(fee), prepaidAmount: String(prepaid),
+    note: `Миникап${ev.title ? ' «' + ev.title + '»' : ''}${isJudge ? ' · судья' : ''}`,
+    totalAmount: '0',
+  }).returning()
+  await exec.update(eventParticipants).set({ checkId: chk!.id }).where(eq(eventParticipants.id, p.id))
+  return chk!.id
+}
 
 const EventSchema = z.object({
   type: z.enum(['titan', 'exit']).default('titan'),
@@ -31,6 +74,12 @@ const EventSchema = z.object({
   responsibleStaffId: z.string().uuid().optional().nullable(),
   customerName: z.string().optional().nullable(),
   customerPhone: z.string().optional().nullable(),
+  // Миникап: формат + взнос + расходы события.
+  format: z.enum(['regular', 'minicap']).default('regular'),
+  participationFee: z.number().optional().nullable(),
+  prizeFund: z.number().optional().nullable(),
+  lunchCost: z.number().optional().nullable(),
+  otherCost: z.number().optional().nullable(),
 })
 
 // Базовая сумма события для чека. «Фикс» (amount) → ручная/фикс сумма; «Почасовая»
@@ -126,11 +175,13 @@ eventsRouter.post('/', requireRole('owner', 'staff'), zValidator('json', EventSc
     }, 409)
   }
 
+  const isMinicap = body.format === 'minicap'
   const [event] = await db.insert(events).values({
-    type: body.type,
+    // Миникап — это всегда TITAN (type titan, локация фиксирована).
+    type: isMinicap ? 'titan' : body.type,
     title: body.title,
-    location: body.location,
-    spaceId: body.spaceId ?? null,
+    location: isMinicap ? 'TITAN' : body.location,
+    spaceId: isMinicap ? null : (body.spaceId ?? null),
     date: body.date,
     startTime: body.startTime,
     endTime: body.endTime ?? null,
@@ -146,8 +197,18 @@ eventsRouter.post('/', requireRole('owner', 'staff'), zValidator('json', EventSc
     responsibleStaffId: body.responsibleStaffId ?? null,
     customerName: body.customerName ?? null,
     customerPhone: body.customerPhone ?? null,
+    format: body.format,
+    participationFee: body.participationFee != null ? String(body.participationFee) : null,
+    prizeFund: body.prizeFund != null ? String(body.prizeFund) : null,
+    lunchCost: body.lunchCost != null ? String(body.lunchCost) : null,
+    otherCost: body.otherCost != null ? String(body.otherCost) : null,
     createdBy: user.sub,
   }).returning()
+
+  // Расходы миникапа сразу материализуем в expenses (привязка к событию).
+  if (isMinicap && event) {
+    try { await upsertEventCosts(db, { ...event, createdBy: user.sub }) } catch { /* non-fatal */ }
+  }
 
   // Автосохранение заказчика в справочник (для автоподбора в следующих событиях).
   // Не блокирует создание события — любые ошибки гасим.
@@ -214,6 +275,10 @@ eventsRouter.patch('/:id', requireRole('owner', 'staff'), zValidator('json', Eve
   const update: Record<string, any> = { ...body }
   if (body.fixedAmount !== undefined) update.fixedAmount = body.fixedAmount != null ? String(body.fixedAmount) : null
   if (body.manualAmount !== undefined) update.manualAmount = body.manualAmount != null ? String(body.manualAmount) : null
+  if (body.participationFee !== undefined) update.participationFee = body.participationFee != null ? String(body.participationFee) : null
+  if (body.prizeFund !== undefined) update.prizeFund = body.prizeFund != null ? String(body.prizeFund) : null
+  if (body.lunchCost !== undefined) update.lunchCost = body.lunchCost != null ? String(body.lunchCost) : null
+  if (body.otherCost !== undefined) update.otherCost = body.otherCost != null ? String(body.otherCost) : null
 
   // При финализации (completed/cancelled) приводим attendeesCount к фактическому
   // числу привязанных чеков.
@@ -231,9 +296,18 @@ eventsRouter.patch('/:id', requireRole('owner', 'staff'), zValidator('json', Eve
     // Слитое состояние события после апдейта — для расчёта базы чека.
     const merged = { ...prev, ...update }
 
-    // 1) СТАРТ события: переход planned→active создаёт чек (если ещё не создан).
+    const isMinicap = (merged.format ?? 'regular') === 'minicap'
+
+    // 1) СТАРТ события: переход planned→active создаёт чек(и).
     const becomingActive = body.status === 'active' && prev.status !== 'active'
-    if (becomingActive && !prev.checkId) {
+    if (becomingActive && isMinicap) {
+      // Миникап: открываем по индивидуальному чеку каждому участнику (игроки + судья).
+      const shift = await getCurrentShift()
+      if (!shift) throw new Error('NO_SHIFT')
+      const parts = await tx.select().from(eventParticipants).where(eq(eventParticipants.eventId, eventId))
+      for (const p of parts) { if (!p.checkId) await openParticipantCheck(tx, merged, p, shift.id, user.sub) }
+      update.attendeesCount = parts.filter((p: any) => p.role === 'player').length
+    } else if (becomingActive && !prev.checkId) {
       const shift = await getCurrentShift()
       if (!shift) throw new Error('NO_SHIFT')
       // База события (фикс-сумма или цена почасового тарифа по plannedHours) кладётся
@@ -268,8 +342,32 @@ eventsRouter.patch('/:id', requireRole('owner', 'staff'), zValidator('json', Eve
       }
     }
 
-    // 3) ОТМЕНА события → отменяем его открытый чек.
-    if (body.status === 'cancelled' && prev.checkId) {
+    // 2b) МИНИКАП: синк взноса на открытых чеках игроков + апсерт расходов события.
+    if (isMinicap) {
+      if (!becomingActive && body.participationFee !== undefined) {
+        const players = await tx.select().from(eventParticipants)
+          .where(and(eq(eventParticipants.eventId, eventId), eq(eventParticipants.role, 'player')))
+        const fee = num(merged.participationFee)
+        for (const p of players) {
+          if (!p.checkId) continue
+          await tx.update(checks)
+            .set({ eventBaseAmount: String(fee), prepaidAmount: String(p.prepaid ? fee : 0) })
+            .where(and(eq(checks.id, p.checkId), eq(checks.status, 'open')))
+        }
+      }
+      const costsTouched = body.prizeFund !== undefined || body.lunchCost !== undefined
+        || body.otherCost !== undefined || body.date !== undefined || body.title !== undefined
+      if (costsTouched) {
+        await upsertEventCosts(tx, { id: eventId, title: (merged.title as string) ?? null, date: merged.date as string, prizeFund: merged.prizeFund, lunchCost: merged.lunchCost, otherCost: merged.otherCost, createdBy: user.sub })
+      }
+    }
+
+    // 3) ОТМЕНА события → отменяем открытые чеки (миникап — все чеки участников).
+    if (body.status === 'cancelled' && isMinicap) {
+      const parts = await tx.select().from(eventParticipants).where(eq(eventParticipants.eventId, eventId))
+      const ids = parts.map((p: any) => p.checkId).filter(Boolean) as string[]
+      if (ids.length) await tx.update(checks).set({ status: 'cancelled' }).where(and(inArray(checks.id, ids), eq(checks.status, 'open')))
+    } else if (body.status === 'cancelled' && prev.checkId) {
       await tx.update(checks).set({ status: 'cancelled' })
         .where(and(eq(checks.id, prev.checkId), eq(checks.status, 'open')))
     }
@@ -301,6 +399,82 @@ eventsRouter.patch('/:id', requireRole('owner', 'staff'), zValidator('json', Eve
 
 eventsRouter.delete('/:id', requireRole('owner'), async (c) => {
   await db.update(events).set({ status: 'cancelled' }).where(eq(events.id, c.req.param('id')))
+  return c.json({ ok: true })
+})
+
+// ── Участники миникапа ──────────────────────────────────────────────────
+eventsRouter.get('/:id/participants', requireRole('owner', 'staff'), async (c) => {
+  const eventId = c.req.param('id')
+  const rows = await db
+    .select({
+      id: eventParticipants.id,
+      profileId: eventParticipants.profileId,
+      nickname: profiles.nickname,
+      clientTier: profiles.clientTier,
+      role: eventParticipants.role,
+      prepaid: eventParticipants.prepaid,
+      checkId: eventParticipants.checkId,
+      checkStatus: checks.status,
+      checkTotal: checks.totalAmount,
+      eventBaseAmount: checks.eventBaseAmount,
+      prepaidAmount: checks.prepaidAmount,
+    })
+    .from(eventParticipants)
+    .leftJoin(profiles, eq(profiles.id, eventParticipants.profileId))
+    .leftJoin(checks, eq(checks.id, eventParticipants.checkId))
+    .where(eq(eventParticipants.eventId, eventId))
+    .orderBy(eventParticipants.createdAt)
+  return c.json({ participants: rows })
+})
+
+const AddParticipantSchema = z.object({ profileId: z.string().uuid(), role: z.enum(['player', 'judge']).default('player') })
+eventsRouter.post('/:id/participants', requireRole('owner', 'staff'), zValidator('json', AddParticipantSchema), async (c) => {
+  const user = c.get('user')
+  const eventId = c.req.param('id')
+  const { profileId, role } = c.req.valid('json')
+  const [ev] = await db.select().from(events).where(eq(events.id, eventId))
+  if (!ev) return c.json({ error: 'Not found' }, 404)
+  const existing = await db.select().from(eventParticipants).where(eq(eventParticipants.eventId, eventId))
+  if (role === 'player' && existing.filter(p => p.role === 'player').length >= 10) return c.json({ error: 'Максимум 10 игроков' }, 400)
+  if (role === 'judge' && existing.some(p => p.role === 'judge')) return c.json({ error: 'Судья уже назначен' }, 400)
+  const [p] = await db.insert(eventParticipants).values({ eventId, profileId, role }).onConflictDoNothing().returning()
+  if (!p) return c.json({ error: 'Этот игрок уже в составе' }, 409)
+  // Миникап уже идёт — сразу открываем чек новому участнику.
+  if (ev.status === 'active') {
+    const shift = await getCurrentShift()
+    if (shift) { try { await openParticipantCheck(db, ev, p, shift.id, user.sub) } catch { /* non-fatal */ } }
+  }
+  return c.json({ participant: p }, 201)
+})
+
+const PatchParticipantSchema = z.object({ prepaid: z.boolean() })
+eventsRouter.patch('/:id/participants/:pid', requireRole('owner', 'staff'), zValidator('json', PatchParticipantSchema), async (c) => {
+  const eventId = c.req.param('id')
+  const pid = c.req.param('pid')
+  const { prepaid } = c.req.valid('json')
+  const [p] = await db.select().from(eventParticipants).where(and(eq(eventParticipants.id, pid), eq(eventParticipants.eventId, eventId)))
+  if (!p) return c.json({ error: 'Not found' }, 404)
+  const [ev] = await db.select().from(events).where(eq(events.id, eventId))
+  await db.update(eventParticipants).set({ prepaid }).where(eq(eventParticipants.id, pid))
+  // Синк предоплаты на открытом чеке игрока (судья — без взноса).
+  if (p.checkId && p.role === 'player') {
+    const fee = num(ev?.participationFee)
+    await db.update(checks).set({ prepaidAmount: String(prepaid ? fee : 0) }).where(and(eq(checks.id, p.checkId), eq(checks.status, 'open')))
+  }
+  return c.json({ ok: true })
+})
+
+eventsRouter.delete('/:id/participants/:pid', requireRole('owner', 'staff'), async (c) => {
+  const eventId = c.req.param('id')
+  const pid = c.req.param('pid')
+  const [p] = await db.select().from(eventParticipants).where(and(eq(eventParticipants.id, pid), eq(eventParticipants.eventId, eventId)))
+  if (!p) return c.json({ error: 'Not found' }, 404)
+  if (p.checkId) {
+    const [{ cnt }] = await db.select({ cnt: sql<number>`count(*)::int` }).from(checkItems).where(eq(checkItems.checkId, p.checkId))
+    if (cnt > 0) return c.json({ error: 'У участника есть позиции в чеке — сначала закройте чек' }, 400)
+    await db.update(checks).set({ status: 'cancelled' }).where(and(eq(checks.id, p.checkId), eq(checks.status, 'open')))
+  }
+  await db.delete(eventParticipants).where(eq(eventParticipants.id, pid))
   return c.json({ ok: true })
 })
 
@@ -356,6 +530,12 @@ eventsRouter.get('/:id/analytics', requireRole('owner', 'staff'), async (c) => {
     paymentBreakdown[r.method as string] = parseFloat(String(r.total ?? 0))
   }
 
+  // Расходы события (приз/обед/иные и пр. с привязкой) → нетто по мероприятию.
+  const costRows = await db
+    .select({ total: sql<string>`coalesce(sum(${expenses.amount}), 0)` })
+    .from(expenses).where(eq(expenses.eventId, eventId))
+  const costs = parseFloat(String(costRows[0]?.total ?? '0')) || 0
+
   // Длительность в минутах
   let durationMinutes: number | null = null
   if (event.endTime) {
@@ -366,6 +546,8 @@ eventsRouter.get('/:id/analytics', requireRole('owner', 'staff'), async (c) => {
   }
 
   return c.json({
+    costs,
+    net: totalRevenue - costs,
     eventId,
     totalRevenue,
     attendeesCount,
