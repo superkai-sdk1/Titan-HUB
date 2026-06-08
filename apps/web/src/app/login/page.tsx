@@ -687,7 +687,7 @@ function PinPad({ onChange, value, loading }: { onChange: (v: string) => void; v
         const isDel = k === '⌫'
         return (
           <button key={i} onClick={() => press(k)} disabled={!!loading} aria-label={isDel ? 'Стереть' : k}
-            style={{ aspectRatio: '1/1', borderRadius: 16, border: '1px solid rgba(255,255,255,0.08)', background: isDel ? 'transparent' : 'rgba(255,255,255,0.05)', color: 'rgba(255,255,255,0.9)', fontSize: isDel ? 20 : 24, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.1s', opacity: loading ? 0.5 : 1 }}
+            style={{ aspectRatio: '1/1', borderRadius: '50%', border: '1px solid rgba(255,255,255,0.08)', background: isDel ? 'transparent' : 'rgba(255,255,255,0.07)', color: 'rgba(255,255,255,0.9)', fontSize: isDel ? 20 : 24, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.1s', opacity: loading ? 0.5 : 1 }}
             onMouseDown={e => { e.currentTarget.style.background = 'rgba(139,92,246,0.2)'; e.currentTarget.style.transform = 'scale(0.92)' }}
             onMouseUp={e => { e.currentTarget.style.background = isDel ? 'transparent' : 'rgba(255,255,255,0.05)'; e.currentTarget.style.transform = 'scale(1)' }}
             onMouseLeave={e => { e.currentTarget.style.background = isDel ? 'transparent' : 'rgba(255,255,255,0.05)'; e.currentTarget.style.transform = 'scale(1)' }}

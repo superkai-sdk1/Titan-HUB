@@ -161,7 +161,7 @@ function LockOverlay({
           background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)',
         }}>
           <Icon name="lock" size={14} color="rgba(167,139,250,0.8)" />
-          <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.45)', fontWeight: 500 }}>Сессия заблокирована · 30 мин</span>
+          <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.45)', fontWeight: 500 }}>Сессия заблокирована</span>
         </div>
 
         {/* Avatar */}

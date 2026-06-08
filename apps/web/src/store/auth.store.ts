@@ -78,9 +78,11 @@ export const useAuthStore = create<AuthState>()(
         if (!state) return
         // Помечаем что гидрация завершена
         state.setHasHydrated(true)
-        // Если прошло больше INACTIVITY_TIMEOUT_MS с последней активности — блокируем
-        const idle = Date.now() - (state.lastActiveAt ?? 0)
-        if (state.token && idle > INACTIVITY_TIMEOUT_MS) {
+        // На КАЖДОЙ перезагрузке/холодном старте с действующим токеном требуем
+        // PIN/Passkey (без полного перелогина — токен сохраняется). В сессии
+        // блокировка дополнительно срабатывает по бездействию (см. SessionLock).
+        // Планшеты-киоски (role 'tablet') не блокируем — у них нет PIN/passkey.
+        if (state.token && state.user?.role !== 'tablet') {
           state.isLocked = true
         }
       },
