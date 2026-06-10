@@ -214,19 +214,24 @@ function KpiCard({ label, value, rawValue, suffix = ' ₽', sub, delta, icon, ic
       className="glass-l2 ti-slide-up"
       onClick={onClick}
       role={clickable ? 'button' : undefined}
-      style={{ borderRadius: 16, padding: 20, cursor: clickable ? 'pointer' : 'default', position: 'relative', transition: 'transform 0.15s, border-color 0.15s' }}
-      onMouseEnter={clickable ? e => { e.currentTarget.style.transform = 'translateY(-2px)' } : undefined}
-      onMouseLeave={clickable ? e => { e.currentTarget.style.transform = 'translateY(0)' } : undefined}
+      tabIndex={clickable ? 0 : undefined}
+      onKeyDown={clickable ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick?.() } } : undefined}
+      style={{ borderRadius: 16, padding: 18, cursor: clickable ? 'pointer' : 'default', position: 'relative', overflow: 'hidden', border: `1px solid ${iconColor}33`, transition: 'transform 0.15s, border-color 0.15s, box-shadow 0.15s' }}
+      onMouseEnter={clickable ? e => { e.currentTarget.style.transform = 'translateY(-3px)'; e.currentTarget.style.borderColor = `${iconColor}80`; e.currentTarget.style.boxShadow = `0 10px 30px rgba(0,0,0,0.35), 0 0 22px ${iconColor}2e` } : undefined}
+      onMouseLeave={clickable ? e => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.borderColor = `${iconColor}33`; e.currentTarget.style.boxShadow = 'none' } : undefined}
     >
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-        <div style={{ width: 40, height: 40, borderRadius: 12, background: iconBg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      {/* Акцентная полоса + угловое свечение (без backdrop-filter — только цвет/тень) */}
+      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 3, background: `linear-gradient(90deg, ${iconColor}, transparent 75%)` }} />
+      <div style={{ position: 'absolute', top: -30, right: -30, width: 90, height: 90, borderRadius: '50%', background: `radial-gradient(circle, ${iconColor}26, transparent 70%)`, pointerEvents: 'none' }} />
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, position: 'relative' }}>
+        <div style={{ width: 40, height: 40, borderRadius: 12, background: `linear-gradient(135deg, ${iconColor}33, ${iconColor}14)`, border: `1px solid ${iconColor}3a`, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: `0 0 16px ${iconColor}26` }}>
           <Icon name={icon} size={20} color={iconColor} />
         </div>
-        {delta !== undefined ? <DeltaBadge delta={delta} /> : clickable ? <Icon name="chevron_right" size={16} color="rgba(204,195,216,0.4)" /> : null}
+        {delta !== undefined ? <DeltaBadge delta={delta} /> : clickable ? <Icon name="chevron_right" size={16} color="rgba(204,195,216,0.55)" /> : null}
       </div>
-      <p style={{ fontSize: 22, fontWeight: 900, fontStyle: 'italic', margin: '0 0 4px', color: 'var(--on-surface)', lineHeight: 1 }}>{displayValue}</p>
+      <p style={{ fontSize: 25, fontWeight: 900, fontStyle: 'italic', margin: '0 0 4px', color: 'var(--on-surface)', lineHeight: 1, fontVariantNumeric: 'tabular-nums', position: 'relative' }}>{displayValue}</p>
       <p style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 2px', color: 'var(--on-surface-variant)' }}>{label}</p>
-      <p style={{ fontSize: 11, color: 'rgba(204,195,216,0.45)', margin: 0 }}>{sub}</p>
+      <p style={{ fontSize: 11, color: 'rgba(204,195,216,0.6)', margin: 0 }}>{sub}</p>
     </div>
   )
 }
@@ -692,14 +697,18 @@ function OverviewTab({ overview, periodText }: { overview: any; periodText: stri
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       {/* HERO — финансовое здоровье */}
-      <div className="glass-l2" onClick={() => setModal({ title: `Прибыль · ${periodText}`, subtitle: 'раскладка валовая → чистая', b: cur })}
-        style={{ borderRadius: 20, padding: '22px', cursor: 'pointer', border: `1px solid ${profitColor}33`, background: `${profitColor}0d` }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+      <div className="glass-l2" role="button" tabIndex={0}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setModal({ title: `Прибыль · ${periodText}`, subtitle: 'раскладка валовая → чистая', b: cur }) } }}
+        onClick={() => setModal({ title: `Прибыль · ${periodText}`, subtitle: 'раскладка валовая → чистая', b: cur })}
+        style={{ borderRadius: 20, padding: 22, cursor: 'pointer', position: 'relative', overflow: 'hidden', border: `1px solid ${profitColor}40`, background: `${profitColor}0d` }}>
+        <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 3, background: `linear-gradient(90deg, ${profitColor}, transparent 75%)` }} />
+        <div style={{ position: 'absolute', top: -50, right: -40, width: 180, height: 180, borderRadius: '50%', background: `radial-gradient(circle, ${profitColor}24, transparent 70%)`, pointerEvents: 'none' }} />
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'relative' }}>
           <span style={{ ...LBL, margin: 0 }}>Прибыль за период · {periodText}</span>
-          <Icon name="chevron_right" size={16} color="rgba(204,195,216,0.4)" />
+          <Icon name="chevron_right" size={16} color="rgba(204,195,216,0.55)" />
         </div>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, margin: '8px 0 4px', flexWrap: 'wrap' }}>
-          <span style={{ fontSize: 34, fontWeight: 900, fontStyle: 'italic', color: profitColor, lineHeight: 1 }}>{net >= 0 ? '' : '−'}{fmt(Math.abs(net))} ₽</span>
+          <span style={{ fontSize: 40, fontWeight: 900, fontStyle: 'italic', color: profitColor, lineHeight: 1, fontVariantNumeric: 'tabular-nums', textShadow: `0 0 28px ${profitColor}55` }}>{net >= 0 ? '' : '−'}{fmt(Math.abs(net))} ₽</span>
           <span style={{ fontSize: 12, fontWeight: 700, padding: '3px 10px', borderRadius: 9999, background: `${profitColor}22`, color: profitColor }}>маржа {margin == null ? '—' : `${margin}%`}</span>
           {typeof deltas.profit === 'number' && <DeltaBadge delta={deltas.profit} />}
         </div>
@@ -1761,7 +1770,7 @@ export default function DashboardPage() {
       <div style={{ padding: '16px 16px 0', flexShrink: 0, zIndex: 10, background: 'rgba(21,18,27,0.92)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)' }}>
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
           <div>
-            <h1 style={{ fontSize: 20, fontWeight: 800, margin: 0 }}>Аналитика</h1>
+            <h1 style={{ fontSize: 22, fontWeight: 900, fontStyle: 'italic', letterSpacing: '-0.01em', margin: 0, background: 'linear-gradient(135deg, #A78BFA, #4cd7f6)', WebkitBackgroundClip: 'text', backgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>Аналитика</h1>
             <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: '2px 0 0' }}>
               {format(new Date(), 'd MMMM yyyy', { locale: ru })}
             </p>
@@ -1773,28 +1782,32 @@ export default function DashboardPage() {
             </button>
           </div>
         </div>
-        {/* Tabs — горизонтальный скролл только внутри таб-бара, не страницы */}
+        {/* Tabs — «пилюли» с градиентом активного; скролл внутри таб-бара */}
         <div style={{
-          display: 'flex', gap: 0,
-          borderBottom: '1px solid rgba(255,255,255,0.06)',
+          display: 'flex', gap: 8, padding: '4px 0 12px',
           overflowX: 'auto', overflowY: 'hidden',
           scrollbarWidth: 'none', msOverflowStyle: 'none',
           WebkitOverflowScrolling: 'touch' as any,
         }}>
-          {TABS.map(tab => (
-            <button key={tab.key} onClick={() => { setActiveTab(tab.key); track('section_open', { section: tab.key }) }} style={{
-              display: 'flex', alignItems: 'center', gap: 5,
-              padding: '9px 12px',
-              border: 'none', background: 'transparent', cursor: 'pointer',
-              borderBottom: activeTab === tab.key ? '2px solid #8B5CF6' : '2px solid transparent',
-              color: activeTab === tab.key ? '#8B5CF6' : 'var(--on-surface-variant)',
-              fontSize: 12, fontWeight: activeTab === tab.key ? 600 : 400,
-              transition: 'all 0.2s', marginBottom: -1, whiteSpace: 'nowrap', flexShrink: 0,
-            }}>
-              <Icon name={tab.icon} size={15} />
-              <span className="dash-tab-label">{tab.label}</span>
-            </button>
-          ))}
+          {TABS.map(tab => {
+            const active = activeTab === tab.key
+            return (
+              <button key={tab.key} onClick={() => { setActiveTab(tab.key); track('section_open', { section: tab.key }) }} style={{
+                display: 'flex', alignItems: 'center', gap: 6,
+                padding: '9px 14px', minHeight: 40,
+                borderRadius: 9999,
+                border: active ? 'none' : '1px solid rgba(255,255,255,0.1)',
+                background: active ? 'linear-gradient(135deg, #8B5CF6, #4cd7f6)' : 'rgba(255,255,255,0.05)',
+                color: active ? '#fff' : 'var(--on-surface-variant)',
+                fontSize: 12.5, fontWeight: active ? 800 : 600,
+                boxShadow: active ? '0 4px 16px rgba(139,92,246,0.4)' : 'none',
+                cursor: 'pointer', transition: 'all 0.2s', whiteSpace: 'nowrap', flexShrink: 0,
+              }}>
+                <Icon name={tab.icon} size={15} color={active ? '#fff' : 'currentColor'} />
+                <span className="dash-tab-label">{tab.label}</span>
+              </button>
+            )
+          })}
         </div>
       </div>
 
