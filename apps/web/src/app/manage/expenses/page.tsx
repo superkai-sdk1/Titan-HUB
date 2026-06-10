@@ -333,7 +333,8 @@ export default function ExpensesPage() {
               let dateStr = ''
               try { dateStr = format(new Date(e.expenseDate), 'd MMM', { locale: ru }) } catch { dateStr = e.expenseDate }
               return (
-                <div key={e.id} className="glass-l2" style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 16px', borderRadius: 14 }}>
+                <div key={e.id} className="glass-l2" style={{ position: 'relative', overflow: 'hidden', display: 'flex', alignItems: 'center', gap: 14, padding: '14px 16px', borderRadius: 14 }}>
+                  <div style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 3, background: `linear-gradient(180deg, ${catColor}, ${catColor}44)` }} />
                   <div style={{ width: 44, height: 44, borderRadius: '50%', flexShrink: 0, background: `${catColor}22`, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: `0 0 12px ${catColor}22` }}>
                     <Icon name={catIcon} size={22} color={catColor} />
                   </div>
