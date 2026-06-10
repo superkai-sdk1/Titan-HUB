@@ -105,6 +105,7 @@ function NavCard({ href, label, icon, color, bg }: { href: string; label: string
       <div
         className="glass-l2"
         style={{
+          position: 'relative', overflow: 'hidden',
           borderRadius: 16, padding: '16px 14px',
           display: 'flex', alignItems: 'center', gap: 12,
           cursor: 'pointer', minHeight: 64,
@@ -125,6 +126,7 @@ function NavCard({ href, label, icon, color, bg }: { href: string; label: string
           el.style.boxShadow = 'none'
         }}
       >
+        <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 3, background: `linear-gradient(90deg, ${color}, transparent 75%)`, opacity: 0.85 }} />
         <div style={{ width: 42, height: 42, borderRadius: 12, background: bg, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
           <Icon name={icon} size={20} color={color} />
         </div>
