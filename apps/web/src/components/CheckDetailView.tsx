@@ -969,8 +969,9 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
       }}>
         <button
           onClick={onBack}
+          aria-label="Назад"
           style={{
-            width: 38, height: 38, borderRadius: 12, border: 'none', cursor: 'pointer',
+            width: 44, height: 44, borderRadius: 12, border: 'none', cursor: 'pointer',
             background: 'rgba(255,255,255,0.06)', color: 'var(--on-surface-variant)',
             display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
           }}
@@ -1280,7 +1281,7 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
                 <p className="check-pay-label" style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--on-surface-variant)', margin: '0 0 4px' }}>
                   Итого
                 </p>
-                <p className="check-pay-amount" style={{ fontSize: 28, fontWeight: 900, fontStyle: 'italic', fontVariantNumeric: 'tabular-nums', margin: 0, color: 'var(--on-surface)' }}>
+                <p className="check-pay-amount" style={{ fontSize: 28, fontWeight: 900, fontStyle: 'italic', fontVariantNumeric: 'tabular-nums', margin: 0, background: 'linear-gradient(135deg, #A78BFA, #4cd7f6)', WebkitBackgroundClip: 'text', backgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
                   {total.toLocaleString('ru')} ₽
                 </p>
               </div>
