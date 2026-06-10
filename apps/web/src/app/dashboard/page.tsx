@@ -880,8 +880,9 @@ function ReportsTab({ from, to }: { from: string; to: string }) {
         return (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 10 }}>
             {cards.map(k => (
-              <button key={k.label} onClick={k.onClick} className="glass-l2" style={{ borderRadius: 14, padding: '14px 16px', textAlign: 'left', border: 'none', cursor: 'pointer', color: 'var(--on-surface)' }}>
-                <p style={{ fontSize: 20, fontWeight: 900, fontStyle: 'italic', color: k.color, margin: '0 0 4px', lineHeight: 1 }}>{k.value}</p>
+              <button key={k.label} onClick={k.onClick} className="glass-l2" style={{ position: 'relative', overflow: 'hidden', borderRadius: 14, padding: '14px 16px', textAlign: 'left', border: `1px solid ${k.color}33`, cursor: 'pointer', color: 'var(--on-surface)' }}>
+                <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: `linear-gradient(90deg, ${k.color}, transparent 75%)` }} />
+                <p style={{ fontSize: 21, fontWeight: 900, fontStyle: 'italic', color: k.color, margin: '0 0 4px', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{k.value}</p>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
                   <p style={{ fontSize: 10, color: 'var(--on-surface-variant)', margin: 0, textTransform: 'uppercase', letterSpacing: '0.06em', fontFamily: "'JetBrains Mono',monospace" }}>{k.label}</p>
                   {typeof k.delta === 'number' && <DeltaBadge delta={k.delta} />}
@@ -1497,12 +1498,14 @@ function TariffsTab({ from, to }: { from: string; to: string }) {
         <>
           {/* KPI */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 10 }}>
-            <div className="glass-l2" style={{ borderRadius: 14, padding: '14px 16px' }}>
-              <p style={{ fontSize: 20, fontWeight: 900, fontStyle: 'italic', color: '#8B5CF6', margin: '0 0 4px', lineHeight: 1 }}>{totalCount}</p>
+            <div className="glass-l2" style={{ position: 'relative', overflow: 'hidden', borderRadius: 14, padding: '14px 16px', border: '1px solid #8B5CF633' }}>
+              <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: 'linear-gradient(90deg, #8B5CF6, transparent 75%)' }} />
+              <p style={{ fontSize: 21, fontWeight: 900, fontStyle: 'italic', color: '#8B5CF6', margin: '0 0 4px', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{totalCount}</p>
               <p style={{ fontSize: 10, color: 'var(--on-surface-variant)', margin: 0, textTransform: 'uppercase', letterSpacing: '0.06em', fontFamily: "'JetBrains Mono',monospace" }}>Тарифов продано</p>
             </div>
-            <div className="glass-l2" style={{ borderRadius: 14, padding: '14px 16px' }}>
-              <p style={{ fontSize: 20, fontWeight: 900, fontStyle: 'italic', color: '#4cd7f6', margin: '0 0 4px', lineHeight: 1 }}>{fmt(totalRevenue)} ₽</p>
+            <div className="glass-l2" style={{ position: 'relative', overflow: 'hidden', borderRadius: 14, padding: '14px 16px', border: '1px solid #4cd7f633' }}>
+              <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: 'linear-gradient(90deg, #4cd7f6, transparent 75%)' }} />
+              <p style={{ fontSize: 21, fontWeight: 900, fontStyle: 'italic', color: '#4cd7f6', margin: '0 0 4px', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{fmt(totalRevenue)} ₽</p>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
                 <p style={{ fontSize: 10, color: 'var(--on-surface-variant)', margin: 0, textTransform: 'uppercase', letterSpacing: '0.06em', fontFamily: "'JetBrains Mono',monospace" }}>Выручка по тарифам</p>
                 <DeltaBadge delta={revDelta} />
@@ -1646,16 +1649,19 @@ function StaffTab({ staff, periodText, from, to }: { staff: any; periodText: str
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))', gap: 12 }}>
-        <div className="glass-l2" style={{ borderRadius: 14, padding: '16px 18px' }}>
-          <p style={{ fontSize: 22, fontWeight: 900, fontStyle: 'italic', color: '#4cd7f6', margin: '0 0 4px', lineHeight: 1 }}>{fmt(parseNum(totals.retail))} ₽</p>
+        <div className="glass-l2" style={{ position: 'relative', overflow: 'hidden', borderRadius: 14, padding: '16px 18px', border: '1px solid #4cd7f633' }}>
+          <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: 'linear-gradient(90deg, #4cd7f6, transparent 75%)' }} />
+          <p style={{ fontSize: 22, fontWeight: 900, fontStyle: 'italic', color: '#4cd7f6', margin: '0 0 4px', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{fmt(parseNum(totals.retail))} ₽</p>
           <p style={{ fontSize: 10, color: 'var(--on-surface-variant)', margin: 0, textTransform: 'uppercase', letterSpacing: '0.06em', fontFamily: "'JetBrains Mono',monospace" }}>Товарная сумма</p>
         </div>
-        <div className="glass-l2" style={{ borderRadius: 14, padding: '16px 18px' }}>
-          <p style={{ fontSize: 22, fontWeight: 900, fontStyle: 'italic', color: '#F59E0B', margin: '0 0 4px', lineHeight: 1 }}>{fmt(parseNum(totals.cost))} ₽</p>
+        <div className="glass-l2" style={{ position: 'relative', overflow: 'hidden', borderRadius: 14, padding: '16px 18px', border: '1px solid #F59E0B33' }}>
+          <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: 'linear-gradient(90deg, #F59E0B, transparent 75%)' }} />
+          <p style={{ fontSize: 22, fontWeight: 900, fontStyle: 'italic', color: '#F59E0B', margin: '0 0 4px', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{fmt(parseNum(totals.cost))} ₽</p>
           <p style={{ fontSize: 10, color: 'var(--on-surface-variant)', margin: 0, textTransform: 'uppercase', letterSpacing: '0.06em', fontFamily: "'JetBrains Mono',monospace" }}>Себестоимость («оплачено»)</p>
         </div>
-        <div className="glass-l2" style={{ borderRadius: 14, padding: '16px 18px' }}>
-          <p style={{ fontSize: 22, fontWeight: 900, fontStyle: 'italic', color: '#8B5CF6', margin: '0 0 4px', lineHeight: 1 }}>{totals.checks ?? 0}</p>
+        <div className="glass-l2" style={{ position: 'relative', overflow: 'hidden', borderRadius: 14, padding: '16px 18px', border: '1px solid #8B5CF633' }}>
+          <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: 'linear-gradient(90deg, #8B5CF6, transparent 75%)' }} />
+          <p style={{ fontSize: 22, fontWeight: 900, fontStyle: 'italic', color: '#8B5CF6', margin: '0 0 4px', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{totals.checks ?? 0}</p>
           <p style={{ fontSize: 10, color: 'var(--on-surface-variant)', margin: 0, textTransform: 'uppercase', letterSpacing: '0.06em', fontFamily: "'JetBrains Mono',monospace" }}>Списаний</p>
         </div>
       </div>
