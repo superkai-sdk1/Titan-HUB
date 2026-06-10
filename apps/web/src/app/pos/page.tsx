@@ -395,7 +395,7 @@ function PosPageInner() {
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
           {/* Left: title + count */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-            <h2 className="pos-header-title" style={{ margin: 0, color: 'var(--on-surface)', flexShrink: 0 }}>Касса</h2>
+            <h2 className="pos-header-title" style={{ margin: 0, flexShrink: 0, fontStyle: 'italic', letterSpacing: '-0.01em', background: 'linear-gradient(135deg, #A78BFA, #4cd7f6)', WebkitBackgroundClip: 'text', backgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>Касса</h2>
             {checks.length > 0 && (
               <div className="glass-l2" style={{ borderRadius: 999, padding: '3px 9px', display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
                 <Icon name="groups" size={13} color="var(--on-surface-variant)" />
@@ -539,6 +539,8 @@ function PosPageInner() {
                   el.style.boxShadow = 'none'
                 }}
               >
+                {/* Верхняя акцентная полоса — единый язык с дашбордом */}
+                <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 3, background: attention ? 'linear-gradient(90deg, #F59E0B, transparent 75%)' : 'linear-gradient(90deg, #8B5CF6, #4cd7f6 60%, transparent)', opacity: 0.9, pointerEvents: 'none' }} />
                 {attention && (
                   <span style={{ position: 'absolute', top: 8, right: 8, zIndex: 2, width: 26, height: 26, borderRadius: '50%', background: 'rgba(245,158,11,0.95)', boxShadow: '0 0 0 3px rgba(245,158,11,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     <Icon name="notifications_active" size={15} color="#1a1622" />
