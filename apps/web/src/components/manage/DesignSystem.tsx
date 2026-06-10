@@ -7,19 +7,19 @@ import { Icon } from '@/components/Icon'
 // ─── Style constants ────────────────────────────────────────────────────────
 
 export const INP: React.CSSProperties = {
-  width: '100%', padding: '14px 16px', borderRadius: 14,
+  width: '100%', minHeight: 48, padding: '13px 16px', borderRadius: 14,
   border: '1px solid rgba(255,255,255,0.1)',
   background: 'rgba(255,255,255,0.05)',
-  color: 'var(--on-surface)', fontSize: 14, outline: 'none',
+  color: 'var(--on-surface)', fontSize: 15, outline: 'none',
   boxSizing: 'border-box' as const,
-  transition: 'border-color 0.2s',
+  transition: 'border-color 0.2s, box-shadow 0.2s',
 }
 
 export const SEL: React.CSSProperties = {
-  width: '100%', padding: '14px 16px', borderRadius: 14,
+  width: '100%', minHeight: 48, padding: '13px 16px', borderRadius: 14,
   border: '1px solid rgba(255,255,255,0.1)',
   background: 'rgba(29,26,36,0.8)',
-  color: 'var(--on-surface)', fontSize: 14, outline: 'none', cursor: 'pointer',
+  color: 'var(--on-surface)', fontSize: 15, outline: 'none', cursor: 'pointer',
   boxSizing: 'border-box' as const,
 }
 
