@@ -2,9 +2,10 @@ import type { AppEnv } from '../../types.js'
 import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
-import { db, supplies, supplyItems, supplyCorrections, inventory, stockMovements, eq, asc, desc } from '@titan/database'
+import { db, supplies, supplyItems, supplyCorrections, inventory, eq, asc, desc } from '@titan/database'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
 import { round2 } from '../../lib/money.js'
+import { recordMovement } from '../inventory/ledger.js'
 import { notify } from '../notifications/push.js'
 
 const SupplySchema = z.object({
@@ -85,31 +86,13 @@ suppliesRouter.post('/', requireRole('owner', 'staff'), zValidator('json', Suppl
     })))
 
     // Обновляем остаток только для позиций, привязанных к карточке товара.
+    // recordMovement сам пересчитывает WAC по средневзвешенной на приходе.
     for (const i of body.items) {
-      if (!i.itemId) continue
-      const [inv] = await tx.select().from(inventory).where(eq(inventory.id, i.itemId)).for('update')
-      if (!inv) continue
-      // Количество для карточек уже валидировано как целое — добавляем точно,
-      // без округления (округление рассинхронизировало бы остаток и стоимость).
-      const add = i.quantity
-      if (add === 0) continue
-      const oldQty = inv.stockQuantity ?? 0
-      const newQty = oldQty + add
-      // Себестоимость по средневзвешенной: (старый_остаток×старая_цена +
-      // приход×цена_прихода) / новый_остаток. Считаем внутри блокировки строки.
-      const oldCost = parseFloat(String(inv.costPrice ?? 0))
-      const newUnitCost = i.costPerUnit
-      const set: Record<string, any> = { stockQuantity: newQty, updatedAt: new Date() }
-      if (newQty > 0) {
-        set.costPrice = String(round2((oldQty * oldCost + add * newUnitCost) / newQty))
-      }
-      await tx.update(inventory).set(set).where(eq(inventory.id, i.itemId))
-      await tx.insert(stockMovements).values({
-        itemId: i.itemId,
-        delta: add,
-        newQuantity: newQty,
-        reason: `Приёмка${body.supplier ? ' · ' + body.supplier : ''}`,
-        createdBy: user.sub,
+      if (!i.itemId || i.quantity === 0) continue
+      await recordMovement(tx, {
+        itemId: i.itemId, type: 'receipt', delta: i.quantity, unitCost: i.costPerUnit,
+        sourceType: 'supply', sourceId: sup.id,
+        reason: `Приёмка${body.supplier ? ' · ' + body.supplier : ''}`, userId: user.sub,
       })
     }
 
@@ -245,24 +228,16 @@ suppliesRouter.patch('/:id', requireRole('owner', 'staff'), zValidator('json', S
       newByItem.set(i.itemId, (newByItem.get(i.itemId) ?? 0) + i.quantity)
     }
 
-    // Сверяем остаток по каждой затронутой карточке (старые ∪ новые).
+    // Сверяем остаток по каждой затронутой карточке (старые ∪ новые). WAC при
+    // правке НЕ трогаем (type=adjustment), как и раньше — пересчёт задним числом
+    // повредил бы среднюю при последующих закупках.
     const allIds = new Set<string>([...oldByItem.keys(), ...newByItem.keys()])
     for (const itemId of allIds) {
       const delta = (newByItem.get(itemId) ?? 0) - (oldByItem.get(itemId) ?? 0)
       if (delta === 0) continue
-      const [inv] = await tx.select().from(inventory).where(eq(inventory.id, itemId)).for('update')
-      if (!inv) continue
-      const oldQty = inv.stockQuantity ?? 0
-      const newQty = Math.max(0, oldQty + delta)
-      const actualDelta = newQty - oldQty
-      if (actualDelta === 0) continue
-      await tx.update(inventory).set({ stockQuantity: newQty, updatedAt: new Date() }).where(eq(inventory.id, itemId))
-      await tx.insert(stockMovements).values({
-        itemId,
-        delta: actualDelta,
-        newQuantity: newQty,
-        reason: 'Корректировка закупки',
-        createdBy: user.sub,
+      await recordMovement(tx, {
+        itemId, type: 'adjustment', delta, clamp: true,
+        sourceType: 'supply', sourceId: id, reason: 'Корректировка закупки', userId: user.sub,
       })
     }
 
@@ -303,19 +278,12 @@ suppliesRouter.delete('/:id', requireRole('owner'), async (c) => {
     const lines = await tx.select().from(supplyItems).where(eq(supplyItems.supplyId, id))
     for (const line of lines) {
       if (!line.itemId) continue
-      const [inv] = await tx.select().from(inventory).where(eq(inventory.id, line.itemId)).for('update')
-      if (!inv) continue
       const qty = Math.round(Number(line.quantity))
       if (qty <= 0) continue
-      const newQty = Math.max(0, (inv.stockQuantity ?? 0) - qty)
-      const delta = newQty - (inv.stockQuantity ?? 0)
-      await tx.update(inventory).set({ stockQuantity: newQty, updatedAt: new Date() }).where(eq(inventory.id, line.itemId))
-      await tx.insert(stockMovements).values({
-        itemId: line.itemId,
-        delta,
-        newQuantity: newQty,
-        reason: `Откат закупки ${id}`,
-        createdBy: user.sub,
+      // Компенсирующее движение (WAC не разворачиваем — известное ограничение).
+      await recordMovement(tx, {
+        itemId: line.itemId, type: 'adjustment', delta: -qty, clamp: true,
+        sourceType: 'supply', sourceId: id, reason: `Откат закупки ${id}`, userId: user.sub,
       })
     }
 

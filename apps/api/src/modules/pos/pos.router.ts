@@ -5,9 +5,10 @@ import { z } from 'zod'
 import {
   db, checks, checkItems, checkItemModifiers, checkPayments, checkDiscounts, pendingOrders, chatMessages,
   inventory, profiles, spaces, certificates, bonusHistory, transactions, modifiers as modifiersTable,
-  appSettings, events, discounts, clientDiscountRules, stockMovements,
+  appSettings, events, discounts, clientDiscountRules,
   eq, and, ne, inArray, desc, sql, isNull,
 } from '@titan/database'
+import { recordMovement } from '../inventory/ledger.js'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
 import { getCurrentShift } from '../shifts/shifts.service.js'
 import { notify, notifyClient } from '../notifications/push.js'
@@ -161,19 +162,13 @@ async function addCheckItemTx(
   // пробить (оверселл). Остаток уйдёт в минус — это честно отражает дефицит,
   // владелец сводит его Ревизией. Журнал движения остаётся консистентным.
   if (item.trackStock) {
-    const [upd] = await tx.update(inventory)
-      .set({ stockQuantity: sql`${inventory.stockQuantity} - ${quantity}` })
-      .where(eq(inventory.id, itemId))
-      .returning({ stockQuantity: inventory.stockQuantity })
-    await tx.insert(stockMovements).values({
-      itemId,
-      delta: -quantity,
-      newQuantity: upd?.stockQuantity ?? 0,
-      reason: `Продажа: чек ${checkId}`,
-      createdBy: userId,
+    // Продажу не блокируем при нехватке (оверселл) — clamp:false, остаток уходит в минус.
+    const res = await recordMovement(tx, {
+      itemId, type: 'sale', delta: -quantity, clamp: false,
+      sourceType: 'check', sourceId: checkId, reason: `Продажа: чек ${checkId}`, userId,
     })
     const oldQty = Number(item.stockQuantity ?? 0)
-    const newQty = Number(upd?.stockQuantity ?? 0)
+    const newQty = res.qtyAfter
     const minThreshold = Number(item.minThreshold ?? 0)
     if (minThreshold > 0 && oldQty > minThreshold && newQty <= minThreshold) {
       lowStock = { name: String(item.name), newQty }
@@ -734,21 +729,11 @@ posRouter.delete('/checks/:id', requireRole('owner', 'staff'), async (c) => {
     const lines = await tx.select({ itemId: checkItems.itemId, quantity: checkItems.quantity })
       .from(checkItems).where(eq(checkItems.checkId, checkId))
     for (const ln of lines) {
-      const [upd] = await tx.update(inventory)
-        .set({ stockQuantity: sql`${inventory.stockQuantity} + ${ln.quantity}` })
-        .where(and(eq(inventory.id, ln.itemId), eq(inventory.trackStock, true)))
-        .returning({ stockQuantity: inventory.stockQuantity })
-      // Журнал движений склада: отмена чека возвращает сток (delta > 0). upd есть
-      // только для учётных товаров (прошедших trackStock-фильтр).
-      if (upd) {
-        await tx.insert(stockMovements).values({
-          itemId: ln.itemId,
-          delta: ln.quantity,
-          newQuantity: upd.stockQuantity ?? 0,
-          reason: `Отмена чека ${checkId}`,
-          createdBy: user.sub,
-        })
-      }
+      // Отмена чека возвращает сток (return). requireTracked — только учётные товары.
+      await recordMovement(tx, {
+        itemId: ln.itemId, type: 'return', delta: ln.quantity, requireTracked: true,
+        sourceType: 'check', sourceId: checkId, reason: `Отмена чека ${checkId}`, userId: user.sub,
+      })
     }
 
     // Декрементим attendeesCount, если чек был привязан к событию
@@ -1045,19 +1030,12 @@ posRouter.patch('/checks/:id/items/:itemId', requireRole('owner', 'staff', 'tabl
         const inv: any = rows.rows?.[0] ?? rows[0]
         if (inv?.trackStock) {
           if (delta < 0 && (inv.stockQuantity ?? 0) + delta < 0) throw new Error('INSUFFICIENT_STOCK')
-          const [upd] = await tx.update(inventory)
-            .set({ stockQuantity: sql`${inventory.stockQuantity} + ${delta}` })
-            .where(eq(inventory.id, ci.itemId))
-            .returning({ stockQuantity: inventory.stockQuantity })
-          // Журнал движений склада: логируем только возврат позиции (delta > 0).
-          // Дополнительное списание (delta < 0) — продолжение продажи, фиксируем
-          // его тем же знаком/причиной для сверки ledger.
-          await tx.insert(stockMovements).values({
-            itemId: ci.itemId,
-            delta,
-            newQuantity: upd?.stockQuantity ?? 0,
+          // delta > 0 → возврат позиции (return); delta < 0 → доп. списание (sale).
+          await recordMovement(tx, {
+            itemId: ci.itemId, type: delta > 0 ? 'return' : 'sale', delta, clamp: false,
+            sourceType: 'check', sourceId: checkId,
             reason: delta > 0 ? `Возврат позиции: чек ${checkId}` : `Продажа: чек ${checkId}`,
-            createdBy: user.sub,
+            userId: user.sub,
           })
         }
       }
@@ -1098,22 +1076,11 @@ posRouter.delete('/checks/:id/items/:itemId', requireRole('owner', 'staff', 'tab
 
       const [ci] = await tx.select().from(checkItems).where(and(eq(checkItems.id, itemId), eq(checkItems.checkId, checkId)))
       if (!ci) return
-      // Возвращаем списанный сток для учётных товаров
-      const [upd] = await tx.update(inventory)
-        .set({ stockQuantity: sql`${inventory.stockQuantity} + ${ci.quantity}` })
-        .where(and(eq(inventory.id, ci.itemId), eq(inventory.trackStock, true)))
-        .returning({ stockQuantity: inventory.stockQuantity })
-      // Журнал движений склада: возврат позиции (delta > 0). upd есть только если
-      // строка прошла trackStock-фильтр — для не-учётных товаров не логируем.
-      if (upd) {
-        await tx.insert(stockMovements).values({
-          itemId: ci.itemId,
-          delta: ci.quantity,
-          newQuantity: upd.stockQuantity ?? 0,
-          reason: `Возврат позиции: чек ${checkId}`,
-          createdBy: user.sub,
-        })
-      }
+      // Возвращаем списанный сток для учётных товаров (return).
+      await recordMovement(tx, {
+        itemId: ci.itemId, type: 'return', delta: ci.quantity, requireTracked: true,
+        sourceType: 'check', sourceId: checkId, reason: `Возврат позиции: чек ${checkId}`, userId: user.sub,
+      })
       await tx.delete(checkItems).where(and(eq(checkItems.id, itemId), eq(checkItems.checkId, checkId)))
     })
   } catch (err: any) {

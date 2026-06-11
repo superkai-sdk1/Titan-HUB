@@ -27,6 +27,11 @@ export const inventory = pgTable('inventory', {
   costPrice: numeric('cost_price', { precision: 10, scale: 2 }).default('0'),
   stockQuantity: integer('stock_quantity').notNull().default(0),
   minThreshold: integer('min_threshold').default(0),
+  // Параметры пополнения (миграция 044): точка заказа и целевой уровень (par).
+  // Low-stock алерт срабатывает при stockQuantity <= reorderPoint (а не на нуле);
+  // дозаказ добивает до parLevel. minThreshold остаётся для обратной совместимости.
+  reorderPoint: integer('reorder_point'),
+  parLevel: integer('par_level'),
   trackStock: boolean('track_stock').notNull().default(false),
   isService: boolean('is_service').notNull().default(false),
   isActive: boolean('is_active').notNull().default(true),

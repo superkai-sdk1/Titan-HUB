@@ -2,8 +2,9 @@ import type { AppEnv } from '../../types.js'
 import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
-import { db, inventory, stockMovements, supplies, supplyItems, checks, checkItems, revisions, revisionItems, profiles, eq, asc, isNull, and, gt, gte, desc, sum, inArray } from '@titan/database'
+import { db, inventory, stockMovements, supplies, supplyItems, checks, checkItems, revisions, revisionItems, profiles, eq, asc, isNull, and, gt, gte, lte, desc, sum, inArray, sql } from '@titan/database'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
+import { recordMovement } from './ledger.js'
 
 export const inventoryRouter = new Hono<AppEnv>()
 
@@ -104,11 +105,11 @@ inventoryRouter.post(
         const [item] = await tx.select().from(inventory).where(and(eq(inventory.id, itemId), isNull(inventory.deletedAt))).for('update')
         if (!item) throw new Error(`item ${itemId} not found`)
         const expected = item.stockQuantity ?? 0
-        const delta = actual - expected
-        if (delta !== 0) {
-          await tx.update(inventory).set({ stockQuantity: actual, updatedAt: new Date() }).where(eq(inventory.id, itemId))
-          await tx.insert(stockMovements).values({ itemId, delta, newQuantity: actual, reason: 'Ревизия', createdBy: user.sub })
-        }
+        // Снапшот expected зафиксирован; применяем дельту до факта через ledger.
+        await recordMovement(tx, {
+          itemId, type: 'count', delta: actual - expected,
+          sourceType: 'revision', sourceId: rev.id, reason: 'Ревизия', userId: user.sub,
+        })
         await tx.insert(revisionItems).values({
           revisionId: rev.id, itemId, name: item.name,
           expected, actual,
@@ -153,19 +154,15 @@ inventoryRouter.patch(
         if (!ri) throw new Error(`revision item ${ch.id} not found`)
         const deltaChange = ch.actual - ri.actual
         if (deltaChange === 0) continue
-        const [item] = await tx.select().from(inventory).where(eq(inventory.id, ri.itemId)).for('update')
-        if (!item) throw new Error(`inventory ${ri.itemId} not found`)
-        // Текущий остаток корректируем на дельту правки; ниже нуля не уходим —
-        // фактический применённый сдвиг честно фиксируем в движении.
-        const cur = item.stockQuantity ?? 0
-        const newQty = Math.max(0, cur + deltaChange)
-        const appliedDelta = newQty - cur
-        if (appliedDelta !== 0) {
-          await tx.update(inventory).set({ stockQuantity: newQty, updatedAt: new Date() }).where(eq(inventory.id, ri.itemId))
-          await tx.insert(stockMovements).values({ itemId: ri.itemId, delta: appliedDelta, newQuantity: newQty, reason: 'Корректировка ревизии', createdBy: user.sub })
-        }
+        // Корректируем ТЕКУЩИЙ остаток на дельту правки (ниже нуля не уходим);
+        // фактический сдвиг фиксируется движением count со ссылкой на ревизию.
+        const res = await recordMovement(tx, {
+          itemId: ri.itemId, type: 'count', delta: deltaChange, clamp: true,
+          sourceType: 'revision', sourceId: revId, reason: 'Корректировка ревизии', userId: user.sub,
+        })
+        if (!res.ok) throw new Error(`inventory ${ri.itemId} not found`)
         await tx.update(revisionItems).set({ actual: ch.actual }).where(eq(revisionItems.id, ri.id))
-        changes.push({ name: ri.name, from: ri.actual, to: ch.actual, stockDelta: appliedDelta })
+        changes.push({ name: ri.name, from: ri.actual, to: ch.actual, stockDelta: res.applied })
       }
       if (changes.length) await tx.update(revisions).set({ updatedAt: new Date() }).where(eq(revisions.id, revId))
       return changes
@@ -176,6 +173,50 @@ inventoryRouter.patch(
     return c.json({ changes: applied })
   }
 )
+
+// GET /api/inventory/overview — KPI дашборда склада. Регистрируется ДО '/:id/stats'.
+// Стоимость склада по себестоимости, дефицит (≤ точки заказа), нет в наличии,
+// «мёртвый» сток (нет продаж и прихода > 180 дней), даты последней поставки/ревизии.
+inventoryRouter.get('/overview', async (c) => {
+  const agg: any = await db.execute(sql`
+    SELECT
+      COALESCE(SUM(stock_quantity * cost_price), 0)::float8 AS stock_value,
+      COUNT(*) FILTER (WHERE stock_quantity <= 0) AS out_count,
+      COUNT(*) FILTER (
+        WHERE stock_quantity > 0
+          AND COALESCE(reorder_point, min_threshold, 0) > 0
+          AND stock_quantity <= COALESCE(reorder_point, min_threshold, 0)
+      ) AS low_count,
+      COUNT(*) AS tracked_count
+    FROM inventory
+    WHERE track_stock = true AND deleted_at IS NULL
+  `)
+  const dead: any = await db.execute(sql`
+    SELECT COUNT(*) AS dead_count FROM inventory i
+    WHERE i.track_stock = true AND i.deleted_at IS NULL AND i.stock_quantity > 0
+      AND NOT EXISTS (
+        SELECT 1 FROM stock_movements m
+        WHERE m.item_id = i.id AND m.type IN ('sale','receipt')
+          AND m.created_at > now() - interval '180 days'
+      )
+  `)
+  const last: any = await db.execute(sql`
+    SELECT (SELECT max(created_at) FROM supplies)  AS last_supply,
+           (SELECT max(created_at) FROM revisions) AS last_revision
+  `)
+  const a = (agg.rows ?? agg)[0] ?? {}
+  const d = (dead.rows ?? dead)[0] ?? {}
+  const l = (last.rows ?? last)[0] ?? {}
+  return c.json({
+    stockValue: Math.round((Number(a.stock_value) || 0) * 100) / 100,
+    lowStockCount: Number(a.low_count) || 0,
+    outOfStockCount: Number(a.out_count) || 0,
+    deadStockCount: Number(d.dead_count) || 0,
+    trackedCount: Number(a.tracked_count) || 0,
+    lastSupplyAt: l.last_supply ?? null,
+    lastRevisionAt: l.last_revision ?? null,
+  })
+})
 
 // GET /api/inventory/:id/stats — карточка позиции: остаток, последняя закупка,
 // продажи по дням за 30 дней (закрытые чеки, валовое количество) + агрегаты.
@@ -239,9 +280,61 @@ inventoryRouter.get('/:id/stats', async (c) => {
   })
 })
 
-// PATCH /api/inventory/:id — изменение остатка/порога с аудитом движения.
+// GET /api/inventory/:id/movements — лента движений товара (журнал ledger) для карточки.
+inventoryRouter.get('/:id/movements', async (c) => {
+  const id = c.req.param('id')
+  const rows = await db
+    .select({
+      id: stockMovements.id,
+      type: stockMovements.type,
+      delta: stockMovements.delta,
+      qtyAfter: stockMovements.qtyAfter,
+      unitCost: stockMovements.unitCost,
+      sourceType: stockMovements.sourceType,
+      sourceId: stockMovements.sourceId,
+      reason: stockMovements.reason,
+      note: stockMovements.note,
+      createdAt: stockMovements.createdAt,
+      author: profiles.nickname,
+    })
+    .from(stockMovements)
+    .leftJoin(profiles, eq(profiles.id, stockMovements.createdBy))
+    .where(eq(stockMovements.itemId, id))
+    .orderBy(desc(stockMovements.createdAt))
+    .limit(100)
+  return c.json({ movements: rows })
+})
+
+// POST /api/inventory/:id/write-off — списание (бой/порча/угощение). Отдельный тип
+// write_off ради аналитики потерь; обязательна причина. Остаток ниже нуля не уходит.
+inventoryRouter.post(
+  '/:id/write-off',
+  requireRole('owner', 'staff'),
+  zValidator('json', z.object({
+    quantity: z.number().int().positive(),
+    reason: z.string().trim().min(1, 'Укажите причину списания'),
+    note: z.string().optional(),
+  })),
+  async (c) => {
+    const id = c.req.param('id')
+    const { quantity, reason, note } = c.req.valid('json')
+    const user = c.get('user')
+    const res = await db.transaction(async (tx) =>
+      recordMovement(tx, {
+        itemId: id, type: 'write_off', delta: -quantity, clamp: true,
+        sourceType: 'manual', reason, note: note ?? null, userId: user.sub,
+      }),
+    )
+    if (!res.ok) return c.json({ error: 'Not found' }, 404)
+    return c.json({ qtyAfter: res.qtyAfter, applied: res.applied })
+  }
+)
+
+// PATCH /api/inventory/:id — изменение остатка/порога/параметров пополнения.
 // adjustDelta — атомарная корректировка (для кнопок +/−, без гонок);
 // stockQuantity — установка абсолютного значения (дельта считается от текущего).
+// Изменение остатка проходит через ledger (type=adjustment); поля пополнения
+// (minThreshold/reorderPoint/parLevel/trackStock) обновляются напрямую.
 inventoryRouter.patch(
   '/:id',
   requireRole('owner', 'staff'),
@@ -249,6 +342,8 @@ inventoryRouter.patch(
     stockQuantity: z.number().int().min(0).optional(),
     adjustDelta: z.number().int().optional(),
     minThreshold: z.number().int().min(0).optional(),
+    reorderPoint: z.number().int().min(0).nullable().optional(),
+    parLevel: z.number().int().min(0).nullable().optional(),
     trackStock: z.boolean().optional(),
     reason: z.string().optional(),
     note: z.string().optional(),
@@ -263,35 +358,31 @@ inventoryRouter.patch(
       const [item] = await tx.select().from(inventory).where(eq(inventory.id, id)).for('update')
       if (!item) return null
 
-      const update: Record<string, unknown> = {}
-      let delta: number | null = null
-      let newQty = item.stockQuantity ?? 0
-
-      if (body.adjustDelta !== undefined) {
-        newQty = Math.max(0, (item.stockQuantity ?? 0) + body.adjustDelta)
-        delta = newQty - (item.stockQuantity ?? 0)
-        update.stockQuantity = newQty
+      // 1. Изменение остатка — через ledger (adjustment).
+      if (body.adjustDelta !== undefined && body.adjustDelta !== 0) {
+        await recordMovement(tx, {
+          itemId: id, type: 'adjustment', delta: body.adjustDelta, clamp: true,
+          sourceType: 'manual', reason, userId: user.sub,
+        })
       } else if (body.stockQuantity !== undefined) {
-        newQty = body.stockQuantity
-        delta = newQty - (item.stockQuantity ?? 0)
-        update.stockQuantity = newQty
-      }
-      if (body.minThreshold !== undefined) update.minThreshold = body.minThreshold
-      if (body.trackStock !== undefined) update.trackStock = body.trackStock
-
-      if (Object.keys(update).length === 0) return item
-      update.updatedAt = new Date()
-      const [row] = await tx.update(inventory).set(update).where(eq(inventory.id, id)).returning()
-
-      if (delta !== null && delta !== 0) {
-        await tx.insert(stockMovements).values({
-          itemId: id,
-          delta,
-          newQuantity: newQty,
-          reason,
-          createdBy: user.sub,
+        await recordMovement(tx, {
+          itemId: id, type: 'adjustment', delta: body.stockQuantity - (item.stockQuantity ?? 0), clamp: true,
+          sourceType: 'manual', reason, userId: user.sub,
         })
       }
+
+      // 2. Поля пополнения — прямой апдейт (не движения склада).
+      const fields: Record<string, unknown> = {}
+      if (body.minThreshold !== undefined) fields.minThreshold = body.minThreshold
+      if (body.reorderPoint !== undefined) fields.reorderPoint = body.reorderPoint
+      if (body.parLevel !== undefined) fields.parLevel = body.parLevel
+      if (body.trackStock !== undefined) fields.trackStock = body.trackStock
+      if (Object.keys(fields).length > 0) {
+        fields.updatedAt = new Date()
+        await tx.update(inventory).set(fields).where(eq(inventory.id, id))
+      }
+
+      const [row] = await tx.select().from(inventory).where(eq(inventory.id, id))
       return row
     })
 

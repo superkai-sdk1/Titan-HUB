@@ -1,348 +1,137 @@
 'use client'
-import React, { useState, useMemo } from 'react'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+/**
+ * Единый экран «Склад»: дашборд (KPI) + вкладки Остатки · Поставки · Ревизия.
+ * Объединяет прежние три раздела (/inventory, /supplies, /revision) в один хаб.
+ * Источник истины остатка — журнал движений (stock_movements), остаток = SUM(delta).
+ */
+import React, { useState, useEffect } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { api } from '@/lib/api'
-import { PageHeader, Sheet, INP, LBL, formatMoney } from '@/components/manage/DesignSystem'
-import { StateView } from '@/components/StateView'
-import { useToast } from '@/components/Toast'
+import { PageHeader, formatMoney } from '@/components/manage/DesignSystem'
 import { Icon } from '@/components/Icon'
 import { format } from 'date-fns'
 import { ru } from 'date-fns/locale'
+import { ItemsTab, type ItemsFilter } from './tabs/ItemsTab'
+import { SuppliesTab } from './tabs/SuppliesTab'
+import { RevisionTab } from './tabs/RevisionTab'
 
-type FilterTab = 'all' | 'low' | 'untracked'
+type Tab = 'items' | 'supplies' | 'revision'
 
-interface ItemStats {
-  item: { id: string; name: string; stockQuantity: number; costPrice: number; price: number; minThreshold: number; trackStock: boolean }
-  lastSupply: { date: string; quantity: number; costPerUnit: number } | null
-  sales: { totalQty: number; totalRevenue: number; avgDaily: number; allTimeQty: number; series: { date: string; qty: number }[] }
+interface Overview {
+  stockValue: number
+  lowStockCount: number
+  outOfStockCount: number
+  deadStockCount: number
+  trackedCount: number
+  lastSupplyAt: string | null
+  lastRevisionAt: string | null
 }
 
-/* Мини-тайл статистики */
-function StatTile({ label, value, sub, color }: { label: string; value: string; sub?: string; color?: string }) {
+const TABS: { key: Tab; label: string; icon: string }[] = [
+  { key: 'items',    label: 'Остатки',  icon: 'inventory_2' },
+  { key: 'supplies', label: 'Поставки', icon: 'local_shipping' },
+  { key: 'revision', label: 'Ревизия',  icon: 'fact_check' },
+]
+
+function isTab(v: string | null): v is Tab { return v === 'items' || v === 'supplies' || v === 'revision' }
+
+function KpiCard({ icon, color, value, label, onClick, active }: { icon: string; color: string; value: string; label: string; onClick?: () => void; active?: boolean }) {
+  const clickable = !!onClick
   return (
-    <div style={{ padding: '12px 14px', borderRadius: 12, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)' }}>
-      <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: 0 }}>{label}</p>
-      <p style={{ fontSize: 17, fontWeight: 800, margin: '3px 0 0', color: color ?? 'var(--on-surface)', fontVariantNumeric: 'tabular-nums' }}>{value}</p>
-      {sub && <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: '1px 0 0' }}>{sub}</p>}
-    </div>
+    <button
+      onClick={onClick}
+      disabled={!clickable}
+      className="glass-l2"
+      style={{ borderRadius: 16, padding: '12px 14px', textAlign: 'left', cursor: clickable ? 'pointer' : 'default', border: active ? `1px solid ${color}88` : '1px solid rgba(255,255,255,0.08)', display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0 }}
+    >
+      <Icon name={icon} size={18} color={color} />
+      <span style={{ fontSize: 22, fontWeight: 800, color, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{value}</span>
+      <span style={{ fontSize: 11, color: 'var(--on-surface-variant)' }}>{label}</span>
+    </button>
   )
 }
 
-/* График продаж по дням (30 дней) */
-function SalesChart({ series }: { series: { date: string; qty: number }[] }) {
-  const max = series.reduce((m, s) => Math.max(m, s.qty), 0) || 1
-  return (
-    <div>
-      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 2, height: 88 }}>
-        {series.map((s, i) => (
-          <div key={i} title={`${format(new Date(s.date), 'd MMM', { locale: ru })}: ${s.qty}`} style={{ flex: 1, height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>
-            <div style={{ height: `${(s.qty / max) * 100}%`, minHeight: s.qty > 0 ? 3 : 0, borderRadius: 2, background: s.qty > 0 ? 'linear-gradient(180deg, #a78bfa, #8B5CF6)' : 'rgba(255,255,255,0.05)' }} />
-          </div>
-        ))}
-      </div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6 }}>
-        <span style={{ fontSize: 10, color: 'var(--on-surface-variant)' }}>{format(new Date(series[0]?.date ?? Date.now()), 'd MMM', { locale: ru })}</span>
-        <span style={{ fontSize: 10, color: 'var(--on-surface-variant)' }}>сегодня</span>
-      </div>
-    </div>
-  )
-}
+export default function StockHubPage() {
+  const [tab, setTab] = useState<Tab>('items')
+  const [itemsFilter, setItemsFilter] = useState<ItemsFilter>('all')
 
-interface MenuItem {
-  id: string
-  name: string
-  category?: string
-  stockQuantity: number
-  minThreshold: number
-  trackStock: boolean
-  costPrice?: string | number
-  isService?: boolean
-  linkedSpaceId?: string | null
-  searchTags?: string[]
-}
-
-export default function InventoryPage() {
-  const qc = useQueryClient()
-  const { show } = useToast()
-  const [filter, setFilter] = useState<FilterTab>('all')
-  const [search, setSearch] = useState('')
-  const [selected, setSelected] = useState<MenuItem | null>(null)
-  const [newThreshold, setNewThreshold] = useState('')
-
-  // /inventory (не /menu/items): возвращает активные И неактивные позиции,
-  // исключая только мягко удалённые. Скрытая из меню позиция всё равно учитывается
-  // в остатках. /menu/items фильтрует isActive=true и прятал бы такие товары.
-  const { data, isLoading } = useQuery<{ items: MenuItem[] }>({
-    queryKey: ['menu-items-inventory'],
-    queryFn: () => api.get('/inventory'),
-  })
-
-  // Статистика позиции для карточки (грузится при открытии панели).
-  const { data: stats, isLoading: statsLoading } = useQuery<ItemStats>({
-    queryKey: ['inventory-stats', selected?.id],
-    queryFn: () => api.get(`/inventory/${selected!.id}/stats`),
-    enabled: !!selected,
-  })
-
-  // Категории нужны, чтобы спрятать со склада служебные позиции «Тарифы» и «Аренда».
-  const { data: catsData } = useQuery<{ categories: { id: string; name: string }[] }>({
-    queryKey: ['menu', 'categories'],
-    queryFn: () => api.get('/menu/categories'),
-  })
-  const hiddenCatIds = useMemo(() => new Set(
-    (catsData?.categories ?? [])
-      .filter(c => { const n = (c.name ?? '').toLowerCase(); return n.includes('тариф') || n.includes('аренд') })
-      .map(c => c.id),
-  ), [catsData])
-
-  // Склад — только физические товары. Прячем услуги (isService), позиции аренды
-  // (привязка к зоне linkedSpaceId) и всё из категорий «Тарифы»/«Аренда».
-  const allItems = (data?.items ?? []).filter(i =>
-    !i.isService && !i.linkedSpaceId && !(i.category && hiddenCatIds.has(i.category)),
-  )
-  const lowStockCount = allItems.filter(i => i.trackStock && i.stockQuantity <= i.minThreshold).length
-  // Сводка склада: стоимость остатка по себестоимости, заканчивающиеся (>0 и ≤ порога)
-  // и отсутствующие (=0) позиции — только по товарам с учётом.
-  const tracked = allItems.filter(i => i.trackStock)
-  const stockValue = tracked.reduce((s, i) => s + i.stockQuantity * (parseFloat(String(i.costPrice ?? 0)) || 0), 0)
-  const endingCount = tracked.filter(i => i.stockQuantity > 0 && i.stockQuantity <= i.minThreshold).length
-  const outCount = tracked.filter(i => i.stockQuantity === 0).length
-  // FIX #15: reduce вместо Math.max(...array) — спред падает на больших списках
-  // (превышение лимита аргументов).
-  const maxQty = useMemo(() => allItems.reduce((m, i) => Math.max(m, i.stockQuantity), 1), [allItems])
-
-  const filtered = useMemo(() => {
-    let result = allItems
-    if (filter === 'low') result = result.filter(i => i.trackStock && i.stockQuantity <= i.minThreshold)
-    else if (filter === 'untracked') result = result.filter(i => !i.trackStock)
-    if (search) {
-      const q = search.toLowerCase()
-      result = result.filter(i => i.name?.toLowerCase().includes(q) || (i.searchTags ?? []).some(t => t.toLowerCase().includes(q)))
-    }
-    return result
-  }, [allItems, filter, search])
-
-  // Остаток со склада здесь НЕ редактируется — он меняется только через
-  // Закупки / Ревизии / Списания (аудируемые движения склада). На этой странице
-  // можно менять лишь порог пополнения (конфиг уведомлений).
-  const patchMut = useMutation({
-    mutationFn: (body: { id: string; minThreshold: number }) =>
-      api.patch(`/inventory/${body.id}`, { minThreshold: body.minThreshold }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['menu-items-inventory'] }),
-    onError: () => show('Не удалось сохранить порог', 'error'),
-  })
-
-  function openDetail(item: MenuItem) { setSelected(item); setNewThreshold(String(item.minThreshold ?? 0)) }
-  function closeSheet() { setSelected(null); setNewThreshold('') }
-  function saveThreshold() {
-    if (!selected) return
-    const threshold = parseInt(newThreshold)
-    // Меняем только порог пополнения (конфиг). Остаток здесь не редактируется.
-    if (!Number.isNaN(threshold) && threshold !== (selected.minThreshold ?? 0)) {
-      patchMut.mutate({ id: selected.id, minThreshold: threshold })
-    }
-    closeSheet()
+  // Вкладка в URL (?tab=) — без next/navigation, чтобы не требовать Suspense.
+  useEffect(() => {
+    const t = new URLSearchParams(window.location.search).get('tab')
+    if (isTab(t)) setTab(t)
+  }, [])
+  function changeTab(t: Tab) {
+    setTab(t)
+    const url = new URL(window.location.href)
+    url.searchParams.set('tab', t)
+    window.history.replaceState(null, '', url.toString())
   }
 
-  function stockColor(item: MenuItem) {
-    if (!item.trackStock) return 'var(--on-surface-variant)'
-    if (item.stockQuantity <= item.minThreshold) return 'var(--danger)'
-    if (item.stockQuantity <= item.minThreshold * 2) return 'var(--warning)'
-    return 'var(--success)'
-  }
+  const { data: ov } = useQuery<Overview>({
+    queryKey: ['inventory-overview'],
+    queryFn: () => api.get('/inventory/overview'),
+  })
 
-  function stockLabel(item: MenuItem) {
-    if (!item.trackStock) return null
-    if (item.stockQuantity === 0) return 'Нет'
-    if (item.stockQuantity <= item.minThreshold) return 'Мало'
-    if (item.stockQuantity <= item.minThreshold * 2) return 'Норм'
-    return 'Ок'
-  }
+  const subtitle = ov
+    ? ov.lowStockCount + ov.outOfStockCount > 0
+      ? `${ov.lowStockCount} мало · ${ov.outOfStockCount} нет в наличии`
+      : 'Остатки в норме'
+    : 'Остатки · поставки · ревизия'
 
-  const tabs: { key: FilterTab; label: string }[] = [
-    { key: 'all', label: 'Все' },
-    { key: 'low', label: `Мало (${lowStockCount})` },
-    { key: 'untracked', label: 'Без учёта' },
-  ]
+  function goItems(f: ItemsFilter) { setItemsFilter(f); changeTab('items') }
 
   return (
     <div style={{ minHeight: '100dvh', display: 'flex', flexDirection: 'column' }}>
-      <PageHeader
-        title="Остатки"
-        subtitle={lowStockCount > 0 ? `${lowStockCount} товаров ниже порога` : 'Все товары в норме'}
-      />
+      <PageHeader title="Склад" subtitle={subtitle} />
 
-      {/* Filter bar */}
-      <div style={{ background: 'rgba(21,18,27,0.95)', backdropFilter: 'blur(16px)', borderBottom: '1px solid rgba(255,255,255,0.06)', padding: '12px 16px' }}>
-        <div>
-          <div style={{ position: 'relative', marginBottom: 10 }}>
-            <Icon name="search" size={18} color="var(--on-surface-variant)" style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }} />
-            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Поиск по названию…" style={{ ...INP, paddingLeft: 42, borderRadius: 12 }} />
+      <div style={{ padding: '16px 16px var(--bottom-nav-clear, 24px)', flex: 1, maxWidth: 'var(--content-narrow)', margin: '0 auto', width: '100%', boxSizing: 'border-box' }}>
+        {/* Дашборд */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 14 }}>
+          <div className="glass-l2" style={{ borderRadius: 16, padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{ width: 42, height: 42, borderRadius: 12, background: 'rgba(139,92,246,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              <Icon name="payments" size={22} color="#a78bfa" />
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: 0 }}>Стоимость склада</p>
+              <p style={{ fontSize: 22, fontWeight: 800, margin: '1px 0 0', color: 'var(--on-surface)', fontVariantNumeric: 'tabular-nums' }}>{formatMoney(ov?.stockValue ?? 0)}</p>
+            </div>
+            {ov && ov.deadStockCount > 0 && (
+              <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                <p style={{ fontSize: 18, fontWeight: 800, color: '#94A3B8', margin: 0, lineHeight: 1 }}>{ov.deadStockCount}</p>
+                <p style={{ fontSize: 10, color: 'var(--on-surface-variant)', margin: '2px 0 0' }}>залежалось</p>
+              </div>
+            )}
           </div>
-          <div style={{ display: 'flex', gap: 6 }}>
-            {tabs.map(t => (
-              <button key={t.key} onClick={() => setFilter(t.key)} style={{ padding: '7px 14px', borderRadius: 10, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 600, transition: 'all 0.15s', background: filter === t.key ? (t.key === 'low' ? 'rgba(239,68,68,0.2)' : 'rgba(139,92,246,0.2)') : 'rgba(255,255,255,0.06)', color: filter === t.key ? (t.key === 'low' ? '#EF4444' : '#c4b5fd') : 'var(--on-surface-variant)' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <KpiCard icon="warning" color="#F59E0B" value={String(ov?.lowStockCount ?? 0)} label="Заканчивается" active={tab === 'items' && itemsFilter === 'low'} onClick={() => goItems('low')} />
+            <KpiCard icon="remove_shopping_cart" color="#F43F5E" value={String(ov?.outOfStockCount ?? 0)} label="Нет в наличии" active={tab === 'items' && itemsFilter === 'out'} onClick={() => goItems('out')} />
+          </div>
+          {ov && (ov.lastSupplyAt || ov.lastRevisionAt) && (
+            <div style={{ display: 'flex', gap: 16, padding: '0 4px', flexWrap: 'wrap' }}>
+              {ov.lastSupplyAt && <span style={{ fontSize: 11, color: 'var(--on-surface-variant)' }}>Последняя поставка: {format(new Date(ov.lastSupplyAt), 'd MMM', { locale: ru })}</span>}
+              {ov.lastRevisionAt && <span style={{ fontSize: 11, color: 'var(--on-surface-variant)' }}>Последняя ревизия: {format(new Date(ov.lastRevisionAt), 'd MMM', { locale: ru })}</span>}
+            </div>
+          )}
+        </div>
+
+        {/* Переключатель вкладок (segmented) */}
+        <div style={{ display: 'flex', gap: 4, padding: 4, borderRadius: 14, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)', marginBottom: 16 }}>
+          {TABS.map(t => {
+            const active = tab === t.key
+            return (
+              <button key={t.key} onClick={() => changeTab(t.key)} style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '10px 8px', borderRadius: 11, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 700, transition: 'all 0.15s', background: active ? 'var(--primary-violet)' : 'transparent', color: active ? '#fff' : 'var(--on-surface-variant)' }}>
+                <Icon name={t.icon} size={17} color={active ? '#fff' : 'var(--on-surface-variant)'} />
                 {t.label}
               </button>
-            ))}
-          </div>
+            )
+          })}
         </div>
+
+        {/* Содержимое вкладки */}
+        {tab === 'items' && <ItemsTab filter={itemsFilter} setFilter={setItemsFilter} />}
+        {tab === 'supplies' && <SuppliesTab />}
+        {tab === 'revision' && <RevisionTab />}
       </div>
-
-      <div style={{ padding: '16px 16px var(--bottom-nav-clear)', flex: 1, maxWidth: 'var(--content-narrow)', margin: '0 auto', width: '100%', boxSizing: 'border-box' }}>
-        {/* Сводка склада */}
-        {data && tracked.length > 0 && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 14 }}>
-            <div className="glass-l2" style={{ borderRadius: 16, padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 12 }}>
-              <div style={{ width: 42, height: 42, borderRadius: 12, background: 'rgba(139,92,246,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                <Icon name="payments" size={22} color="#a78bfa" />
-              </div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: 0 }}>Стоимость склада</p>
-                <p style={{ fontSize: 22, fontWeight: 800, margin: '1px 0 0', color: 'var(--on-surface)', fontVariantNumeric: 'tabular-nums' }}>{formatMoney(stockValue)}</p>
-              </div>
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-              <button onClick={() => setFilter('low')} className="glass-l2" style={{ borderRadius: 16, padding: '14px 16px', textAlign: 'left', cursor: 'pointer', border: filter === 'low' ? '1px solid rgba(245,158,11,0.5)' : '1px solid rgba(255,255,255,0.08)' }}>
-                <Icon name="warning" size={20} color="#F59E0B" />
-                <p style={{ fontSize: 26, fontWeight: 800, margin: '6px 0 0', color: '#F59E0B', lineHeight: 1 }}>{endingCount}</p>
-                <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: '4px 0 0' }}>Заканчивается</p>
-              </button>
-              <div className="glass-l2" style={{ borderRadius: 16, padding: '14px 16px' }}>
-                <Icon name="remove_shopping_cart" size={20} color="#F43F5E" />
-                <p style={{ fontSize: 26, fontWeight: 800, margin: '6px 0 0', color: '#F43F5E', lineHeight: 1 }}>{outCount}</p>
-                <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: '4px 0 0' }}>Нет в наличии</p>
-              </div>
-            </div>
-          </div>
-        )}
-        {isLoading && !data ? (
-          <StateView state="loading" />
-        ) : filtered.length === 0 ? (
-          <StateView state="empty" icon="inventory_2" title="Нет товаров" />
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {filtered.map(item => {
-              const barWidth = Math.min(100, (item.stockQuantity / maxQty) * 100)
-              const color = stockColor(item)
-              const lbl = stockLabel(item)
-              return (
-                <div key={item.id} className="glass-l2" style={{ position: 'relative', overflow: 'hidden', borderRadius: 14, padding: '14px 16px', cursor: 'pointer', transition: 'border-color 0.2s' }}
-                  onMouseEnter={e => { e.currentTarget.style.borderColor = `${color}44` }}
-                  onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }} onClick={() => openDetail(item)}>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontWeight: 700, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.name}</div>
-                    </div>
-                    {item.trackStock && lbl && (
-                      <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 6, background: `${color}15`, color, fontFamily: "'JetBrains Mono',monospace", flexShrink: 0 }}>{lbl}</span>
-                    )}
-                    {item.trackStock && (
-                      <div style={{ textAlign: 'right', minWidth: 50, flexShrink: 0 }}>
-                        <div style={{ fontSize: 22, fontWeight: 800, color, lineHeight: 1, fontFamily: "'JetBrains Mono',monospace" }}>{item.stockQuantity}</div>
-                        <div style={{ fontSize: 10, color: 'var(--on-surface-variant)' }}>шт</div>
-                      </div>
-                    )}
-                    {!item.trackStock && (
-                      <span style={{ fontSize: 12, color: 'var(--on-surface-variant)', flexShrink: 0 }}>Не отслеж.</span>
-                    )}
-                  </div>
-
-                  {item.trackStock && (
-                    <div style={{ marginTop: 10, height: 4, borderRadius: 2, background: 'rgba(255,255,255,0.07)', overflow: 'hidden' }}>
-                      <div style={{ height: '100%', width: `${barWidth}%`, background: `linear-gradient(90deg, ${color}88, ${color})`, borderRadius: 2, transition: 'width 0.4s ease' }} />
-                    </div>
-                  )}
-
-                  {item.trackStock && (
-                    <div style={{ marginTop: 10 }}>
-                      <span style={{ fontSize: 11, color: 'var(--on-surface-variant)' }}>порог: {item.minThreshold}</span>
-                    </div>
-                  )}
-                </div>
-              )
-            })}
-          </div>
-        )}
-      </div>
-
-      <Sheet open={!!selected} onClose={closeSheet} title={selected?.name}>
-        {statsLoading && !stats ? (
-          <StateView state="loading" />
-        ) : stats ? (() => {
-          const it = stats.item
-          const profit = it.price - it.costPrice
-          const marginPct = it.price > 0 ? Math.round((profit / it.price) * 100) : 0
-          const stockVal = it.stockQuantity * it.costPrice
-          const daysLeft = it.trackStock && stats.sales.avgDaily > 0 ? Math.ceil(it.stockQuantity / stats.sales.avgDaily) : null
-          const qColor = !it.trackStock ? 'var(--on-surface-variant)' : it.stockQuantity <= it.minThreshold ? '#F43F5E' : it.stockQuantity <= it.minThreshold * 2 ? '#F59E0B' : '#34D399'
-          return (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-              {/* Остаток + стоимость остатка */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                <div style={{ padding: '14px 16px', borderRadius: 14, background: 'rgba(139,92,246,0.1)', border: '1px solid rgba(139,92,246,0.2)' }}>
-                  <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: 0 }}>Количество</p>
-                  <p style={{ fontSize: 26, fontWeight: 800, margin: '2px 0 0', color: qColor, lineHeight: 1 }}>
-                    {it.trackStock ? it.stockQuantity : '—'}<span style={{ fontSize: 13, fontWeight: 600, marginLeft: 4, color: 'var(--on-surface-variant)' }}>{it.trackStock ? 'шт' : 'без учёта'}</span>
-                  </p>
-                </div>
-                <StatTile label="Стоимость остатка" value={formatMoney(stockVal)} />
-              </div>
-
-              {/* Цена / себестоимость / маржа */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
-                <StatTile label="Себестоимость" value={formatMoney(it.costPrice)} />
-                <StatTile label="Цена" value={formatMoney(it.price)} />
-                <StatTile label="Маржа" value={`${marginPct}%`} sub={formatMoney(profit)} color={profit >= 0 ? '#34D399' : '#F87171'} />
-              </div>
-
-              {/* График продаж */}
-              <div className="glass-l2" style={{ borderRadius: 16, padding: 16 }}>
-                <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 12 }}>
-                  <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--on-surface-variant)', letterSpacing: '0.02em' }}>ПРОДАЖИ · 30 ДНЕЙ</span>
-                  <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--on-surface)' }}>{stats.sales.totalQty} шт</span>
-                </div>
-                <SalesChart series={stats.sales.series} />
-              </div>
-
-              {/* Агрегаты продаж */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                <StatTile label="Выручка · 30 дней" value={formatMoney(stats.sales.totalRevenue)} sub={`всего продано: ${stats.sales.allTimeQty} шт`} />
-                <StatTile label="В среднем в день" value={`${stats.sales.avgDaily.toFixed(1)} шт`} sub={daysLeft != null ? `хватит на ~${daysLeft} дн.` : undefined} />
-              </div>
-
-              {/* Последняя закупка */}
-              <div className="glass-l2" style={{ borderRadius: 16, padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 12 }}>
-                <div style={{ width: 40, height: 40, borderRadius: 11, background: 'rgba(16,185,129,0.13)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                  <Icon name="local_shipping" size={20} color="#34D399" />
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: 0 }}>Последняя закупка</p>
-                  {stats.lastSupply ? (
-                    <p style={{ fontSize: 14, fontWeight: 700, margin: '2px 0 0' }}>
-                      {format(new Date(stats.lastSupply.date), 'd MMMM yyyy', { locale: ru })}
-                      <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--on-surface-variant)' }}> · {stats.lastSupply.quantity} шт по {formatMoney(stats.lastSupply.costPerUnit)}</span>
-                    </p>
-                  ) : (
-                    <p style={{ fontSize: 14, fontWeight: 600, margin: '2px 0 0', color: 'var(--on-surface-variant)' }}>Закупок не было</p>
-                  )}
-                </div>
-              </div>
-
-              {/* Порог пополнения (конфиг, не остаток) */}
-              {it.trackStock && (
-                <div style={{ padding: '14px 16px', borderRadius: 16, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
-                  <label style={LBL}>Порог пополнения</label>
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    <input style={{ ...INP, flex: 1 }} type="number" min="0" value={newThreshold} onChange={e => setNewThreshold(e.target.value)} placeholder="Уведомлять, когда остаток ≤ порога" />
-                    <button onClick={saveThreshold} disabled={patchMut.isPending} style={{ padding: '0 18px', borderRadius: 12, border: 'none', cursor: 'pointer', background: 'linear-gradient(135deg, #8B5CF6, #4cd7f6)', color: '#fff', fontSize: 14, fontWeight: 700, flexShrink: 0 }}>ОК</button>
-                  </div>
-                </div>
-              )}
-            </div>
-          )
-        })() : null}
-      </Sheet>
     </div>
   )
 }

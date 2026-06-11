@@ -143,18 +143,32 @@ export const analyticsEvents = pgTable('analytics_events', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 })
 
-// Журнал движений склада — аудит ручных корректировок остатка.
+// Журнал движений склада — immutable ledger, единый источник истины остатка.
+// Любое изменение остатка (продажа/приёмка/ревизия/списание/корректировка/возврат)
+// проходит через recordMovement() (modules/inventory/ledger.ts) и порождает строку.
+// Инвариант: inventory.stockQuantity == SUM(delta) по товару (см. миграцию 044).
 export const stockMovements = pgTable('stock_movements', {
   id: uuid('id').primaryKey().defaultRandom(),
   itemId: uuid('item_id')
     .notNull()
     .references(() => inventory.id),
+  // text + CHECK (миграция 044): opening/receipt/sale/return/adjustment/write_off/count/transfer.
+  type: text('type').notNull(),
   delta: integer('delta').notNull(),
-  newQuantity: integer('new_quantity').notNull(),
+  // Остаток ПОСЛЕ движения (штучный учёт — целое).
+  qtyAfter: integer('qty_after').notNull(),
+  // Себестоимость единицы в движении: цена прихода либо WAC на момент списания.
+  unitCost: numeric('unit_cost', { precision: 12, scale: 2 }),
+  // Ссылка на документ-источник (связь движение → документ в UI), не ключ идемпотентности.
+  sourceType: text('source_type'),
+  sourceId: uuid('source_id'),
   reason: text('reason'),
+  note: text('note'),
   createdBy: uuid('created_by').references(() => profiles.id),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 })
+
+export type StockMovement = typeof stockMovements.$inferSelect
 
 export const expenseCategoryEnum = pgEnum('expense_category', [
   'rent',
