@@ -76,7 +76,9 @@ export default function RevisionPage() {
   const qc = useQueryClient()
   const { show } = useToast()
   const [mode, setMode] = useState<'idle' | 'active' | 'done'>('idle')
+  // В entries только позиции, ДОБАВЛЕННЫЕ в ревизию вручную (id → введённый факт).
   const [entries, setEntries] = useState<Record<string, string>>({})
+  const [query, setQuery] = useState('')
   const [saving, setSaving] = useState(false)
   const [results, setResults] = useState<ResultRow[]>([])
 
@@ -96,10 +98,10 @@ export default function RevisionPage() {
       api.patch(`/inventory/${id}`, { stockQuantity, reason: 'Ревизия' }),
   })
 
+  // Ревизия начинается с ПУСТОГО списка — позиции добавляются вручную поиском.
   function startRevision() {
-    const init: Record<string, string> = {}
-    tracked.forEach(i => { init[i.id] = '' })
-    setEntries(init)
+    setEntries({})
+    setQuery('')
     setMode('active')
   }
 
@@ -108,6 +110,7 @@ export default function RevisionPage() {
     const res: typeof results = []
     let failed = false
     try {
+      // Сохраняем только добавленные в ревизию позиции с валидным фактом.
       for (const item of tracked) {
         const raw = entries[item.id]
         if (raw === '' || raw === undefined) continue
@@ -135,6 +138,21 @@ export default function RevisionPage() {
 
   const filled = Object.values(entries).filter(v => v !== '').length
   const total = tracked.length
+  // Добавленные в ревизию позиции (сохраняем порядок добавления нельзя из Record —
+  // сортируем по имени для стабильности) и кандидаты поиска (ещё не добавленные).
+  const added = useMemo(() => tracked.filter(i => entries[i.id] !== undefined), [tracked, entries])
+  const q = query.trim().toLowerCase()
+  const candidates = useMemo(
+    () => (q ? tracked.filter(i => entries[i.id] === undefined && i.name.toLowerCase().includes(q)).slice(0, 8) : []),
+    [q, tracked, entries],
+  )
+  function addItem(id: string) {
+    setEntries(prev => ({ ...prev, [id]: '' }))
+    setQuery('')
+  }
+  function removeItem(id: string) {
+    setEntries(prev => { const next = { ...prev }; delete next[id]; return next })
+  }
 
   // Живой отчёт во время заполнения.
   const activeReport = useMemo(() => buildReport(
@@ -163,7 +181,7 @@ export default function RevisionPage() {
     <div style={{ minHeight: '100dvh', display: 'flex', flexDirection: 'column' }}>
       <PageHeader
         title="Ревизия"
-        subtitle={mode === 'idle' ? `${total} товаров с учётом склада` : mode === 'active' ? `Заполнено ${filled} из ${total}` : 'Ревизия завершена'}
+        subtitle={mode === 'idle' ? `${total} товаров с учётом склада` : mode === 'active' ? (added.length === 0 ? 'Добавьте позиции для ревизии' : `Позиций: ${added.length} · заполнено ${filled}`) : 'Ревизия завершена'}
       />
 
       <div style={{ padding: '20px 16px var(--bottom-nav-clear, 16px)', flex: 1 }}>
@@ -224,7 +242,7 @@ export default function RevisionPage() {
             <button
               onClick={startRevision}
               disabled={total === 0}
-              style={{ width: '100%', padding: '15px 0', borderRadius: 16, border: 'none', cursor: total === 0 ? 'not-allowed' : 'pointer', background: 'linear-gradient(135deg, #8B5CF6, #4cd7f6)', color: '#fff', fontSize: 15, fontWeight: 700, boxShadow: '0 4px 20px rgba(139,92,246,0.3)', opacity: total === 0 ? 0.5 : 1 }}
+              style={{ width: '100%', padding: '15px 0', borderRadius: 14, minHeight: 48, border: 'none', cursor: total === 0 ? 'not-allowed' : 'pointer', background: 'var(--primary-violet)', color: '#fff', fontSize: 15, fontWeight: 700, boxShadow: '0 2px 10px rgba(0,0,0,0.25)', opacity: total === 0 ? 0.5 : 1 }}
             >
               Начать ревизию
             </button>
@@ -234,11 +252,50 @@ export default function RevisionPage() {
         {/* Active state */}
         {mode === 'active' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <ReportCard r={activeReport} />
-            <p style={{ fontSize: 13, color: 'var(--on-surface-variant)', margin: '4px 0 4px' }}>
-              Введите фактическое количество. Расхождения подсвечиваются, пустые поля не обновляются.
-            </p>
-            {tracked.map(item => {
+            {/* Поиск-добавление позиций в ревизию */}
+            <div className="glass-l2" style={{ borderRadius: 16, padding: 14 }}>
+              <p style={{ ...LBL, margin: '0 0 8px' }}>Добавить позицию</p>
+              <div style={{ position: 'relative' }}>
+                <Icon name="search" size={18} color="var(--on-surface-variant)" style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }} />
+                <input
+                  value={query}
+                  onChange={e => setQuery(e.target.value)}
+                  placeholder="Название товара…"
+                  style={{ ...INP, paddingLeft: 42 }}
+                />
+              </div>
+              {candidates.length > 0 && (
+                <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  {candidates.map(c => (
+                    <button key={c.id} onClick={() => addItem(c.id)} style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', textAlign: 'left', padding: '10px 12px', borderRadius: 10, border: '1px solid rgba(255,255,255,0.07)', background: 'rgba(255,255,255,0.03)', cursor: 'pointer', color: 'var(--on-surface)', minHeight: 44 }}>
+                      <Icon name="add" size={16} color="#a78bfa" />
+                      <span style={{ flex: 1, fontSize: 14, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.name}</span>
+                      <span style={{ fontSize: 11, color: 'var(--on-surface-variant)', fontFamily: "'JetBrains Mono',monospace" }}>склад: {c.stockQuantity}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+              {q && candidates.length === 0 && (
+                <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: '8px 2px 0' }}>Ничего не найдено или уже добавлено.</p>
+              )}
+              {added.length < tracked.length && (
+                <button onClick={() => { setEntries(prev => { const next = { ...prev }; tracked.forEach(i => { if (next[i.id] === undefined) next[i.id] = '' }); return next }) }} style={{ marginTop: 10, width: '100%', padding: '10px 0', borderRadius: 10, border: '1px dashed rgba(255,255,255,0.2)', background: 'rgba(255,255,255,0.03)', color: 'var(--on-surface-variant)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', minHeight: 40 }}>
+                  Добавить все товары ({tracked.length - added.length})
+                </button>
+              )}
+            </div>
+
+            {added.length > 0 && <ReportCard r={activeReport} />}
+            {added.length === 0 ? (
+              <p style={{ fontSize: 13, color: 'var(--on-surface-variant)', margin: '8px 2px', textAlign: 'center', lineHeight: 1.5 }}>
+                Список пуст. Найдите и добавьте товары, которые ревизируете, — обновятся только они.
+              </p>
+            ) : (
+              <p style={{ fontSize: 13, color: 'var(--on-surface-variant)', margin: '4px 0 4px' }}>
+                Введите фактическое количество. Расхождения подсвечиваются, пустые поля не обновляются.
+              </p>
+            )}
+            {added.map(item => {
               const val = entries[item.id] ?? ''
               // FIX #14: невалидный ввод не превращаем в 0 — не показываем фиктивный diff.
               const parsed = val === '' ? null : parseInt(val, 10)
@@ -264,6 +321,9 @@ export default function RevisionPage() {
                         style={{ ...INP, textAlign: 'center', fontWeight: 700, fontSize: 16, padding: '10px 12px', borderColor: hasDiff ? `${dColor}99` : undefined }}
                       />
                     </div>
+                    <button onClick={() => removeItem(item.id)} aria-label={`Убрать ${item.name} из ревизии`} style={{ width: 36, height: 36, borderRadius: 10, border: '1px solid rgba(255,255,255,0.08)', background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--on-surface-variant)', flexShrink: 0 }}>
+                      <Icon name="close" size={15} />
+                    </button>
                   </div>
                   {hasDiff && (
                     <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 7 }}>
@@ -277,23 +337,27 @@ export default function RevisionPage() {
               )
             })}
 
-            {/* Progress bar */}
-            <div style={{ position: 'fixed', bottom: 'var(--bottom-nav-clear, 0px)', left: 0, right: 0, zIndex: 45, background: 'rgba(21,18,27,0.95)', backdropFilter: 'blur(16px)', padding: '12px 20px 28px', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                <span style={{ fontSize: 12, color: 'var(--on-surface-variant)' }}>Прогресс: {filled}/{total}</span>
-                <span style={{ fontSize: 12, color: '#8B5CF6', fontWeight: 700 }}>{Math.round(filled / total * 100)}%</span>
+            {/* Панель завершения: sticky В ПОТОКЕ (не fixed) — занимает своё место
+                после списка, ничего не перекрывает; прилипает к низу скролл-контейнера
+                и в сплите, и на мобильном (с поправкой на плавающую навигацию). */}
+            {added.length > 0 && (
+              <div style={{ position: 'sticky', bottom: 'calc(var(--bottom-nav-clear, 0px) + 8px)', zIndex: 45, background: 'rgba(24,21,30,0.98)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 16, padding: '12px 16px', marginTop: 6, boxShadow: '0 8px 28px rgba(0,0,0,0.4)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                  <span style={{ fontSize: 12, color: 'var(--on-surface-variant)' }}>Заполнено: {filled}/{added.length}</span>
+                  <span style={{ fontSize: 12, color: '#8B5CF6', fontWeight: 700 }}>{added.length ? Math.round(filled / added.length * 100) : 0}%</span>
+                </div>
+                <div style={{ height: 4, borderRadius: 2, background: 'rgba(255,255,255,0.08)' }}>
+                  <div style={{ height: '100%', borderRadius: 2, background: 'var(--primary-violet)', width: `${added.length ? Math.round(filled / added.length * 100) : 0}%`, transition: 'width 0.3s' }} />
+                </div>
+                <button
+                  onClick={finishRevision}
+                  disabled={saving || filled === 0}
+                  style={{ width: '100%', marginTop: 12, padding: '13px 0', borderRadius: 12, minHeight: 44, border: 'none', cursor: saving || filled === 0 ? 'not-allowed' : 'pointer', background: 'var(--primary-violet)', color: '#fff', fontSize: 14, fontWeight: 700, opacity: filled === 0 ? 0.5 : 1, boxShadow: '0 2px 10px rgba(0,0,0,0.25)' }}
+                >
+                  {saving ? 'Сохраняем…' : `Завершить ревизию (${filled} позиций)`}
+                </button>
               </div>
-              <div style={{ height: 4, borderRadius: 2, background: 'rgba(255,255,255,0.08)' }}>
-                <div style={{ height: '100%', borderRadius: 2, background: 'linear-gradient(90deg, #8B5CF6, #4cd7f6)', width: `${Math.round(filled / total * 100)}%`, transition: 'width 0.3s' }} />
-              </div>
-              <button
-                onClick={finishRevision}
-                disabled={saving || filled === 0}
-                style={{ width: '100%', marginTop: 12, padding: '13px 0', borderRadius: 14, border: 'none', cursor: saving || filled === 0 ? 'not-allowed' : 'pointer', background: 'linear-gradient(135deg, #8B5CF6, #4cd7f6)', color: '#fff', fontSize: 14, fontWeight: 700, opacity: filled === 0 ? 0.5 : 1 }}
-              >
-                {saving ? 'Сохраняем…' : `Завершить ревизию (${filled} позиций)`}
-              </button>
-            </div>
+            )}
           </div>
         )}
 
@@ -334,7 +398,7 @@ export default function RevisionPage() {
 
             <button
               onClick={() => { setMode('idle'); setResults([]) }}
-              style={{ width: '100%', padding: '13px 0', borderRadius: 14, border: 'none', cursor: 'pointer', background: 'linear-gradient(135deg, #8B5CF6, #4cd7f6)', color: '#fff', fontSize: 14, fontWeight: 700, marginTop: 8 }}
+              style={{ width: '100%', padding: '13px 0', borderRadius: 12, minHeight: 44, border: 'none', cursor: 'pointer', background: 'var(--primary-violet)', color: '#fff', fontSize: 14, fontWeight: 700, marginTop: 8, boxShadow: '0 2px 10px rgba(0,0,0,0.25)' }}
             >
               Новая ревизия
             </button>
