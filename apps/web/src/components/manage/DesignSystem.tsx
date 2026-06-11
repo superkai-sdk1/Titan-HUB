@@ -466,7 +466,7 @@ export function PageHeader({
       borderBottom: '1px solid rgba(255,255,255,0.06)',
       padding: '16px 20px',
     }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, maxWidth: 680, margin: '0 auto', width: '100%' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, maxWidth: 'var(--content-narrow)', margin: '0 auto', width: '100%' }}>
         <button
           onClick={onBack ?? (() => router.back())}
           aria-label="Назад"

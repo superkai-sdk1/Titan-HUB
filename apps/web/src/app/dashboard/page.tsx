@@ -1761,7 +1761,7 @@ export default function DashboardPage() {
     <div style={{ height: '100dvh', overflow: 'hidden', display: 'flex', flexDirection: 'column', width: '100%' }}>
       {/* Header (фикс. шапка, контент скроллится отдельно — нужно для свайп-обновления) */}
       <div style={{ padding: '16px 16px 0', flexShrink: 0, zIndex: 10, background: 'rgba(21,18,27,0.92)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)' }}>
-        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', maxWidth: 'var(--content-wide)', margin: '0 auto 12px', width: '100%' }}>
           <div>
             <h1 style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.01em', margin: 0, color: 'var(--on-surface)' }}>Аналитика</h1>
             <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: '2px 0 0' }}>
@@ -1781,6 +1781,7 @@ export default function DashboardPage() {
           overflowX: 'auto', overflowY: 'hidden',
           scrollbarWidth: 'none', msOverflowStyle: 'none',
           WebkitOverflowScrolling: 'touch' as any,
+          maxWidth: 'var(--content-wide)', margin: '0 auto', width: '100%',
         }}>
           {TABS.map(tab => {
             const active = activeTab === tab.key
@@ -1796,7 +1797,7 @@ export default function DashboardPage() {
       {/* Content — со свайпом для обновления (потяните вниз, как на экране кассы) */}
       <div style={{ flex: 1, minHeight: 0 }}>
         <PullToRefreshContainer onRefresh={onRefresh}>
-          <div style={{ padding: '16px 16px var(--bottom-nav-clear)', width: '100%', boxSizing: 'border-box' }}>
+          <div style={{ padding: '16px clamp(16px, 2vw, 24px) var(--bottom-nav-clear)', width: '100%', maxWidth: 'var(--content-wide)', margin: '0 auto', boxSizing: 'border-box' }}>
             {activeTab === 'overview'  && (overview ? <OverviewTab overview={overview} periodText={period.label} /> : ovError ? <StateView state="error" description="Не удалось загрузить аналитику." action={{ label: 'Повторить', onClick: () => refetchOv() }} /> : <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}><Skeleton h={156} /><SkeletonCards /></div>)}
             {activeTab === 'finance'   && <FinanceTab from={period.from} to={period.to} />}
             {activeTab === 'games'     && <TariffsTab from={period.from} to={period.to} />}

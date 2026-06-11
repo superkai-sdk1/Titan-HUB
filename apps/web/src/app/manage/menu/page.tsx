@@ -380,7 +380,7 @@ export default function MenuPage() {
 
       {/* Search */}
       <div style={{ background: 'rgba(21,18,27,0.95)', backdropFilter: 'blur(16px)', borderBottom: '1px solid rgba(255,255,255,0.06)', padding: '12px 16px' }}>
-        <div style={{ maxWidth: 900, margin: '0 auto', position: 'relative' }}>
+        <div style={{ maxWidth: 'var(--content-wide)', margin: '0 auto', position: 'relative' }}>
           <Icon name="search" size={18} color="var(--on-surface-variant)" style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }} />
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Поиск по всем позициям…" style={{ ...INP, paddingLeft: 42, borderRadius: 12 }} />
         </div>
@@ -389,7 +389,7 @@ export default function MenuPage() {
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
         {isSearching ? (
           /* ── Поиск: плоская сетка совпадений ── */
-          <div style={{ padding: '16px 16px var(--bottom-nav-clear, 96px)', flex: 1, maxWidth: 900, margin: '0 auto', width: '100%', boxSizing: 'border-box' }}>
+          <div style={{ padding: '16px 16px var(--bottom-nav-clear, 96px)', flex: 1, maxWidth: 'var(--content-wide)', margin: '0 auto', width: '100%', boxSizing: 'border-box' }}>
             {visibleItems.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '60px 0' }}>
                 <Icon name="search_off" size={48} color="rgba(204,195,216,0.2)" style={{ display: 'block', marginBottom: 12 }} />
@@ -405,7 +405,7 @@ export default function MenuPage() {
           </div>
         ) : !folderValid ? (
           /* ── Корень: сетка папок ── */
-          <div style={{ padding: '16px 16px var(--bottom-nav-clear, 96px)', flex: 1, maxWidth: 760, margin: '0 auto', width: '100%', boxSizing: 'border-box' }}>
+          <div style={{ padding: '16px 16px var(--bottom-nav-clear, 96px)', flex: 1, maxWidth: 'var(--content-wide)', margin: '0 auto', width: '100%', boxSizing: 'border-box' }}>
             {cats.length > 1 && (
               <p style={{ fontSize: 11, color: 'rgba(204,195,216,0.45)', margin: '0 0 10px', display: 'flex', alignItems: 'center', gap: 5 }}>
                 <Icon name="drag_indicator" size={13} color="rgba(204,195,216,0.45)" />
@@ -437,7 +437,7 @@ export default function MenuPage() {
           </div>
         ) : (
           /* ── Папка: боковой список папок + сетка позиций ── */
-          <div style={{ padding: '12px 16px var(--bottom-nav-clear, 96px)', flex: 1, maxWidth: 900, margin: '0 auto', width: '100%', boxSizing: 'border-box', display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+          <div style={{ padding: '12px 16px var(--bottom-nav-clear, 96px)', flex: 1, maxWidth: 'var(--content-wide)', margin: '0 auto', width: '100%', boxSizing: 'border-box', display: 'flex', gap: 12, alignItems: 'flex-start' }}>
             {/* Боковая панель папок (drop-таргеты для переноса позиций) */}
             <aside className="cat-rail" style={{ width: 76, flexShrink: 0, position: 'sticky', top: 12, display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 'calc(100dvh - 130px)', overflowY: 'auto' }}>
               <button

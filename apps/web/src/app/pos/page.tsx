@@ -477,10 +477,13 @@ function PosPageInner() {
           }
           @media (min-width: 1024px) {
             .pos-cards-wrap { padding: 0 32px 16px; }
+            .pos-header { max-width: calc(var(--content-wide) + 64px); margin: 0 auto; width: 100%; box-sizing: border-box; }
             .pos-cards-grid {
               grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
               gap: 20px;
               padding-bottom: 24px;
+              max-width: var(--content-wide);
+              margin: 0 auto;
             }
             .pos-check-card { padding: 14px; border-radius: 20px !important; }
             .pos-check-card .card-avatar { width: 36px; height: 36px; font-size: 13px; }

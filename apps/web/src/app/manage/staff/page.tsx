@@ -371,7 +371,7 @@ export default function StaffPage() {
         subtitle={`${staff.length} ${staff.length === 1 ? 'сотрудник' : staff.length <= 4 ? 'сотрудника' : 'сотрудников'}`}
         action={{ label: 'Добавить', icon: 'person_add', onClick: openCreate }}
       />
-      <div style={{ padding: '20px 16px var(--bottom-nav-clear, 24px)', maxWidth: 600, margin: '0 auto', width: '100%' }}>
+      <div style={{ padding: '20px 16px var(--bottom-nav-clear, 24px)', maxWidth: 'var(--content-narrow)', margin: '0 auto', width: '100%' }}>
         {/* List */}
         {isLoading && !data ? (
           <StateView state="loading" />
