@@ -1,9 +1,21 @@
 'use client'
+/**
+ * Ревизии склада — персистентная история инвентаризаций.
+ *
+ * • Список ревизий (новые сверху) → детали конкретной ревизии.
+ * • Новая ревизия: позиции добавляются вручную поиском, новые — СВЕРХУ списка;
+ *   проводится атомарно на бэке (FOR UPDATE + движения склада).
+ * • Правка проведённой ревизии НЕ перезаписывает остаток: к текущему остатку
+ *   применяется дельта (новый факт − старый факт) — движения, случившиеся
+ *   после ревизии, сохраняются. Снапшот «ожидалось на момент ревизии» не меняется.
+ */
 import React, { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { format } from 'date-fns'
+import { ru } from 'date-fns/locale'
 import { api } from '@/lib/api'
 import { Icon } from '@/components/Icon'
-import { PageHeader, Button, INP, LBL } from '@/components/manage/DesignSystem'
+import { PageHeader, ConfirmDialog, INP, LBL } from '@/components/manage/DesignSystem'
 import { StateView } from '@/components/StateView'
 import { useToast } from '@/components/Toast'
 
@@ -13,18 +25,34 @@ interface StockItem {
   stockQuantity: number
   minThreshold: number
   trackStock: boolean
-  category?: string
   costPrice?: string | number
 }
-
-interface ResultRow { name: string; expected: number; actual: number; diff: number; value: number }
-interface Report { surplusCount: number; surplusValue: number; shortageCount: number; shortageValue: number; total: number }
+interface RevisionSummary {
+  id: string
+  createdAt: string
+  updatedAt: string | null
+  author: string | null
+  positions: number
+  surplusValue: number
+  shortageValue: number
+}
+interface RevisionItem {
+  id: string
+  itemId: string
+  name: string
+  expected: number
+  actual: number
+  costPrice: string | number
+  sortOrder: number
+}
 
 const costOf = (i: { costPrice?: string | number }) => parseFloat(String(i.costPrice ?? 0)) || 0
 function fmt(n: number) { return `${Math.round(n).toLocaleString('ru')} ₽` }
+function fmtDate(s: string) {
+  try { return format(new Date(s), 'd MMMM yyyy · HH:mm', { locale: ru }) } catch { return s }
+}
 
-// Сводка расхождений: излишек (факт > учёта) и недостача (факт < учёта) — в штуках
-// и в деньгах (по себестоимости), плюс общая сумма расхождений (их сумма).
+interface Report { surplusCount: number; surplusValue: number; shortageCount: number; shortageValue: number; total: number }
 function buildReport(rows: { diff: number; cost: number }[]): Report {
   let surplusCount = 0, surplusValue = 0, shortageCount = 0, shortageValue = 0
   for (const r of rows) {
@@ -75,202 +103,205 @@ function ReportCard({ r }: { r: Report }) {
 export default function RevisionPage() {
   const qc = useQueryClient()
   const { show } = useToast()
-  const [mode, setMode] = useState<'idle' | 'active' | 'done'>('idle')
-  // В entries только позиции, ДОБАВЛЕННЫЕ в ревизию вручную (id → введённый факт).
+  const [mode, setMode] = useState<'list' | 'new' | 'view'>('list')
+  const [viewId, setViewId] = useState<string | null>(null)
+
+  // ── Новая ревизия: порядок добавления (новые СВЕРХУ) + введённые факты ──
+  const [order, setOrder] = useState<string[]>([])
   const [entries, setEntries] = useState<Record<string, string>>({})
   const [query, setQuery] = useState('')
-  const [saving, setSaving] = useState(false)
-  const [results, setResults] = useState<ResultRow[]>([])
+  const [confirmCreate, setConfirmCreate] = useState(false)
 
-  const { data, isLoading } = useQuery<{ items: StockItem[] }>({
+  // ── Правка открытой ревизии ──
+  const [edits, setEdits] = useState<Record<string, string>>({})
+  const [confirmEdit, setConfirmEdit] = useState(false)
+
+  const { data: stock } = useQuery<{ items: StockItem[] }>({
     queryKey: ['menu-items-inventory'],
-    // /inventory отдаёт активные + неактивные (без удалённых) — ревизия видит весь склад.
     queryFn: () => api.get('/inventory'),
   })
+  const tracked = useMemo(() => (stock?.items ?? []).filter(i => i.trackStock), [stock])
+  const itemById = useMemo(() => new Map(tracked.map(i => [i.id, i])), [tracked])
 
-  const tracked = useMemo(
-    () => (data?.items ?? []).filter(i => i.trackStock),
-    [data],
-  )
+  const { data: listData, isLoading: listLoading } = useQuery<{ revisions: RevisionSummary[] }>({
+    queryKey: ['revisions'],
+    queryFn: () => api.get('/inventory/revisions'),
+  })
+  const revList = listData?.revisions ?? []
 
-  const patchMut = useMutation({
-    mutationFn: ({ id, stockQuantity }: { id: string; stockQuantity: number }) =>
-      api.patch(`/inventory/${id}`, { stockQuantity, reason: 'Ревизия' }),
+  const { data: detail, isLoading: detailLoading } = useQuery<{ revision: RevisionSummary & { author: string | null }; items: RevisionItem[] }>({
+    queryKey: ['revisions', viewId],
+    queryFn: () => api.get(`/inventory/revisions/${viewId}`),
+    enabled: !!viewId && mode === 'view',
   })
 
-  // Ревизия начинается с ПУСТОГО списка — позиции добавляются вручную поиском.
-  function startRevision() {
-    setEntries({})
-    setQuery('')
-    setMode('active')
-  }
-
-  async function finishRevision() {
-    setSaving(true)
-    const res: typeof results = []
-    let failed = false
-    try {
-      // Сохраняем только добавленные в ревизию позиции с валидным фактом.
-      for (const item of tracked) {
-        const raw = entries[item.id]
-        if (raw === '' || raw === undefined) continue
-        // FIX #14: не коэрсим мусорный ввод в 0 — это записало бы остаток в 0
-        // с большим отрицательным diff. Пропускаем невалидные строки.
-        const actual = parseInt(raw, 10)
-        if (!Number.isFinite(actual)) continue
-        const diff = actual - item.stockQuantity
-        // Пишем в результат только после успешного сохранения позиции.
-        await patchMut.mutateAsync({ id: item.id, stockQuantity: actual })
-        res.push({ name: item.name, expected: item.stockQuantity, actual, diff, value: diff * costOf(item) })
-      }
-    } catch {
-      failed = true
-    } finally {
+  // ── Создание ──
+  const createMut = useMutation({
+    mutationFn: (items: { itemId: string; actual: number }[]) => api.post<{ revision: { id: string } }>('/inventory/revisions', { items }),
+    onSuccess: (res) => {
+      qc.invalidateQueries({ queryKey: ['revisions'] })
       qc.invalidateQueries({ queryKey: ['menu-items-inventory'] })
-      setResults(res)
-      setSaving(false)
-      setMode('done')
-    }
-    if (failed) {
-      show(`Часть позиций не сохранена. Применено: ${res.length}. Повторите для оставшихся.`, 'error')
-    }
-  }
+      show('Ревизия проведена', 'success')
+      setOrder([]); setEntries({}); setQuery('')
+      setViewId(res.revision.id)
+      setMode('view')
+    },
+    onError: () => show('Не удалось провести ревизию — остатки не изменены', 'error'),
+  })
 
-  const filled = Object.values(entries).filter(v => v !== '').length
-  const total = tracked.length
-  // Добавленные в ревизию позиции (сохраняем порядок добавления нельзя из Record —
-  // сортируем по имени для стабильности) и кандидаты поиска (ещё не добавленные).
-  const added = useMemo(() => tracked.filter(i => entries[i.id] !== undefined), [tracked, entries])
+  // ── Правка ──
+  const patchMut = useMutation({
+    mutationFn: (items: { id: string; actual: number }[]) => api.patch(`/inventory/revisions/${viewId}`, { items }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['revisions'] })
+      qc.invalidateQueries({ queryKey: ['menu-items-inventory'] })
+      setEdits({})
+      show('Остатки пересчитаны по правкам', 'success')
+    },
+    onError: () => show('Не удалось применить правки', 'error'),
+  })
+
+  // ── Новая ревизия: производные ──
+  const added = useMemo(() => order.map(id => itemById.get(id)).filter((x): x is StockItem => !!x), [order, itemById])
   const q = query.trim().toLowerCase()
   const candidates = useMemo(
-    () => (q ? tracked.filter(i => entries[i.id] === undefined && i.name.toLowerCase().includes(q)).slice(0, 8) : []),
-    [q, tracked, entries],
+    () => (q ? tracked.filter(i => !order.includes(i.id) && i.name.toLowerCase().includes(q)).slice(0, 8) : []),
+    [q, tracked, order],
   )
+  const filled = order.filter(id => {
+    const v = entries[id]
+    return v !== undefined && v !== '' && Number.isFinite(parseInt(v, 10))
+  }).length
+
+  const newReport = useMemo(() => buildReport(
+    added.map(item => {
+      const raw = entries[item.id]
+      if (raw === undefined || raw === '') return null
+      const a = parseInt(raw, 10)
+      if (!Number.isFinite(a)) return null
+      return { diff: a - item.stockQuantity, cost: costOf(item) }
+    }).filter((x): x is { diff: number; cost: number } => x !== null),
+  ), [added, entries])
+
+  function startNew() {
+    setOrder([]); setEntries({}); setQuery('')
+    setMode('new')
+  }
   function addItem(id: string) {
-    setEntries(prev => ({ ...prev, [id]: '' }))
+    setOrder(prev => [id, ...prev]) // новые позиции — сверху
     setQuery('')
   }
   function removeItem(id: string) {
+    setOrder(prev => prev.filter(x => x !== id))
     setEntries(prev => { const next = { ...prev }; delete next[id]; return next })
   }
+  function submitCreate() {
+    const items = order
+      .map(id => ({ itemId: id, actual: parseInt(entries[id] ?? '', 10) }))
+      .filter(x => Number.isFinite(x.actual) && x.actual >= 0)
+    if (items.length === 0) return
+    createMut.mutate(items)
+  }
 
-  // Живой отчёт во время заполнения.
-  const activeReport = useMemo(() => buildReport(
-    tracked
-      .map(item => {
-        const raw = entries[item.id]
-        if (raw === '' || raw === undefined) return null
-        const a = parseInt(raw, 10)
-        if (!Number.isFinite(a)) return null
-        return { diff: a - item.stockQuantity, cost: costOf(item) }
-      })
-      .filter((x): x is { diff: number; cost: number } => x !== null),
-  ), [tracked, entries])
+  // ── Правка открытой ревизии: производные ──
+  const detailItems = detail?.items ?? []
+  const editChanges = detailItems
+    .map(it => {
+      const raw = edits[it.id]
+      if (raw === undefined || raw === '') return null
+      const a = parseInt(raw, 10)
+      if (!Number.isFinite(a) || a < 0 || a === it.actual) return null
+      return { id: it.id, actual: a, name: it.name, from: it.actual }
+    })
+    .filter((x): x is { id: string; actual: number; name: string; from: number } => x !== null)
 
-  // Итоговый отчёт по сохранённым результатам (value = diff × себестоимость).
-  const doneReport = useMemo<Report>(() => {
-    let sV = 0, shV = 0, sC = 0, shC = 0
-    for (const r of results) {
-      if (r.diff > 0) { sC++; sV += r.value }
-      else if (r.diff < 0) { shC++; shV += -r.value }
-    }
-    return { surplusCount: sC, surplusValue: sV, shortageCount: shC, shortageValue: shV, total: sV + shV }
-  }, [results])
+  const viewReport = useMemo(() => buildReport(
+    detailItems.map(it => {
+      const raw = edits[it.id]
+      const a = raw !== undefined && raw !== '' && Number.isFinite(parseInt(raw, 10)) ? parseInt(raw, 10) : it.actual
+      return { diff: a - it.expected, cost: costOf(it) }
+    }),
+  ), [detailItems, edits])
+
+  function openRevision(id: string) {
+    setEdits({})
+    setViewId(id)
+    setMode('view')
+  }
+  function backToList() {
+    setEdits({})
+    setViewId(null)
+    setMode('list')
+  }
+
+  const headerSubtitle =
+    mode === 'list' ? `${revList.length ? `Ревизий: ${revList.length}` : 'История инвентаризаций'}`
+    : mode === 'new' ? (order.length === 0 ? 'Добавьте позиции для ревизии' : `Позиций: ${order.length} · заполнено ${filled}`)
+    : detail ? fmtDate(String(detail.revision.createdAt)) : 'Ревизия'
 
   return (
     <div style={{ minHeight: '100dvh', display: 'flex', flexDirection: 'column' }}>
       <PageHeader
-        title="Ревизия"
-        subtitle={mode === 'idle' ? `${total} товаров с учётом склада` : mode === 'active' ? (added.length === 0 ? 'Добавьте позиции для ревизии' : `Позиций: ${added.length} · заполнено ${filled}`) : 'Ревизия завершена'}
+        title={mode === 'list' ? 'Ревизии' : mode === 'new' ? 'Новая ревизия' : 'Ревизия'}
+        subtitle={headerSubtitle}
+        onBack={mode === 'list' ? undefined : backToList}
+        action={mode === 'list' ? { label: 'Новая', icon: 'add', onClick: startNew } : undefined}
       />
 
       <div style={{ padding: '20px 16px var(--bottom-nav-clear, 16px)', flex: 1 }}>
 
-        {isLoading && !data && <StateView state="loading" />}
-
-        {/* Idle state */}
-        {mode === 'idle' && data && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-            {/* Info card */}
-            <div className="glass-l2" style={{ borderRadius: 18, padding: 20 }}>
-              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14 }}>
-                <div style={{ width: 48, height: 48, borderRadius: 14, background: 'rgba(245,158,11,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                  <Icon name="fact_check" size={24} color="#F59E0B" />
-                </div>
-                <div>
-                  <p style={{ fontSize: 15, fontWeight: 700, margin: '0 0 6px' }}>Инвентаризация склада</p>
-                  <p style={{ fontSize: 13, color: 'var(--on-surface-variant)', margin: 0, lineHeight: 1.5 }}>
-                    Сравнение фактических остатков с ожидаемыми. Введите реальное количество каждого товара — система автоматически обновит склад.
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            {/* Stats */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-              {[
-                { label: 'Товаров с учётом', value: total, color: '#8B5CF6', icon: 'inventory_2' },
-                { label: 'Ниже порога', value: tracked.filter(i => i.stockQuantity <= i.minThreshold).length, color: '#F43F5E', icon: 'warning' },
-              ].map(({ label, value, color, icon }) => (
-                <div key={label} className="glass-l2" style={{ borderRadius: 16, padding: '16px 18px' }}>
-                  <Icon name={icon} size={22} color={color} />
-                  <p style={{ fontSize: 28, fontWeight: 800, margin: '8px 0 2px', color }}>{value}</p>
-                  <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: 0 }}>{label}</p>
-                </div>
-              ))}
-            </div>
-
-            {/* Preview list */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              <p style={{ ...LBL, margin: '0 0 8px' }}>Товары для ревизии</p>
-              {tracked.map(item => (
-                <div key={item.id} className="glass-l2" style={{ borderRadius: 14, padding: '12px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <div>
-                    <p style={{ fontSize: 14, fontWeight: 600, margin: '0 0 2px' }}>{item.name}</p>
-                    <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: 0 }}>Ожидается: {item.stockQuantity} шт · Порог: {item.minThreshold}</p>
+        {/* ── Список ревизий (новые сверху) ── */}
+        {mode === 'list' && (
+          listLoading ? <StateView state="loading" /> :
+          revList.length === 0 ? (
+            <StateView
+              state="empty"
+              icon="fact_check"
+              title="Ревизий ещё не было"
+              description="Проведите первую инвентаризацию — добавьте позиции и сверьте фактические остатки."
+              action={{ label: 'Новая ревизия', icon: 'add', onClick: startNew }}
+            />
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {revList.map(r => (
+                <button key={r.id} onClick={() => openRevision(r.id)} className="glass-l2" style={{ width: '100%', textAlign: 'left', border: 'none', cursor: 'pointer', borderRadius: 16, padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 14, color: 'var(--on-surface)' }}>
+                  <div style={{ width: 44, height: 44, borderRadius: 12, background: 'rgba(245,158,11,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <Icon name="fact_check" size={22} color="#F59E0B" />
                   </div>
-                  <span style={{
-                    fontSize: 13, fontWeight: 700, fontFamily: "'JetBrains Mono',monospace",
-                    color: item.stockQuantity <= item.minThreshold ? '#F43F5E' : item.stockQuantity <= item.minThreshold * 2 ? '#F59E0B' : '#10B981',
-                  }}>
-                    {item.stockQuantity}
-                  </span>
-                </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <p style={{ fontSize: 14, fontWeight: 700, margin: '0 0 3px' }}>{fmtDate(String(r.createdAt))}</p>
+                    <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: 0 }}>
+                      {r.positions} поз.{r.author ? ` · ${r.author}` : ''}{r.updatedAt ? ' · корректировалась' : ''}
+                    </p>
+                  </div>
+                  <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                    {r.surplusValue > 0 && <p style={{ fontSize: 13, fontWeight: 700, color: '#34D399', margin: 0, fontVariantNumeric: 'tabular-nums' }}>+{fmt(r.surplusValue)}</p>}
+                    {r.shortageValue > 0 && <p style={{ fontSize: 13, fontWeight: 700, color: '#F87171', margin: 0, fontVariantNumeric: 'tabular-nums' }}>−{fmt(r.shortageValue)}</p>}
+                    {r.surplusValue === 0 && r.shortageValue === 0 && <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: 0 }}>без расхождений</p>}
+                  </div>
+                  <Icon name="chevron_right" size={18} color="var(--on-surface-variant)" />
+                </button>
               ))}
             </div>
-
-            <button
-              onClick={startRevision}
-              disabled={total === 0}
-              style={{ width: '100%', padding: '15px 0', borderRadius: 14, minHeight: 48, border: 'none', cursor: total === 0 ? 'not-allowed' : 'pointer', background: 'var(--primary-violet)', color: '#fff', fontSize: 15, fontWeight: 700, boxShadow: '0 2px 10px rgba(0,0,0,0.25)', opacity: total === 0 ? 0.5 : 1 }}
-            >
-              Начать ревизию
-            </button>
-          </div>
+          )
         )}
 
-        {/* Active state */}
-        {mode === 'active' && (
+        {/* ── Новая ревизия ── */}
+        {mode === 'new' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {/* Поиск-добавление позиций в ревизию */}
             <div className="glass-l2" style={{ borderRadius: 16, padding: 14 }}>
               <p style={{ ...LBL, margin: '0 0 8px' }}>Добавить позицию</p>
               <div style={{ position: 'relative' }}>
                 <Icon name="search" size={18} color="var(--on-surface-variant)" style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }} />
-                <input
-                  value={query}
-                  onChange={e => setQuery(e.target.value)}
-                  placeholder="Название товара…"
-                  style={{ ...INP, paddingLeft: 42 }}
-                />
+                <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Название товара…" style={{ ...INP, paddingLeft: 42 }} />
               </div>
               {candidates.length > 0 && (
                 <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  {candidates.map(c => (
-                    <button key={c.id} onClick={() => addItem(c.id)} style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', textAlign: 'left', padding: '10px 12px', borderRadius: 10, border: '1px solid rgba(255,255,255,0.07)', background: 'rgba(255,255,255,0.03)', cursor: 'pointer', color: 'var(--on-surface)', minHeight: 44 }}>
+                  {candidates.map(c2 => (
+                    <button key={c2.id} onClick={() => addItem(c2.id)} style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', textAlign: 'left', padding: '10px 12px', borderRadius: 10, border: '1px solid rgba(255,255,255,0.07)', background: 'rgba(255,255,255,0.03)', cursor: 'pointer', color: 'var(--on-surface)', minHeight: 44 }}>
                       <Icon name="add" size={16} color="#a78bfa" />
-                      <span style={{ flex: 1, fontSize: 14, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.name}</span>
-                      <span style={{ fontSize: 11, color: 'var(--on-surface-variant)', fontFamily: "'JetBrains Mono',monospace" }}>склад: {c.stockQuantity}</span>
+                      <span style={{ flex: 1, fontSize: 14, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c2.name}</span>
+                      <span style={{ fontSize: 11, color: 'var(--on-surface-variant)', fontFamily: "'JetBrains Mono',monospace" }}>склад: {c2.stockQuantity}</span>
                     </button>
                   ))}
                 </div>
@@ -278,26 +309,21 @@ export default function RevisionPage() {
               {q && candidates.length === 0 && (
                 <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: '8px 2px 0' }}>Ничего не найдено или уже добавлено.</p>
               )}
-              {added.length < tracked.length && (
-                <button onClick={() => { setEntries(prev => { const next = { ...prev }; tracked.forEach(i => { if (next[i.id] === undefined) next[i.id] = '' }); return next }) }} style={{ marginTop: 10, width: '100%', padding: '10px 0', borderRadius: 10, border: '1px dashed rgba(255,255,255,0.2)', background: 'rgba(255,255,255,0.03)', color: 'var(--on-surface-variant)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', minHeight: 40 }}>
-                  Добавить все товары ({tracked.length - added.length})
-                </button>
-              )}
             </div>
 
-            {added.length > 0 && <ReportCard r={activeReport} />}
+            {added.length > 0 && <ReportCard r={newReport} />}
             {added.length === 0 ? (
               <p style={{ fontSize: 13, color: 'var(--on-surface-variant)', margin: '8px 2px', textAlign: 'center', lineHeight: 1.5 }}>
                 Список пуст. Найдите и добавьте товары, которые ревизируете, — обновятся только они.
               </p>
             ) : (
               <p style={{ fontSize: 13, color: 'var(--on-surface-variant)', margin: '4px 0 4px' }}>
-                Введите фактическое количество. Расхождения подсвечиваются, пустые поля не обновляются.
+                Введите фактическое количество. Новые позиции добавляются сверху.
               </p>
             )}
+
             {added.map(item => {
               const val = entries[item.id] ?? ''
-              // FIX #14: невалидный ввод не превращаем в 0 — не показываем фиктивный diff.
               const parsed = val === '' ? null : parseInt(val, 10)
               const actual = parsed !== null && Number.isFinite(parsed) ? parsed : null
               const diff = actual !== null ? actual - item.stockQuantity : null
@@ -313,10 +339,7 @@ export default function RevisionPage() {
                     </div>
                     <div style={{ width: 88, flexShrink: 0 }}>
                       <input
-                        type="number"
-                        min="0"
-                        placeholder="Факт"
-                        value={val}
+                        type="number" min="0" placeholder="Факт" value={val}
                         onChange={e => setEntries(prev => ({ ...prev, [item.id]: e.target.value }))}
                         style={{ ...INP, textAlign: 'center', fontWeight: 700, fontSize: 16, padding: '10px 12px', borderColor: hasDiff ? `${dColor}99` : undefined }}
                       />
@@ -337,9 +360,7 @@ export default function RevisionPage() {
               )
             })}
 
-            {/* Панель завершения: sticky В ПОТОКЕ (не fixed) — занимает своё место
-                после списка, ничего не перекрывает; прилипает к низу скролл-контейнера
-                и в сплите, и на мобильном (с поправкой на плавающую навигацию). */}
+            {/* Панель проведения: sticky в потоке — ничего не перекрывает */}
             {added.length > 0 && (
               <div style={{ position: 'sticky', bottom: 'calc(var(--bottom-nav-clear, 0px) + 8px)', zIndex: 45, background: 'rgba(24,21,30,0.98)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 16, padding: '12px 16px', marginTop: 6, boxShadow: '0 8px 28px rgba(0,0,0,0.4)' }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
@@ -350,61 +371,110 @@ export default function RevisionPage() {
                   <div style={{ height: '100%', borderRadius: 2, background: 'var(--primary-violet)', width: `${added.length ? Math.round(filled / added.length * 100) : 0}%`, transition: 'width 0.3s' }} />
                 </div>
                 <button
-                  onClick={finishRevision}
-                  disabled={saving || filled === 0}
-                  style={{ width: '100%', marginTop: 12, padding: '13px 0', borderRadius: 12, minHeight: 44, border: 'none', cursor: saving || filled === 0 ? 'not-allowed' : 'pointer', background: 'var(--primary-violet)', color: '#fff', fontSize: 14, fontWeight: 700, opacity: filled === 0 ? 0.5 : 1, boxShadow: '0 2px 10px rgba(0,0,0,0.25)' }}
+                  onClick={() => setConfirmCreate(true)}
+                  disabled={createMut.isPending || filled === 0}
+                  style={{ width: '100%', marginTop: 12, padding: '13px 0', borderRadius: 12, minHeight: 44, border: 'none', cursor: createMut.isPending || filled === 0 ? 'not-allowed' : 'pointer', background: 'var(--primary-violet)', color: '#fff', fontSize: 14, fontWeight: 700, opacity: filled === 0 ? 0.5 : 1, boxShadow: '0 2px 10px rgba(0,0,0,0.25)' }}
                 >
-                  {saving ? 'Сохраняем…' : `Завершить ревизию (${filled} позиций)`}
+                  {createMut.isPending ? 'Проводим…' : `Провести ревизию (${filled} позиций)`}
                 </button>
               </div>
             )}
           </div>
         )}
 
-        {/* Done state */}
-        {mode === 'done' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-            <div style={{ textAlign: 'center', padding: '32px 0 24px' }}>
-              <div style={{ width: 64, height: 64, borderRadius: '50%', background: 'rgba(16,185,129,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
-                <Icon name="check_circle" size={32} color="#10B981" />
+        {/* ── Просмотр/правка ревизии ── */}
+        {mode === 'view' && (
+          detailLoading || !detail ? <StateView state="loading" /> : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <div className="glass-l2" style={{ borderRadius: 16, padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 12 }}>
+                <Icon name="history" size={20} color="#F59E0B" />
+                <div style={{ flex: 1 }}>
+                  <p style={{ fontSize: 13, fontWeight: 600, margin: 0 }}>
+                    {detail.revision.author ? `Провёл: ${detail.revision.author}` : 'Ревизия'}{detail.revision.updatedAt ? ` · корректировалась ${fmtDate(String(detail.revision.updatedAt))}` : ''}
+                  </p>
+                  <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: '2px 0 0', lineHeight: 1.45 }}>
+                    Правка факта пересчитает текущий остаток на разницу — движения после ревизии сохранятся.
+                  </p>
+                </div>
               </div>
-              <h2 style={{ fontSize: 20, fontWeight: 800, margin: '0 0 6px' }}>Ревизия завершена</h2>
-              <p style={{ fontSize: 13, color: 'var(--on-surface-variant)', margin: 0 }}>Обновлено {results.length} позиций</p>
-            </div>
 
-            <ReportCard r={doneReport} />
+              <ReportCard r={viewReport} />
 
-            {results.length > 0 && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                <p style={{ ...LBL, margin: '0 0 8px' }}>Результаты</p>
-                {results.map(r => (
-                  <div key={r.name} className="glass-l2" style={{ borderRadius: 14, padding: '12px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <div>
-                      <p style={{ fontSize: 14, fontWeight: 600, margin: '0 0 2px' }}>{r.name}</p>
-                      <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: 0 }}>
-                        Было: {r.expected} → Стало: {r.actual}
-                      </p>
+              {detailItems.map(it => {
+                const raw = edits[it.id]
+                const editing = raw !== undefined
+                const shown = editing ? raw : String(it.actual)
+                const parsed = parseInt(shown, 10)
+                const actual = Number.isFinite(parsed) ? parsed : null
+                const diff = actual !== null ? actual - it.expected : null
+                const hasDiff = diff !== null && diff !== 0
+                const dColor = !hasDiff ? 'var(--on-surface-variant)' : diff! > 0 ? '#34D399' : '#F87171'
+                const changed = actual !== null && actual !== it.actual
+                return (
+                  <div key={it.id} className="glass-l2" style={{ borderRadius: 16, padding: '14px 16px', border: changed ? '1px solid rgba(139,92,246,0.5)' : hasDiff ? `1px solid ${dColor}44` : '1px solid rgba(255,255,255,0.08)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <p style={{ fontSize: 14, fontWeight: 600, margin: '0 0 4px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{it.name}</p>
+                        <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 6, background: 'rgba(255,255,255,0.06)', color: 'var(--on-surface-variant)', fontFamily: "'JetBrains Mono',monospace" }}>
+                          ожидалось: {it.expected} шт{changed ? ` · было внесено: ${it.actual}` : ''}
+                        </span>
+                      </div>
+                      <div style={{ width: 88, flexShrink: 0 }}>
+                        <input
+                          type="number" min="0" value={shown}
+                          onChange={e => setEdits(prev => ({ ...prev, [it.id]: e.target.value }))}
+                          style={{ ...INP, textAlign: 'center', fontWeight: 700, fontSize: 16, padding: '10px 12px', borderColor: changed ? 'rgba(139,92,246,0.7)' : undefined }}
+                        />
+                      </div>
                     </div>
-                    <span style={{
-                      fontSize: 14, fontWeight: 700, fontFamily: "'JetBrains Mono',monospace",
-                      color: r.diff > 0 ? '#10B981' : r.diff < 0 ? '#F43F5E' : 'var(--on-surface-variant)',
-                    }}>
-                      {r.diff > 0 ? '+' : ''}{r.diff}
-                    </span>
+                    {hasDiff && (
+                      <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 7 }}>
+                        <Icon name={diff! > 0 ? 'trending_up' : 'trending_down'} size={15} color={dColor} />
+                        <span style={{ fontSize: 12, fontWeight: 700, color: dColor }}>
+                          {diff! > 0 ? 'Излишек' : 'Недостача'} {diff! > 0 ? '+' : ''}{diff} шт
+                        </span>
+                      </div>
+                    )}
                   </div>
-                ))}
-              </div>
-            )}
+                )
+              })}
 
-            <button
-              onClick={() => { setMode('idle'); setResults([]) }}
-              style={{ width: '100%', padding: '13px 0', borderRadius: 12, minHeight: 44, border: 'none', cursor: 'pointer', background: 'var(--primary-violet)', color: '#fff', fontSize: 14, fontWeight: 700, marginTop: 8, boxShadow: '0 2px 10px rgba(0,0,0,0.25)' }}
-            >
-              Новая ревизия
-            </button>
-          </div>
+              {editChanges.length > 0 && (
+                <div style={{ position: 'sticky', bottom: 'calc(var(--bottom-nav-clear, 0px) + 8px)', zIndex: 45, background: 'rgba(24,21,30,0.98)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 16, padding: '12px 16px', marginTop: 6, boxShadow: '0 8px 28px rgba(0,0,0,0.4)' }}>
+                  <button
+                    onClick={() => setConfirmEdit(true)}
+                    disabled={patchMut.isPending}
+                    style={{ width: '100%', padding: '13px 0', borderRadius: 12, minHeight: 44, border: 'none', cursor: patchMut.isPending ? 'not-allowed' : 'pointer', background: 'var(--primary-violet)', color: '#fff', fontSize: 14, fontWeight: 700, boxShadow: '0 2px 10px rgba(0,0,0,0.25)' }}
+                  >
+                    {patchMut.isPending ? 'Пересчитываем…' : `Применить правки (${editChanges.length}) и пересчитать остатки`}
+                  </button>
+                </div>
+              )}
+            </div>
+          )
         )}
       </div>
+
+      {/* Подтверждения: ревизия — ответственная складская операция */}
+      <ConfirmDialog
+        open={confirmCreate}
+        onClose={() => setConfirmCreate(false)}
+        onConfirm={() => { setConfirmCreate(false); submitCreate() }}
+        title="Провести ревизию?"
+        message={`Остатки ${filled} позиций будут установлены по фактическим значениям, каждое изменение попадёт в журнал движений склада. Операция атомарная.`}
+        confirmLabel="Провести"
+        loading={createMut.isPending}
+      />
+      <ConfirmDialog
+        open={confirmEdit}
+        onClose={() => setConfirmEdit(false)}
+        onConfirm={() => { setConfirmEdit(false); patchMut.mutate(editChanges.map(x => ({ id: x.id, actual: x.actual }))) }}
+        title="Пересчитать остатки?"
+        message={`Правок: ${editChanges.length}. Текущие остатки изменятся на разницу между новым и прежним фактом — движения после ревизии сохранятся.`}
+        confirmLabel="Применить"
+        danger
+        loading={patchMut.isPending}
+      />
     </div>
   )
 }

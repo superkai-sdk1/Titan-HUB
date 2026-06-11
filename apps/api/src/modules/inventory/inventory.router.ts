@@ -2,7 +2,7 @@ import type { AppEnv } from '../../types.js'
 import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
-import { db, inventory, stockMovements, supplies, supplyItems, checks, checkItems, eq, asc, isNull, and, gte, desc, sum } from '@titan/database'
+import { db, inventory, stockMovements, supplies, supplyItems, checks, checkItems, revisions, revisionItems, profiles, eq, asc, isNull, and, gte, desc, sum, inArray } from '@titan/database'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
 
 export const inventoryRouter = new Hono<AppEnv>()
@@ -23,6 +23,151 @@ inventoryRouter.get('/', async (c) => {
     .orderBy(asc(inventory.sortOrder), asc(inventory.name))
   return c.json({ items: rows })
 })
+
+// ─── Ревизии (история инвентаризаций) ────────────────────────────────────────
+// Регистрируются ДО '/:id/stats', чтобы '/revisions/...' не перехватывался.
+
+// GET /api/inventory/revisions — список ревизий, новые сверху, со сводкой.
+inventoryRouter.get('/revisions', async (c) => {
+  const rows = await db.select().from(revisions).orderBy(desc(revisions.createdAt)).limit(100)
+  const ids = rows.map(r => r.id)
+  const items = ids.length
+    ? await db.select().from(revisionItems).where(inArray(revisionItems.revisionId, ids))
+    : []
+  const authorIds = [...new Set(rows.map(r => r.createdBy).filter((x): x is string => !!x))]
+  const authors = authorIds.length
+    ? await db.select({ id: profiles.id, nickname: profiles.nickname }).from(profiles).where(inArray(profiles.id, authorIds))
+    : []
+  const authorOf = new Map(authors.map(a => [a.id, a.nickname]))
+
+  const list = rows.map(r => {
+    let positions = 0, surplusValue = 0, shortageValue = 0
+    for (const it of items) {
+      if (it.revisionId !== r.id) continue
+      positions++
+      const diff = it.actual - it.expected
+      const cost = parseFloat(String(it.costPrice)) || 0
+      if (diff > 0) surplusValue += diff * cost
+      else if (diff < 0) shortageValue += -diff * cost
+    }
+    return {
+      id: r.id, createdAt: r.createdAt, updatedAt: r.updatedAt,
+      author: r.createdBy ? authorOf.get(r.createdBy) ?? null : null,
+      positions, surplusValue, shortageValue,
+    }
+  })
+  return c.json({ revisions: list })
+})
+
+// GET /api/inventory/revisions/:id — детали ревизии с позициями (в порядке добавления).
+inventoryRouter.get('/revisions/:id', async (c) => {
+  const id = c.req.param('id')
+  const [rev] = await db.select().from(revisions).where(eq(revisions.id, id))
+  if (!rev) return c.json({ error: 'Not found' }, 404)
+  const items = await db.select().from(revisionItems).where(eq(revisionItems.revisionId, id)).orderBy(asc(revisionItems.sortOrder))
+  let author: string | null = null
+  if (rev.createdBy) {
+    const [a] = await db.select({ nickname: profiles.nickname }).from(profiles).where(eq(profiles.id, rev.createdBy))
+    author = a?.nickname ?? null
+  }
+  return c.json({ revision: { ...rev, author }, items })
+})
+
+// POST /api/inventory/revisions — провести новую ревизию.
+// Каждая позиция: лочим остаток FOR UPDATE, фиксируем expected = текущий остаток,
+// ставим actual, пишем движение склада. Всё атомарно — либо вся ревизия, либо ничего.
+inventoryRouter.post(
+  '/revisions',
+  zValidator('json', z.object({
+    items: z.array(z.object({
+      itemId: z.string().uuid(),
+      actual: z.number().int().min(0),
+    })).min(1).max(500),
+  })),
+  async (c) => {
+    const { items } = c.req.valid('json')
+    const user = c.get('user')
+    // Дубли позиций недопустимы — остатки нельзя перемешивать.
+    const seen = new Set<string>()
+    for (const it of items) {
+      if (seen.has(it.itemId)) return c.json({ error: 'Дублирующаяся позиция в ревизии' }, 400)
+      seen.add(it.itemId)
+    }
+
+    const result = await db.transaction(async (tx) => {
+      const [rev] = await tx.insert(revisions).values({ createdBy: user.sub }).returning()
+      for (let i = 0; i < items.length; i++) {
+        const { itemId, actual } = items[i]
+        const [item] = await tx.select().from(inventory).where(and(eq(inventory.id, itemId), isNull(inventory.deletedAt))).for('update')
+        if (!item) throw new Error(`item ${itemId} not found`)
+        const expected = item.stockQuantity ?? 0
+        const delta = actual - expected
+        if (delta !== 0) {
+          await tx.update(inventory).set({ stockQuantity: actual, updatedAt: new Date() }).where(eq(inventory.id, itemId))
+          await tx.insert(stockMovements).values({ itemId, delta, newQuantity: actual, reason: 'Ревизия', createdBy: user.sub })
+        }
+        await tx.insert(revisionItems).values({
+          revisionId: rev.id, itemId, name: item.name,
+          expected, actual,
+          costPrice: String(parseFloat(String(item.costPrice ?? 0)) || 0),
+          sortOrder: i,
+        })
+      }
+      return rev
+    })
+    return c.json({ revision: result }, 201)
+  }
+)
+
+// PATCH /api/inventory/revisions/:id — корректировка проведённой ревизии.
+// НЕ перезаписывает остаток: применяет к ТЕКУЩЕМУ остатку дельту между новым и
+// старым фактом (движения после ревизии сохраняются). Снапшот expected не трогаем —
+// динамика «ожидалось/факт на момент ревизии» остаётся честной.
+inventoryRouter.patch(
+  '/revisions/:id',
+  requireRole('owner', 'staff'),
+  zValidator('json', z.object({
+    items: z.array(z.object({
+      id: z.string().uuid(),          // id строки ревизии (revision_items.id)
+      actual: z.number().int().min(0),
+    })).min(1).max(500),
+  })),
+  async (c) => {
+    const revId = c.req.param('id')
+    const { items } = c.req.valid('json')
+    const user = c.get('user')
+
+    const applied = await db.transaction(async (tx) => {
+      const [rev] = await tx.select().from(revisions).where(eq(revisions.id, revId)).for('update')
+      if (!rev) return null
+      const changes: { name: string; from: number; to: number; stockDelta: number }[] = []
+      for (const ch of items) {
+        const [ri] = await tx.select().from(revisionItems).where(and(eq(revisionItems.id, ch.id), eq(revisionItems.revisionId, revId))).for('update')
+        if (!ri) throw new Error(`revision item ${ch.id} not found`)
+        const deltaChange = ch.actual - ri.actual
+        if (deltaChange === 0) continue
+        const [item] = await tx.select().from(inventory).where(eq(inventory.id, ri.itemId)).for('update')
+        if (!item) throw new Error(`inventory ${ri.itemId} not found`)
+        // Текущий остаток корректируем на дельту правки; ниже нуля не уходим —
+        // фактический применённый сдвиг честно фиксируем в движении.
+        const cur = item.stockQuantity ?? 0
+        const newQty = Math.max(0, cur + deltaChange)
+        const appliedDelta = newQty - cur
+        if (appliedDelta !== 0) {
+          await tx.update(inventory).set({ stockQuantity: newQty, updatedAt: new Date() }).where(eq(inventory.id, ri.itemId))
+          await tx.insert(stockMovements).values({ itemId: ri.itemId, delta: appliedDelta, newQuantity: newQty, reason: 'Корректировка ревизии', createdBy: user.sub })
+        }
+        await tx.update(revisionItems).set({ actual: ch.actual }).where(eq(revisionItems.id, ri.id))
+        changes.push({ name: ri.name, from: ri.actual, to: ch.actual, stockDelta: appliedDelta })
+      }
+      if (changes.length) await tx.update(revisions).set({ updatedAt: new Date() }).where(eq(revisions.id, revId))
+      return changes
+    })
+
+    if (applied === null) return c.json({ error: 'Not found' }, 404)
+    return c.json({ changes: applied })
+  }
+)
 
 // GET /api/inventory/:id/stats — карточка позиции: остаток, последняя закупка,
 // продажи по дням за 30 дней (закрытые чеки, валовое количество) + агрегаты.

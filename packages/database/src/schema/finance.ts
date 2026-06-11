@@ -257,3 +257,24 @@ export type Expense = typeof expenses.$inferSelect
 export type Refund = typeof refunds.$inferSelect
 export type SalaryPayment = typeof salaryPayments.$inferSelect
 export type CashOperation = typeof cashOperations.$inferSelect
+
+// ─── Ревизии склада (история инвентаризаций) ─────────────────────────────────
+// Снапшот «ожидалось/факт» по позициям на момент проведения. Правка старой
+// ревизии пересчитывает остаток на дельту (новый факт − старый факт).
+export const revisions = pgTable('revisions', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  createdBy: uuid('created_by').references(() => profiles.id),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }),
+})
+
+export const revisionItems = pgTable('revision_items', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  revisionId: uuid('revision_id').notNull().references(() => revisions.id, { onDelete: 'cascade' }),
+  itemId: uuid('item_id').notNull().references(() => inventory.id),
+  name: text('name').notNull(),
+  expected: integer('expected').notNull(),
+  actual: integer('actual').notNull(),
+  costPrice: numeric('cost_price', { precision: 12, scale: 2 }).notNull().default('0'),
+  sortOrder: integer('sort_order').notNull().default(0),
+})
