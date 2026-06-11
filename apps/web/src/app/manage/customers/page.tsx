@@ -82,13 +82,13 @@ export default function CustomersPage() {
 
       {/* Search */}
       <div style={{ background: 'rgba(21,18,27,0.95)', backdropFilter: 'blur(16px)', borderBottom: '1px solid rgba(255,255,255,0.06)', padding: '12px 16px' }}>
-        <div style={{ maxWidth: 680, margin: '0 auto', position: 'relative' }}>
+        <div style={{ maxWidth: 'var(--content-narrow)', margin: '0 auto', position: 'relative' }}>
           <Icon name="search" size={18} color="var(--on-surface-variant)" style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }} />
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Поиск по имени или телефону…" style={{ ...INP, paddingLeft: 42, borderRadius: 12 }} />
         </div>
       </div>
 
-      <div style={{ padding: '16px 16px var(--bottom-nav-clear, 24px)', flex: 1, maxWidth: 680, margin: '0 auto', width: '100%', boxSizing: 'border-box' }}>
+      <div style={{ padding: '16px 16px var(--bottom-nav-clear, 24px)', flex: 1, maxWidth: 'var(--content-narrow)', margin: '0 auto', width: '100%', boxSizing: 'border-box' }}>
         {isLoading && !data ? (
           <StateView state="loading" />
         ) : customers.length === 0 ? (

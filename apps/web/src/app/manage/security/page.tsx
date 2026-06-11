@@ -63,7 +63,7 @@ export default function SecurityPage() {
     <div style={{ minHeight: '100dvh', display: 'flex', flexDirection: 'column' }}>
       <PageHeader title="Мой Passkey" subtitle="Вход по Face ID / Touch ID / ключу" />
 
-      <div style={{ padding: '16px 16px var(--bottom-nav-clear)', flex: 1, maxWidth: 680, margin: '0 auto', width: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <div style={{ padding: '16px 16px var(--bottom-nav-clear)', flex: 1, maxWidth: 'var(--content-narrow)', margin: '0 auto', width: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', gap: 16 }}>
         {/* Кто я */}
         <div className="glass-l2" style={{ borderRadius: 16, padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 12 }}>
           <div style={{ width: 44, height: 44, borderRadius: '50%', background: 'rgba(139,92,246,0.18)', border: '2px solid rgba(139,92,246,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, fontWeight: 800, color: '#A78BFA', flexShrink: 0 }}>

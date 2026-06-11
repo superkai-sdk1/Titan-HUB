@@ -106,7 +106,7 @@ export default function SettingsPage() {
     <div style={{ minHeight: '100dvh', display: 'flex', flexDirection: 'column' }}>
       <PageHeader title="Настройки" subtitle="Параметры заведения и системы" />
 
-      <div style={{ padding: '20px 16px var(--bottom-nav-clear, 24px)', display: 'flex', flexDirection: 'column', gap: 16, maxWidth: 680, margin: '0 auto', width: '100%' }}>
+      <div style={{ padding: '20px 16px var(--bottom-nav-clear, 24px)', display: 'flex', flexDirection: 'column', gap: 16, maxWidth: 'var(--content-narrow)', margin: '0 auto', width: '100%' }}>
         {isLoading && !data ? (
           <StateView state="loading" />
         ) : (

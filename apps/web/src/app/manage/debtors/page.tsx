@@ -100,7 +100,7 @@ export default function DebtorsPage() {
         action={{ label: 'Добавить', icon: 'person_add', onClick: () => { setShowAdd(true); setSearch(''); setResults([]) } }}
       />
 
-      <div style={{ padding: '16px 16px var(--bottom-nav-clear, 24px)', flex: 1, maxWidth: 680, margin: '0 auto', width: '100%', boxSizing: 'border-box' }}>
+      <div style={{ padding: '16px 16px var(--bottom-nav-clear, 24px)', flex: 1, maxWidth: 'var(--content-narrow)', margin: '0 auto', width: '100%', boxSizing: 'border-box' }}>
         {isLoading && !data ? (
           <StateView state="loading" />
         ) : debtors.length === 0 ? (

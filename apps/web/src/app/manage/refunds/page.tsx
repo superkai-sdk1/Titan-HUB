@@ -153,7 +153,7 @@ export default function RefundsPage() {
         action={{ label: 'Создать', icon: 'add', onClick: openCreate }}
       />
 
-      <div style={{ padding: '16px 16px var(--bottom-nav-clear, 24px)', maxWidth: 680, margin: '0 auto', width: '100%' }}>
+      <div style={{ padding: '16px 16px var(--bottom-nav-clear, 24px)', maxWidth: 'var(--content-narrow)', margin: '0 auto', width: '100%' }}>
         {isLoading && !data ? (
           <StateView state="loading" />
         ) : refunds.length === 0 ? (

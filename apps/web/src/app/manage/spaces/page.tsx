@@ -70,7 +70,7 @@ export default function SpacesPage() {
         action={{ label: 'Добавить', icon: 'add', onClick: () => open() }}
       />
 
-      <div style={{ padding: '16px', maxWidth: 680, margin: '0 auto', width: '100%' }}>
+      <div style={{ padding: '16px', maxWidth: 'var(--content-narrow)', margin: '0 auto', width: '100%' }}>
         {isLoading && !data ? (
           <StateView state="loading" />
         ) : spaces.length === 0 ? (

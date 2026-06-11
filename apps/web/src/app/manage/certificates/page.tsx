@@ -73,7 +73,7 @@ export default function CertificatesPage() {
         action={{ label: 'Создать', icon: 'add_card', onClick: () => setShowCreate(true) }}
       />
 
-      <div style={{ padding: '16px 16px var(--bottom-nav-clear, 24px)', maxWidth: 680, margin: '0 auto', width: '100%' }}>
+      <div style={{ padding: '16px 16px var(--bottom-nav-clear, 24px)', maxWidth: 'var(--content-narrow)', margin: '0 auto', width: '100%' }}>
         {isLoading && !data ? (
           <StateView state="loading" />
         ) : certificates.length === 0 ? (

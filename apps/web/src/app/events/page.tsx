@@ -222,7 +222,7 @@ export default function EventsPage() {
     <div style={{ minHeight: '100dvh', display: 'flex', flexDirection: 'column', overflowX: 'hidden', width: '100%' }}>
       {/* Header */}
       <div style={{ position: 'sticky', top: 0, zIndex: 20, background: 'rgba(21,18,27,0.95)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)', borderBottom: '1px solid rgba(255,255,255,0.06)', padding: '16px 20px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', maxWidth: 680, margin: '0 auto', width: '100%' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', maxWidth: 'var(--content-narrow)', margin: '0 auto', width: '100%' }}>
           <div>
             <h1 style={{ fontSize: 22, fontWeight: 800, margin: 0, letterSpacing: '-0.02em' }}>Мероприятия</h1>
             <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: '3px 0 0' }}>{events.length} событий{upcomingCount > 0 ? ` · ${upcomingCount} предстоящих` : ''}</p>
@@ -231,7 +231,7 @@ export default function EventsPage() {
             <Icon name="add" size={18} />Добавить
           </button>
         </div>
-        <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid rgba(255,255,255,0.06)', maxWidth: 680, margin: '12px auto 0', width: '100%' }}>
+        <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid rgba(255,255,255,0.06)', maxWidth: 'var(--content-narrow)', margin: '12px auto 0', width: '100%' }}>
           {([['upcoming', 'Предстоящие', upcoming.length], ['past', 'Прошедшие', past.length]] as [typeof tab, string, number][]).map(([k, l, n]) => (
             <button key={k} onClick={() => setTab(k)} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '9px 14px', border: 'none', background: 'transparent', cursor: 'pointer', borderBottom: tab === k ? '2px solid #8B5CF6' : '2px solid transparent', color: tab === k ? '#8B5CF6' : 'var(--on-surface-variant)', fontSize: 13, fontWeight: tab === k ? 700 : 500, transition: 'all 0.2s', marginBottom: -1, whiteSpace: 'nowrap' }}>
               {l}
@@ -241,7 +241,7 @@ export default function EventsPage() {
         </div>
       </div>
 
-      <div style={{ padding: '16px 16px var(--bottom-nav-clear)', flex: 1, maxWidth: 680, margin: '0 auto', width: '100%', boxSizing: 'border-box' }}>
+      <div style={{ padding: '16px 16px var(--bottom-nav-clear)', flex: 1, maxWidth: 'var(--content-narrow)', margin: '0 auto', width: '100%', boxSizing: 'border-box' }}>
         {events.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '80px 0' }}>
             <Icon name="event" size={56} color="rgba(204,195,216,0.2)" style={{ display: 'block', marginBottom: 12 }} />

@@ -104,7 +104,7 @@ export default function CashOpsPage() {
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100dvh' }}>
       <PageHeader title="Инкассация" subtitle="Текущий баланс смены" />
 
-      <div style={{ padding: '16px 16px var(--bottom-nav-clear, 24px)', flex: 1, maxWidth: 680, margin: '0 auto', width: '100%' }}>
+      <div style={{ padding: '16px 16px var(--bottom-nav-clear, 24px)', flex: 1, maxWidth: 'var(--content-narrow)', margin: '0 auto', width: '100%' }}>
         {isLoading && !data ? (
           <StateView state="loading" />
         ) : (

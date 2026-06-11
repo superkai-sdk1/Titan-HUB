@@ -466,7 +466,7 @@ export default function SuppliesPage() {
         action={{ label: 'Новая', icon: 'add', onClick: () => { setEditing(null); setCreating(true) } }}
       />
 
-      <div style={{ padding: '16px 16px var(--bottom-nav-clear, 24px)', display: 'flex', flexDirection: 'column', gap: 10, maxWidth: 680, margin: '0 auto', width: '100%', boxSizing: 'border-box' }}>
+      <div style={{ padding: '16px 16px var(--bottom-nav-clear, 24px)', display: 'flex', flexDirection: 'column', gap: 10, maxWidth: 'var(--content-narrow)', margin: '0 auto', width: '100%', boxSizing: 'border-box' }}>
         {isLoading && !data ? (
           <StateView state="loading" />
         ) : supplies.length === 0 ? (

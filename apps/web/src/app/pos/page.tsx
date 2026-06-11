@@ -178,6 +178,34 @@ function PosPageInner() {
     return () => clearInterval(t)
   }, [])
 
+  // ── Регулируемый сплит (десктоп/планшет ≥1024): ширина правой панели чека ──
+  // Тянется мышью или пальцем за ручку между панелями; сохраняется в localStorage.
+  const splitRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const saved = parseInt(localStorage.getItem('pos-split-w') ?? '')
+    if (saved && splitRef.current) splitRef.current.style.setProperty('--pos-right-w', `${saved}px`)
+  }, [])
+  const startSplitDrag = useCallback((e: React.PointerEvent) => {
+    e.preventDefault()
+    const root = splitRef.current
+    if (!root) return
+    let last = 0
+    const onMove = (ev: PointerEvent) => {
+      // Ширина правой панели = расстояние от курсора до правого края окна.
+      last = Math.round(Math.min(Math.max(window.innerWidth - ev.clientX, 420), Math.min(960, window.innerWidth - 480)))
+      root.style.setProperty('--pos-right-w', `${last}px`)
+    }
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      window.removeEventListener('pointercancel', onUp)
+      if (last) localStorage.setItem('pos-split-w', String(last))
+    }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+    window.addEventListener('pointercancel', onUp)
+  }, [])
+
   const { data: checksData, isLoading, refetch: refetchChecks } = useQuery({
     queryKey: ['checks', 'active'],
     queryFn: () => api.get<{ checks: CheckCard[] }>('/pos/checks'),
@@ -386,7 +414,7 @@ function PosPageInner() {
   // «мёртвую» полосу, перекрывавшую чеки. Клиренс под плавающую нижнюю навигацию
   // перенесён на саму сетку карточек (.pos-cards-grid, прокручиваемый контент).
   return (
-    <div style={{ height: '100%', display: 'flex', flexDirection: 'row', overflow: 'hidden', paddingBottom: 0 }}>
+    <div ref={splitRef} style={{ height: '100%', display: 'flex', flexDirection: 'row', overflow: 'hidden', paddingBottom: 0 }}>
       {/* Left panel — список чеков (всегда виден) */}
       <div className="pos-left-panel" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
 
@@ -1270,6 +1298,19 @@ function PosPageInner() {
       )}
       </div>{/* /pos-left-panel */}
 
+      {/* Ручка регулировки сплита (видна только при открытой правой панели, ≥1024) */}
+      {activeCheckId && (
+        <div
+          className="pos-split-handle"
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Изменить ширину панели чека"
+          onPointerDown={startSplitDrag}
+        >
+          <div className="pos-split-grip" />
+        </div>
+      )}
+
       {/* Right panel — detail view на десктопе */}
       {activeCheckId && (
         <div
@@ -1292,10 +1333,23 @@ function PosPageInner() {
       )}
 
       <style>{`
+        .pos-split-handle { display: none; }
         @media (min-width: 1024px) {
           .pos-right-panel {
-            width: 680px !important;
+            width: var(--pos-right-w, 680px) !important;
           }
+          .pos-split-handle {
+            display: flex; align-items: center; justify-content: center;
+            width: 16px; margin: 0 -6px; flex-shrink: 0; z-index: 5;
+            cursor: col-resize; touch-action: none; user-select: none;
+            -webkit-tap-highlight-color: transparent;
+          }
+          .pos-split-grip {
+            width: 4px; height: 48px; border-radius: 4px;
+            background: rgba(255,255,255,0.14); transition: background 0.15s;
+          }
+          .pos-split-handle:hover .pos-split-grip,
+          .pos-split-handle:active .pos-split-grip { background: rgba(139,92,246,0.65); }
         }
       `}</style>
     </div>

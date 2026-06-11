@@ -194,7 +194,7 @@ export default function NotificationsPage() {
         subtitle="Какие уведомления получать и куда"
       />
 
-      <div style={{ padding: '16px 16px 0', display: 'flex', flexDirection: 'column', gap: 16, maxWidth: 680, margin: '0 auto', width: '100%' }}>
+      <div style={{ padding: '16px 16px 0', display: 'flex', flexDirection: 'column', gap: 16, maxWidth: 'var(--content-narrow)', margin: '0 auto', width: '100%' }}>
 
         {/* ─── Статус push ───────────────────────────────────────────── */}
         <div className="glass-l2" style={{ borderRadius: 16, padding: '16px' }}>
@@ -316,7 +316,7 @@ export default function NotificationsPage() {
       </div>
 
       {/* ─── Настройки типов (per user) ──────────────────────────────────── */}
-      <div style={{ padding: '24px 16px var(--bottom-nav-clear, 24px)', maxWidth: 680, margin: '0 auto', width: '100%' }}>
+      <div style={{ padding: '24px 16px var(--bottom-nav-clear, 24px)', maxWidth: 'var(--content-narrow)', margin: '0 auto', width: '100%' }}>
         <h2 style={{ margin: '0 0 6px', fontSize: 16, fontWeight: 700, color: 'var(--on-surface)', padding: '0 4px' }}>
           Какие уведомления получать
         </h2>

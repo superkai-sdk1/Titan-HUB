@@ -94,7 +94,7 @@ export default function DepositsPage() {
         action={{ label: 'Добавить', icon: 'person_add', onClick: () => { setShowAdd(true); setSearch(''); setResults([]) } }}
       />
 
-      <div style={{ padding: '16px 16px var(--bottom-nav-clear)', flex: 1, maxWidth: 680, margin: '0 auto', width: '100%', boxSizing: 'border-box' }}>
+      <div style={{ padding: '16px 16px var(--bottom-nav-clear)', flex: 1, maxWidth: 'var(--content-narrow)', margin: '0 auto', width: '100%', boxSizing: 'border-box' }}>
         {list.length === 0 ? (
           isLoading && !data
             ? <StateView state="loading" />

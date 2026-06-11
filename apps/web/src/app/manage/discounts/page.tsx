@@ -175,7 +175,7 @@ export default function DiscountsPage() {
         action={{ label: 'Добавить', icon: 'add', onClick: openCreate }}
       />
 
-      <div style={{ padding: '16px 16px var(--bottom-nav-clear, 24px)', flex: 1, maxWidth: 680, margin: '0 auto', width: '100%' }}>
+      <div style={{ padding: '16px 16px var(--bottom-nav-clear, 24px)', flex: 1, maxWidth: 'var(--content-narrow)', margin: '0 auto', width: '100%' }}>
         {/* Скидка для персонала/владельца — тумблер */}
         {isOwner && (
           <div className="glass-l2" style={{ borderRadius: 16, padding: '16px 18px', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 14 }}>

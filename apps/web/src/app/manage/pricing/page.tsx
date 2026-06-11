@@ -222,7 +222,7 @@ export default function PricingPage() {
         }
       />
 
-      <div style={{ padding: '12px 16px 0', maxWidth: 680, margin: '0 auto', width: '100%' }}>
+      <div style={{ padding: '12px 16px 0', maxWidth: 'var(--content-narrow)', margin: '0 auto', width: '100%' }}>
         {/* Tabs */}
         <div style={{ display: 'flex', gap: 4, borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
           {TABS.map(t => (
@@ -245,7 +245,7 @@ export default function PricingPage() {
         </div>
       </div>
 
-      <div style={{ padding: '16px', maxWidth: 680, margin: '0 auto', width: '100%' }}>
+      <div style={{ padding: '16px', maxWidth: 'var(--content-narrow)', margin: '0 auto', width: '100%' }}>
         {/* ─── ТАРИФЫ ─── */}
         {tab === 'tariffs' && (
           tariffsLoading ? <StateView state="loading" />

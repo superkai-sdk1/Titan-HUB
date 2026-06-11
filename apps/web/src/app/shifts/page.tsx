@@ -371,7 +371,7 @@ export default function ShiftsPage() {
         action={!shift ? { label: 'Открыть смену', icon: 'add', onClick: () => setShowOpen(true) } : undefined}
       />
 
-      <div style={{ padding: '20px 16px var(--bottom-nav-clear, 24px)', display: 'flex', flexDirection: 'column', gap: 24, maxWidth: 680, margin: '0 auto', width: '100%' }}>
+      <div style={{ padding: '20px 16px var(--bottom-nav-clear, 24px)', display: 'flex', flexDirection: 'column', gap: 24, maxWidth: 'var(--content-narrow)', margin: '0 auto', width: '100%' }}>
 
         {/* Current shift card */}
         {shift ? (
