@@ -760,6 +760,15 @@ export function ConfirmDialog({
               boxShadow: '0 24px 64px rgba(0,0,0,0.55), 0 0 0 1px rgba(255,255,255,0.06)',
             }}
           >
+            <div style={{
+              width: 46, height: 46, borderRadius: 14, marginBottom: 14,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              background: danger ? 'linear-gradient(160deg, rgba(251,113,133,0.24), rgba(251,113,133,0.07))' : 'linear-gradient(160deg, rgba(139,92,246,0.24), rgba(76,215,246,0.08))',
+              border: `1px solid ${danger ? 'rgba(251,113,133,0.36)' : 'rgba(139,92,246,0.34)'}`,
+              boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08)',
+            }}>
+              <Icon name={danger ? 'warning' : 'help'} size={24} color={danger ? 'var(--danger)' : '#a78bfa'} />
+            </div>
             <h2 style={{ fontSize: 17, fontWeight: 800, margin: '0 0 8px' }}>{title}</h2>
             {message && <p style={{ fontSize: 14, color: 'var(--on-surface-variant)', margin: '0 0 20px', lineHeight: 1.5 }}>{message}</p>}
             <div style={{ display: 'flex', gap: 10, marginTop: message ? 0 : 16 }}>
@@ -769,7 +778,7 @@ export function ConfirmDialog({
                 fullWidth
                 loading={loading}
                 onClick={onConfirm}
-                style={danger ? { background: 'linear-gradient(135deg, #FB7185, #F43F5E)', boxShadow: '0 4px 20px rgba(251,113,133,0.3)' } : undefined}
+                style={danger ? { background: 'linear-gradient(135deg, #FB7185, #F43F5E)', boxShadow: '0 6px 22px rgba(251,113,133,0.4), inset 0 1px 0 rgba(255,255,255,0.28)' } : undefined}
               >
                 {confirmLabel}
               </Button>
