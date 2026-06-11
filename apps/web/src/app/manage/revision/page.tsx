@@ -129,7 +129,7 @@ export default function RevisionPage() {
   })
   const revList = listData?.revisions ?? []
 
-  const { data: detail, isLoading: detailLoading } = useQuery<{ revision: RevisionSummary & { author: string | null }; items: RevisionItem[] }>({
+  const { data: detail, isLoading: detailLoading } = useQuery<{ revision: RevisionSummary & { author: string | null; isLatest: boolean }; items: RevisionItem[] }>({
     queryKey: ['revisions', viewId],
     queryFn: () => api.get(`/inventory/revisions/${viewId}`),
     enabled: !!viewId && mode === 'view',
@@ -387,13 +387,15 @@ export default function RevisionPage() {
           detailLoading || !detail ? <StateView state="loading" /> : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               <div className="glass-l2" style={{ borderRadius: 16, padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 12 }}>
-                <Icon name="history" size={20} color="#F59E0B" />
+                <Icon name={detail.revision.isLatest ? 'history' : 'lock'} size={20} color="#F59E0B" />
                 <div style={{ flex: 1 }}>
                   <p style={{ fontSize: 13, fontWeight: 600, margin: 0 }}>
                     {detail.revision.author ? `Провёл: ${detail.revision.author}` : 'Ревизия'}{detail.revision.updatedAt ? ` · корректировалась ${fmtDate(String(detail.revision.updatedAt))}` : ''}
                   </p>
                   <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: '2px 0 0', lineHeight: 1.45 }}>
-                    Правка факта пересчитает текущий остаток на разницу — движения после ревизии сохранятся.
+                    {detail.revision.isLatest
+                      ? 'Правка факта пересчитает текущий остаток на разницу — движения после ревизии сохранятся.'
+                      : 'Только просмотр: корректировать можно лишь последнюю ревизию — более новая уже зафиксировала остатки.'}
                   </p>
                 </div>
               </div>
@@ -422,8 +424,9 @@ export default function RevisionPage() {
                       <div style={{ width: 88, flexShrink: 0 }}>
                         <input
                           type="number" min="0" value={shown}
+                          disabled={!detail.revision.isLatest}
                           onChange={e => setEdits(prev => ({ ...prev, [it.id]: e.target.value }))}
-                          style={{ ...INP, textAlign: 'center', fontWeight: 700, fontSize: 16, padding: '10px 12px', borderColor: changed ? 'rgba(139,92,246,0.7)' : undefined }}
+                          style={{ ...INP, textAlign: 'center', fontWeight: 700, fontSize: 16, padding: '10px 12px', borderColor: changed ? 'rgba(139,92,246,0.7)' : undefined, opacity: detail.revision.isLatest ? 1 : 0.6, cursor: detail.revision.isLatest ? undefined : 'not-allowed' }}
                         />
                       </div>
                     </div>
@@ -439,7 +442,7 @@ export default function RevisionPage() {
                 )
               })}
 
-              {editChanges.length > 0 && (
+              {detail.revision.isLatest && editChanges.length > 0 && (
                 <div style={{ position: 'sticky', bottom: 'calc(var(--bottom-nav-clear, 0px) + 8px)', zIndex: 45, background: 'rgba(24,21,30,0.98)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 16, padding: '12px 16px', marginTop: 6, boxShadow: '0 8px 28px rgba(0,0,0,0.4)' }}>
                   <button
                     onClick={() => setConfirmEdit(true)}

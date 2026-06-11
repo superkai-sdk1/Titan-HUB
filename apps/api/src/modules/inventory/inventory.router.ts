@@ -2,7 +2,7 @@ import type { AppEnv } from '../../types.js'
 import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
-import { db, inventory, stockMovements, supplies, supplyItems, checks, checkItems, revisions, revisionItems, profiles, eq, asc, isNull, and, gte, desc, sum, inArray } from '@titan/database'
+import { db, inventory, stockMovements, supplies, supplyItems, checks, checkItems, revisions, revisionItems, profiles, eq, asc, isNull, and, gt, gte, desc, sum, inArray } from '@titan/database'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
 
 export const inventoryRouter = new Hono<AppEnv>()
@@ -70,7 +70,10 @@ inventoryRouter.get('/revisions/:id', async (c) => {
     const [a] = await db.select({ nickname: profiles.nickname }).from(profiles).where(eq(profiles.id, rev.createdBy))
     author = a?.nickname ?? null
   }
-  return c.json({ revision: { ...rev, author }, items })
+  // Корректировать можно только ПОСЛЕДНЮЮ ревизию: более новая уже зафиксировала
+  // свои expected от текущих остатков — правка старой перемешала бы динамику.
+  const [newer] = await db.select({ id: revisions.id }).from(revisions).where(gt(revisions.createdAt, rev.createdAt)).limit(1)
+  return c.json({ revision: { ...rev, author, isLatest: !newer }, items })
 })
 
 // POST /api/inventory/revisions — провести новую ревизию.
@@ -140,6 +143,10 @@ inventoryRouter.patch(
     const applied = await db.transaction(async (tx) => {
       const [rev] = await tx.select().from(revisions).where(eq(revisions.id, revId)).for('update')
       if (!rev) return null
+      // Жёсткий гард: правки разрешены только у последней ревизии (проверяем
+      // внутри транзакции — параллельно созданная новая ревизия тоже учтётся).
+      const [newer] = await tx.select({ id: revisions.id }).from(revisions).where(gt(revisions.createdAt, rev.createdAt)).limit(1)
+      if (newer) return 'not_latest' as const
       const changes: { name: string; from: number; to: number; stockDelta: number }[] = []
       for (const ch of items) {
         const [ri] = await tx.select().from(revisionItems).where(and(eq(revisionItems.id, ch.id), eq(revisionItems.revisionId, revId))).for('update')
@@ -165,6 +172,7 @@ inventoryRouter.patch(
     })
 
     if (applied === null) return c.json({ error: 'Not found' }, 404)
+    if (applied === 'not_latest') return c.json({ error: 'Корректировать можно только последнюю ревизию' }, 409)
     return c.json({ changes: applied })
   }
 )
