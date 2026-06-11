@@ -221,7 +221,7 @@ export default function ExpensesPage() {
         <div style={{ maxWidth: 680, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 8 }}>
           <div style={{ display: 'flex', gap: 6, overflowX: 'auto', scrollbarWidth: 'none' }}>
             {PRESETS.map(f => (
-              <button key={f.key} onClick={() => setPreset(f.key)} style={{ flexShrink: 0, padding: '7px 14px', borderRadius: 9999, border: preset === f.key ? 'none' : '1px solid rgba(255,255,255,0.1)', cursor: 'pointer', fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap', background: preset === f.key ? 'linear-gradient(135deg,#8B5CF6,#6D28D9)' : 'rgba(255,255,255,0.05)', color: preset === f.key ? '#fff' : 'var(--on-surface-variant)' }}>
+              <button key={f.key} onClick={() => setPreset(f.key)} style={{ flexShrink: 0, padding: '7px 14px', borderRadius: 9999, border: preset === f.key ? 'none' : '1px solid rgba(255,255,255,0.1)', cursor: 'pointer', fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap', background: preset === f.key ? 'linear-gradient(135deg,#9D6CFF,#8B5CF6 45%,#4cd7f6 130%)' : 'rgba(255,255,255,0.05)', color: preset === f.key ? '#fff' : 'var(--on-surface-variant)', boxShadow: preset === f.key ? '0 3px 14px rgba(139,92,246,0.4), inset 0 1px 0 rgba(255,255,255,0.25)' : 'none', transition: 'transform 0.18s cubic-bezier(0.34,1.56,0.64,1)', WebkitTapHighlightColor: 'transparent', touchAction: 'manipulation' }} onPointerDown={e => { e.currentTarget.style.transform = 'scale(0.94)' }} onPointerUp={e => { e.currentTarget.style.transform = 'scale(1)' }} onPointerLeave={e => { e.currentTarget.style.transform = 'scale(1)' }}>
                 {f.label}
               </button>
             ))}
