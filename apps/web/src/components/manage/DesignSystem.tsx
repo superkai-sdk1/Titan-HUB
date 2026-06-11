@@ -715,6 +715,44 @@ export function IconButton({
   )
 }
 
+// ─── Chip (фильтр-пилюля: единственный источник стиля сегментов/пресетов) ─────
+
+export function Chip({
+  active, onClick, children, icon, activeColor = 'var(--primary-violet)', size = 'md',
+}: {
+  active: boolean
+  onClick: () => void
+  children: React.ReactNode
+  icon?: string
+  /** Цвет активного состояния (по умолчанию фирменный violet). */
+  activeColor?: string
+  size?: 'sm' | 'md'
+}) {
+  const pad = size === 'sm' ? '6px 12px' : '8px 14px'
+  return (
+    <button
+      onClick={onClick}
+      onPointerDown={e => { e.currentTarget.style.transform = 'scale(0.94)' }}
+      onPointerUp={e => { e.currentTarget.style.transform = 'scale(1)' }}
+      onPointerLeave={e => { e.currentTarget.style.transform = 'scale(1)' }}
+      style={{
+        flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 5,
+        padding: pad, borderRadius: 9999, minHeight: size === 'sm' ? 32 : 36,
+        border: active ? '1px solid transparent' : '1px solid rgba(255,255,255,0.1)',
+        cursor: 'pointer', fontSize: size === 'sm' ? 12 : 12.5, fontWeight: active ? 700 : 600,
+        whiteSpace: 'nowrap',
+        color: active ? '#fff' : 'var(--on-surface-variant)',
+        background: active ? activeColor : 'rgba(255,255,255,0.05)',
+        transition: 'transform 0.18s cubic-bezier(0.34,1.56,0.64,1), background 0.15s',
+        WebkitTapHighlightColor: 'transparent', touchAction: 'manipulation',
+      }}
+    >
+      {icon && <Icon name={icon} size={14} />}
+      {children}
+    </button>
+  )
+}
+
 // ─── ConfirmDialog (подтверждение действий, особенно деструктивных) ───────────
 
 export function ConfirmDialog({

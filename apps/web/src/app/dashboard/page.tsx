@@ -9,6 +9,7 @@ import { format, subDays, startOfMonth, endOfMonth } from 'date-fns'
 import { ru } from 'date-fns/locale'
 import { useCountUp } from '@/hooks/useCountUp'
 import { StateView } from '@/components/StateView'
+import { Chip } from '@/components/manage/DesignSystem'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 type MainTab = 'overview' | 'finance' | 'games' | 'bar' | 'players' | 'staff'
@@ -149,17 +150,9 @@ function PeriodSelector({ p }: { p: ReturnType<typeof usePeriod> }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
       <div style={{ display: 'flex', gap: 6, overflowX: 'auto', scrollbarWidth: 'none' }}>
-        {PERIOD_OPTS.map(o => {
-          const active = p.preset === o.key
-          return (
-            <button key={o.key} onClick={() => p.setPreset(o.key)} style={{
-              flexShrink: 0, padding: '6px 12px', borderRadius: 9999, cursor: 'pointer', fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap',
-              border: active ? 'none' : '1px solid rgba(255,255,255,0.1)',
-              background: active ? 'var(--primary-violet)' : 'rgba(255,255,255,0.05)',
-              color: active ? '#fff' : 'var(--on-surface-variant)',
-            }}>{o.label}</button>
-          )
-        })}
+        {PERIOD_OPTS.map(o => (
+          <Chip key={o.key} active={p.preset === o.key} onClick={() => p.setPreset(o.key)} size="sm">{o.label}</Chip>
+        ))}
       </div>
       {p.preset === 'custom' && (
         <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
@@ -1782,7 +1775,7 @@ export default function DashboardPage() {
             </button>
           </div>
         </div>
-        {/* Tabs — «пилюли» с градиентом активного; скролл внутри таб-бара */}
+        {/* Tabs — общий Chip; скролл внутри таб-бара */}
         <div style={{
           display: 'flex', gap: 8, padding: '4px 0 12px',
           overflowX: 'auto', overflowY: 'hidden',
@@ -1792,19 +1785,9 @@ export default function DashboardPage() {
           {TABS.map(tab => {
             const active = activeTab === tab.key
             return (
-              <button key={tab.key} onClick={() => { setActiveTab(tab.key); track('section_open', { section: tab.key }) }} style={{
-                display: 'flex', alignItems: 'center', gap: 6,
-                padding: '9px 14px', minHeight: 40,
-                borderRadius: 9999,
-                border: active ? 'none' : '1px solid rgba(255,255,255,0.1)',
-                background: active ? 'var(--primary-violet)' : 'rgba(255,255,255,0.05)',
-                color: active ? '#fff' : 'var(--on-surface-variant)',
-                fontSize: 12.5, fontWeight: active ? 700 : 600,
-                cursor: 'pointer', transition: 'all 0.2s', whiteSpace: 'nowrap', flexShrink: 0,
-              }}>
-                <Icon name={tab.icon} size={15} color={active ? '#fff' : 'currentColor'} />
+              <Chip key={tab.key} active={active} onClick={() => { setActiveTab(tab.key); track('section_open', { section: tab.key }) }} icon={tab.icon}>
                 <span className="dash-tab-label">{tab.label}</span>
-              </button>
+              </Chip>
             )
           })}
         </div>

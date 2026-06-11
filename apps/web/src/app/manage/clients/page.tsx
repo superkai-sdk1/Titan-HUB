@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { formatDistanceToNow } from 'date-fns'
 import { ru } from 'date-fns/locale'
-import { PageHeader, Sheet, Button, IconButton, ConfirmDialog, INP, LBL } from '@/components/manage/DesignSystem'
+import { PageHeader, Sheet, Button, IconButton, ConfirmDialog, Chip, INP, LBL } from '@/components/manage/DesignSystem'
 import { StateView } from '@/components/StateView'
 import { useToast } from '@/components/Toast'
 import { Icon } from '@/components/Icon'
@@ -240,12 +240,11 @@ export default function ClientsPage() {
           {/* Разделы */}
           <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 2, marginBottom: 10 }}>
             {([['all', 'Все', 'group'], ['newbie', 'Новички', 'fiber_new'], ['resident', 'Резиденты', 'workspace_premium'], ['guest', 'Гости', 'person'], ['student', 'Студенты', 'school'], ['archive', 'Архив', 'archive']] as [typeof seg, string, string][]).map(([key, label, icon]) => {
-              const active = seg === key
               const isArch = key === 'archive'
               return (
-                <button key={key} onClick={() => setSeg(key)} style={{ flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 5, padding: '7px 13px', borderRadius: 9999, border: active ? 'none' : '1px solid rgba(255,255,255,0.08)', cursor: 'pointer', fontSize: 12.5, fontWeight: 700, whiteSpace: 'nowrap', color: active ? '#fff' : 'var(--on-surface-variant)', background: active ? (isArch ? '#64748B' : 'var(--primary-violet)') : 'rgba(255,255,255,0.05)', transition: 'transform 0.18s cubic-bezier(0.34,1.56,0.64,1)', WebkitTapHighlightColor: 'transparent', touchAction: 'manipulation' }} onPointerDown={e => { e.currentTarget.style.transform = 'scale(0.94)' }} onPointerUp={e => { e.currentTarget.style.transform = 'scale(1)' }} onPointerLeave={e => { e.currentTarget.style.transform = 'scale(1)' }}>
-                  <Icon name={icon} size={14} /> {label}
-                </button>
+                <Chip key={key} active={seg === key} onClick={() => setSeg(key)} icon={icon} activeColor={isArch ? '#64748B' : undefined}>
+                  {label}
+                </Chip>
               )
             })}
           </div>

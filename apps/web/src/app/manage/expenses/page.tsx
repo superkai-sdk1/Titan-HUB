@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { format } from 'date-fns'
 import { ru } from 'date-fns/locale'
-import { PageHeader, Sheet, Button, IconButton, ConfirmDialog, INP, LBL, formatMoney } from '@/components/manage/DesignSystem'
+import { PageHeader, Sheet, Button, IconButton, ConfirmDialog, Chip, INP, LBL, formatMoney } from '@/components/manage/DesignSystem'
 import { StateView } from '@/components/StateView'
 import { useToast } from '@/components/Toast'
 import { Icon } from '@/components/Icon'
@@ -221,9 +221,9 @@ export default function ExpensesPage() {
         <div style={{ maxWidth: 680, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 8 }}>
           <div style={{ display: 'flex', gap: 6, overflowX: 'auto', scrollbarWidth: 'none' }}>
             {PRESETS.map(f => (
-              <button key={f.key} onClick={() => setPreset(f.key)} style={{ flexShrink: 0, padding: '7px 14px', borderRadius: 9999, border: preset === f.key ? 'none' : '1px solid rgba(255,255,255,0.1)', cursor: 'pointer', fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap', background: preset === f.key ? 'var(--primary-violet)' : 'rgba(255,255,255,0.05)', color: preset === f.key ? '#fff' : 'var(--on-surface-variant)', transition: 'transform 0.18s cubic-bezier(0.34,1.56,0.64,1)', WebkitTapHighlightColor: 'transparent', touchAction: 'manipulation' }} onPointerDown={e => { e.currentTarget.style.transform = 'scale(0.94)' }} onPointerUp={e => { e.currentTarget.style.transform = 'scale(1)' }} onPointerLeave={e => { e.currentTarget.style.transform = 'scale(1)' }}>
+              <Chip key={f.key} active={preset === f.key} onClick={() => setPreset(f.key)} size="sm">
                 {f.label}
-              </button>
+              </Chip>
             ))}
           </div>
           {preset === 'custom' && (
