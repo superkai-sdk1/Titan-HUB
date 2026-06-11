@@ -77,27 +77,35 @@ function ToastContainer({ toasts, onDismiss }: { toasts: Toast[]; onDismiss: (id
               exit={{ opacity: 0, y: 8, scale: 0.95 }}
               transition={{ type: 'spring', damping: 25, stiffness: 350 }}
               style={{
-                display: 'flex', alignItems: 'center', gap: 10,
-                padding: '12px 14px',
+                position: 'relative', overflow: 'hidden',
+                display: 'flex', alignItems: 'center', gap: 11,
+                padding: '12px 14px 12px 16px',
                 background: bg,
                 border: `1px solid ${color}33`,
                 borderRadius: 14,
                 backdropFilter: 'blur(20px)',
                 WebkitBackdropFilter: 'blur(20px)',
-                boxShadow: `0 4px 24px rgba(0,0,0,0.3), 0 0 0 1px ${color}22`,
+                boxShadow: `0 6px 26px rgba(0,0,0,0.34), 0 0 0 1px ${color}22, inset 0 1px 0 rgba(255,255,255,0.06)`,
                 pointerEvents: 'all',
               }}
             >
-              <Icon name={icon} size={18} color={color} />
+              <div style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 3, background: `linear-gradient(180deg, ${color}, ${color}55)` }} />
+              <div style={{ width: 30, height: 30, borderRadius: 9, flexShrink: 0, background: `linear-gradient(160deg, ${color}33, ${color}14)`, border: `1px solid ${color}3a`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Icon name={icon} size={17} color={color} />
+              </div>
               <span style={{ flex: 1, fontSize: 13, fontWeight: 500, color: 'var(--on-surface)' }}>
                 {toast.message}
               </span>
               <button
                 onClick={() => onDismiss(toast.id)}
+                aria-label="Закрыть"
                 style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--on-surface-variant)', display: 'flex', padding: 2, flexShrink: 0 }}
               >
                 <Icon name="close" size={14} />
               </button>
+              {toast.duration && toast.duration > 0 ? (
+                <div style={{ position: 'absolute', left: 0, bottom: 0, height: 2, width: '100%', background: color, opacity: 0.55, transformOrigin: 'left', animation: `toast-progress ${toast.duration}ms linear forwards` }} />
+              ) : null}
             </motion.div>
           )
         })}

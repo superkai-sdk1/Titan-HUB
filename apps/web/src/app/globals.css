@@ -279,6 +279,7 @@ button, [role="button"] { user-select: none; }
 }
 .pos-card-attention { animation: attention-pulse 1.4s ease-in-out infinite; border-color: rgba(245,158,11,0.75) !important; }
 @keyframes ripple { to { width: 500px; height: 500px; opacity: 0; } }
+@keyframes toast-progress { from { transform: scaleX(1) } to { transform: scaleX(0) } }
 
 /* ── Titan HUB Motion System ──────────────────────────── */
 /* fade-in */
