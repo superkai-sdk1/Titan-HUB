@@ -1761,7 +1761,7 @@ export default function DashboardPage() {
     <div style={{ height: '100dvh', overflow: 'hidden', display: 'flex', flexDirection: 'column', width: '100%' }}>
       {/* Header (фикс. шапка, контент скроллится отдельно — нужно для свайп-обновления) */}
       <div style={{ padding: '16px 16px 0', flexShrink: 0, zIndex: 10, background: 'rgba(21,18,27,0.92)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)' }}>
-        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', maxWidth: 'var(--content-wide)', margin: '0 auto 12px', width: '100%' }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
           <div>
             <h1 style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.01em', margin: 0, color: 'var(--on-surface)' }}>Аналитика</h1>
             <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: '2px 0 0' }}>
@@ -1781,7 +1781,6 @@ export default function DashboardPage() {
           overflowX: 'auto', overflowY: 'hidden',
           scrollbarWidth: 'none', msOverflowStyle: 'none',
           WebkitOverflowScrolling: 'touch' as any,
-          maxWidth: 'var(--content-wide)', margin: '0 auto', width: '100%',
         }}>
           {TABS.map(tab => {
             const active = activeTab === tab.key

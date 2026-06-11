@@ -505,7 +505,6 @@ function PosPageInner() {
           }
           @media (min-width: 1024px) {
             .pos-cards-wrap { padding: 0 32px 16px; }
-            .pos-header { max-width: calc(var(--content-wide) + 64px); margin: 0 auto; width: 100%; box-sizing: border-box; }
             .pos-cards-grid {
               grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
               gap: 20px;

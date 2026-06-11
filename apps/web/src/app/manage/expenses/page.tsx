@@ -218,7 +218,7 @@ export default function ExpensesPage() {
 
       {/* Период (бизнес-день) */}
       <div style={{ background: 'rgba(21,18,27,0.95)', backdropFilter: 'blur(16px)', borderBottom: '1px solid rgba(255,255,255,0.06)', padding: '12px 16px' }}>
-        <div style={{ maxWidth: 'var(--content-narrow)', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <div style={{ display: 'flex', gap: 6, overflowX: 'auto', scrollbarWidth: 'none' }}>
             {PRESETS.map(f => (
               <Chip key={f.key} active={preset === f.key} onClick={() => setPreset(f.key)} size="sm">

@@ -232,7 +232,7 @@ export default function ClientsPage() {
 
       {/* Search + tier chips */}
       <div style={{ background: 'rgba(21,18,27,0.95)', backdropFilter: 'blur(16px)', borderBottom: '1px solid rgba(255,255,255,0.06)', padding: '12px 16px' }}>
-        <div style={{ maxWidth: 'var(--content-narrow)', margin: '0 auto' }}>
+        <div>
           <div style={{ position: 'relative', marginBottom: 10 }}>
             <Icon name="search" size={18} color="var(--on-surface-variant)" style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }} />
             <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Поиск по нику или телефону…" style={{ ...INP, paddingLeft: 42, borderRadius: 12 }} />
