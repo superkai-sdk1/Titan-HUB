@@ -377,6 +377,17 @@ button, [role="button"] { user-select: none; }
   outline-offset: 2px;
 }
 
+/* ── Поля ввода: премиум фокус-свечение ──────────────────
+   Мягкое violet-кольцо + подсветка рамки для текстовых полей, textarea и select.
+   Без !important — inline onFocus-обработчики (если есть) перебивают рамку,
+   свечение остаётся. На outline-кольцо :focus-visible (клавиатура) не влияет. */
+input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):focus,
+textarea:focus,
+select:focus {
+  border-color: rgba(139, 92, 246, 0.6);
+  box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.16);
+}
+
 /* ── Bottom-nav clearance (<1024: видна нижняя навигация) ───────────── */
 /* Нав «парит»: отступ снизу (6px) + высота панели (≈60px) + выступ FAB (14px)
    + визуальный запас, чтобы последний элемент не оставался под панелью. */
