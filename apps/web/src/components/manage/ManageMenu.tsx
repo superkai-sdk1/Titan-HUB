@@ -56,25 +56,8 @@ const NAV: NavGroup[] = [
       { href: '/manage/customers', label: 'Заказчики', icon: 'person_add', color: '#8B5CF6', bg: 'rgba(139,92,246,0.15)', roles: ['owner','staff'] },
       // Единый экран «Депозиты и долги»: депозит и долг — один баланс, вкладки внутри.
       { href: '/manage/balances',  label: 'Депозиты и долги', icon: 'account_balance', color: '#06B6D4', bg: 'rgba(6,182,212,0.15)', roles: ['owner','staff'], perm: 'debtors' },
-    ],
-  },
-  {
-    title: 'Продажи и лояльность',
-    icon: 'loyalty',
-    items: [
-      { href: '/manage/discounts',    label: 'Скидки',      icon: 'percent',       color: '#F43F5E', bg: 'rgba(244,63,94,0.15)',  roles: ['owner'], perm: 'discounts' },
-      { href: '/manage/bonuses',      label: 'Бонусы',      icon: 'star',          color: '#EAB308', bg: 'rgba(234,179,8,0.15)',  roles: ['owner'], perm: 'bonus' },
-      { href: '/manage/certificates', label: 'Сертификаты', icon: 'card_giftcard', color: '#F59E0B', bg: 'rgba(245,158,11,0.15)', roles: ['owner','staff'] },
-      { href: '/manage/refunds',      label: 'Возвраты',    icon: 'money_return',  color: '#F87171', bg: 'rgba(248,113,113,0.15)', roles: ['owner','staff'] },
-    ],
-  },
-  {
-    title: 'Финансы',
-    icon: 'account_balance_wallet',
-    items: [
-      { href: '/manage/expenses', label: 'Расходы',    icon: 'receipt_long',           color: '#F43F5E', bg: 'rgba(244,63,94,0.15)',  roles: ['owner','staff'], perm: 'expenses' },
-      { href: '/manage/cashops',  label: 'Инкассация', icon: 'account_balance_wallet', color: '#14B8A6', bg: 'rgba(20,184,166,0.15)', roles: ['owner','staff'] },
-      { href: '/manage/salary',   label: 'Зарплата',   icon: 'payments',               color: '#10B981', bg: 'rgba(16,185,129,0.15)', roles: ['owner'], perm: 'salary' },
+      // Единый экран «Лояльность»: Скидки · Бонусы · Сертификаты — вкладки внутри.
+      { href: '/manage/loyalty',   label: 'Лояльность', icon: 'loyalty', color: '#F59E0B', bg: 'rgba(245,158,11,0.15)', roles: ['owner','staff'] },
     ],
   },
   {
@@ -82,15 +65,9 @@ const NAV: NavGroup[] = [
     icon: 'badge',
     items: [
       { href: '/manage/staff', label: 'Сотрудники', icon: 'group',    color: '#A78BFA', bg: 'rgba(167,139,250,0.15)', roles: ['owner'], perm: 'staff' },
+      // Смена и касса в одном экране (инкассация встроена).
       { href: '/shifts',       label: 'Смены',      icon: 'schedule', color: '#8B5CF6', bg: 'rgba(139,92,246,0.15)',  roles: ['owner','staff'] },
-    ],
-  },
-  {
-    title: 'Заведение',
-    icon: 'store',
-    items: [
-      { href: '/manage/spaces', label: 'Зоны',        icon: 'table_bar', color: '#F59E0B', bg: 'rgba(245,158,11,0.15)', roles: ['owner','staff'] },
-      { href: '/manage/events', label: 'Мероприятия', icon: 'event',     color: '#10B981', bg: 'rgba(16,185,129,0.15)', roles: ['owner','staff'] },
+      { href: '/manage/salary', label: 'Зарплата',  icon: 'payments', color: '#10B981', bg: 'rgba(16,185,129,0.15)', roles: ['owner'], perm: 'salary' },
     ],
   },
   {

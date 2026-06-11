@@ -1,16 +1,51 @@
 'use client'
 import { useState, useRef } from 'react'
 import { Icon } from '@/components/Icon'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { useCurrentShift } from '@/hooks/useShift'
 import { OpenShiftModal, CloseShiftModal } from '@/components/ShiftModals'
-import { PageHeader } from '@/components/manage/DesignSystem'
+import { PageHeader, Sheet, Button, INP, LBL, formatMoney } from '@/components/manage/DesignSystem'
+import { useToast } from '@/components/Toast'
 import { formatDistanceToNow, format } from 'date-fns'
 import { ru } from 'date-fns/locale'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type AnalyticsTab = 'overview' | 'checks' | 'products' | 'players'
+
+type CashOpType = 'deposit' | 'withdrawal' | 'salary'
+
+interface CashOp {
+  id: string
+  type: CashOpType
+  amount: number
+  description?: string
+  createdBy?: string
+  createdAt: string
+}
+
+interface CashBalance {
+  cashStart?: number
+  cashPayments?: number
+  deposits?: number
+  withdrawals?: number
+  salaries?: number
+  expected?: number
+}
+
+function relTime(dateStr: string) {
+  try {
+    return formatDistanceToNow(new Date(dateStr), { addSuffix: true, locale: ru })
+  } catch {
+    return '—'
+  }
+}
+
+const OP_ICON: Record<CashOpType, { icon: string; color: string }> = {
+  deposit:    { icon: 'add_circle',    color: 'var(--success)' },
+  withdrawal: { icon: 'remove_circle', color: 'var(--danger)' },
+  salary:     { icon: 'payments',      color: 'var(--primary-violet)' },
+}
 
 const PAY_COLORS: Record<string, string> = {
   cash: '#10B981', card: '#3B82F6', transfer: '#8B5CF6',
@@ -342,17 +377,32 @@ function ShiftPlayersTab({ players }: { players: any[] }) {
 
 // ─── Main page ────────────────────────────────────────────────────────────────
 export default function ShiftsPage() {
+  const qc = useQueryClient()
+  const { show } = useToast()
   const { data: shift } = useCurrentShift()
 
-  // Живой остаток кассы за смену (начало + наличные платежи + внесения − изъятия −
-  // зарплаты − возвраты наличными). Раньше на карточке смены показывали только
-  // стартовую сумму (shift.cashStart), из-за чего «в кассе» не менялось за смену.
-  const { data: cashBal } = useQuery<{ expected: number; cashStart: number }>({
-    queryKey: ['shifts', 'cash-balance'],
-    queryFn: () => api.get('/shifts/cash-balance'),
+  // Живой остаток кассы за смену + лента инкассации. Источник — `GET /cashops`
+  // (возвращает {operations, balance}): даёт и разбивку (cashStart, наличные
+  // платежи, внесения, изъятия, зарплаты, expected), и операции текущей смены.
+  // Единый запрос, чтобы не дублировать /shifts/cash-balance.
+  const { data: cashData } = useQuery<{ operations: CashOp[]; balance: CashBalance }>({
+    queryKey: ['cashops'],
+    queryFn: () => api.get('/cashops'),
     enabled: !!shift,
     refetchInterval: 15000,
   })
+
+  const balance = cashData?.balance ?? {}
+  const cashStart = balance.cashStart ?? parseNum(shift?.cashStart)
+  const cashPayments = balance.cashPayments ?? 0
+  const deposits = balance.deposits ?? 0
+  const withdrawals = balance.withdrawals ?? 0
+  const salaries = balance.salaries ?? 0
+  const expected = balance.expected ?? (cashStart + cashPayments + deposits - withdrawals - salaries)
+
+  const operations = [...(cashData?.operations ?? [])].sort(
+    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+  )
 
   const { data: historyData } = useQuery({
     queryKey: ['shifts', 'history'],
@@ -363,10 +413,54 @@ export default function ShiftsPage() {
   const [showClose, setShowClose] = useState(false)
   const [analyticsShiftId, setAnalyticsShiftId] = useState<string | null>(null)
 
+  // ─── Инкассация (встроена) ──────────────────────────────────────────────────
+  const [showCashSheet, setShowCashSheet] = useState(false)
+  const [opType, setOpType] = useState<Exclude<CashOpType, 'salary'>>('deposit')
+  const [amount, setAmount] = useState('')
+  const [description, setDescription] = useState('')
+  // Стабильный ключ идемпотентности на одну операцию (защита от двойного клика).
+  const idemRef = useRef(crypto.randomUUID())
+
+  function closeCashSheet() {
+    setShowCashSheet(false)
+    setAmount('')
+    setDescription('')
+  }
+
+  const createCashOp = useMutation({
+    mutationFn: (body: object) => api.post('/cashops', body),
+    onSuccess: () => {
+      // Обновляем и ленту операций, и остаток смены.
+      qc.invalidateQueries({ queryKey: ['cashops'] })
+      qc.invalidateQueries({ queryKey: ['shifts', 'cash-balance'] })
+      closeCashSheet()
+      idemRef.current = crypto.randomUUID()
+    },
+    onError: () => show('Не удалось сохранить операцию', 'error'),
+  })
+
+  function openCashSheet(type: Exclude<CashOpType, 'salary'>) {
+    setOpType(type)
+    setAmount('')
+    setDescription('')
+    setShowCashSheet(true)
+  }
+
+  function submitCashOp() {
+    const amt = parseFloat(amount)
+    if (!amt || amt <= 0) return
+    createCashOp.mutate({
+      type: opType,
+      amount: amt,
+      description: description.trim() || undefined,
+      idempotencyKey: idemRef.current,
+    })
+  }
+
   return (
     <div style={{ height: '100%', overflowY: 'auto' }}>
       <PageHeader
-        title="Смены"
+        title="Смена и касса"
         subtitle={format(new Date(), 'd MMMM yyyy', { locale: ru })}
         action={!shift ? { label: 'Открыть смену', icon: 'add', onClick: () => setShowOpen(true) } : undefined}
       />
@@ -423,7 +517,7 @@ export default function ShiftsPage() {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 12 }}>
               {[
                 { label: 'НАЧАЛО', value: format(new Date(shift.openedAt), 'HH:mm', { locale: ru }), sub: undefined as string | undefined },
-                { label: 'В КАССЕ', value: `${fmt(parseNum(cashBal?.expected ?? shift.cashStart))} ₽`, sub: `старт: ${fmt(parseNum(cashBal?.cashStart ?? shift.cashStart))} ₽` },
+                { label: 'В КАССЕ', value: `${fmt(expected)} ₽`, sub: `старт: ${fmt(cashStart)} ₽` },
                 { label: 'ТИП ВЕЧЕРА', value: EVENING_LABELS[shift.eveningType] ?? shift.eveningType, sub: undefined },
               ].map(item => (
                 <div key={item.label} style={{ padding: '12px 14px', borderRadius: 10, background: 'rgba(255,255,255,0.04)' }}>
@@ -459,6 +553,81 @@ export default function ShiftsPage() {
             </button>
           </div>
         )}
+
+        {/* Касса смены + инкассация */}
+        <div>
+          <p style={{
+            fontFamily: "'JetBrains Mono', monospace",
+            fontSize: 10, fontWeight: 700,
+            textTransform: 'uppercase', letterSpacing: '0.08em',
+            color: 'var(--on-surface-variant)', margin: '0 0 14px',
+          }}>
+            КАССА СМЕНЫ
+          </p>
+
+          {/* Сводка кассы */}
+          <div className="glass-l2" style={{ borderRadius: 18, padding: '20px 24px', marginBottom: 16 }}>
+            <p style={{ ...LBL, margin: '0 0 4px' }}>В кассе сейчас</p>
+            <div style={{ fontSize: 34, fontWeight: 800, color: expected >= 0 ? 'var(--success)' : 'var(--danger)', margin: '0 0 16px', fontVariantNumeric: 'tabular-nums' }}>{formatMoney(expected)}</div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+              {[
+                { label: 'Открытие смены', value: cashStart, color: 'var(--on-surface-variant)' },
+                { label: 'Наличные оплаты', value: cashPayments, color: 'var(--success)' },
+                { label: 'Внесено', value: deposits, color: 'var(--secondary)' },
+                { label: 'Изъято', value: withdrawals, color: 'var(--danger)' },
+                { label: 'Зарплаты', value: salaries, color: 'var(--primary-violet)' },
+              ].map(({ label, value, color }) => (
+                <div key={label} style={{ padding: '10px 12px', borderRadius: 12, background: 'rgba(255,255,255,0.04)' }}>
+                  <div style={{ fontSize: 10, color: 'var(--on-surface-variant)', marginBottom: 3, fontFamily: "'JetBrains Mono',monospace", textTransform: 'uppercase', letterSpacing: '0.06em' }}>{label}</div>
+                  <div style={{ fontSize: 15, fontWeight: 700, color, fontVariantNumeric: 'tabular-nums' }}>{formatMoney(value)}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Инкассация — только при открытой смене */}
+          {shift ? (
+            <>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
+                <Button variant="secondary" icon="add_circle" onClick={() => openCashSheet('deposit')} style={{ borderColor: 'rgba(16,185,129,0.3)', background: 'rgba(16,185,129,0.1)', color: 'var(--success)' }}>Внести</Button>
+                <Button variant="secondary" icon="remove_circle" onClick={() => openCashSheet('withdrawal')} style={{ borderColor: 'rgba(251,113,133,0.3)', background: 'rgba(251,113,133,0.1)', color: 'var(--danger)' }}>Изъять</Button>
+              </div>
+
+              {/* Лента операций инкассации */}
+              {operations.length === 0 ? (
+                <p style={{ fontSize: 13, color: 'rgba(204,195,216,0.4)', textAlign: 'center', padding: '16px 0' }}>Операций нет</p>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {operations.map((op) => {
+                    const { icon, color } = OP_ICON[op.type] ?? OP_ICON.deposit
+                    const isPositive = op.type === 'deposit'
+                    return (
+                      <div key={op.id} className="glass-l2" style={{ position: 'relative', overflow: 'hidden', borderRadius: 14, padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 14 }}>
+                        <div style={{ width: 40, height: 40, borderRadius: 12, background: `color-mix(in srgb, ${color} 18%, transparent)`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                          <Icon name={icon} size={22} color={color} />
+                        </div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 2 }}>{op.description || (op.type === 'deposit' ? 'Внесение' : op.type === 'withdrawal' ? 'Изъятие' : 'Зарплата')}</div>
+                          <div style={{ fontSize: 12, color: 'var(--on-surface-variant)' }}>
+                            {op.createdBy ? `${op.createdBy} · ` : ''}{relTime(op.createdAt)}
+                          </div>
+                        </div>
+                        <div style={{ fontWeight: 800, fontSize: 16, color: isPositive ? 'var(--success)' : 'var(--danger)', flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>
+                          {formatMoney(isPositive ? op.amount : -Math.abs(op.amount), { sign: true })}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </>
+          ) : (
+            <p style={{ fontSize: 13, color: 'rgba(204,195,216,0.4)', textAlign: 'center', padding: '16px 0' }}>
+              Откройте смену, чтобы вносить и изымать наличные
+            </p>
+          )}
+        </div>
 
         {/* Shift history */}
         <div>
@@ -530,6 +699,32 @@ export default function ShiftsPage() {
       <OpenShiftModal open={showOpen} onClose={() => setShowOpen(false)} />
       <CloseShiftModal open={showClose} onClose={() => setShowClose(false)} />
       {analyticsShiftId && <ShiftAnalytics shiftId={analyticsShiftId} onClose={() => setAnalyticsShiftId(null)} />}
+
+      {/* Инкассация — ввод суммы */}
+      <Sheet open={showCashSheet} onClose={closeCashSheet} title={opType === 'deposit' ? 'Внести в кассу' : 'Изъять из кассы'} desktopSize="sm">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div>
+            <label style={LBL}>Сумма (₽)</label>
+            <input style={INP} type="number" min="0" inputMode="decimal" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0" autoFocus />
+          </div>
+          <div>
+            <label style={LBL}>Описание</label>
+            <input style={INP} value={description} onChange={e => setDescription(e.target.value)} placeholder="Комментарий к операции" />
+          </div>
+          <Button
+            fullWidth
+            size="lg"
+            loading={createCashOp.isPending}
+            disabled={!parseFloat(amount)}
+            onClick={submitCashOp}
+            style={opType === 'deposit'
+              ? { background: 'linear-gradient(135deg, #10B981, #059669)', boxShadow: '0 4px 20px rgba(16,185,129,0.3)' }
+              : { background: 'linear-gradient(135deg, #FB7185, #F43F5E)', boxShadow: '0 4px 20px rgba(251,113,133,0.3)' }}
+          >
+            {opType === 'deposit' ? 'Внести' : 'Изъять'}
+          </Button>
+        </div>
+      </Sheet>
 
       <style>{`
         @keyframes pulse {
