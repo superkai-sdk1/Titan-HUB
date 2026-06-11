@@ -1,5 +1,6 @@
 'use client'
 import React, { useState } from 'react'
+import { usePathname, useRouter } from 'next/navigation'
 import { Icon } from '@/components/Icon'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
@@ -77,6 +78,12 @@ function normTime(t: string): string {
 export default function EventsPage() {
   const qc = useQueryClient()
   const { show } = useToast()
+  const router = useRouter()
+  const pathname = usePathname()
+  // Страница рендерится и на /events (мобильный, диплинки), и на /manage/events
+  // (сплит «Управления»). Внутри /manage показываем кнопку: на десктопе —
+  // «закрыть раздел» (к пустому /manage), на мобильном — «назад» (к меню).
+  const inManageSplit = !!pathname && pathname.startsWith('/manage')
   const [tab, setTab] = useState<'upcoming' | 'past'>('upcoming')
   const [showForm, setShowForm] = useState(false)
   const [editId, setEditId] = useState<string | null>(null)
@@ -222,8 +229,20 @@ export default function EventsPage() {
     <div style={{ minHeight: '100%', display: 'flex', flexDirection: 'column', overflowX: 'hidden', width: '100%' }}>
       {/* Header */}
       <div style={{ position: 'sticky', top: 0, zIndex: 20, background: 'rgba(21,18,27,0.95)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)', borderBottom: '1px solid rgba(255,255,255,0.06)', padding: '16px 20px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+          {inManageSplit && (
+            <button
+              onClick={() => { if (window.matchMedia('(min-width: 1024px)').matches) router.push('/manage'); else router.back() }}
+              aria-label="Закрыть раздел"
+              className="events-split-close"
+              style={{ width: 44, height: 44, borderRadius: 12, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.05)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--on-surface-variant)', flexShrink: 0 }}
+            >
+              <span className="esc-desktop" style={{ display: 'none', lineHeight: 0 }}><Icon name="close" size={18} /></span>
+              <span className="esc-mobile" style={{ lineHeight: 0 }}><Icon name="arrow_back" size={18} /></span>
+              <style>{`@media (min-width: 1024px) { .esc-desktop { display: inline !important; } .esc-mobile { display: none !important; } }`}</style>
+            </button>
+          )}
+          <div style={{ flex: 1, minWidth: 0 }}>
             <h1 style={{ fontSize: 22, fontWeight: 800, margin: 0, letterSpacing: '-0.02em' }}>Мероприятия</h1>
             <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: '3px 0 0' }}>{events.length} событий{upcomingCount > 0 ? ` · ${upcomingCount} предстоящих` : ''}</p>
           </div>

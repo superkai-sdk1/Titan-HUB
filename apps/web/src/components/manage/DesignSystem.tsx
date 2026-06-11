@@ -1,6 +1,6 @@
 'use client'
 import React, { useRef, useCallback, useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, usePathname } from 'next/navigation'
 import { motion, AnimatePresence, useMotionValue, useTransform, animate, PanInfo } from 'framer-motion'
 import { Icon } from '@/components/Icon'
 
@@ -100,16 +100,16 @@ export interface SheetProps {
   desktopSize?: 'sm' | 'md' | 'lg'
 }
 
-function useIsDesktop() {
+function useIsDesktop(minWidth = 768) {
   const [isDesktop, setIsDesktop] = useState(false)
   useEffect(() => {
     if (typeof window === 'undefined') return
-    const mq = window.matchMedia('(min-width: 768px)')
+    const mq = window.matchMedia(`(min-width: ${minWidth}px)`)
     const update = () => setIsDesktop(mq.matches)
     update()
     mq.addEventListener('change', update)
     return () => mq.removeEventListener('change', update)
-  }, [])
+  }, [minWidth])
   return isDesktop
 }
 
@@ -457,6 +457,12 @@ export function PageHeader({
   onBack?: () => void
 }) {
   const router = useRouter()
+  const pathname = usePathname()
+  // В сплите «Управления» (десктоп ≥1024) кнопка — «закрыть раздел»: возвращает
+  // к пустому состоянию /manage, а не на предыдущий экран истории. Открыт всегда
+  // один раздел — открытие другого закрывает текущий (роутинг).
+  const inManageSplit = useIsDesktop(1024) && !!pathname && pathname.startsWith('/manage') && pathname !== '/manage'
+  const closeSplit = () => router.push('/manage')
 
   return (
     <div style={{
@@ -468,14 +474,14 @@ export function PageHeader({
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%' }}>
         <button
-          onClick={onBack ?? (() => router.back())}
-          aria-label="Назад"
+          onClick={onBack ?? (inManageSplit ? closeSplit : () => router.back())}
+          aria-label={inManageSplit ? 'Закрыть раздел' : 'Назад'}
           onPointerDown={e => { e.currentTarget.style.transform = 'scale(0.9)' }}
           onPointerUp={e => { e.currentTarget.style.transform = 'scale(1)' }}
           onPointerLeave={e => { e.currentTarget.style.transform = 'scale(1)' }}
           style={{ width: 44, height: 44, borderRadius: 12, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.05)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--on-surface-variant)', flexShrink: 0, transition: 'transform 0.22s cubic-bezier(0.34,1.56,0.64,1), border-color 0.2s', WebkitTapHighlightColor: 'transparent', touchAction: 'manipulation' }}
         >
-          <Icon name="arrow_back" size={18} />
+          <Icon name={inManageSplit ? 'close' : 'arrow_back'} size={18} />
         </button>
         <div style={{ flex: 1, minWidth: 0 }}>
           <h1 style={{ fontSize: 20, fontWeight: 700, letterSpacing: '-0.01em', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--on-surface)' }}>{title}</h1>
