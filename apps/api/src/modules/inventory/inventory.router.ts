@@ -43,22 +43,60 @@ inventoryRouter.get('/revisions', async (c) => {
 
   const list = rows.map(r => {
     let positions = 0, surplusValue = 0, shortageValue = 0
-    for (const it of items) {
-      if (it.revisionId !== r.id) continue
-      positions++
-      const diff = it.actual - it.expected
-      const cost = parseFloat(String(it.costPrice)) || 0
-      if (diff > 0) surplusValue += diff * cost
-      else if (diff < 0) shortageValue += -diff * cost
+    if (r.status === 'draft') {
+      // У черновика нет revision_items — состав в draft_data (расхождения не считаем).
+      positions = r.draftData?.items?.length ?? 0
+    } else {
+      for (const it of items) {
+        if (it.revisionId !== r.id) continue
+        positions++
+        const diff = it.actual - it.expected
+        const cost = parseFloat(String(it.costPrice)) || 0
+        if (diff > 0) surplusValue += diff * cost
+        else if (diff < 0) shortageValue += -diff * cost
+      }
     }
     return {
-      id: r.id, createdAt: r.createdAt, updatedAt: r.updatedAt,
+      id: r.id, createdAt: r.createdAt, updatedAt: r.updatedAt, status: r.status,
       author: r.createdBy ? authorOf.get(r.createdBy) ?? null : null,
       positions, surplusValue, shortageValue,
     }
   })
   return c.json({ revisions: list })
 })
+
+// POST /api/inventory/revisions/draft — сохранить/обновить ЧЕРНОВИК ревизии.
+// Рабочее состояние (позиции + введённые факты) кладём в draft_data; остатки и
+// revision_items НЕ трогаем. Регистрируется ДО '/revisions/:id'. Возврат { id }.
+inventoryRouter.post(
+  '/revisions/draft',
+  requireRole('owner', 'staff'),
+  zValidator('json', z.object({
+    id: z.string().uuid().optional(),
+    items: z.array(z.object({
+      itemId: z.string().uuid(),
+      actual: z.number().int().min(0).nullable(),
+    })).max(500),
+  })),
+  async (c) => {
+    const { id, items } = c.req.valid('json')
+    const user = c.get('user')
+    const draftData = { items }
+    if (id) {
+      // Обновляем только если это всё ещё черновик (проведённую не трогаем).
+      const [row] = await db.update(revisions)
+        .set({ draftData, updatedAt: new Date() })
+        .where(and(eq(revisions.id, id), eq(revisions.status, 'draft')))
+        .returning({ id: revisions.id })
+      if (!row) return c.json({ error: 'Черновик не найден' }, 404)
+      return c.json({ id: row.id })
+    }
+    const [row] = await db.insert(revisions)
+      .values({ status: 'draft', draftData, createdBy: user.sub })
+      .returning({ id: revisions.id })
+    return c.json({ id: row.id }, 201)
+  }
+)
 
 // GET /api/inventory/revisions/:id — детали ревизии с позициями (в порядке добавления).
 inventoryRouter.get('/revisions/:id', async (c) => {
@@ -77,51 +115,87 @@ inventoryRouter.get('/revisions/:id', async (c) => {
   return c.json({ revision: { ...rev, author, isLatest: !newer }, items })
 })
 
-// POST /api/inventory/revisions — провести новую ревизию.
-// Каждая позиция: лочим остаток FOR UPDATE, фиксируем expected = текущий остаток,
-// ставим actual, пишем движение склада. Всё атомарно — либо вся ревизия, либо ничего.
-inventoryRouter.post(
-  '/revisions',
-  zValidator('json', z.object({
-    items: z.array(z.object({
-      itemId: z.string().uuid(),
-      actual: z.number().int().min(0),
-    })).min(1).max(500),
-  })),
-  async (c) => {
+const ApplyItemsSchema = z.array(z.object({
+  itemId: z.string().uuid(),
+  actual: z.number().int().min(0),
+})).min(1).max(500)
+
+// Применить позиции к ревизии revId: на каждую — снапшот expected (FOR UPDATE),
+// движение count через ledger, запись revision_items. Используется при проведении
+// свежей ревизии и при применении черновика.
+async function applyRevisionItems(
+  tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+  revId: string,
+  items: { itemId: string; actual: number }[],
+  userId: string,
+) {
+  for (let i = 0; i < items.length; i++) {
+    const { itemId, actual } = items[i]
+    const [item] = await tx.select().from(inventory).where(and(eq(inventory.id, itemId), isNull(inventory.deletedAt))).for('update')
+    if (!item) throw new Error(`item ${itemId} not found`)
+    const expected = item.stockQuantity ?? 0
+    await recordMovement(tx, {
+      itemId, type: 'count', delta: actual - expected,
+      sourceType: 'revision', sourceId: revId, reason: 'Ревизия', userId,
+    })
+    await tx.insert(revisionItems).values({
+      revisionId: revId, itemId, name: item.name,
+      expected, actual,
+      costPrice: String(parseFloat(String(item.costPrice ?? 0)) || 0),
+      sortOrder: i,
+    })
+  }
+}
+
+function firstDuplicate(items: { itemId: string }[]): boolean {
+  const seen = new Set<string>()
+  for (const it of items) { if (seen.has(it.itemId)) return true; seen.add(it.itemId) }
+  return false
+}
+
+// POST /api/inventory/revisions — провести новую ревизию (create + apply), статус applied.
+inventoryRouter.post('/revisions', zValidator('json', z.object({ items: ApplyItemsSchema })), async (c) => {
+  const { items } = c.req.valid('json')
+  const user = c.get('user')
+  if (firstDuplicate(items)) return c.json({ error: 'Дублирующаяся позиция в ревизии' }, 400)
+  const result = await db.transaction(async (tx) => {
+    const [rev] = await tx.insert(revisions).values({ status: 'applied', createdBy: user.sub }).returning()
+    await applyRevisionItems(tx, rev.id, items, user.sub)
+    return rev
+  })
+  return c.json({ revision: result }, 201)
+})
+
+// POST /api/inventory/revisions/:id/apply — применить ЧЕРНОВИК ревизии (draft → applied).
+// Snapshot expected берётся СЕЙЧАС (на момент применения), а не на момент сохранения черновика.
+inventoryRouter.post('/revisions/:id/apply', requireRole('owner', 'staff'),
+  zValidator('json', z.object({ items: ApplyItemsSchema })), async (c) => {
+    const revId = c.req.param('id')
     const { items } = c.req.valid('json')
     const user = c.get('user')
-    // Дубли позиций недопустимы — остатки нельзя перемешивать.
-    const seen = new Set<string>()
-    for (const it of items) {
-      if (seen.has(it.itemId)) return c.json({ error: 'Дублирующаяся позиция в ревизии' }, 400)
-      seen.add(it.itemId)
-    }
-
-    const result = await db.transaction(async (tx) => {
-      const [rev] = await tx.insert(revisions).values({ createdBy: user.sub }).returning()
-      for (let i = 0; i < items.length; i++) {
-        const { itemId, actual } = items[i]
-        const [item] = await tx.select().from(inventory).where(and(eq(inventory.id, itemId), isNull(inventory.deletedAt))).for('update')
-        if (!item) throw new Error(`item ${itemId} not found`)
-        const expected = item.stockQuantity ?? 0
-        // Снапшот expected зафиксирован; применяем дельту до факта через ledger.
-        await recordMovement(tx, {
-          itemId, type: 'count', delta: actual - expected,
-          sourceType: 'revision', sourceId: rev.id, reason: 'Ревизия', userId: user.sub,
-        })
-        await tx.insert(revisionItems).values({
-          revisionId: rev.id, itemId, name: item.name,
-          expected, actual,
-          costPrice: String(parseFloat(String(item.costPrice ?? 0)) || 0),
-          sortOrder: i,
-        })
-      }
-      return rev
+    if (firstDuplicate(items)) return c.json({ error: 'Дублирующаяся позиция в ревизии' }, 400)
+    const res = await db.transaction(async (tx) => {
+      const [rev] = await tx.select().from(revisions).where(eq(revisions.id, revId)).for('update')
+      if (!rev) return 'not_found' as const
+      if (rev.status !== 'draft') return 'not_draft' as const
+      await applyRevisionItems(tx, revId, items, user.sub)
+      await tx.update(revisions).set({ status: 'applied', draftData: null, updatedAt: new Date() }).where(eq(revisions.id, revId))
+      return 'ok' as const
     })
-    return c.json({ revision: result }, 201)
-  }
-)
+    if (res === 'not_found') return c.json({ error: 'Not found' }, 404)
+    if (res === 'not_draft') return c.json({ error: 'Ревизия уже проведена' }, 409)
+    return c.json({ revision: { id: revId } })
+  })
+
+// DELETE /api/inventory/revisions/:id — удалить ЧЕРНОВИК (проведённую удалять нельзя).
+inventoryRouter.delete('/revisions/:id', requireRole('owner', 'staff'), async (c) => {
+  const id = c.req.param('id')
+  const [row] = await db.delete(revisions)
+    .where(and(eq(revisions.id, id), eq(revisions.status, 'draft')))
+    .returning({ id: revisions.id })
+  if (!row) return c.json({ error: 'Черновик не найден' }, 404)
+  return c.json({ ok: true })
+})
 
 // PATCH /api/inventory/revisions/:id — корректировка проведённой ревизии.
 // НЕ перезаписывает остаток: применяет к ТЕКУЩЕМУ остатку дельту между новым и

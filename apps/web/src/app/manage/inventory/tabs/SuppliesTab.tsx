@@ -6,6 +6,7 @@ import { format } from 'date-fns'
 import { ru } from 'date-fns/locale'
 import { Icon } from '@/components/Icon'
 import { Sheet, INP, formatMoney, ConfirmDialog } from '@/components/manage/DesignSystem'
+import { useUnsavedGuard, type GuardRegistration } from '@/components/manage/UnsavedGuard'
 import { StateView } from '@/components/StateView'
 import { useToast } from '@/components/Toast'
 import { useAuthStore } from '@/store/auth.store'
@@ -14,7 +15,7 @@ const round2 = (n: number) => Math.round(n * 100) / 100
 const num = (s: string) => { const n = parseFloat(String(s).replace(',', '.')); return Number.isFinite(n) ? n : 0 }
 
 interface SupplyItemDto { itemId?: string | null; name: string; unit: string; quantity: number; costPerUnit: number }
-interface Supply { id: string; date: string; totalCost?: string; items: SupplyItemDto[] }
+interface Supply { id: string; date: string; totalCost?: string; status?: string; items: SupplyItemDto[] }
 interface InvItem { id: string; name: string; stockQuantity: number; searchTags?: string[] }
 
 interface DraftItem {
@@ -61,15 +62,21 @@ function PriceNote({ current, baseline, isEdit }: { current: number; baseline?: 
   )
 }
 
-function SupplyEditor({ open, supply, onClose, onSaved, onDelete }: {
+type EditorMode = 'create' | 'correct' | 'draft'
+
+function SupplyEditor({ open, mode, supply, onClose, onSaved, onDelete }: {
   open: boolean
+  mode: EditorMode
   supply: Supply | null
   onClose: () => void
   onSaved: () => void
   onDelete?: () => void
 }) {
   const { show } = useToast()
-  const isEdit = !!supply
+  const qc = useQueryClient()
+  const { register, attempt } = useUnsavedGuard()
+  const isEdit = mode === 'correct'   // корректировка проведённой закупки
+  const isDraft = mode === 'draft'    // продолжение черновика
   const [items, setItems] = useState<DraftItem[]>([newDraft()])
   const [focusedKey, setFocusedKey] = useState<number | null>(null)
   const [reason, setReason] = useState('')
@@ -159,30 +166,73 @@ function SupplyEditor({ open, supply, onClose, onSaved, onDelete }: {
   const hasErrors = items.length === 0 || items.some(it => rowError(it) !== null) || reasonMissing
   const grandTotal = items.reduce((s, it) => s + lineTotal(it), 0)
 
+  function payloadItems() {
+    return items.map(it => ({
+      itemId: it.itemId,
+      name: it.name.trim(),
+      unit: 'шт',
+      quantity: num(it.quantity),
+      costPerUnit: num(it.costPerUnit),
+    }))
+  }
+
   const save = useMutation({
-    mutationFn: (payload: any) => isEdit
-      ? api.patch(`/supplies/${supply!.id}`, payload)
+    // correct → PATCH; draft → apply (provesti); create → POST.
+    mutationFn: (payload: any) =>
+      isEdit ? api.patch(`/supplies/${supply!.id}`, payload)
+      : isDraft ? api.post(`/supplies/${supply!.id}/apply`, payload)
       : api.post('/supplies', { ...payload, idempotencyKey: idemRef.current }),
-    onSuccess: () => { if (!isEdit) idemRef.current = crypto.randomUUID(); onSaved() },
+    onSuccess: () => { if (mode === 'create') idemRef.current = crypto.randomUUID(); onSaved() },
     onError: () => show(isEdit ? 'Не удалось сохранить изменения' : 'Не удалось сохранить закупку', 'error'),
   })
 
-  function submit() {
-    const payload: any = {
-      items: items.map(it => ({
-        itemId: it.itemId,
-        name: it.name.trim(),
-        unit: 'шт',
-        quantity: num(it.quantity),
-        costPerUnit: num(it.costPerUnit),
-      })),
-    }
+  // Сохранить как черновик (не проводя): создаёт/обновляет supplies(status='draft').
+  const draftSave = useMutation({
+    mutationFn: (payload: { id?: string; note?: string; supplier?: string; items: any[] }) =>
+      api.post<{ id: string }>('/supplies/draft', payload),
+  })
+
+  function submit() { void submitAsync() }
+  function submitAsync() {
+    const payload: any = { items: payloadItems() }
     if (isEdit) payload.reason = reason.trim()
-    save.mutate(payload)
+    return save.mutateAsync(payload)
+  }
+  function saveDraft() {
+    // Черновик допускает неполные строки — отправляем как есть (по введённым полям).
+    const draftItems = items
+      .filter(it => it.name.trim() || it.itemId || num(it.quantity) > 0 || num(it.costPerUnit) > 0)
+      .map(it => ({ itemId: it.itemId, name: it.name.trim() || undefined, unit: 'шт', quantity: num(it.quantity), costPerUnit: num(it.costPerUnit) }))
+    return draftSave.mutateAsync({ id: isDraft ? supply!.id : undefined, items: draftItems })
   }
 
+  // «Грязно», когда создаётся новая закупка / продолжается черновик и есть введённое.
+  const dirty = open && (mode === 'create' || mode === 'draft') &&
+    (items.length > 1 || items.some(it => it.name.trim() !== '' || !!it.itemId || num(it.costPerUnit) > 0))
+  const guardRef = useRef<GuardRegistration>({ isDirty: () => false, onSave: () => {}, onDraft: () => {}, onDiscard: () => {}, title: 'поставку' })
+  guardRef.current = {
+    isDirty: () => dirty,
+    onSave: async () => { await submitAsync() },
+    onDraft: async () => { await saveDraft(); qc.invalidateQueries({ queryKey: ['supplies'] }); onClose() },
+    onDiscard: () => onClose(),
+    title: 'поставку',
+  }
+  useEffect(() => {
+    register({
+      isDirty: () => guardRef.current.isDirty(),
+      onSave: () => guardRef.current.onSave(),
+      onDraft: () => guardRef.current.onDraft(),
+      onDiscard: () => guardRef.current.onDiscard(),
+      title: 'поставку',
+    })
+    return () => register(null)
+  }, [register])
+
+  // Закрытие самого редактора (X/свайп) при «грязном» — через guard.
+  const guardedClose = () => attempt(onClose)
+
   return (
-    <Sheet open={open} onClose={onClose} title={isEdit ? 'Корректировка закупки' : 'Новая закупка'} desktopSize="lg">
+    <Sheet open={open} onClose={guardedClose} title={isEdit ? 'Корректировка закупки' : isDraft ? 'Черновик закупки' : 'Новая закупка'} desktopSize="lg">
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', borderRadius: 14, background: 'rgba(139,92,246,0.1)', border: '1px solid rgba(139,92,246,0.2)' }}>
           <div style={{ width: 42, height: 42, borderRadius: 12, background: 'rgba(139,92,246,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
@@ -291,7 +341,7 @@ function SupplyEditor({ open, supply, onClose, onSaved, onDelete }: {
           disabled={hasErrors || save.isPending}
           style={{ width: '100%', padding: '15px 0', borderRadius: 14, border: 'none', cursor: hasErrors ? 'not-allowed' : 'pointer', background: BTN_GRADIENT, color: '#fff', fontSize: 15, fontWeight: 700, opacity: hasErrors ? 0.5 : 1 }}
         >
-          {save.isPending ? 'Сохраняем…' : isEdit ? 'Сохранить корректировку' : 'Создать закупку'}
+          {save.isPending ? 'Сохраняем…' : isEdit ? 'Сохранить корректировку' : isDraft ? 'Провести закупку' : 'Создать закупку'}
         </button>
 
         {isEdit && onDelete && (
@@ -415,8 +465,8 @@ export function SuppliesTab() {
   const { show } = useToast()
   const isOwner = useAuthStore(s => s.user?.role) === 'owner'
 
-  const [creating, setCreating] = useState(false)
-  const [editing, setEditing] = useState<Supply | null>(null)
+  // Единый дескриптор редактора: создание / корректировка / черновик.
+  const [editor, setEditor] = useState<{ mode: EditorMode; supply: Supply | null } | null>(null)
   const [viewing, setViewing] = useState<Supply | null>(null)
   const [confirmDel, setConfirmDel] = useState<Supply | null>(null)
 
@@ -446,7 +496,7 @@ export function SuppliesTab() {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
         <span style={{ fontSize: 13, color: 'var(--on-surface-variant)' }}>{supplies.length} {pluralWord}</span>
         <button
-          onClick={() => { setEditing(null); setCreating(true) }}
+          onClick={() => setEditor({ mode: 'create', supply: null })}
           style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 16px', borderRadius: 12, border: 'none', cursor: 'pointer', background: 'var(--primary-violet)', color: '#fff', fontSize: 13, fontWeight: 700, minHeight: 40 }}
         >
           <Icon name="add" size={18} color="#fff" /> Новая закупка
@@ -461,23 +511,31 @@ export function SuppliesTab() {
         ) : (
           supplies.map(supply => {
             const total = Number(supply.totalCost ?? 0) || supply.items.reduce((s, i) => s + i.quantity * i.costPerUnit, 0)
+            const isDraft = supply.status === 'draft'
             return (
-              <button
+              <div
                 key={supply.id}
-                onClick={() => setViewing(supply)}
                 className="glass-l2"
-                style={{ borderRadius: 16, padding: 16, display: 'flex', alignItems: 'center', gap: 12, textAlign: 'left', cursor: 'pointer', border: '1px solid rgba(255,255,255,0.08)', width: '100%' }}
+                style={{ borderRadius: 16, padding: 16, display: 'flex', alignItems: 'center', gap: 12, width: '100%', border: isDraft ? '1px solid rgba(139,92,246,0.4)' : '1px solid rgba(255,255,255,0.08)' }}
               >
-                <div style={{ width: 44, height: 44, borderRadius: 12, background: 'rgba(139,92,246,0.13)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                  <Icon name="local_shipping" size={22} color="#a78bfa" />
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <p style={{ fontSize: 15, fontWeight: 700, margin: 0, color: 'var(--on-surface)' }}>{format(new Date(supply.date), 'd MMMM yyyy', { locale: ru })}</p>
-                  <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: '2px 0 0' }}>{format(new Date(supply.date), 'HH:mm', { locale: ru })} · {supply.items.length} поз.</p>
-                </div>
-                <p style={{ margin: 0, fontSize: 16, fontWeight: 800, color: 'var(--on-surface)', flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>{formatMoney(total)}</p>
-                <Icon name="chevron_right" size={20} color="var(--on-surface-variant)" />
-              </button>
+                <button onClick={() => isDraft ? setEditor({ mode: 'draft', supply }) : setViewing(supply)}
+                  style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 12, background: 'none', border: 'none', padding: 0, textAlign: 'left', cursor: 'pointer', color: 'var(--on-surface)' }}>
+                  <div style={{ width: 44, height: 44, borderRadius: 12, background: isDraft ? 'rgba(139,92,246,0.18)' : 'rgba(139,92,246,0.13)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <Icon name={isDraft ? 'edit' : 'local_shipping'} size={22} color="#a78bfa" />
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <p style={{ fontSize: 15, fontWeight: 700, margin: 0, color: 'var(--on-surface)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                      {format(new Date(supply.date), 'd MMMM yyyy', { locale: ru })}
+                      {isDraft && <span style={{ fontSize: 10, fontWeight: 800, padding: '1px 7px', borderRadius: 6, background: 'rgba(139,92,246,0.2)', color: '#c4b5fd', textTransform: 'uppercase', letterSpacing: '0.04em' }}>черновик</span>}
+                    </p>
+                    <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: '2px 0 0' }}>{isDraft ? `${supply.items.length} поз. · продолжить` : `${format(new Date(supply.date), 'HH:mm', { locale: ru })} · ${supply.items.length} поз.`}</p>
+                  </div>
+                  {!isDraft && <p style={{ margin: 0, fontSize: 16, fontWeight: 800, color: 'var(--on-surface)', flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>{formatMoney(total)}</p>}
+                </button>
+                {isDraft
+                  ? <button onClick={() => delMut.mutate(supply.id)} aria-label="Удалить черновик" style={{ width: 34, height: 34, borderRadius: 10, border: '1px solid rgba(244,63,94,0.25)', background: 'rgba(244,63,94,0.08)', color: '#F87171', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Icon name="delete" size={16} /></button>
+                  : <Icon name="chevron_right" size={20} color="var(--on-surface-variant)" />}
+              </div>
             )
           })
         )}
@@ -487,19 +545,19 @@ export function SuppliesTab() {
         open={!!viewing}
         supply={viewing}
         onClose={() => setViewing(null)}
-        onCorrect={(s) => { setViewing(null); setEditing(s); setCreating(false) }}
+        onCorrect={(s) => { setViewing(null); setEditor({ mode: 'correct', supply: s }) }}
         onDelete={viewing && isOwner ? () => { const s = viewing; setViewing(null); setConfirmDel(s) } : undefined}
       />
 
       <SupplyEditor
-        open={creating || !!editing}
-        supply={editing}
-        onClose={() => { setCreating(false); setEditing(null) }}
+        open={!!editor}
+        mode={editor?.mode ?? 'create'}
+        supply={editor?.supply ?? null}
+        onClose={() => setEditor(null)}
         onSaved={() => {
           invalidateAll()
-          const corrected = editing
-          setCreating(false)
-          setEditing(null)
+          const corrected = editor?.mode === 'correct' ? editor.supply : null
+          setEditor(null)
           if (corrected) setViewing(corrected)
         }}
       />

@@ -2,7 +2,7 @@ import type { AppEnv } from '../../types.js'
 import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
-import { db, supplies, supplyItems, supplyCorrections, inventory, eq, asc, desc } from '@titan/database'
+import { db, supplies, supplyItems, supplyCorrections, inventory, eq, and, asc, desc } from '@titan/database'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
 import { round2 } from '../../lib/money.js'
 import { recordMovement } from '../inventory/ledger.js'
@@ -39,6 +39,14 @@ suppliesRouter.use('*', requireAuth)
 suppliesRouter.get('/', requireRole('owner', 'staff'), async (c) => {
   const rows = await db.select().from(supplies).orderBy(desc(supplies.createdAt)).limit(50)
   const enriched = await Promise.all(rows.map(async (s) => {
+    // У черновика нет supply_items — состав в draft_data.
+    if (s.status === 'draft') {
+      const di = s.draftData?.items ?? []
+      return {
+        ...s, date: s.createdAt,
+        items: di.map(it => ({ itemId: it.itemId ?? null, name: it.name ?? '—', unit: it.unit ?? 'шт', quantity: Number(it.quantity) || 0, costPerUnit: Number(it.costPerUnit) || 0 })),
+      }
+    }
     const items = await db.select().from(supplyItems).where(eq(supplyItems.supplyId, s.id))
     return {
       ...s,
@@ -123,6 +131,95 @@ suppliesRouter.post('/', requireRole('owner', 'staff'), zValidator('json', Suppl
   }).catch(() => {})
 
   return c.json({ supply }, 201)
+})
+
+// Записать позиции приёмки + движения receipt (WAC). Общая логика проведения
+// свежей закупки и применения черновика.
+async function postSupplyLines(
+  tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+  supplyId: string,
+  items: { itemId?: string | null; name?: string; unit: string; quantity: number; costPerUnit: number }[],
+  supplier: string | undefined,
+  userId: string,
+) {
+  await tx.insert(supplyItems).values(items.map(i => ({
+    supplyId, itemId: i.itemId ?? null, name: i.name ?? null, unit: i.unit,
+    quantity: String(i.quantity), costPerUnit: String(i.costPerUnit),
+  })))
+  for (const i of items) {
+    if (!i.itemId || i.quantity === 0) continue
+    await recordMovement(tx, {
+      itemId: i.itemId, type: 'receipt', delta: i.quantity, unitCost: i.costPerUnit,
+      sourceType: 'supply', sourceId: supplyId,
+      reason: `Приёмка${supplier ? ' · ' + supplier : ''}`, userId,
+    })
+  }
+}
+
+// POST /supplies/draft — сохранить/обновить ЧЕРНОВИК приёмки (без движений/остатков).
+// Состав кладётся в draft_data; supply_items не создаются до применения.
+suppliesRouter.post('/draft', requireRole('owner', 'staff'), zValidator('json', z.object({
+  id: z.string().uuid().optional(),
+  note: z.string().optional(),
+  supplier: z.string().optional(),
+  items: z.array(z.object({
+    itemId: z.string().uuid().optional(),
+    name: z.string().optional(),
+    unit: z.string().default('шт'),
+    quantity: z.number().min(0),
+    costPerUnit: z.number().min(0),
+  })).max(200),
+})), async (c) => {
+  const user = c.get('user')
+  const { id, note, supplier, items } = c.req.valid('json')
+  const draftData = { note, supplier, items }
+  if (id) {
+    const [row] = await db.update(supplies)
+      .set({ draftData, note: note ?? null, supplier: supplier ?? null })
+      .where(and(eq(supplies.id, id), eq(supplies.status, 'draft')))
+      .returning({ id: supplies.id })
+    if (!row) return c.json({ error: 'Черновик не найден' }, 404)
+    return c.json({ id: row.id })
+  }
+  const [row] = await db.insert(supplies)
+    .values({ status: 'draft', draftData, note: note ?? null, supplier: supplier ?? null, totalCost: '0', createdBy: user.sub })
+    .returning({ id: supplies.id })
+  return c.json({ id: row.id }, 201)
+})
+
+// POST /supplies/:id/apply — провести ЧЕРНОВИК (draft → posted): пишет позиции и
+// движения receipt (WAC). FOR UPDATE + проверка статуса сериализуют повторное применение.
+const ApplySupplySchema = z.object({
+  note: z.string().optional(),
+  supplier: z.string().optional(),
+  items: z.array(z.object({
+    itemId: z.string().uuid().optional(),
+    name: z.string().optional(),
+    unit: z.string().default('шт'),
+    quantity: z.number().positive(),
+    costPerUnit: z.number().min(0),
+  }).refine(i => !!i.itemId || !!(i.name && i.name.trim()), { message: 'Нужно указать товар или название позиции' })
+    .refine(i => !i.itemId || Number.isInteger(i.quantity), { message: 'Для товара с карточкой количество должно быть целым', path: ['quantity'] })
+  ).min(1),
+})
+
+suppliesRouter.post('/:id/apply', requireRole('owner', 'staff'), zValidator('json', ApplySupplySchema), async (c) => {
+  const user = c.get('user')
+  const id = c.req.param('id')
+  const body = c.req.valid('json')
+  const totalCost = round2(body.items.reduce((s, i) => s + i.quantity * i.costPerUnit, 0))
+  const res = await db.transaction(async (tx) => {
+    const [sup] = await tx.select().from(supplies).where(eq(supplies.id, id)).for('update')
+    if (!sup) return 'not_found' as const
+    if (sup.status !== 'draft') return 'not_draft' as const
+    await postSupplyLines(tx, id, body.items, body.supplier, user.sub)
+    await tx.update(supplies).set({ status: 'posted', draftData: null, totalCost: String(totalCost), note: body.note ?? sup.note, supplier: body.supplier ?? sup.supplier }).where(eq(supplies.id, id))
+    return 'ok' as const
+  })
+  if (res === 'not_found') return c.json({ error: 'Not found' }, 404)
+  if (res === 'not_draft') return c.json({ error: 'Приёмка уже проведена' }, 409)
+  void notify({ type: 'supply_received', title: 'Приход на склад', body: `${body.items.length} поз. · ${totalCost.toLocaleString('ru')} ₽`, meta: { supplyId: id } }).catch(() => {})
+  return c.json({ supply: { id }, posted: true })
 })
 
 // GET /supplies/items/:itemId/last-price — последняя цена закупки позиции.
@@ -264,17 +361,23 @@ suppliesRouter.patch('/:id', requireRole('owner', 'staff'), zValidator('json', S
 // (не уходя ниже 0) и пишем компенсирующее движение, затем удаляем приёмку
 // (supply_items уходят каскадом). Известное ограничение: средневзвешенную
 // себестоимость НЕ «разворачиваем» — costPrice остаётся как есть.
-suppliesRouter.delete('/:id', requireRole('owner'), async (c) => {
+suppliesRouter.delete('/:id', requireRole('owner', 'staff'), async (c) => {
   const user = c.get('user')
   const id = c.req.param('id')
 
-  const ok = await db.transaction(async (tx) => {
-    // FOR UPDATE на строке приёмки сериализует конкурентные удаления: второй
-    // вызов ждёт коммита первого, затем строки уже нет → выходим (без двойного
-    // отката стока при double-click/ретрае).
+  const res = await db.transaction(async (tx) => {
+    // FOR UPDATE на строке приёмки сериализует конкурентные удаления.
     const [supply] = await tx.select().from(supplies).where(eq(supplies.id, id)).for('update')
-    if (!supply) return false
+    if (!supply) return 'not_found' as const
 
+    // Черновик — без движений/остатков, удалять может staff/owner.
+    if (supply.status === 'draft') {
+      await tx.delete(supplies).where(eq(supplies.id, id))
+      return 'ok' as const
+    }
+
+    // Проведённая приёмка — только владелец, с откатом стока.
+    if ((user as any).role !== 'owner') return 'forbidden' as const
     const lines = await tx.select().from(supplyItems).where(eq(supplyItems.supplyId, id))
     for (const line of lines) {
       if (!line.itemId) continue
@@ -286,11 +389,11 @@ suppliesRouter.delete('/:id', requireRole('owner'), async (c) => {
         sourceType: 'supply', sourceId: id, reason: `Откат закупки ${id}`, userId: user.sub,
       })
     }
-
     await tx.delete(supplies).where(eq(supplies.id, id))
-    return true
+    return 'ok' as const
   })
 
-  if (!ok) return c.json({ error: 'Not found' }, 404)
+  if (res === 'not_found') return c.json({ error: 'Not found' }, 404)
+  if (res === 'forbidden') return c.json({ error: 'Удалять проведённую закупку может только владелец' }, 403)
   return c.json({ ok: true })
 })

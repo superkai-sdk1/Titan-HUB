@@ -6,13 +6,14 @@
  * ввода факта, расхождения показываются только на экране сводки перед коммитом.
  * Снапшот expected фиксируется на бэке при проведении; правка применяет дельту.
  */
-import React, { useState, useMemo } from 'react'
+import React, { useState, useMemo, useRef, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { format } from 'date-fns'
 import { ru } from 'date-fns/locale'
 import { api } from '@/lib/api'
 import { Icon } from '@/components/Icon'
 import { ConfirmDialog, INP, LBL, Toggle } from '@/components/manage/DesignSystem'
+import { useUnsavedGuard, type GuardRegistration } from '@/components/manage/UnsavedGuard'
 import { StateView } from '@/components/StateView'
 import { useToast } from '@/components/Toast'
 
@@ -29,6 +30,7 @@ interface RevisionSummary {
   createdAt: string
   updatedAt: string | null
   author: string | null
+  status?: string
   positions: number
   surplusValue: number
   shortageValue: number
@@ -103,11 +105,13 @@ export function RevisionTab() {
   const [mode, setMode] = useState<'list' | 'new' | 'view'>('list')
   const [viewId, setViewId] = useState<string | null>(null)
 
-  // Новая ревизия.
+  // Новая ревизия (draftId — если продолжаем сохранённый черновик).
   const [order, setOrder] = useState<string[]>([])
   const [entries, setEntries] = useState<Record<string, string>>({})
   const [query, setQuery] = useState('')
+  const [draftId, setDraftId] = useState<string | null>(null)
   const [confirmCreate, setConfirmCreate] = useState(false)
+  const { register, attempt } = useUnsavedGuard()
   // Слепой подсчёт: ожидаемое скрыто во время ввода; сводка — отдельным шагом.
   const [blind, setBlind] = useState(true)
   const [revealSummary, setRevealSummary] = useState(false)
@@ -135,18 +139,49 @@ export function RevisionTab() {
     enabled: !!viewId && mode === 'view',
   })
 
+  function invalidateRev() {
+    qc.invalidateQueries({ queryKey: ['revisions'] })
+    qc.invalidateQueries({ queryKey: ['menu-items-inventory'] })
+    qc.invalidateQueries({ queryKey: ['inventory-overview'] })
+  }
+
   const createMut = useMutation({
     mutationFn: (items: { itemId: string; actual: number }[]) => api.post<{ revision: { id: string } }>('/inventory/revisions', { items }),
     onSuccess: (res) => {
-      qc.invalidateQueries({ queryKey: ['revisions'] })
-      qc.invalidateQueries({ queryKey: ['menu-items-inventory'] })
-      qc.invalidateQueries({ queryKey: ['inventory-overview'] })
+      invalidateRev()
       show('Ревизия проведена', 'success')
-      setOrder([]); setEntries({}); setQuery(''); setRevealSummary(false)
+      setOrder([]); setEntries({}); setQuery(''); setRevealSummary(false); setDraftId(null)
       setViewId(res.revision.id)
       setMode('view')
     },
     onError: () => show('Не удалось провести ревизию — остатки не изменены', 'error'),
+  })
+
+  // Применить черновик (draft → applied).
+  const applyMut = useMutation({
+    mutationFn: ({ id, items }: { id: string; items: { itemId: string; actual: number }[] }) =>
+      api.post<{ revision: { id: string } }>(`/inventory/revisions/${id}/apply`, { items }),
+    onSuccess: (res) => {
+      invalidateRev()
+      show('Ревизия проведена', 'success')
+      setOrder([]); setEntries({}); setQuery(''); setRevealSummary(false); setDraftId(null)
+      setViewId(res.revision.id)
+      setMode('view')
+    },
+    onError: () => show('Не удалось провести ревизию — остатки не изменены', 'error'),
+  })
+
+  // Сохранить/обновить черновик (без применения к остаткам).
+  const draftMut = useMutation({
+    mutationFn: (payload: { id?: string; items: { itemId: string; actual: number | null }[] }) =>
+      api.post<{ id: string }>('/inventory/revisions/draft', payload),
+    onSuccess: (res) => { qc.invalidateQueries({ queryKey: ['revisions'] }); setDraftId(res.id) },
+  })
+
+  const deleteDraftMut = useMutation({
+    mutationFn: (id: string) => api.delete(`/inventory/revisions/${id}`),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['revisions'] }); show('Черновик удалён', 'success') },
+    onError: () => show('Не удалось удалить черновик', 'error'),
   })
 
   const patchMut = useMutation({
@@ -186,8 +221,12 @@ export function RevisionTab() {
   const showDiffs = !blind || revealSummary
 
   function startNew() {
-    setOrder([]); setEntries({}); setQuery(''); setRevealSummary(false)
+    setOrder([]); setEntries({}); setQuery(''); setRevealSummary(false); setDraftId(null)
     setMode('new')
+  }
+  function clearNew() {
+    setOrder([]); setEntries({}); setQuery(''); setRevealSummary(false); setDraftId(null)
+    setMode('list')
   }
   function addItem(id: string) {
     setOrder(prev => [id, ...prev])
@@ -197,13 +236,53 @@ export function RevisionTab() {
     setOrder(prev => prev.filter(x => x !== id))
     setEntries(prev => { const next = { ...prev }; delete next[id]; return next })
   }
-  function submitCreate() {
+  // Применить (провести): свежая → create, продолжение черновика → apply.
+  function applyItems() {
     const items = order
       .map(id => ({ itemId: id, actual: parseInt(entries[id] ?? '', 10) }))
       .filter(x => Number.isFinite(x.actual) && x.actual >= 0)
-    if (items.length === 0) return
-    createMut.mutate(items)
+    if (items.length === 0) return Promise.resolve()
+    return draftId ? applyMut.mutateAsync({ id: draftId, items }) : createMut.mutateAsync(items)
   }
+  function submitCreate() { void applyItems() }
+  // Сохранить черновик: все добавленные позиции (факт может быть пустым).
+  function saveDraft() {
+    const items = order.map(id => {
+      const v = entries[id]
+      const n = v === undefined || v === '' ? NaN : parseInt(v, 10)
+      return { itemId: id, actual: Number.isFinite(n) ? n : null }
+    })
+    return draftMut.mutateAsync({ id: draftId ?? undefined, items })
+  }
+  // Продолжить сохранённый черновик: префилл из draft_data.
+  async function openDraft(id: string) {
+    const d = await api.get<{ revision: { draftData?: { items: { itemId: string; actual: number | null }[] } } }>(`/inventory/revisions/${id}`)
+    const items = d.revision?.draftData?.items ?? []
+    setOrder(items.map(i => i.itemId))
+    setEntries(Object.fromEntries(items.filter(i => i.actual != null).map(i => [i.itemId, String(i.actual)])))
+    setDraftId(id); setRevealSummary(false); setQuery('')
+    setMode('new')
+  }
+
+  // Регистрация в guard: «грязно», когда начата ревизия (есть позиции в режиме new).
+  const guardRef = useRef<GuardRegistration>({ isDirty: () => false, onSave: () => {}, onDraft: () => {}, onDiscard: () => {}, title: 'ревизию' })
+  guardRef.current = {
+    isDirty: () => mode === 'new' && order.length > 0,
+    onSave: async () => { await applyItems() },
+    onDraft: async () => { await saveDraft(); clearNew() },
+    onDiscard: () => clearNew(),
+    title: 'ревизию',
+  }
+  useEffect(() => {
+    register({
+      isDirty: () => guardRef.current.isDirty(),
+      onSave: () => guardRef.current.onSave(),
+      onDraft: () => guardRef.current.onDraft(),
+      onDiscard: () => guardRef.current.onDiscard(),
+      title: 'ревизию',
+    })
+    return () => register(null)
+  }, [register])
 
   const detailItems = detail?.items ?? []
   const editChanges = detailItems
@@ -232,6 +311,7 @@ export function RevisionTab() {
   function backToList() {
     setEdits({})
     setViewId(null)
+    setDraftId(null)
     setMode('list')
   }
 
@@ -240,7 +320,7 @@ export function RevisionTab() {
       {/* Локальная шапка вкладки: назад (внутри ревизии) + действие */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
         {mode !== 'list' && (
-          <button onClick={backToList} aria-label="К списку ревизий" style={{ width: 40, height: 40, borderRadius: 11, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.05)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--on-surface-variant)', flexShrink: 0 }}>
+          <button onClick={() => attempt(backToList)} aria-label="К списку ревизий" style={{ width: 40, height: 40, borderRadius: 11, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.05)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--on-surface-variant)', flexShrink: 0 }}>
             <Icon name="arrow_back" size={18} />
           </button>
         )}
@@ -270,25 +350,37 @@ export function RevisionTab() {
           />
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {revList.map(r => (
-              <button key={r.id} onClick={() => openRevision(r.id)} className="glass-l2" style={{ width: '100%', textAlign: 'left', border: 'none', cursor: 'pointer', borderRadius: 16, padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 14, color: 'var(--on-surface)' }}>
-                <div style={{ width: 44, height: 44, borderRadius: 12, background: 'rgba(245,158,11,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                  <Icon name="fact_check" size={22} color="#F59E0B" />
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <p style={{ fontSize: 14, fontWeight: 700, margin: '0 0 3px' }}>{fmtDate(String(r.createdAt))}</p>
-                  <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: 0 }}>
-                    {r.positions} поз.{r.author ? ` · ${r.author}` : ''}{r.updatedAt ? ' · корректировалась' : ''}
-                  </p>
-                </div>
-                <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                  {r.surplusValue > 0 && <p style={{ fontSize: 13, fontWeight: 700, color: '#34D399', margin: 0, fontVariantNumeric: 'tabular-nums' }}>+{fmt(r.surplusValue)}</p>}
-                  {r.shortageValue > 0 && <p style={{ fontSize: 13, fontWeight: 700, color: '#F87171', margin: 0, fontVariantNumeric: 'tabular-nums' }}>−{fmt(r.shortageValue)}</p>}
-                  {r.surplusValue === 0 && r.shortageValue === 0 && <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: 0 }}>без расхождений</p>}
-                </div>
-                <Icon name="chevron_right" size={18} color="var(--on-surface-variant)" />
-              </button>
-            ))}
+            {revList.map(r => {
+              const isDraft = r.status === 'draft'
+              return (
+              <div key={r.id} className="glass-l2" style={{ width: '100%', borderRadius: 16, padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 14, border: isDraft ? '1px solid rgba(139,92,246,0.4)' : undefined }}>
+                <button onClick={() => isDraft ? openDraft(r.id) : openRevision(r.id)} style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 14, background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', color: 'var(--on-surface)', padding: 0 }}>
+                  <div style={{ width: 44, height: 44, borderRadius: 12, background: isDraft ? 'rgba(139,92,246,0.15)' : 'rgba(245,158,11,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <Icon name={isDraft ? 'edit' : 'fact_check'} size={22} color={isDraft ? '#a78bfa' : '#F59E0B'} />
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <p style={{ fontSize: 14, fontWeight: 700, margin: '0 0 3px', display: 'flex', alignItems: 'center', gap: 6 }}>
+                      {fmtDate(String(r.createdAt))}
+                      {isDraft && <span style={{ fontSize: 10, fontWeight: 800, padding: '1px 7px', borderRadius: 6, background: 'rgba(139,92,246,0.2)', color: '#c4b5fd', textTransform: 'uppercase', letterSpacing: '0.04em' }}>черновик</span>}
+                    </p>
+                    <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: 0 }}>
+                      {isDraft ? `${r.positions} поз. · продолжить` : `${r.positions} поз.${r.author ? ` · ${r.author}` : ''}${r.updatedAt ? ' · корректировалась' : ''}`}
+                    </p>
+                  </div>
+                  {!isDraft && (
+                    <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                      {r.surplusValue > 0 && <p style={{ fontSize: 13, fontWeight: 700, color: '#34D399', margin: 0, fontVariantNumeric: 'tabular-nums' }}>+{fmt(r.surplusValue)}</p>}
+                      {r.shortageValue > 0 && <p style={{ fontSize: 13, fontWeight: 700, color: '#F87171', margin: 0, fontVariantNumeric: 'tabular-nums' }}>−{fmt(r.shortageValue)}</p>}
+                      {r.surplusValue === 0 && r.shortageValue === 0 && <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: 0 }}>без расхождений</p>}
+                    </div>
+                  )}
+                </button>
+                {isDraft
+                  ? <button onClick={() => deleteDraftMut.mutate(r.id)} aria-label="Удалить черновик" style={{ width: 34, height: 34, borderRadius: 10, border: '1px solid rgba(244,63,94,0.25)', background: 'rgba(244,63,94,0.08)', color: '#F87171', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Icon name="delete" size={16} /></button>
+                  : <Icon name="chevron_right" size={18} color="var(--on-surface-variant)" />}
+              </div>
+              )
+            })}
           </div>
         )
       )}

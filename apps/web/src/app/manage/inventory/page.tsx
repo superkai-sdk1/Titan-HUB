@@ -5,9 +5,11 @@
  * Источник истины остатка — журнал движений (stock_movements), остаток = SUM(delta).
  */
 import React, { useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { PageHeader, formatMoney } from '@/components/manage/DesignSystem'
+import { UnsavedGuardProvider, useUnsavedGuard } from '@/components/manage/UnsavedGuard'
 import { Icon } from '@/components/Icon'
 import { format } from 'date-fns'
 import { ru } from 'date-fns/locale'
@@ -52,6 +54,16 @@ function KpiCard({ icon, color, value, label, onClick, active }: { icon: string;
 }
 
 export default function StockHubPage() {
+  return (
+    <UnsavedGuardProvider>
+      <StockHub />
+    </UnsavedGuardProvider>
+  )
+}
+
+function StockHub() {
+  const router = useRouter()
+  const { attempt } = useUnsavedGuard()
   const [tab, setTab] = useState<Tab>('items')
   const [itemsFilter, setItemsFilter] = useState<ItemsFilter>('all')
 
@@ -60,12 +72,15 @@ export default function StockHubPage() {
     const t = new URLSearchParams(window.location.search).get('tab')
     if (isTab(t)) setTab(t)
   }, [])
-  function changeTab(t: Tab) {
+  function doChangeTab(t: Tab) {
     setTab(t)
     const url = new URL(window.location.href)
     url.searchParams.set('tab', t)
     window.history.replaceState(null, '', url.toString())
   }
+  // Смена вкладки проходит через guard: если активная вкладка «грязная» (начатая
+  // ревизия/поставка) — покажется диалог Сохранить/Черновик/Отменить.
+  function changeTab(t: Tab) { attempt(() => doChangeTab(t)) }
 
   const { data: ov } = useQuery<Overview>({
     queryKey: ['inventory-overview'],
@@ -82,7 +97,7 @@ export default function StockHubPage() {
 
   return (
     <div style={{ minHeight: '100dvh', display: 'flex', flexDirection: 'column' }}>
-      <PageHeader title="Склад" subtitle={subtitle} />
+      <PageHeader title="Склад" subtitle={subtitle} onBack={() => attempt(() => router.push('/manage'))} />
 
       <div style={{ padding: '16px 16px var(--bottom-nav-clear, 24px)', flex: 1, maxWidth: 'var(--content-narrow)', margin: '0 auto', width: '100%', boxSizing: 'border-box' }}>
         {/* Дашборд */}

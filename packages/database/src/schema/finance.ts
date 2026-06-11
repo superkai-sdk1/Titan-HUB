@@ -98,6 +98,13 @@ export const bonusLots = pgTable('bonus_lots', {
 export const supplies = pgTable('supplies', {
   id: uuid('id').primaryKey().defaultRandom(),
   idempotencyKey: text('idempotency_key'),
+  // 'posted' — проведённая (есть supply_items + движения receipt); 'draft' — черновик
+  // (рабочее состояние в draftData, остатки/WAC не тронуты). Миграция 046.
+  status: text('status').notNull().default('posted'),
+  draftData: jsonb('draft_data').$type<{
+    note?: string; supplier?: string
+    items: { itemId?: string | null; name?: string; unit?: string; quantity: number; costPerUnit: number }[]
+  }>(),
   note: text('note'),
   supplier: text('supplier'),
   totalCost: numeric('total_cost', { precision: 12, scale: 2 }).notNull().default('0'),
@@ -280,6 +287,10 @@ export type CashOperation = typeof cashOperations.$inferSelect
 // ревизии пересчитывает остаток на дельту (новый факт − старый факт).
 export const revisions = pgTable('revisions', {
   id: uuid('id').primaryKey().defaultRandom(),
+  // 'applied' — проведённая (есть revision_items + движения); 'draft' — черновик
+  // (рабочее состояние в draftData, остатки не тронуты). Миграция 046.
+  status: text('status').notNull().default('applied'),
+  draftData: jsonb('draft_data').$type<{ items: { itemId: string; actual: number | null }[] }>(),
   createdBy: uuid('created_by').references(() => profiles.id),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }),
