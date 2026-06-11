@@ -1333,9 +1333,17 @@ function PosPageInner() {
 
       <style>{`
         .pos-split-handle { display: none; }
+        @keyframes split-panel-in {
+          from { opacity: 0; transform: translateX(28px); }
+          to   { opacity: 1; transform: none; }
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .pos-right-panel { animation: none !important; }
+        }
         @media (min-width: 1024px) {
           .pos-right-panel {
             width: var(--pos-right-w, 680px) !important;
+            animation: split-panel-in 240ms cubic-bezier(0.22, 1, 0.36, 1) both;
           }
           .pos-split-handle {
             display: flex; align-items: center; justify-content: center;
