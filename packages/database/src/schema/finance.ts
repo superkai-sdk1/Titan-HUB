@@ -58,6 +58,9 @@ export const transactions = pgTable('transactions', {
   type: text('type').notNull(),
   amount: numeric('amount', { precision: 12, scale: 2 }).notNull(),
   description: text('description'),
+  // Ключ идемпотентности денежных операций (миграция 045): повтор с тем же ключом
+  // не задваивает изменение баланса. NULL для операций без защиты (POS и т.п.).
+  idempotencyKey: text('idempotency_key'),
   checkId: uuid('check_id').references(() => checks.id),
   playerId: uuid('player_id').references(() => profiles.id),
   itemId: uuid('item_id').references(() => inventory.id),

@@ -73,6 +73,22 @@ clientsRouter.get('/', async (c) => {
     return c.json({ clients: safe, total: safe.length, page: 1, limit: safe.length })
   }
 
+  // balances filter — все клиенты с НЕнулевым балансом (депозиты + долги) для
+  // единого экрана «Депозиты и долги». Сортировка desc: депозиты сверху, долги снизу.
+  if (filter === 'balances') {
+    const clients = await db
+      .select()
+      .from(profiles)
+      .where(and(
+        inArray(profiles.role, CLIENT_ROLES),
+        isNull(profiles.deletedAt),
+        sql`${profiles.balance}::numeric <> 0`,
+      ))
+      .orderBy(sql`${profiles.balance}::numeric desc`)
+    const safe = clients.map(({ pin, passwordHash, ...c }) => c)
+    return c.json({ clients: safe, total: safe.length, page: 1, limit: safe.length })
+  }
+
   // deposits filter — clients with positive balance (депозит)
   if (filter === 'deposits') {
     const clients = await db
@@ -364,8 +380,10 @@ clientsRouter.post('/:id/balance', requireRole('owner', 'staff'), zValidator('js
   amount: z.number(),
   description: z.string().min(3, 'Причина обязательна (минимум 3 символа)').optional(),
   reason: z.string().min(3, 'Причина обязательна (минимум 3 символа)').optional(),
+  // Ключ идемпотентности (опционально): повтор с тем же ключом не задваивает баланс.
+  idempotencyKey: z.string().min(1).max(80).optional(),
 })), async (c) => {
-  const { amount, description, reason } = c.req.valid('json')
+  const { amount, description, reason, idempotencyKey } = c.req.valid('json')
   const note = description ?? reason
   if (!note) {
     return c.json({ error: 'Необходимо указать причину изменения баланса (description или reason)' }, 400)
@@ -379,6 +397,7 @@ clientsRouter.post('/:id/balance', requireRole('owner', 'staff'), zValidator('js
   type Result =
     | { kind: 'not_found' }
     | { kind: 'limit'; maxDebt: number; newBalance: number }
+    | { kind: 'duplicate'; newBalance: number }
     | { kind: 'ok'; newBalance: number; prevBalance: number }
 
   const result = await db.transaction<Result>(async (tx) => {
@@ -401,22 +420,30 @@ clientsRouter.post('/:id/balance', requireRole('owner', 'staff'), zValidator('js
       }
     }
 
-    await tx.execute(sql`
-      UPDATE profiles SET balance = ${String(newBalance)} WHERE id = ${clientId}
-    `)
-
-    await tx.insert(transactions).values({
+    // Сначала пишем транзакцию (с ключом идемпотентности, если есть). Повтор с тем же
+    // ключом → ON CONFLICT DO NOTHING вернёт 0 строк → баланс НЕ меняем (дубль).
+    const ins = await tx.insert(transactions).values({
       type: amount >= 0 ? 'deposit' : 'withdrawal',
       amount: String(Math.abs(amount)),
       playerId: clientId,
       createdBy: user.sub,
       description: note,
-    })
+      idempotencyKey: idempotencyKey ?? null,
+    }).onConflictDoNothing({ target: transactions.idempotencyKey }).returning({ id: transactions.id })
+
+    if (idempotencyKey && ins.length === 0) {
+      return { kind: 'duplicate', newBalance: currentBalance }
+    }
+
+    await tx.execute(sql`
+      UPDATE profiles SET balance = ${String(newBalance)} WHERE id = ${clientId}
+    `)
 
     return { kind: 'ok', newBalance, prevBalance: currentBalance }
   })
 
   if (result.kind === 'not_found') return c.json({ error: 'Not found' }, 404)
+  if (result.kind === 'duplicate') return c.json({ balance: result.newBalance, duplicate: true })
   if (result.kind === 'limit') {
     return c.json({ error: `Превышен лимит долга (${result.maxDebt}₽). Запрошенный баланс: ${result.newBalance.toFixed(2)}₽` }, 400)
   }

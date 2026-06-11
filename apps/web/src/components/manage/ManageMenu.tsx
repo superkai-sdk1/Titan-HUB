@@ -54,8 +54,8 @@ const NAV: NavGroup[] = [
     items: [
       { href: '/manage/clients',   label: 'Клиенты',   icon: 'person',     color: '#4cd7f6', bg: 'rgba(76,215,246,0.15)', roles: ['owner','staff'], perm: 'clients' },
       { href: '/manage/customers', label: 'Заказчики', icon: 'person_add', color: '#8B5CF6', bg: 'rgba(139,92,246,0.15)', roles: ['owner','staff'] },
-      { href: '/manage/deposits',  label: 'Депозиты',  icon: 'savings',    color: '#06B6D4', bg: 'rgba(6,182,212,0.15)',  roles: ['owner','staff'] },
-      { href: '/manage/debtors',   label: 'Должники',  icon: 'money_off',  color: '#F97316', bg: 'rgba(249,115,22,0.15)', roles: ['owner','staff'], perm: 'debtors' },
+      // Единый экран «Депозиты и долги»: депозит и долг — один баланс, вкладки внутри.
+      { href: '/manage/balances',  label: 'Депозиты и долги', icon: 'account_balance', color: '#06B6D4', bg: 'rgba(6,182,212,0.15)', roles: ['owner','staff'], perm: 'debtors' },
     ],
   },
   {
