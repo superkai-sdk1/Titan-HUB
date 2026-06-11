@@ -1,9 +1,7 @@
 'use client'
-import { useEffect } from 'react'
-import { useRouter } from 'next/navigation'
-
-export default function ManageEventsRedirect() {
-  const router = useRouter()
-  useEffect(() => { router.replace('/events') }, [router])
-  return null
-}
+/**
+ * «Мероприятия» внутри сплита «Управления»: рендерим ту же страницу, что и
+ * /events (раньше тут был redirect — раздел выпадал из сплита и стандартов).
+ * Маршрут /events остаётся рабочим для диплинков из уведомлений и мобильного.
+ */
+export { default } from '../../events/page'

@@ -130,7 +130,7 @@ export default function SalaryPage() {
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100dvh' }}>
       <PageHeader title="Зарплаты" subtitle={`Ежедневная выплата · ${dayLabel}`} />
 
-      <div style={{ padding: '16px 16px var(--bottom-nav-clear, 24px)', maxWidth: 600, margin: '0 auto', width: '100%' }}>
+      <div style={{ padding: '16px 16px var(--bottom-nav-clear, 24px)', maxWidth: 'var(--content-narrow)', margin: '0 auto', width: '100%' }}>
         {/* Calculator Card */}
         <div className="glass-l2" style={{ borderRadius: 20, padding: 24, marginBottom: 24 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20 }}>

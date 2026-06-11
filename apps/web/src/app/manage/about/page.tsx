@@ -270,7 +270,7 @@ export default function AboutPage() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100dvh' }}>
       <PageHeader title="О системе" subtitle="Информация о версии и состоянии системы" />
-      <div style={{ padding: '20px 16px var(--bottom-nav-clear, 24px)', maxWidth: 720, margin: '0 auto', width: '100%' }}>
+      <div style={{ padding: '20px 16px var(--bottom-nav-clear, 24px)', maxWidth: 'var(--content-narrow)', margin: '0 auto', width: '100%' }}>
 
         {/* Версия приложения */}
         <div style={{ ...CARD, marginBottom: 16 }}>
