@@ -129,7 +129,7 @@ function PosRow({ pos, idx, onChange, onRemove, canRemove }: { pos: Pos; idx: nu
         <span style={{ color: 'var(--on-surface-variant)' }}>×</span>
         <input type="number" inputMode="decimal" min="0" step="0.001" value={pos.qty} onChange={e => onChange({ qty: e.target.value })} placeholder="Кол-во" style={{ ...INP, width: 80 }} />
         <span style={{ color: 'var(--on-surface-variant)' }}>=</span>
-        <span style={{ minWidth: 80, textAlign: 'right', fontWeight: 800, fontStyle: 'italic', color: catColor, fontFamily: "'JetBrains Mono',monospace" }}>{formatMoney(total)}</span>
+        <span style={{ minWidth: 80, textAlign: 'right', fontWeight: 800, color: catColor, fontFamily: "'JetBrains Mono',monospace" }}>{formatMoney(total)}</span>
       </div>
     </div>
   )
@@ -221,7 +221,7 @@ export default function ExpensesPage() {
         <div style={{ maxWidth: 680, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 8 }}>
           <div style={{ display: 'flex', gap: 6, overflowX: 'auto', scrollbarWidth: 'none' }}>
             {PRESETS.map(f => (
-              <button key={f.key} onClick={() => setPreset(f.key)} style={{ flexShrink: 0, padding: '7px 14px', borderRadius: 9999, border: preset === f.key ? 'none' : '1px solid rgba(255,255,255,0.1)', cursor: 'pointer', fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap', background: preset === f.key ? 'linear-gradient(135deg,#9D6CFF,#8B5CF6 45%,#4cd7f6 130%)' : 'rgba(255,255,255,0.05)', color: preset === f.key ? '#fff' : 'var(--on-surface-variant)', boxShadow: preset === f.key ? '0 3px 14px rgba(139,92,246,0.4), inset 0 1px 0 rgba(255,255,255,0.25)' : 'none', transition: 'transform 0.18s cubic-bezier(0.34,1.56,0.64,1)', WebkitTapHighlightColor: 'transparent', touchAction: 'manipulation' }} onPointerDown={e => { e.currentTarget.style.transform = 'scale(0.94)' }} onPointerUp={e => { e.currentTarget.style.transform = 'scale(1)' }} onPointerLeave={e => { e.currentTarget.style.transform = 'scale(1)' }}>
+              <button key={f.key} onClick={() => setPreset(f.key)} style={{ flexShrink: 0, padding: '7px 14px', borderRadius: 9999, border: preset === f.key ? 'none' : '1px solid rgba(255,255,255,0.1)', cursor: 'pointer', fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap', background: preset === f.key ? 'var(--primary-violet)' : 'rgba(255,255,255,0.05)', color: preset === f.key ? '#fff' : 'var(--on-surface-variant)', transition: 'transform 0.18s cubic-bezier(0.34,1.56,0.64,1)', WebkitTapHighlightColor: 'transparent', touchAction: 'manipulation' }} onPointerDown={e => { e.currentTarget.style.transform = 'scale(0.94)' }} onPointerUp={e => { e.currentTarget.style.transform = 'scale(1)' }} onPointerLeave={e => { e.currentTarget.style.transform = 'scale(1)' }}>
                 {f.label}
               </button>
             ))}
@@ -240,12 +240,12 @@ export default function ExpensesPage() {
         {/* Два итога рядом */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 }}>
           <div className="glass-l2" style={{ borderRadius: 16, padding: 16 }}>
-            <p style={{ fontSize: 22, fontWeight: 900, fontStyle: 'italic', color: '#F43F5E', margin: '0 0 4px', lineHeight: 1, fontFamily: "'JetBrains Mono',monospace" }}>{formatMoney(pnlTotal)}</p>
+            <p style={{ fontSize: 22, fontWeight: 900, color: '#F43F5E', margin: '0 0 4px', lineHeight: 1, fontFamily: "'JetBrains Mono',monospace" }}>{formatMoney(pnlTotal)}</p>
             <p style={{ fontSize: 10, color: 'var(--on-surface-variant)', margin: 0, textTransform: 'uppercase', letterSpacing: '0.06em', fontFamily: "'JetBrains Mono',monospace" }}>Расходы (P&L)</p>
             <p style={{ fontSize: 10, color: 'rgba(204,195,216,0.45)', margin: '2px 0 0' }}>опекс + зарплата</p>
           </div>
           <div className="glass-l2" style={{ borderRadius: 16, padding: 16 }}>
-            <p style={{ fontSize: 22, fontWeight: 900, fontStyle: 'italic', color: '#8B5CF6', margin: '0 0 4px', lineHeight: 1, fontFamily: "'JetBrains Mono',monospace" }}>{formatMoney(staffTotal)}</p>
+            <p style={{ fontSize: 22, fontWeight: 900, color: '#8B5CF6', margin: '0 0 4px', lineHeight: 1, fontFamily: "'JetBrains Mono',monospace" }}>{formatMoney(staffTotal)}</p>
             <p style={{ fontSize: 10, color: 'var(--on-surface-variant)', margin: 0, textTransform: 'uppercase', letterSpacing: '0.06em', fontFamily: "'JetBrains Mono',monospace" }}>Затраты на персонал</p>
             <p style={{ fontSize: 10, color: 'rgba(204,195,216,0.45)', margin: '2px 0 0' }}>зарплата + себест. списаний</p>
           </div>
@@ -304,7 +304,7 @@ export default function ExpensesPage() {
                   </p>
                 </div>
                 <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                  <p style={{ fontSize: 14, fontWeight: 800, fontStyle: 'italic', color: '#8B5CF6', margin: 0, fontFamily: "'JetBrains Mono',monospace" }}>{formatMoney(s.total)}</p>
+                  <p style={{ fontSize: 14, fontWeight: 800, color: '#8B5CF6', margin: 0, fontFamily: "'JetBrains Mono',monospace" }}>{formatMoney(s.total)}</p>
                   <p style={{ fontSize: 9, color: 'var(--on-surface-variant)', margin: 0, textTransform: 'uppercase', letterSpacing: '0.05em' }}>итого</p>
                 </div>
               </div>
@@ -334,13 +334,12 @@ export default function ExpensesPage() {
               try { dateStr = format(new Date(e.expenseDate), 'd MMM', { locale: ru }) } catch { dateStr = e.expenseDate }
               return (
                 <div key={e.id} className="glass-l2" style={{ position: 'relative', overflow: 'hidden', display: 'flex', alignItems: 'center', gap: 14, padding: '14px 16px', borderRadius: 14 }}>
-                  <div style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 3, background: `linear-gradient(180deg, ${catColor}, ${catColor}44)` }} />
-                  <div style={{ width: 44, height: 44, borderRadius: '50%', flexShrink: 0, background: `${catColor}22`, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: `0 0 12px ${catColor}22` }}>
+                  <div style={{ width: 44, height: 44, borderRadius: '50%', flexShrink: 0, background: `${catColor}22`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     <Icon name={catIcon} size={22} color={catColor} />
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 4 }}>
-                      <span style={{ fontWeight: 800, fontStyle: 'italic', fontSize: 15, color: 'var(--on-surface)', fontFamily: "'JetBrains Mono',monospace" }}>{formatMoney(e.amount)}</span>
+                      <span style={{ fontWeight: 800, fontSize: 15, color: 'var(--on-surface)', fontFamily: "'JetBrains Mono',monospace" }}>{formatMoney(e.amount)}</span>
                       <span style={{ fontSize: 12, color: 'var(--on-surface-variant)' }}>{dateStr}</span>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' as const }}>
@@ -375,7 +374,7 @@ export default function ExpensesPage() {
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', padding: '10px 4px' }}>
             <span style={{ fontSize: 13, color: 'var(--on-surface-variant)' }}>Итого</span>
-            <span style={{ fontSize: 20, fontWeight: 900, fontStyle: 'italic', color: '#F43F5E', fontFamily: "'JetBrains Mono',monospace" }}>{formatMoney(formTotal)}</span>
+            <span style={{ fontSize: 20, fontWeight: 900, color: '#F43F5E', fontFamily: "'JetBrains Mono',monospace" }}>{formatMoney(formTotal)}</span>
           </div>
           <Button fullWidth size="lg" loading={createMutation.isPending} disabled={formTotal <= 0} onClick={submitForm} style={{ marginTop: 4 }}>Создать расход</Button>
         </div>

@@ -32,16 +32,14 @@ export function StateView({ state, icon, title, description, action }: StateView
     }}>
       <div style={{
         width: 80, height: 80, borderRadius: 24,
-        background: state === 'loading' ? 'linear-gradient(160deg, rgba(139,92,246,0.18), rgba(76,215,246,0.06))'
-          : state === 'error' ? 'linear-gradient(160deg, rgba(244,63,94,0.16), rgba(244,63,94,0.05))'
-          : 'linear-gradient(160deg, rgba(255,255,255,0.07), rgba(255,255,255,0.02))',
-        border: `1px solid ${state === 'loading' ? 'rgba(139,92,246,0.28)'
-          : state === 'error' ? 'rgba(244,63,94,0.24)'
-          : 'rgba(255,255,255,0.1)'}`,
-        boxShadow: state === 'loading' ? 'inset 0 1px 0 rgba(255,255,255,0.08)' : 'inset 0 1px 0 rgba(255,255,255,0.05)',
+        background: state === 'loading' ? 'rgba(139,92,246,0.1)'
+          : state === 'error' ? 'rgba(244,63,94,0.08)'
+          : 'rgba(255,255,255,0.04)',
+        border: `1px solid ${state === 'loading' ? 'rgba(139,92,246,0.22)'
+          : state === 'error' ? 'rgba(244,63,94,0.2)'
+          : 'rgba(255,255,255,0.08)'}`,
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         marginBottom: 18,
-        animation: state === 'loading' ? 'sv-pulse 1.8s ease-in-out infinite' : 'none',
       }}>
         <Icon
           name={finalIcon}
@@ -66,10 +64,10 @@ export function StateView({ state, icon, title, description, action }: StateView
           onPointerLeave={e => { e.currentTarget.style.transform = 'scale(1)' }}
           style={{
             marginTop: 20, padding: '12px 24px', borderRadius: 14, border: 'none', cursor: 'pointer',
-            background: 'linear-gradient(135deg, #9D6CFF 0%, #8B5CF6 42%, #4cd7f6 130%)',
+            background: 'var(--primary-violet)',
             color: '#fff', fontSize: 13, fontWeight: 700,
             display: 'flex', alignItems: 'center', gap: 8, minHeight: 44,
-            boxShadow: '0 6px 22px rgba(139,92,246,0.38), inset 0 1px 0 rgba(255,255,255,0.28)',
+            boxShadow: '0 2px 10px rgba(0,0,0,0.25)',
             transition: 'transform 0.22s cubic-bezier(0.34,1.56,0.64,1)',
             WebkitTapHighlightColor: 'transparent', touchAction: 'manipulation',
           }}
@@ -78,7 +76,7 @@ export function StateView({ state, icon, title, description, action }: StateView
           {action.label}
         </button>
       )}
-      <style>{`@keyframes sv-spin { to { transform: rotate(360deg); } } @keyframes sv-pulse { 0%, 100% { box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 0 0 0 rgba(139,92,246,0.0); } 50% { box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 0 22px 2px rgba(139,92,246,0.35); } }`}</style>
+      <style>{`@keyframes sv-spin { to { transform: rotate(360deg); } }`}</style>
     </div>
   )
 }

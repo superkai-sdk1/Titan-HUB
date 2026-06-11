@@ -269,7 +269,7 @@ export default function EventsPage() {
                   onMouseEnter={e => { e.currentTarget.style.borderColor = `${statusColor}44`; e.currentTarget.style.transform = 'translateY(-1px)' }}
                   onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)'; e.currentTarget.style.transform = 'translateY(0)' }}>
                   <div style={{ width: 54, height: 54, borderRadius: 14, background: `${statusColor}18`, border: `1px solid ${statusColor}33`, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                    <span style={{ fontSize: 20, fontWeight: 900, fontStyle: 'italic', color: statusColor, lineHeight: 1 }}>{day}</span>
+                    <span style={{ fontSize: 20, fontWeight: 900, color: statusColor, lineHeight: 1 }}>{day}</span>
                     <span style={{ fontSize: 10, color: statusColor, textTransform: 'uppercase', letterSpacing: '0.04em', fontFamily: "'JetBrains Mono',monospace" }}>{month}</span>
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
@@ -331,7 +331,7 @@ export default function EventsPage() {
             })}
             {/* Миникап — отдельная форма/логика. */}
             <button onClick={() => { setShowForm(false); openMinicap(null) }}
-              style={{ flex: 1, padding: '16px 12px', borderRadius: 16, border: `1.5px solid ${MINICAP_LABEL[2]}`, background: `${MINICAP_LABEL[2]}1f`, color: MINICAP_LABEL[2], cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, boxShadow: `0 0 18px ${MINICAP_LABEL[2]}25` }}>
+              style={{ flex: 1, padding: '16px 12px', borderRadius: 16, border: `1.5px solid ${MINICAP_LABEL[2]}`, background: `${MINICAP_LABEL[2]}1f`, color: MINICAP_LABEL[2], cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
               <Icon name={MINICAP_LABEL[1]} size={26} />
               <span style={{ fontSize: 13, fontWeight: 700 }}>{MINICAP_LABEL[0]}</span>
               <span style={{ fontSize: 10, opacity: 0.7, textAlign: 'center' }}>состав + взносы</span>
@@ -385,7 +385,7 @@ export default function EventsPage() {
           {/* Пространство — 4 кнопки в ряд (titan) */}
           {form.type === 'titan' && spacesList.length > 0 && (
             <FormSection title="Пространство">
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))', gap: 8 }}>
                 {spacesList.map((s) => {
                   const active = form.spaceId === s.id
                   return (

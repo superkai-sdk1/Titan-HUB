@@ -53,11 +53,11 @@ export function Toggle({
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onChange(!value) } }}
       style={{
         width: d.w, height: d.h, borderRadius: d.h / 2,
-        background: value ? `linear-gradient(135deg, ${color}, #4cd7f6)` : 'rgba(255,255,255,0.1)',
+        background: value ? color : 'rgba(255,255,255,0.1)',
         position: 'relative', cursor: 'pointer',
-        transition: 'background 0.25s, box-shadow 0.25s',
+        transition: 'background 0.25s',
         flexShrink: 0,
-        boxShadow: value ? `0 0 16px ${color}66, inset 0 1px 1px rgba(255,255,255,0.25)` : 'inset 0 1px 2px rgba(0,0,0,0.35)',
+        boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.25)',
         WebkitTapHighlightColor: 'transparent', touchAction: 'manipulation',
       }}
     >
@@ -290,7 +290,7 @@ export function Sheet({
                   borderBottom: '1px solid rgba(255,255,255,0.06)',
                   flexShrink: 0,
                 }}>
-                  <h2 style={{ fontSize: 17, fontWeight: 800, margin: 0, background: 'linear-gradient(135deg, #C4B5FD, #4cd7f6)', WebkitBackgroundClip: 'text', backgroundClip: 'text', WebkitTextFillColor: 'transparent', letterSpacing: '-0.01em' }}>{title}</h2>
+                  <h2 style={{ fontSize: 17, fontWeight: 700, margin: 0, color: 'var(--on-surface)', letterSpacing: '-0.01em' }}>{title}</h2>
                   <button onClick={onClose} aria-label="Закрыть" style={{
                     width: 32, height: 32, borderRadius: 9,
                     border: '1px solid rgba(255,255,255,0.1)',
@@ -390,8 +390,8 @@ export function Sheet({
                 }}
               >
                 <div style={{
-                  width: 44, height: 5,
-                  background: 'linear-gradient(90deg, rgba(139,92,246,0.5), rgba(76,215,246,0.5))',
+                  width: 40, height: 4,
+                  background: 'rgba(255,255,255,0.2)',
                   borderRadius: 4,
                   margin: '0 auto',
                 }} />
@@ -405,7 +405,7 @@ export function Sheet({
                   borderBottom: '1px solid rgba(255,255,255,0.06)',
                   flexShrink: 0,
                 }}>
-                  <h2 style={{ fontSize: 17, fontWeight: 800, margin: 0, background: 'linear-gradient(135deg, #C4B5FD, #4cd7f6)', WebkitBackgroundClip: 'text', backgroundClip: 'text', WebkitTextFillColor: 'transparent', letterSpacing: '-0.01em' }}>{title}</h2>
+                  <h2 style={{ fontSize: 17, fontWeight: 700, margin: 0, color: 'var(--on-surface)', letterSpacing: '-0.01em' }}>{title}</h2>
                   <button onClick={onClose} aria-label="Закрыть" style={{
                     width: 30, height: 30, borderRadius: 9,
                     border: '1px solid rgba(255,255,255,0.1)',
@@ -466,7 +466,6 @@ export function PageHeader({
       borderBottom: '1px solid rgba(255,255,255,0.06)',
       padding: '16px 20px',
     }}>
-      <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: 1, background: 'linear-gradient(90deg, transparent, rgba(139,92,246,0.4), rgba(76,215,246,0.3), transparent)' }} />
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, maxWidth: 680, margin: '0 auto', width: '100%' }}>
         <button
           onClick={onBack ?? (() => router.back())}
@@ -474,12 +473,12 @@ export function PageHeader({
           onPointerDown={e => { e.currentTarget.style.transform = 'scale(0.9)' }}
           onPointerUp={e => { e.currentTarget.style.transform = 'scale(1)' }}
           onPointerLeave={e => { e.currentTarget.style.transform = 'scale(1)' }}
-          style={{ width: 44, height: 44, borderRadius: 12, border: '1px solid rgba(255,255,255,0.1)', background: 'linear-gradient(135deg, rgba(255,255,255,0.08), rgba(255,255,255,0.035))', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--on-surface-variant)', flexShrink: 0, transition: 'transform 0.22s cubic-bezier(0.34,1.56,0.64,1), border-color 0.2s', WebkitTapHighlightColor: 'transparent', touchAction: 'manipulation' }}
+          style={{ width: 44, height: 44, borderRadius: 12, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.05)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--on-surface-variant)', flexShrink: 0, transition: 'transform 0.22s cubic-bezier(0.34,1.56,0.64,1), border-color 0.2s', WebkitTapHighlightColor: 'transparent', touchAction: 'manipulation' }}
         >
           <Icon name="arrow_back" size={18} />
         </button>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <h1 style={{ fontSize: 20, fontWeight: 900, fontStyle: 'italic', letterSpacing: '-0.01em', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', background: 'linear-gradient(135deg, #A78BFA, #4cd7f6)', WebkitBackgroundClip: 'text', backgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>{title}</h1>
+          <h1 style={{ fontSize: 20, fontWeight: 700, letterSpacing: '-0.01em', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--on-surface)' }}>{title}</h1>
           {subtitle && <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: '2px 0 0' }}>{subtitle}</p>}
         </div>
         {action && (
@@ -488,7 +487,7 @@ export function PageHeader({
             onPointerDown={e => { e.currentTarget.style.transform = 'scale(0.95)' }}
             onPointerUp={e => { e.currentTarget.style.transform = 'scale(1)' }}
             onPointerLeave={e => { e.currentTarget.style.transform = 'scale(1)' }}
-            style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 16px', borderRadius: 14, border: 'none', cursor: 'pointer', background: 'linear-gradient(135deg, #9D6CFF 0%, #8B5CF6 42%, #4cd7f6 130%)', color: '#fff', fontSize: 13, fontWeight: 700, flexShrink: 0, boxShadow: '0 6px 22px rgba(139,92,246,0.38), inset 0 1px 0 rgba(255,255,255,0.28)', transition: 'transform 0.22s cubic-bezier(0.34,1.56,0.64,1)', WebkitTapHighlightColor: 'transparent', touchAction: 'manipulation' }}
+            style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 16px', borderRadius: 12, border: 'none', cursor: 'pointer', background: 'var(--primary-violet)', color: '#fff', fontSize: 13, fontWeight: 700, flexShrink: 0, minHeight: 44, boxShadow: '0 2px 10px rgba(0,0,0,0.25)', transition: 'transform 0.22s cubic-bezier(0.34,1.56,0.64,1)', WebkitTapHighlightColor: 'transparent', touchAction: 'manipulation' }}
           >
             <Icon name={action.icon} size={18} />
             {action.label}
@@ -550,8 +549,8 @@ export function ToggleRow({
 
 export function StatChip({ value, label, color }: { value: string | number; label: string; color: string }) {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '10px 14px', borderRadius: 12, background: `linear-gradient(160deg, ${color}1f, ${color}0a)`, border: `1px solid ${color}33`, boxShadow: `inset 0 1px 0 rgba(255,255,255,0.06)`, minWidth: 72 }}>
-      <span style={{ fontSize: 18, fontWeight: 800, color, fontStyle: 'italic', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{value}</span>
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '10px 14px', borderRadius: 12, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', minWidth: 72 }}>
+      <span style={{ fontSize: 18, fontWeight: 800, color, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{value}</span>
       <span style={{ fontSize: 10, color: 'var(--on-surface-variant)', marginTop: 4, fontFamily: "'JetBrains Mono',monospace", textTransform: 'uppercase', letterSpacing: '0.06em' }}>{label}</span>
     </div>
   )
@@ -576,13 +575,13 @@ export function SaveButton({
       onPointerLeave={e => { e.currentTarget.style.transform = 'scale(1)' }}
       style={{
         width: '100%', padding: '16px', borderRadius: 16, border: 'none', cursor: isPending ? 'not-allowed' : 'pointer',
-        background: isSaved ? 'linear-gradient(135deg, #10B981, #0EA5A5)' : isPending ? 'rgba(255,255,255,0.08)' : 'linear-gradient(135deg, #9D6CFF 0%, #8B5CF6 42%, #4cd7f6 130%)',
+        background: isSaved ? 'var(--success, #10B981)' : isPending ? 'rgba(255,255,255,0.08)' : 'var(--primary-violet)',
         color: isPending ? 'var(--on-surface-variant)' : '#fff',
         fontSize: 15, fontWeight: 700,
-        transition: 'background 0.3s, box-shadow 0.3s, transform 0.22s cubic-bezier(0.34,1.56,0.64,1)',
+        transition: 'background 0.3s, transform 0.22s cubic-bezier(0.34,1.56,0.64,1)',
         display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
         WebkitTapHighlightColor: 'transparent', touchAction: 'manipulation',
-        boxShadow: isSaved ? '0 6px 22px rgba(16,185,129,0.35), inset 0 1px 0 rgba(255,255,255,0.25)' : isPending ? 'none' : '0 6px 22px rgba(139,92,246,0.38), inset 0 1px 0 rgba(255,255,255,0.28)',
+        boxShadow: isPending ? 'none' : '0 2px 10px rgba(0,0,0,0.25)',
       }}
     >
       {isSaved
@@ -615,7 +614,7 @@ type ButtonVariant = 'primary' | 'secondary' | 'danger' | 'ghost'
 type ButtonSize = 'sm' | 'md' | 'lg'
 
 const BTN_SIZES: Record<ButtonSize, { minHeight: number; padding: string; fontSize: number; radius: number; icon: number }> = {
-  sm: { minHeight: 38, padding: '0 14px', fontSize: 13, radius: 12, icon: 16 },
+  sm: { minHeight: 40, padding: '0 14px', fontSize: 13, radius: 12, icon: 16 },
   md: { minHeight: 44, padding: '0 18px', fontSize: 14, radius: 14, icon: 18 },
   lg: { minHeight: 52, padding: '0 22px', fontSize: 15, radius: 16, icon: 20 },
 }
@@ -640,9 +639,9 @@ export function Button({
   const s = BTN_SIZES[size]
   const isDisabled = disabled || loading
   const variantStyle: React.CSSProperties =
-    variant === 'primary' ? { background: 'linear-gradient(135deg, #9D6CFF 0%, #8B5CF6 42%, #4cd7f6 130%)', color: '#fff', border: 'none', boxShadow: '0 6px 22px rgba(139,92,246,0.38), inset 0 1px 0 rgba(255,255,255,0.28)' }
-    : variant === 'danger' ? { background: 'linear-gradient(135deg, rgba(251,113,133,0.16), rgba(251,113,133,0.08))', color: 'var(--danger)', border: '1px solid rgba(251,113,133,0.35)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06)' }
-    : variant === 'secondary' ? { background: 'linear-gradient(135deg, rgba(255,255,255,0.08), rgba(255,255,255,0.04))', color: 'var(--on-surface)', border: '1px solid rgba(255,255,255,0.12)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06)' }
+    variant === 'primary' ? { background: 'var(--primary-violet)', color: '#fff', border: 'none', boxShadow: '0 2px 10px rgba(0,0,0,0.25)' }
+    : variant === 'danger' ? { background: 'rgba(251,113,133,0.12)', color: 'var(--danger)', border: '1px solid rgba(251,113,133,0.3)' }
+    : variant === 'secondary' ? { background: 'rgba(255,255,255,0.06)', color: 'var(--on-surface)', border: '1px solid rgba(255,255,255,0.1)' }
     : { background: 'transparent', color: 'var(--on-surface-variant)', border: '1px solid transparent' }
   const press = (v: string) => (e: React.PointerEvent<HTMLButtonElement>) => { if (!isDisabled) e.currentTarget.style.transform = v }
   return (
@@ -688,9 +687,9 @@ export function IconButton({
   disabled?: boolean
   style?: React.CSSProperties
 }) {
-  const bg = variant === 'danger' ? 'linear-gradient(135deg, rgba(251,113,133,0.16), rgba(251,113,133,0.07))' : variant === 'ghost' ? 'transparent' : 'linear-gradient(135deg, rgba(255,255,255,0.08), rgba(255,255,255,0.035))'
+  const bg = variant === 'danger' ? 'rgba(251,113,133,0.1)' : variant === 'ghost' ? 'transparent' : 'rgba(255,255,255,0.05)'
   const color = variant === 'danger' ? 'var(--danger)' : 'var(--on-surface-variant)'
-  const border = variant === 'ghost' ? '1px solid transparent' : variant === 'danger' ? '1px solid rgba(251,113,133,0.28)' : '1px solid rgba(255,255,255,0.1)'
+  const border = variant === 'ghost' ? '1px solid transparent' : variant === 'danger' ? '1px solid rgba(251,113,133,0.25)' : '1px solid rgba(255,255,255,0.1)'
   const press = (v: string) => (e: React.PointerEvent<HTMLButtonElement>) => { if (!disabled) e.currentTarget.style.transform = v }
   return (
     <button
@@ -708,7 +707,6 @@ export function IconButton({
         opacity: disabled ? 0.5 : 1,
         transition: 'transform 0.22s cubic-bezier(0.34,1.56,0.64,1), border-color 0.2s, background 0.2s',
         WebkitTapHighlightColor: 'transparent', touchAction: 'manipulation',
-        boxShadow: variant === 'ghost' ? undefined : 'inset 0 1px 0 rgba(255,255,255,0.06)',
         ...style,
       }}
     >
@@ -770,9 +768,8 @@ export function ConfirmDialog({
             <div style={{
               width: 46, height: 46, borderRadius: 14, marginBottom: 14,
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              background: danger ? 'linear-gradient(160deg, rgba(251,113,133,0.24), rgba(251,113,133,0.07))' : 'linear-gradient(160deg, rgba(139,92,246,0.24), rgba(76,215,246,0.08))',
-              border: `1px solid ${danger ? 'rgba(251,113,133,0.36)' : 'rgba(139,92,246,0.34)'}`,
-              boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08)',
+              background: danger ? 'rgba(251,113,133,0.12)' : 'rgba(139,92,246,0.12)',
+              border: `1px solid ${danger ? 'rgba(251,113,133,0.3)' : 'rgba(139,92,246,0.28)'}`,
             }}>
               <Icon name={danger ? 'warning' : 'help'} size={24} color={danger ? 'var(--danger)' : '#a78bfa'} />
             </div>
@@ -785,7 +782,7 @@ export function ConfirmDialog({
                 fullWidth
                 loading={loading}
                 onClick={onConfirm}
-                style={danger ? { background: 'linear-gradient(135deg, #FB7185, #F43F5E)', boxShadow: '0 6px 22px rgba(251,113,133,0.4), inset 0 1px 0 rgba(255,255,255,0.28)' } : undefined}
+                style={danger ? { background: 'var(--danger, #F43F5E)', boxShadow: '0 2px 10px rgba(0,0,0,0.25)' } : undefined}
               >
                 {confirmLabel}
               </Button>

@@ -85,12 +85,11 @@ function ToastContainer({ toasts, onDismiss }: { toasts: Toast[]; onDismiss: (id
                 borderRadius: 14,
                 backdropFilter: 'blur(20px)',
                 WebkitBackdropFilter: 'blur(20px)',
-                boxShadow: `0 6px 26px rgba(0,0,0,0.34), 0 0 0 1px ${color}22, inset 0 1px 0 rgba(255,255,255,0.06)`,
+                boxShadow: '0 6px 26px rgba(0,0,0,0.34)',
                 pointerEvents: 'all',
               }}
             >
-              <div style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 3, background: `linear-gradient(180deg, ${color}, ${color}55)` }} />
-              <div style={{ width: 30, height: 30, borderRadius: 9, flexShrink: 0, background: `linear-gradient(160deg, ${color}33, ${color}14)`, border: `1px solid ${color}3a`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <div style={{ width: 30, height: 30, borderRadius: 9, flexShrink: 0, background: `${color}1f`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 <Icon name={icon} size={17} color={color} />
               </div>
               <span style={{ flex: 1, fontSize: 13, fontWeight: 500, color: 'var(--on-surface)' }}>

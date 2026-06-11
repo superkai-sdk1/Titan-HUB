@@ -133,7 +133,7 @@ function LoginLayout({ children }: { children: React.ReactNode }) {
               <path d="M16 9L23 13.5V20.5L16 25L9 20.5V13.5L16 9Z" fill="rgba(255,255,255,0.28)" />
             </svg>
           </div>
-          <h1 style={{ fontSize: 26, fontWeight: 900, fontStyle: 'italic', margin: '0 0 4px', background: 'linear-gradient(135deg, #A78BFA, #4cd7f6)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+          <h1 style={{ fontSize: 26, fontWeight: 900, margin: '0 0 4px', background: 'linear-gradient(135deg, #A78BFA, #4cd7f6)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
             TITAN HUB
           </h1>
           <p style={{ fontSize: 12, color: 'rgba(255,255,255,0.35)', margin: 0 }}>Система управления заведением</p>

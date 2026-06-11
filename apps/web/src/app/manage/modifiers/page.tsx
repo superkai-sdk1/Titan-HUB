@@ -85,7 +85,6 @@ export default function ModifiersPage() {
               <p style={{ ...LBL, margin: '0 0 12px' }}>Модификаторы · {mods.length} шт</p>
               {mods.map(mod => (
                 <div key={mod.id} className="glass-l2" style={{ position: 'relative', overflow: 'hidden', borderRadius: 14, padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 12 }}>
-                  <div style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 3, background: 'linear-gradient(180deg, var(--primary-violet), rgba(139,92,246,0.27))' }} />
                   <div style={{ width: 38, height: 38, borderRadius: 10, background: 'rgba(139,92,246,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                     <Icon name="tune" size={18} color="var(--primary-violet)" />
                   </div>

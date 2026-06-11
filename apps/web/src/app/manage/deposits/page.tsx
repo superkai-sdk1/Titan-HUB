@@ -104,7 +104,6 @@ export default function DepositsPage() {
             {list.map((c: any) => (
               <div key={c.id} className="glass-l2" onClick={() => openDetail(c)}
                 style={{ position: 'relative', overflow: 'hidden', borderRadius: 14, padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 14, cursor: 'pointer' }}>
-                <div style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 3, background: `linear-gradient(180deg, ${ACCENT}, ${ACCENT}44)` }} />
                 <div style={{ width: 46, height: 46, borderRadius: '50%', flexShrink: 0, background: `${ACCENT}22`, border: `2px solid ${ACCENT}55`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 800, color: ACCENT }}>
                   {initials(c.nickname)}
                 </div>
@@ -112,7 +111,7 @@ export default function DepositsPage() {
                   <p style={{ fontSize: 14, fontWeight: 700, margin: 0 }}>{c.nickname}</p>
                   <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: '3px 0 0' }}>{c.fullName || c.phone || 'Без контакта'}</p>
                 </div>
-                <p style={{ fontSize: 16, fontWeight: 800, fontStyle: 'italic', color: ACCENT, margin: 0, fontFamily: "'JetBrains Mono',monospace" }}>{fmt(parseNum(c.balance))} ₽</p>
+                <p style={{ fontSize: 16, fontWeight: 800, color: ACCENT, margin: 0, fontFamily: "'JetBrains Mono',monospace" }}>{fmt(parseNum(c.balance))} ₽</p>
               </div>
             ))}
           </div>
@@ -158,7 +157,7 @@ export default function DepositsPage() {
             {/* Текущий депозит */}
             <div className="glass-l2" style={{ borderRadius: 16, padding: '14px 16px', textAlign: 'center', border: `1px solid ${ACCENT}33` }}>
               <p style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--on-surface-variant)', margin: '0 0 4px' }}>Депозит</p>
-              <p style={{ fontSize: 30, fontWeight: 900, fontStyle: 'italic', color: ACCENT, margin: 0, fontVariantNumeric: 'tabular-nums' }}>{fmt(parseNum(selected.balance))} ₽</p>
+              <p style={{ fontSize: 30, fontWeight: 900, color: ACCENT, margin: 0, fontVariantNumeric: 'tabular-nums' }}>{fmt(parseNum(selected.balance))} ₽</p>
             </div>
 
             {/* Кнопки / форма операции */}
@@ -207,7 +206,7 @@ export default function DepositsPage() {
                           <p style={{ fontSize: 13, fontWeight: 600, margin: 0 }}>{tx.description || (credit ? 'Начисление' : 'Списание')}</p>
                           <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: '2px 0 0' }}>{tx.createdAt ? formatDistanceToNow(new Date(tx.createdAt), { locale: ru, addSuffix: true }) : ''}</p>
                         </div>
-                        <p style={{ fontSize: 14, fontWeight: 800, fontStyle: 'italic', color: credit ? '#10B981' : '#f43f5e', margin: 0, fontFamily: "'JetBrains Mono',monospace" }}>
+                        <p style={{ fontSize: 14, fontWeight: 800, color: credit ? '#10B981' : '#f43f5e', margin: 0, fontFamily: "'JetBrains Mono',monospace" }}>
                           {credit ? '+' : '−'}{fmt(amt)} ₽
                         </p>
                       </div>

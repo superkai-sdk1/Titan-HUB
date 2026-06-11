@@ -172,7 +172,7 @@ function BackupSection() {
           style={{ position: 'fixed', inset: 0, zIndex: 4000, background: 'rgba(0,0,0,0.82)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
           <div style={{ width: '100%', maxWidth: 560, maxHeight: '85dvh', overflowY: 'auto', borderRadius: '24px 24px 0 0', padding: '24px 20px 40px', background: 'var(--surface)', border: '1px solid rgba(255,255,255,0.12)', boxShadow: '0 -8px 40px rgba(0,0,0,0.55)' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-              <h2 style={{ fontSize: 18, fontWeight: 900, fontStyle: 'italic', textTransform: 'uppercase', margin: 0 }}>Восстановление</h2>
+              <h2 style={{ fontSize: 18, fontWeight: 900, textTransform: 'uppercase', margin: 0 }}>Восстановление</h2>
               <button onClick={() => { setRestoreOpen(false); setPick(null) }} disabled={restore.isPending} style={{ width: 36, height: 36, borderRadius: 10, border: 'none', cursor: 'pointer', background: 'rgba(255,255,255,0.06)', color: 'var(--on-surface-variant)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Icon name="close" size={18} /></button>
             </div>
             <p style={{ fontSize: 12.5, color: '#fbbf24', margin: '0 0 16px', display: 'flex', gap: 6, lineHeight: 1.45 }}>

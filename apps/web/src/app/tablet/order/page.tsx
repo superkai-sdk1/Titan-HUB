@@ -174,7 +174,7 @@ export default function TabletOrderPage() {
           <Icon name="check_circle" size={52} color="var(--success)" />
         </div>
         <div style={{ textAlign: 'center' }}>
-          <h2 style={{ fontSize: 28, fontWeight: 900, fontStyle: 'italic', textTransform: 'uppercase', color: 'var(--success)', margin: '0 0 8px' }}>
+          <h2 style={{ fontSize: 28, fontWeight: 900, textTransform: 'uppercase', color: 'var(--success)', margin: '0 0 8px' }}>
             ЗАКАЗ ОТПРАВЛЕН!
           </h2>
           <p style={{ fontSize: 15, color: 'var(--on-surface-variant)', margin: 0 }}>
@@ -207,7 +207,7 @@ export default function TabletOrderPage() {
           <Icon name="arrow_back" size={20} />
         </button>
 
-        <h1 style={{ fontSize: 20, fontWeight: 900, fontStyle: 'italic', textTransform: 'uppercase', margin: 0, color: 'var(--on-surface)', flex: 1 }}>
+        <h1 style={{ fontSize: 20, fontWeight: 900, textTransform: 'uppercase', margin: 0, color: 'var(--on-surface)', flex: 1 }}>
           МЕНЮ
         </h1>
 
@@ -337,7 +337,7 @@ export default function TabletOrderPage() {
                     <p style={{ fontSize: 15, fontWeight: 700, margin: '0 0 6px', color: 'var(--on-surface)', lineHeight: 1.3 }}>
                       {item.name}
                     </p>
-                    <p style={{ fontSize: 18, fontWeight: 900, fontStyle: 'italic', fontVariantNumeric: 'tabular-nums', margin: 0, color: colorObj.text }}>
+                    <p style={{ fontSize: 18, fontWeight: 900, fontVariantNumeric: 'tabular-nums', margin: 0, color: colorObj.text }}>
                       {parseFloat(item.price).toLocaleString('ru')} ₽
                     </p>
                     {item.trackStock && (
@@ -435,7 +435,7 @@ export default function TabletOrderPage() {
             <div style={{ width: 36, height: 4, background: 'rgba(255,255,255,0.12)', borderRadius: 4, margin: '0 auto 24px' }} />
 
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-              <h2 style={{ fontSize: 20, fontWeight: 900, fontStyle: 'italic', textTransform: 'uppercase', margin: 0, color: 'var(--on-surface)' }}>
+              <h2 style={{ fontSize: 20, fontWeight: 900, textTransform: 'uppercase', margin: 0, color: 'var(--on-surface)' }}>
                 ВАШ ЗАКАЗ
               </h2>
               <button onClick={() => setShowCart(false)} style={{ width: 36, height: 36, borderRadius: 10, border: 'none', cursor: 'pointer', background: 'rgba(255,255,255,0.06)', color: 'var(--on-surface-variant)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -464,7 +464,7 @@ export default function TabletOrderPage() {
                       <Icon name="add" size={16} />
                     </button>
                   </div>
-                  <p style={{ fontSize: 16, fontWeight: 900, fontStyle: 'italic', fontVariantNumeric: 'tabular-nums', color: 'var(--on-surface)', margin: 0, width: 72, textAlign: 'right', flexShrink: 0 }}>
+                  <p style={{ fontSize: 16, fontWeight: 900, fontVariantNumeric: 'tabular-nums', color: 'var(--on-surface)', margin: 0, width: 72, textAlign: 'right', flexShrink: 0 }}>
                     {(parseFloat(ci.item.price) * ci.quantity).toLocaleString('ru')} ₽
                   </p>
                 </div>
@@ -475,7 +475,7 @@ export default function TabletOrderPage() {
             <div className="glass-l2" style={{ borderRadius: 16, padding: '16px 20px', marginBottom: 16, border: '1px solid rgba(139,92,246,0.2)' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span style={{ fontSize: 14, color: 'var(--on-surface-variant)', fontWeight: 600 }}>Итого:</span>
-                <span style={{ fontSize: 24, fontWeight: 900, fontStyle: 'italic', fontVariantNumeric: 'tabular-nums', color: '#A78BFA' }}>
+                <span style={{ fontSize: 24, fontWeight: 900, fontVariantNumeric: 'tabular-nums', color: '#A78BFA' }}>
                   {cartTotal.toLocaleString('ru')} ₽
                 </span>
               </div>

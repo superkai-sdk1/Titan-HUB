@@ -111,12 +111,9 @@ export default function AiPage() {
       <div style={{ padding: '24px 20px 12px', flexShrink: 0 }}>
         <h1 style={{
           margin: 0,
-          fontSize: 28,
-          fontWeight: 800,
-          background: 'linear-gradient(135deg, #a78bfa, #60a5fa)',
-          WebkitBackgroundClip: 'text',
-          WebkitTextFillColor: 'transparent',
-          backgroundClip: 'text',
+          fontSize: 25,
+          fontWeight: 700,
+          color: 'var(--on-surface)',
           lineHeight: 1.2,
         }}>
           AI Ассистент

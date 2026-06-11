@@ -73,7 +73,7 @@ export function OpenShiftModal({ open, onClose }: { open: boolean; onClose: () =
     >
       <div className="glass-l1" style={{ width: '100%', maxWidth: 520, margin: '0 auto', borderRadius: '32px 32px 0 0', padding: '24px 24px calc(24px + var(--bottom-nav-clear, 40px))', maxHeight: '88dvh', overflowY: 'auto', boxShadow: 'var(--sh-drawer)' }}>
         <div style={{ width: 36, height: 4, background: 'rgba(255,255,255,0.12)', borderRadius: 4, margin: '0 auto 24px' }} />
-        <h2 style={{ fontSize: 20, fontWeight: 900, fontStyle: 'italic', textTransform: 'uppercase', marginBottom: 24, color: 'var(--on-surface)' }}>ОТКРЫТЬ СМЕНУ</h2>
+        <h2 style={{ fontSize: 20, fontWeight: 900, textTransform: 'uppercase', marginBottom: 24, color: 'var(--on-surface)' }}>ОТКРЫТЬ СМЕНУ</h2>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <div>
             <label style={LBL}>Наличные в начале</label>
@@ -172,7 +172,7 @@ export function CloseShiftModal({ open, onClose }: { open: boolean; onClose: () 
             <Icon name="lock" size={26} color="var(--danger)" />
           </div>
           <div>
-            <h2 style={{ fontSize: 20, fontWeight: 900, fontStyle: 'italic', textTransform: 'uppercase', margin: 0, color: 'var(--on-surface)' }}>ЗАКРЫТЬ СМЕНУ</h2>
+            <h2 style={{ fontSize: 20, fontWeight: 900, textTransform: 'uppercase', margin: 0, color: 'var(--on-surface)' }}>ЗАКРЫТЬ СМЕНУ</h2>
             <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: '4px 0 0' }}>Проверьте кассу перед закрытием</p>
           </div>
         </div>
@@ -180,7 +180,7 @@ export function CloseShiftModal({ open, onClose }: { open: boolean; onClose: () 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <div className="glass-l2" style={{ padding: '14px 16px', borderRadius: 14, border: '1px solid rgba(255,255,255,0.08)' }}>
             <p style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--on-surface-variant)', margin: '0 0 6px' }}>ОЖИДАЕТСЯ В КАССЕ</p>
-            <p style={{ fontSize: 28, fontWeight: 900, fontStyle: 'italic', fontVariantNumeric: 'tabular-nums', margin: 0, color: 'var(--on-surface)' }}>{expected.toLocaleString('ru')} ₽</p>
+            <p style={{ fontSize: 28, fontWeight: 900, fontVariantNumeric: 'tabular-nums', margin: 0, color: 'var(--on-surface)' }}>{expected.toLocaleString('ru')} ₽</p>
             {cashBalance?.cashStart != null && (
               <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: '4px 0 0' }}>
                 Начало смены: {Number(cashBalance.cashStart).toLocaleString('ru')} ₽ + Наличные платежи: {Number(cashBalance.cashPayments ?? 0).toLocaleString('ru')} ₽
@@ -190,7 +190,7 @@ export function CloseShiftModal({ open, onClose }: { open: boolean; onClose: () 
 
           <div>
             <label style={LBL}>Фактически в кассе</label>
-            <input type="number" value={cashEnd} onChange={e => setCashEnd(e.target.value)} placeholder="0" className="glass-l2" style={{ width: '100%', padding: '14px 16px', borderRadius: 14, border: '1px solid rgba(255,255,255,0.08)', color: 'var(--on-surface)', fontSize: 22, fontWeight: 800, fontStyle: 'italic', outline: 'none', background: 'none', fontVariantNumeric: 'tabular-nums' }} />
+            <input type="number" value={cashEnd} onChange={e => setCashEnd(e.target.value)} placeholder="0" className="glass-l2" style={{ width: '100%', padding: '14px 16px', borderRadius: 14, border: '1px solid rgba(255,255,255,0.08)', color: 'var(--on-surface)', fontSize: 22, fontWeight: 800, outline: 'none', background: 'none', fontVariantNumeric: 'tabular-nums' }} />
           </div>
 
           {cashEnd !== '' && (

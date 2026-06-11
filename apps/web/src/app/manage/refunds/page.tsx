@@ -162,7 +162,6 @@ export default function RefundsPage() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {refunds.map(r => (
               <button key={r.id} onClick={() => setSelected(r)} className="glass-l2" style={{ position: 'relative', overflow: 'hidden', width: '100%', border: 'none', cursor: 'pointer', borderRadius: 14, padding: '14px 16px', textAlign: 'left', display: 'flex', alignItems: 'center', gap: 14 }}>
-                <div style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 3, background: 'linear-gradient(180deg, var(--danger), rgba(251,113,133,0.27))' }} />
                 <div style={{ width: 44, height: 44, borderRadius: 12, flexShrink: 0, background: 'rgba(251,113,133,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                   <Icon name="refund" size={22} color="var(--danger)" />
                 </div>

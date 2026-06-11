@@ -110,7 +110,6 @@ export default function DebtorsPage() {
             {debtors.map((client) => (
               <div key={client.id} className="glass-l2" onClick={() => openDetail(client)}
                 style={{ position: 'relative', overflow: 'hidden', borderRadius: 14, padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 14, cursor: 'pointer' }}>
-                <div style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 3, background: `linear-gradient(180deg, ${ACCENT}, ${ACCENT}44)` }} />
                 <div style={{ width: 46, height: 46, borderRadius: '50%', flexShrink: 0, background: `${ACCENT}22`, border: `2px solid ${ACCENT}55`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 800, color: ACCENT }}>
                   {initials(client.nickname)}
                 </div>
@@ -118,7 +117,7 @@ export default function DebtorsPage() {
                   <p style={{ fontSize: 14, fontWeight: 700, margin: 0 }}>{client.nickname}</p>
                   <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: '3px 0 0' }}>{client.fullName || client.phone || 'Без контакта'}</p>
                 </div>
-                <p style={{ fontSize: 16, fontWeight: 800, fontStyle: 'italic', color: ACCENT, margin: 0, fontFamily: "'JetBrains Mono',monospace" }}>{formatMoney(parseNum(client.balance))}</p>
+                <p style={{ fontSize: 16, fontWeight: 800, color: ACCENT, margin: 0, fontFamily: "'JetBrains Mono',monospace" }}>{formatMoney(parseNum(client.balance))}</p>
               </div>
             ))}
           </div>
@@ -164,7 +163,7 @@ export default function DebtorsPage() {
             {/* Текущий долг / баланс */}
             <div className="glass-l2" style={{ borderRadius: 16, padding: '14px 16px', textAlign: 'center', border: `1px solid ${debt > 0 ? ACCENT + '33' : 'rgba(255,255,255,0.08)'}` }}>
               <p style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--on-surface-variant)', margin: '0 0 4px' }}>{debt > 0 ? 'Долг' : 'Баланс'}</p>
-              <p style={{ fontSize: 30, fontWeight: 900, fontStyle: 'italic', color: debt > 0 ? ACCENT : 'var(--on-surface)', margin: 0, fontVariantNumeric: 'tabular-nums' }}>
+              <p style={{ fontSize: 30, fontWeight: 900, color: debt > 0 ? ACCENT : 'var(--on-surface)', margin: 0, fontVariantNumeric: 'tabular-nums' }}>
                 {debt > 0 ? `${fmt(debt)} ₽` : formatMoney(bal)}
               </p>
             </div>
@@ -216,7 +215,7 @@ export default function DebtorsPage() {
                           <p style={{ fontSize: 13, fontWeight: 600, margin: 0 }}>{tx.description || (credit ? 'Погашение' : 'Начисление долга')}</p>
                           <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: '2px 0 0' }}>{tx.createdAt ? formatDistanceToNow(new Date(tx.createdAt), { locale: ru, addSuffix: true }) : ''}</p>
                         </div>
-                        <p style={{ fontSize: 14, fontWeight: 800, fontStyle: 'italic', color: credit ? '#10B981' : ACCENT, margin: 0, fontFamily: "'JetBrains Mono',monospace" }}>
+                        <p style={{ fontSize: 14, fontWeight: 800, color: credit ? '#10B981' : ACCENT, margin: 0, fontFamily: "'JetBrains Mono',monospace" }}>
                           {credit ? '+' : '−'}{fmt(amt)} ₽
                         </p>
                       </div>

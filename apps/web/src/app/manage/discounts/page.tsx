@@ -198,7 +198,6 @@ export default function DiscountsPage() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {discounts.map((d) => (
               <div key={d.id} className="glass-l2" onClick={() => openEdit(d)} style={{ position: 'relative', overflow: 'hidden', borderRadius: 14, padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 14, cursor: 'pointer' }}>
-                <div style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 3, background: d.type === 'percent' ? 'linear-gradient(180deg, var(--primary-violet), rgba(139,92,246,0.27))' : 'linear-gradient(180deg, var(--secondary), rgba(76,215,246,0.27))' }} />
                 <div style={{ width: 42, height: 42, borderRadius: 12, background: d.type === 'percent' ? 'rgba(139,92,246,0.15)' : 'rgba(76,215,246,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                   <span style={{ fontSize: 16, fontWeight: 800, color: d.type === 'percent' ? 'var(--primary-violet)' : 'var(--secondary)' }}>{d.type === 'percent' ? '%' : '₽'}</span>
                 </div>

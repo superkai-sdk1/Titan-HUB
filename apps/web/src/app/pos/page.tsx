@@ -395,7 +395,7 @@ function PosPageInner() {
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
           {/* Left: title + count */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-            <h2 className="pos-header-title" style={{ margin: 0, flexShrink: 0, fontStyle: 'italic', letterSpacing: '-0.01em', background: 'linear-gradient(135deg, #A78BFA, #4cd7f6)', WebkitBackgroundClip: 'text', backgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>Касса</h2>
+            <h2 className="pos-header-title" style={{ margin: 0, flexShrink: 0, letterSpacing: '-0.01em', color: 'var(--on-surface)' }}>Касса</h2>
             {checks.length > 0 && (
               <div className="glass-l2" style={{ borderRadius: 999, padding: '3px 9px', display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
                 <Icon name="groups" size={13} color="var(--on-surface-variant)" />
@@ -539,8 +539,8 @@ function PosPageInner() {
                   el.style.boxShadow = 'none'
                 }}
               >
-                {/* Верхняя акцентная полоса — единый язык с дашбордом */}
-                <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 3, background: attention ? 'linear-gradient(90deg, #F59E0B, transparent 75%)' : 'linear-gradient(90deg, #8B5CF6, #4cd7f6 60%, transparent)', opacity: 0.9, pointerEvents: 'none' }} />
+                {/* Полоса-маркер только для семантики «требует внимания» */}
+                {attention && <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 3, background: '#F59E0B', opacity: 0.9, pointerEvents: 'none' }} />}
                 {attention && (
                   <span style={{ position: 'absolute', top: 8, right: 8, zIndex: 2, width: 26, height: 26, borderRadius: '50%', background: 'rgba(245,158,11,0.95)', boxShadow: '0 0 0 3px rgba(245,158,11,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     <Icon name="notifications_active" size={15} color="#1a1622" />
@@ -585,7 +585,7 @@ function PosPageInner() {
                 {/* Amount */}
                 <p className="card-amount" style={{
                   fontWeight: 900,
-                  fontStyle: 'italic',
+                  
                   fontVariantNumeric: 'tabular-nums',
                   color: 'var(--on-surface)',
                   lineHeight: 1,
@@ -764,7 +764,7 @@ function PosPageInner() {
             }}>
               <Icon name="schedule" size={30} color="#A78BFA" />
             </div>
-            <h2 style={{ fontSize: 20, fontWeight: 900, fontStyle: 'italic', textTransform: 'uppercase', marginBottom: 8, color: 'var(--on-surface)' }}>
+            <h2 style={{ fontSize: 20, fontWeight: 900, textTransform: 'uppercase', marginBottom: 8, color: 'var(--on-surface)' }}>
               СМЕНА НЕ ОТКРЫТА
             </h2>
             <p style={{ color: 'var(--on-surface-variant)', fontSize: 13, marginBottom: 28 }}>
@@ -814,7 +814,7 @@ function PosPageInner() {
                     <Icon name="receipt_long" size={26} color="#fff" />
                   </div>
                   <div style={{ flex: 1 }}>
-                    <h2 style={{ fontSize: 20, fontWeight: 900, fontStyle: 'italic', textTransform: 'uppercase', margin: 0, color: 'var(--on-surface)' }}>
+                    <h2 style={{ fontSize: 20, fontWeight: 900, textTransform: 'uppercase', margin: 0, color: 'var(--on-surface)' }}>
                       НОВЫЙ ЧЕК
                     </h2>
                     <p style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--on-surface-variant)', margin: '4px 0 0' }}>
@@ -958,7 +958,7 @@ function PosPageInner() {
                     <Icon name="arrow_back" size={18} />
                   </button>
                   <div style={{ flex: 1 }}>
-                    <h2 style={{ fontSize: 20, fontWeight: 900, fontStyle: 'italic', textTransform: 'uppercase', margin: 0, color: 'var(--on-surface)' }}>ТАРИФ</h2>
+                    <h2 style={{ fontSize: 20, fontWeight: 900, textTransform: 'uppercase', margin: 0, color: 'var(--on-surface)' }}>ТАРИФ</h2>
                     <p style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--on-surface-variant)', margin: '4px 0 0' }}>
                       ШАГ 2 — ВЫБЕРИТЕ ТАРИФ
                     </p>
@@ -1019,7 +1019,7 @@ function PosPageInner() {
                           </div>
                           <div>
                             <p style={{ fontSize: 14, fontWeight: 700, margin: 0, color: isSelected ? '#fff' : 'var(--on-surface)' }}>{item.name}</p>
-                            <p style={{ fontSize: 16, fontWeight: 900, fontStyle: 'italic', margin: '4px 0 0', color: pal.color, fontVariantNumeric: 'tabular-nums' }}>
+                            <p style={{ fontSize: 16, fontWeight: 900, margin: '4px 0 0', color: pal.color, fontVariantNumeric: 'tabular-nums' }}>
                               {price.toLocaleString('ru')} ₽
                             </p>
                           </div>
@@ -1091,7 +1091,7 @@ function PosPageInner() {
                     <Icon name="arrow_back" size={18} />
                   </button>
                   <div style={{ flex: 1 }}>
-                    <h2 style={{ fontSize: 20, fontWeight: 900, fontStyle: 'italic', textTransform: 'uppercase', margin: 0, color: 'var(--on-surface)' }}>НОВЫЙ КЛИЕНТ</h2>
+                    <h2 style={{ fontSize: 20, fontWeight: 900, textTransform: 'uppercase', margin: 0, color: 'var(--on-surface)' }}>НОВЫЙ КЛИЕНТ</h2>
                     <p style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--on-surface-variant)', margin: '4px 0 0' }}>
                       ШАГ 3 — ДАННЫЕ
                     </p>
@@ -1164,7 +1164,7 @@ function PosPageInner() {
                     <Icon name="arrow_back" size={18} />
                   </button>
                   <div style={{ flex: 1 }}>
-                    <h2 style={{ fontSize: 20, fontWeight: 900, fontStyle: 'italic', textTransform: 'uppercase', margin: 0, color: 'var(--on-surface)' }}>АРЕНДА</h2>
+                    <h2 style={{ fontSize: 20, fontWeight: 900, textTransform: 'uppercase', margin: 0, color: 'var(--on-surface)' }}>АРЕНДА</h2>
                     <p style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--on-surface-variant)', margin: '4px 0 0' }}>
                       ШАГ 3 — ПРОСТРАНСТВО
                     </p>
@@ -1212,7 +1212,7 @@ function PosPageInner() {
                         <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: '2px 0 0' }}>{SPACE_TYPE_LABELS[space.type] ?? space.type}</p>
                       </div>
                       <div style={{ flexShrink: 0, textAlign: 'right' }}>
-                        <p style={{ fontSize: 16, fontWeight: 800, fontStyle: 'italic', fontVariantNumeric: 'tabular-nums', margin: 0, color: '#A78BFA' }}>
+                        <p style={{ fontSize: 16, fontWeight: 800, fontVariantNumeric: 'tabular-nums', margin: 0, color: '#A78BFA' }}>
                           {parseFloat(space.hourlyRate).toLocaleString('ru')} ₽
                         </p>
                         <p style={{ fontSize: 10, color: 'var(--on-surface-variant)', margin: '2px 0 0' }}>/ час</p>
@@ -1236,7 +1236,7 @@ function PosPageInner() {
         >
           <div className="glass-l1" style={{ borderRadius: 28, padding: '36px 32px', maxWidth: 380, width: '100%', textAlign: 'center', boxShadow: '0 24px 80px rgba(0,0,0,0.5)' }}>
             <div style={{ fontSize: 48, marginBottom: 16 }}>🎂</div>
-            <h2 style={{ fontSize: 20, fontWeight: 900, fontStyle: 'italic', textTransform: 'uppercase', marginBottom: 8, color: 'var(--on-surface)' }}>
+            <h2 style={{ fontSize: 20, fontWeight: 900, textTransform: 'uppercase', marginBottom: 8, color: 'var(--on-surface)' }}>
               ИМЕНИННИКИ СЕГОДНЯ
             </h2>
             <p style={{ color: 'var(--on-surface-variant)', fontSize: 13, marginBottom: 24 }}>

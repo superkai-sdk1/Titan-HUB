@@ -112,7 +112,7 @@ export default function CashOpsPage() {
             {/* Summary card */}
             <div className="glass-l2" style={{ borderRadius: 18, padding: '20px 24px', marginBottom: 16 }}>
               <p style={{ ...LBL, margin: '0 0 4px' }}>В кассе сейчас</p>
-              <div style={{ fontSize: 34, fontWeight: 800, fontStyle: 'italic', color: total >= 0 ? 'var(--success)' : 'var(--danger)', margin: '0 0 16px', fontVariantNumeric: 'tabular-nums' }}>{formatMoney(total)}</div>
+              <div style={{ fontSize: 34, fontWeight: 800, color: total >= 0 ? 'var(--success)' : 'var(--danger)', margin: '0 0 16px', fontVariantNumeric: 'tabular-nums' }}>{formatMoney(total)}</div>
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                 {[
@@ -146,7 +146,6 @@ export default function CashOpsPage() {
                   const isPositive = op.type === 'deposit'
                   return (
                     <div key={op.id} className="glass-l2" style={{ position: 'relative', overflow: 'hidden', borderRadius: 14, padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 14 }}>
-                      <div style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 3, background: `linear-gradient(180deg, ${color}, color-mix(in srgb, ${color} 27%, transparent))` }} />
                       <div style={{ width: 40, height: 40, borderRadius: 12, background: `color-mix(in srgb, ${color} 18%, transparent)`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                         <Icon name={icon} size={22} color={color} />
                       </div>

@@ -230,7 +230,6 @@ export default function InventoryPage() {
                 <div key={item.id} className="glass-l2" style={{ position: 'relative', overflow: 'hidden', borderRadius: 14, padding: '14px 16px', cursor: 'pointer', transition: 'border-color 0.2s' }}
                   onMouseEnter={e => { e.currentTarget.style.borderColor = `${color}44` }}
                   onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)' }}>
-                  <div style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 3, background: `linear-gradient(180deg, ${color}, ${color}44)` }} />
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12 }} onClick={() => openDetail(item)}>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontWeight: 700, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.name}</div>

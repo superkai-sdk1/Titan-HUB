@@ -97,7 +97,6 @@ export default function CustomersPage() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {customers.map((c) => (
               <div key={c.id} className="glass-l2" style={{ position: 'relative', overflow: 'hidden', borderRadius: 14, padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 14 }}>
-                <div style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 3, background: 'linear-gradient(180deg, var(--primary-violet), rgba(139,92,246,0.27))' }} />
                 <div onClick={() => openDetail(c)} style={{ display: 'flex', alignItems: 'center', gap: 14, flex: 1, minWidth: 0, cursor: 'pointer' }}>
                   <div style={{ width: 44, height: 44, borderRadius: 12, background: 'rgba(139,92,246,0.15)', border: '1px solid rgba(139,92,246,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                     <Icon name="person" size={20} color="#a78bfa" />

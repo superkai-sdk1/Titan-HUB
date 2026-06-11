@@ -95,7 +95,7 @@ function ItemCardBody({ item, cat, onEdit, onDelete, dragHandle }: { item: any; 
         )}
       </div>
       <span style={{ flex: 1 }} />
-      <p style={{ fontSize: 16, fontWeight: 800, fontStyle: 'italic', color: 'var(--on-surface)', margin: 0 }}>{parseNum(item.price).toLocaleString('ru')} ₽</p>
+      <p style={{ fontSize: 16, fontWeight: 800, color: 'var(--on-surface)', margin: 0 }}>{parseNum(item.price).toLocaleString('ru')} ₽</p>
     </div>
   )
 }

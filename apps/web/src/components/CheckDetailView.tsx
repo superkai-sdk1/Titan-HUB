@@ -428,7 +428,7 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
         </div>
         <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: 'var(--on-surface)', lineHeight: 1.3, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', wordBreak: 'break-word' }}>{item.name}</span>
         <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 6 }}>
-          <span style={{ fontSize: 13.5, fontWeight: 800, fontStyle: 'italic', color: cc.text, fontVariantNumeric: 'tabular-nums' }}>{parseFloat(item.price).toLocaleString('ru')} ₽</span>
+          <span style={{ fontSize: 13.5, fontWeight: 800, color: cc.text, fontVariantNumeric: 'tabular-nums' }}>{parseFloat(item.price).toLocaleString('ru')} ₽</span>
           {item.trackStock && <span style={{ fontSize: 10, fontWeight: out ? 700 : 500, color: out ? '#f43f5e' : item.stockQuantity <= 3 ? '#F59E0B' : 'var(--on-surface-variant)', whiteSpace: 'nowrap' }}>{out ? 'нет' : `×${item.stockQuantity}`}</span>}
         </div>
       </button>
@@ -946,12 +946,12 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
           }}>
             <Icon name="check_circle" size={44} color="var(--success)" />
           </div>
-          <h2 style={{ fontSize: 28, fontWeight: 900, fontStyle: 'italic', textTransform: 'uppercase', color: 'var(--success)', marginBottom: 8 }}>
+          <h2 style={{ fontSize: 28, fontWeight: 900, textTransform: 'uppercase', color: 'var(--success)', marginBottom: 8 }}>
             ОПЛАЧЕНО!
           </h2>
           {change > 0 && (
             <p style={{ color: 'var(--on-surface-variant)', fontSize: 15 }}>
-              Сдача: <span style={{ fontStyle: 'italic', fontWeight: 800, color: 'var(--on-surface)', fontSize: 17, fontVariantNumeric: 'tabular-nums' }}>{change.toLocaleString('ru')} ₽</span>
+              Сдача: <span style={{ fontWeight: 800, color: 'var(--on-surface)', fontSize: 17, fontVariantNumeric: 'tabular-nums' }}>{change.toLocaleString('ru')} ₽</span>
             </p>
           )}
         </div>
@@ -990,7 +990,7 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
             {getInitials(displayName)}
           </div>
           <div style={{ minWidth: 0 }}>
-            <p style={{ fontSize: 15, fontWeight: 800, fontStyle: 'italic', margin: 0, color: 'var(--on-surface)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            <p style={{ fontSize: 15, fontWeight: 800, margin: 0, color: 'var(--on-surface)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {displayName}
             </p>
             <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: 0 }}>
@@ -1125,7 +1125,7 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
                     <Icon name="add" size={16} />
                   </button>
                 </div>
-                <p style={{ fontSize: 14, fontStyle: 'italic', fontWeight: 800, fontVariantNumeric: 'tabular-nums', color: 'var(--on-surface)', width: 64, textAlign: 'right', margin: 0 }}>
+                <p style={{ fontSize: 14, fontWeight: 800, fontVariantNumeric: 'tabular-nums', color: 'var(--on-surface)', width: 64, textAlign: 'right', margin: 0 }}>
                   {(parseFloat(ci.checkItem.priceAtTime) * ci.checkItem.quantity).toLocaleString('ru')} ₽
                 </p>
               </div>
@@ -1281,7 +1281,7 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
                 <p className="check-pay-label" style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--on-surface-variant)', margin: '0 0 4px' }}>
                   Итого
                 </p>
-                <p className="check-pay-amount" style={{ fontSize: 28, fontWeight: 900, fontStyle: 'italic', fontVariantNumeric: 'tabular-nums', margin: 0, background: 'linear-gradient(135deg, #A78BFA, #4cd7f6)', WebkitBackgroundClip: 'text', backgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+                <p className="check-pay-amount" style={{ fontSize: 28, fontWeight: 800, fontVariantNumeric: 'tabular-nums', margin: 0, color: 'var(--on-surface)', fontFamily: "'JetBrains Mono',monospace" }}>
                   {total.toLocaleString('ru')} ₽
                 </p>
               </div>
@@ -1479,7 +1479,7 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
                     <div key={sec.key}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '0 0 10px', paddingBottom: 6, borderBottom: `1px solid ${sec.cat ? cc.border : 'rgba(255,255,255,0.08)'}` }}>
                         <CategoryIcon icon={sec.cat?.icon ?? 'inventory_2'} size={16} color={sec.cat ? cc.hex : 'var(--on-surface-variant)'} />
-                        <span style={{ fontSize: 13, fontWeight: 800, fontStyle: 'italic', textTransform: 'uppercase', letterSpacing: '0.04em', color: sec.cat ? cc.text : 'var(--on-surface-variant)' }}>{sec.cat?.name ?? 'Прочее'}</span>
+                        <span style={{ fontSize: 13, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.04em', color: sec.cat ? cc.text : 'var(--on-surface-variant)' }}>{sec.cat?.name ?? 'Прочее'}</span>
                         <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--on-surface-variant)' }}>{sec.items.length}</span>
                       </div>
                       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(132px, 1fr))', gap: 12, alignContent: 'start' }}>
@@ -1507,7 +1507,7 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
           <div className="glass-l1" style={{ borderRadius: 24, padding: 24, width: 'min(420px,100%)', boxShadow: '0 24px 80px rgba(0,0,0,0.6)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 18 }}>
               <Icon name="sell" size={22} color="#34D399" />
-              <h2 style={{ fontSize: 18, fontWeight: 900, fontStyle: 'italic', textTransform: 'uppercase', margin: 0 }}>Скидка на чек</h2>
+              <h2 style={{ fontSize: 18, fontWeight: 900, textTransform: 'uppercase', margin: 0 }}>Скидка на чек</h2>
             </div>
             <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
               <button type="button" onClick={() => setDiscType('percent')} style={{ flex: 1, padding: '12px 0', borderRadius: 12, border: `1px solid ${discType === 'percent' ? 'rgba(52,211,153,0.5)' : 'rgba(255,255,255,0.1)'}`, background: discType === 'percent' ? 'rgba(52,211,153,0.12)' : 'rgba(255,255,255,0.04)', color: discType === 'percent' ? '#34D399' : 'var(--on-surface-variant)', fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>Процент %</button>
@@ -1574,7 +1574,7 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
             {!tariffStep && (<>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 18 }}>
               <Icon name="group" size={22} color="#38BDF8" />
-              <h2 style={{ fontSize: 18, fontWeight: 900, fontStyle: 'italic', textTransform: 'uppercase', margin: 0 }}>Клиенты в чеке</h2>
+              <h2 style={{ fontSize: 18, fontWeight: 900, textTransform: 'uppercase', margin: 0 }}>Клиенты в чеке</h2>
             </div>
 
             {/* Плательщик */}
@@ -1667,7 +1667,7 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
                     <Icon name="arrow_back" size={18} />
                   </button>
                   <div style={{ flex: 1 }}>
-                    <h2 style={{ fontSize: 18, fontWeight: 900, fontStyle: 'italic', textTransform: 'uppercase', margin: 0 }}>Тариф</h2>
+                    <h2 style={{ fontSize: 18, fontWeight: 900, textTransform: 'uppercase', margin: 0 }}>Тариф</h2>
                     <p style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--on-surface-variant)', margin: '3px 0 0' }}>Выберите тариф</p>
                   </div>
                 </div>
@@ -1695,7 +1695,7 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
                         </div>
                         <div>
                           <p style={{ fontSize: 14, fontWeight: 700, margin: 0, color: isSelected ? '#fff' : 'var(--on-surface)' }}>{item.name}</p>
-                          <p style={{ fontSize: 16, fontWeight: 900, fontStyle: 'italic', margin: '4px 0 0', color: pal.color, fontVariantNumeric: 'tabular-nums' }}>{price.toLocaleString('ru')} ₽</p>
+                          <p style={{ fontSize: 16, fontWeight: 900, margin: '4px 0 0', color: pal.color, fontVariantNumeric: 'tabular-nums' }}>{price.toLocaleString('ru')} ₽</p>
                         </div>
                       </button>
                     )
@@ -1736,7 +1736,7 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
           <div className="glass-l1" style={{ borderRadius: 24, padding: 24, width: 'min(420px,100%)', boxShadow: '0 24px 80px rgba(0,0,0,0.6)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 18 }}>
               <Icon name="meeting_room" size={22} color="#A78BFA" />
-              <h2 style={{ fontSize: 18, fontWeight: 900, fontStyle: 'italic', textTransform: 'uppercase', margin: 0 }}>Время аренды</h2>
+              <h2 style={{ fontSize: 18, fontWeight: 900, textTransform: 'uppercase', margin: 0 }}>Время аренды</h2>
             </div>
             <label style={{ display: 'block', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--on-surface-variant)', marginBottom: 6 }}>Начало</label>
             <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
@@ -1795,7 +1795,7 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
                     <Icon name="payments" size={28} color="#fff" />
                   </div>
                   <div style={{ flex: 1 }}>
-                    <h2 style={{ fontSize: 20, fontWeight: 900, fontStyle: 'italic', textTransform: 'uppercase', margin: 0, color: 'var(--on-surface)' }}>ОПЛАТА</h2>
+                    <h2 style={{ fontSize: 20, fontWeight: 900, textTransform: 'uppercase', margin: 0, color: 'var(--on-surface)' }}>ОПЛАТА</h2>
                     <p style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--on-surface-variant)', margin: '4px 0 0' }}>
                       ВЫБЕРИТЕ МЕТОД
                     </p>
@@ -1839,7 +1839,7 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
                   <p style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--on-surface-variant)', margin: '0 0 4px' }}>
                     ИТОГО К ОПЛАТЕ:
                   </p>
-                  <p style={{ fontSize: 36, fontWeight: 900, fontStyle: 'italic', fontVariantNumeric: 'tabular-nums', color: '#A78BFA', margin: 0 }}>
+                  <p style={{ fontSize: 36, fontWeight: 900, fontVariantNumeric: 'tabular-nums', color: '#A78BFA', margin: 0 }}>
                     {total.toLocaleString('ru')} ₽
                   </p>
                 </div>
@@ -1898,7 +1898,7 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
                   <button onClick={() => setPayScreen('methods')} style={{ width: 36, height: 36, borderRadius: 10, border: 'none', cursor: 'pointer', background: 'rgba(255,255,255,0.06)', color: 'var(--on-surface-variant)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                     <Icon name="arrow_back" size={18} />
                   </button>
-                  <h2 style={{ fontSize: 18, fontWeight: 900, fontStyle: 'italic', textTransform: 'uppercase', margin: 0, color: 'var(--on-surface)' }}>БОНУСНАЯ ОПЛАТА</h2>
+                  <h2 style={{ fontSize: 18, fontWeight: 900, textTransform: 'uppercase', margin: 0, color: 'var(--on-surface)' }}>БОНУСНАЯ ОПЛАТА</h2>
                 </div>
 
                 {player && (
@@ -1922,7 +1922,7 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
                           Сумма бонусов (макс. {maxBonus.toLocaleString('ru')})
                         </p>
                         <input type="range" min={0} max={maxBonus} step={step} value={bonusAmount} onChange={e => setBonusAmount(Number(e.target.value))} style={{ width: '100%', accentColor: '#f59e0b' }} />
-                        <p style={{ fontSize: 28, fontWeight: 900, fontStyle: 'italic', fontVariantNumeric: 'tabular-nums', color: 'var(--pay-bonus)', textAlign: 'center', margin: '8px 0' }}>
+                        <p style={{ fontSize: 28, fontWeight: 900, fontVariantNumeric: 'tabular-nums', color: 'var(--pay-bonus)', textAlign: 'center', margin: '8px 0' }}>
                           {bonusAmount.toLocaleString('ru')} бонусов
                         </p>
                       </div>
@@ -1936,7 +1936,7 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
                       {bonusRemainder > 0.01 && (
                         <div className="glass-l2" style={{ padding: '12px 14px', borderRadius: 12, marginBottom: 16, border: '1px solid rgba(255,255,255,0.07)' }}>
                           <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: '0 0 4px' }}>Остаток к доплате:</p>
-                          <p style={{ fontSize: 20, fontWeight: 800, fontStyle: 'italic', fontVariantNumeric: 'tabular-nums', color: 'var(--on-surface)', margin: 0 }}>{bonusRemainder.toLocaleString('ru')} ₽</p>
+                          <p style={{ fontSize: 20, fontWeight: 800, fontVariantNumeric: 'tabular-nums', color: 'var(--on-surface)', margin: 0 }}>{bonusRemainder.toLocaleString('ru')} ₽</p>
                         </div>
                       )}
                       <button
@@ -1965,7 +1965,7 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
                   <button onClick={() => setPayScreen('methods')} style={{ width: 36, height: 36, borderRadius: 10, border: 'none', cursor: 'pointer', background: 'rgba(255,255,255,0.06)', color: 'var(--on-surface-variant)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                     <Icon name="arrow_back" size={18} />
                   </button>
-                  <h2 style={{ fontSize: 18, fontWeight: 900, fontStyle: 'italic', textTransform: 'uppercase', margin: 0, color: 'var(--on-surface)' }}>ОПЛАТА ДЕПОЗИТОМ</h2>
+                  <h2 style={{ fontSize: 18, fontWeight: 900, textTransform: 'uppercase', margin: 0, color: 'var(--on-surface)' }}>ОПЛАТА ДЕПОЗИТОМ</h2>
                 </div>
                 {player && (
                   <div className="glass-l2" style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', borderRadius: 14, marginBottom: 20, border: '1px solid rgba(6,182,212,0.2)' }}>
@@ -1983,7 +1983,7 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
                       <div style={{ marginBottom: 16 }}>
                         <p style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--on-surface-variant)', marginBottom: 8 }}>Сумма депозита (макс. {maxDeposit.toLocaleString('ru')} ₽)</p>
                         <input type="range" min={0} max={maxDeposit} step={10} value={depositAmt} onChange={e => setDepositAmt(Number(e.target.value))} style={{ width: '100%', accentColor: '#06b6d4' }} />
-                        <p style={{ fontSize: 28, fontWeight: 900, fontStyle: 'italic', fontVariantNumeric: 'tabular-nums', color: 'var(--pay-deposit)', textAlign: 'center', margin: '8px 0' }}>{depositAmt.toLocaleString('ru')} ₽</p>
+                        <p style={{ fontSize: 28, fontWeight: 900, fontVariantNumeric: 'tabular-nums', color: 'var(--pay-deposit)', textAlign: 'center', margin: '8px 0' }}>{depositAmt.toLocaleString('ru')} ₽</p>
                       </div>
                       <button onClick={() => { if (depositAmt > 0) addSplitPart({ method: 'deposit', amount: depositAmt, label: 'Депозит' }); setPayScreen('split') }} disabled={depositAmt === 0} style={{ width: '100%', padding: '14px 0', borderRadius: 14, border: 'none', cursor: 'pointer', background: 'linear-gradient(135deg, #06b6d4, #0891b2)', color: '#fff', fontSize: 13, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.06em', opacity: depositAmt === 0 ? 0.5 : 1 }}>
                         ПРИМЕНИТЬ
@@ -2001,7 +2001,7 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
                   <button onClick={() => setPayScreen('methods')} style={{ width: 36, height: 36, borderRadius: 10, border: 'none', cursor: 'pointer', background: 'rgba(255,255,255,0.06)', color: 'var(--on-surface-variant)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                     <Icon name="arrow_back" size={18} />
                   </button>
-                  <h2 style={{ fontSize: 18, fontWeight: 900, fontStyle: 'italic', textTransform: 'uppercase', margin: 0, color: 'var(--on-surface)' }}>СЕРТИФИКАТ</h2>
+                  <h2 style={{ fontSize: 18, fontWeight: 900, textTransform: 'uppercase', margin: 0, color: 'var(--on-surface)' }}>СЕРТИФИКАТ</h2>
                 </div>
                 <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
                   <input value={certCode} onChange={e => { setCertCode(e.target.value.toUpperCase()); setCertInfo(null); setCertError('') }} placeholder="КОД СЕРТИФИКАТА" className="glass-l2" style={{ flex: 1, padding: '14px 16px', borderRadius: 14, border: '1px solid rgba(255,255,255,0.08)', color: 'var(--on-surface)', fontSize: 15, fontWeight: 700, letterSpacing: '0.05em', outline: 'none', background: 'none' }} />
@@ -2014,7 +2014,7 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
                   <>
                     <div className="glass-l2" style={{ padding: '14px 16px', borderRadius: 14, marginBottom: 16, border: '1px solid rgba(251,191,36,0.2)' }}>
                       <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: '0 0 4px' }}>Сертификат {certInfo.code}</p>
-                      <p style={{ fontSize: 22, fontWeight: 800, fontStyle: 'italic', fontVariantNumeric: 'tabular-nums', color: 'var(--pay-cert, #fbbf24)', margin: 0 }}>{parseFloat(certInfo.balance).toLocaleString('ru')} ₽</p>
+                      <p style={{ fontSize: 22, fontWeight: 800, fontVariantNumeric: 'tabular-nums', color: 'var(--pay-cert, #fbbf24)', margin: 0 }}>{parseFloat(certInfo.balance).toLocaleString('ru')} ₽</p>
                       <p style={{ fontSize: 10, color: 'var(--on-surface-variant)', margin: '4px 0 0' }}>Номинал: {parseFloat(certInfo.nominal).toLocaleString('ru')} ₽</p>
                     </div>
                     <button onClick={() => { const certBal = parseFloat(certInfo.balance); const certUsed = Math.min(certBal, total); addSplitPart({ method: 'certificate', amount: certUsed, label: `Сертификат ${certInfo.code}` }); setPayScreen('split') }} style={{ width: '100%', padding: '14px 0', borderRadius: 14, border: 'none', cursor: 'pointer', background: 'linear-gradient(135deg, #fbbf24, #d97706)', color: '#fff', fontSize: 13, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
@@ -2035,7 +2035,7 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
                     <button onClick={() => setPayScreen('methods')} style={{ width: 36, height: 36, borderRadius: 10, border: 'none', cursor: 'pointer', background: 'rgba(255,255,255,0.06)', color: 'var(--on-surface-variant)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                       <Icon name="arrow_back" size={18} />
                     </button>
-                    <h2 style={{ fontSize: 18, fontWeight: 900, fontStyle: 'italic', textTransform: 'uppercase', margin: 0, color: 'var(--on-surface)' }}>СБП — ЭКВАЙРИНГ</h2>
+                    <h2 style={{ fontSize: 18, fontWeight: 900, textTransform: 'uppercase', margin: 0, color: 'var(--on-surface)' }}>СБП — ЭКВАЙРИНГ</h2>
                   </div>
 
                   <div className="glass-l2" style={{ textAlign: 'center', padding: '20px 16px', borderRadius: 16, marginBottom: 20, border: '1px solid rgba(139,92,246,0.2)' }}>
@@ -2076,7 +2076,7 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
                     <Icon name="arrow_back" size={18} />
                   </button>
                   <div>
-                    <h2 style={{ fontSize: 18, fontWeight: 900, fontStyle: 'italic', textTransform: 'uppercase', margin: 0, color: 'var(--on-surface)' }}>СБП / QR-ОПЛАТА</h2>
+                    <h2 style={{ fontSize: 18, fontWeight: 900, textTransform: 'uppercase', margin: 0, color: 'var(--on-surface)' }}>СБП / QR-ОПЛАТА</h2>
                     <p style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--on-surface-variant)', margin: '4px 0 0' }}>
                       {qrAmount.toLocaleString('ru')} ₽
                     </p>
@@ -2155,7 +2155,7 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
                       <p style={{ fontSize: 13, color: 'var(--on-surface-variant)', margin: '0 0 4px' }}>
                         Отсканируйте в приложении банка
                       </p>
-                      <p style={{ fontSize: 24, fontWeight: 900, fontStyle: 'italic', fontVariantNumeric: 'tabular-nums', color: '#A78BFA', margin: 0 }}>
+                      <p style={{ fontSize: 24, fontWeight: 900, fontVariantNumeric: 'tabular-nums', color: '#A78BFA', margin: 0 }}>
                         {qrAmount.toLocaleString('ru')} ₽
                       </p>
                       {qrSurcharge8 && (
@@ -2182,7 +2182,7 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
                     <Icon name="arrow_back" size={18} />
                   </button>
                   <div>
-                    <h2 style={{ fontSize: 18, fontWeight: 900, fontStyle: 'italic', textTransform: 'uppercase', margin: 0, color: 'var(--on-surface)' }}>ПОДТВЕРЖДЕНИЕ</h2>
+                    <h2 style={{ fontSize: 18, fontWeight: 900, textTransform: 'uppercase', margin: 0, color: 'var(--on-surface)' }}>ПОДТВЕРЖДЕНИЕ</h2>
                     <p style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--on-surface-variant)', margin: '4px 0 0' }}>
                       ИТОГО: {total.toLocaleString('ru')} ₽
                     </p>

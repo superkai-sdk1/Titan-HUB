@@ -265,7 +265,7 @@ export default function PricingPage() {
                     onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)'; e.currentTarget.style.transform = 'translateY(0)' }}
                   >
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-                      <div style={{ width: 46, height: 46, borderRadius: 13, background: `${color}22`, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: `0 0 16px ${color}22` }}>
+                      <div style={{ width: 46, height: 46, borderRadius: 13, background: `${color}22`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                         <Icon name="confirmation_number" size={22} color={color} />
                       </div>
                       {!t.isActive && (
@@ -273,7 +273,7 @@ export default function PricingPage() {
                       )}
                     </div>
                     <p style={{ fontSize: 15, fontWeight: 700, margin: '0 0 6px' }}>{t.name}</p>
-                    <span style={{ fontSize: 18, fontWeight: 800, fontStyle: 'italic', color, fontFamily: "'JetBrains Mono',monospace" }}>
+                    <span style={{ fontSize: 18, fontWeight: 800, color, fontFamily: "'JetBrains Mono',monospace" }}>
                       {price.toLocaleString('ru')} ₽
                     </span>
                     {isOwner && (
@@ -351,7 +351,7 @@ export default function PricingPage() {
                           <div style={{ flex: 1, minWidth: 0 }}>
                             <p style={{ fontSize: 14, fontWeight: 600, margin: 0 }}>{s.name}</p>
                           </div>
-                          <span style={{ fontSize: 15, fontWeight: 800, fontStyle: 'italic', color: '#A78BFA', fontFamily: "'JetBrains Mono',monospace" }}>
+                          <span style={{ fontSize: 15, fontWeight: 800, color: '#A78BFA', fontFamily: "'JetBrains Mono',monospace" }}>
                             {rate.toLocaleString('ru')} ₽/ч
                           </span>
                           {isOwner && <Icon name="edit" size={16} color="var(--on-surface-variant)" />}
@@ -386,7 +386,7 @@ export default function PricingPage() {
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <p style={{ fontSize: 14, fontWeight: 600, margin: 0 }}>{r.hours} ч</p>
                       </div>
-                      <span style={{ fontSize: 15, fontWeight: 800, fontStyle: 'italic', color: '#A78BFA', fontFamily: "'JetBrains Mono',monospace" }}>
+                      <span style={{ fontSize: 15, fontWeight: 800, color: '#A78BFA', fontFamily: "'JetBrains Mono',monospace" }}>
                         {formatMoney(price, { currency: false })} ₽
                       </span>
                       {isOwner && <Icon name="edit" size={16} color="var(--on-surface-variant)" />}

@@ -66,13 +66,12 @@ export function Sidebar() {
                 style={{
                   fontSize: 20,
                   fontWeight: 900,
-                  fontStyle: 'italic',
+                  
                   letterSpacing: '-0.01em',
                   margin: 0,
                   background: 'linear-gradient(135deg, #8B5CF6, #4cd7f6)',
                   WebkitBackgroundClip: 'text',
                   WebkitTextFillColor: 'transparent',
-                  filter: 'drop-shadow(0 0 12px rgba(139,92,246,0.4))',
                   whiteSpace: 'nowrap',
                 }}
               >

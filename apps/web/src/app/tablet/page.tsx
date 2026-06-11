@@ -116,7 +116,7 @@ function TabletGate({ onReady }: { onReady: (sp: TabletSpace) => void }) {
     return (
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '48px 40px', overflowY: 'auto' }}>
         <div style={{ textAlign: 'center', marginBottom: 40 }}>
-          <h1 style={{ fontSize: 30, fontWeight: 900, fontStyle: 'italic', textTransform: 'uppercase', margin: '0 0 8px', background: 'linear-gradient(135deg, #8B5CF6, #4cd7f6)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+          <h1 style={{ fontSize: 30, fontWeight: 900, textTransform: 'uppercase', margin: '0 0 8px', background: 'linear-gradient(135deg, #8B5CF6, #4cd7f6)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
             TITAN HUB
           </h1>
           <p style={{ fontSize: 16, color: 'var(--on-surface-variant)', margin: 0 }}>Выберите пространство</p>
@@ -229,7 +229,7 @@ function FinishScreen({ kind, onDone }: { kind: 'paid' | 'closed'; onDone: () =>
       <div style={{ width: 130, height: 130, borderRadius: '50%', background: 'rgba(16,185,129,0.14)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <Icon name="check_circle" size={78} color="#10B981" />
       </div>
-      <h2 style={{ fontSize: 36, fontWeight: 900, color: '#10B981', margin: 0, fontStyle: 'italic', textTransform: 'uppercase' }}>
+      <h2 style={{ fontSize: 36, fontWeight: 900, color: '#10B981', margin: 0, textTransform: 'uppercase' }}>
         {kind === 'paid' ? 'Оплачено!' : 'Счёт закрыт'}
       </h2>
       <p style={{ fontSize: 17, color: 'rgba(204,195,216,0.7)', margin: 0 }}>Спасибо! Хорошего дня 🙌</p>
@@ -386,7 +386,7 @@ function TabletMain({ space, onLogout }: { space: TabletSpace; onLogout: () => v
       borderBottom: '1px solid rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
     }}>
       <div style={{ minWidth: 0 }}>
-        <h1 style={{ fontSize: 20, fontWeight: 900, fontStyle: 'italic', textTransform: 'uppercase', margin: 0, background: 'linear-gradient(135deg, #8B5CF6, #4cd7f6)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+        <h1 style={{ fontSize: 20, fontWeight: 700, textTransform: 'uppercase', margin: 0, color: 'var(--on-surface)' }}>
           {space.name}
         </h1>
         <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: '2px 0 0', display: 'flex', alignItems: 'center', gap: 5 }}>
@@ -421,13 +421,13 @@ function TabletMain({ space, onLogout }: { space: TabletSpace; onLogout: () => v
   const qrOverlay = qr ? (
     <div style={{ position: 'fixed', inset: 0, zIndex: 80, background: 'rgba(10,8,14,0.93)', backdropFilter: 'blur(14px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 32 }}>
       <div style={{ textAlign: 'center', maxWidth: 480 }}>
-        <h2 style={{ fontSize: 26, fontWeight: 900, fontStyle: 'italic', textTransform: 'uppercase', color: '#fff', margin: '0 0 8px' }}>Оплата по СБП</h2>
+        <h2 style={{ fontSize: 26, fontWeight: 900, textTransform: 'uppercase', color: '#fff', margin: '0 0 8px' }}>Оплата по СБП</h2>
         <p style={{ color: 'rgba(204,195,216,0.7)', fontSize: 16, margin: '0 0 24px' }}>Отсканируйте QR камерой или приложением банка</p>
         <div style={{ background: '#fff', borderRadius: 24, padding: 18, display: 'inline-block' }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={qr.qrDataUrl} alt="QR для оплаты" style={{ width: 300, height: 300, display: 'block' }} />
         </div>
-        <p style={{ fontSize: 44, fontWeight: 900, fontStyle: 'italic', color: '#fff', margin: '24px 0 0', fontVariantNumeric: 'tabular-nums' }}>{qr.chargedAmount.toLocaleString('ru')} ₽</p>
+        <p style={{ fontSize: 44, fontWeight: 900, color: '#fff', margin: '24px 0 0', fontVariantNumeric: 'tabular-nums' }}>{qr.chargedAmount.toLocaleString('ru')} ₽</p>
         {qr.tip > 0 && (
           <p style={{ fontSize: 14, color: '#34D399', margin: '6px 0 0', fontWeight: 600 }}>в т.ч. чаевые {qr.tip.toLocaleString('ru')} ₽ 💚</p>
         )}
@@ -444,7 +444,7 @@ function TabletMain({ space, onLogout }: { space: TabletSpace; onLogout: () => v
   const tipOverlay = tipOpen ? (
     <div style={{ position: 'fixed', inset: 0, zIndex: 80, background: 'rgba(10,8,14,0.93)', backdropFilter: 'blur(14px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 32 }}>
       <div style={{ textAlign: 'center', maxWidth: 440, width: '100%' }}>
-        <h2 style={{ fontSize: 26, fontWeight: 900, fontStyle: 'italic', textTransform: 'uppercase', color: '#fff', margin: '0 0 6px' }}>Добавить чаевые?</h2>
+        <h2 style={{ fontSize: 26, fontWeight: 900, textTransform: 'uppercase', color: '#fff', margin: '0 0 6px' }}>Добавить чаевые?</h2>
         <p style={{ color: 'rgba(204,195,216,0.7)', fontSize: 15, margin: '0 0 6px' }}>Спасибо команде за вечер 💚</p>
         <p style={{ color: 'rgba(204,195,216,0.5)', fontSize: 14, margin: '0 0 24px' }}>Счёт: {total.toLocaleString('ru')} ₽</p>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
@@ -539,7 +539,7 @@ function TabletMain({ space, onLogout }: { space: TabletSpace; onLogout: () => v
           <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between' }}>
             <div>
               <p style={{ fontSize: 13, color: 'var(--on-surface-variant)', margin: '0 0 4px', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 700 }}>Ваш счёт</p>
-              <p style={{ fontSize: 48, fontWeight: 900, fontStyle: 'italic', fontVariantNumeric: 'tabular-nums', margin: 0, color: 'var(--on-surface)', lineHeight: 1 }}>
+              <p style={{ fontSize: 48, fontWeight: 900, fontVariantNumeric: 'tabular-nums', margin: 0, color: 'var(--on-surface)', lineHeight: 1 }}>
                 {total.toLocaleString('ru')} <span style={{ fontSize: 24 }}>₽</span>
               </p>
             </div>
@@ -594,7 +594,7 @@ function TabletMain({ space, onLogout }: { space: TabletSpace; onLogout: () => v
                   <p style={{ fontSize: 16, fontWeight: 700, margin: 0, color: 'var(--on-surface)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ci.item?.name ?? '—'}</p>
                   <p style={{ fontSize: 13, color: 'var(--on-surface-variant)', margin: '3px 0 0' }}>{parseFloat(ci.checkItem.priceAtTime).toLocaleString('ru')} ₽ × {ci.checkItem.quantity}</p>
                 </div>
-                <p style={{ fontSize: 18, fontWeight: 900, fontStyle: 'italic', fontVariantNumeric: 'tabular-nums', color: 'var(--on-surface)', margin: 0, flexShrink: 0 }}>{(parseFloat(ci.checkItem.priceAtTime) * ci.checkItem.quantity).toLocaleString('ru')} ₽</p>
+                <p style={{ fontSize: 18, fontWeight: 900, fontVariantNumeric: 'tabular-nums', color: 'var(--on-surface)', margin: 0, flexShrink: 0 }}>{(parseFloat(ci.checkItem.priceAtTime) * ci.checkItem.quantity).toLocaleString('ru')} ₽</p>
               </div>
             ))}
           </div>

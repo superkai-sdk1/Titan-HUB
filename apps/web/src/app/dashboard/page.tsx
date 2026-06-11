@@ -155,9 +155,8 @@ function PeriodSelector({ p }: { p: ReturnType<typeof usePeriod> }) {
             <button key={o.key} onClick={() => p.setPreset(o.key)} style={{
               flexShrink: 0, padding: '6px 12px', borderRadius: 9999, cursor: 'pointer', fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap',
               border: active ? 'none' : '1px solid rgba(255,255,255,0.1)',
-              background: active ? 'linear-gradient(135deg,#8B5CF6,#6D28D9)' : 'rgba(255,255,255,0.05)',
+              background: active ? 'var(--primary-violet)' : 'rgba(255,255,255,0.05)',
               color: active ? '#fff' : 'var(--on-surface-variant)',
-              boxShadow: active ? '0 2px 12px rgba(139,92,246,0.3)' : 'none',
             }}>{o.label}</button>
           )
         })}
@@ -216,20 +215,17 @@ function KpiCard({ label, value, rawValue, suffix = ' ₽', sub, delta, icon, ic
       role={clickable ? 'button' : undefined}
       tabIndex={clickable ? 0 : undefined}
       onKeyDown={clickable ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick?.() } } : undefined}
-      style={{ borderRadius: 16, padding: 18, cursor: clickable ? 'pointer' : 'default', position: 'relative', overflow: 'hidden', border: `1px solid ${iconColor}33`, transition: 'transform 0.15s, border-color 0.15s, box-shadow 0.15s' }}
-      onMouseEnter={clickable ? e => { e.currentTarget.style.transform = 'translateY(-3px)'; e.currentTarget.style.borderColor = `${iconColor}80`; e.currentTarget.style.boxShadow = `0 10px 30px rgba(0,0,0,0.35), 0 0 22px ${iconColor}2e` } : undefined}
-      onMouseLeave={clickable ? e => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.borderColor = `${iconColor}33`; e.currentTarget.style.boxShadow = 'none' } : undefined}
+      style={{ borderRadius: 16, padding: 18, cursor: clickable ? 'pointer' : 'default', position: 'relative', overflow: 'hidden', transition: 'transform 0.15s, border-color 0.15s' }}
+      onMouseEnter={clickable ? e => { e.currentTarget.style.transform = 'translateY(-3px)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.18)' } : undefined}
+      onMouseLeave={clickable ? e => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)' } : undefined}
     >
-      {/* Акцентная полоса + угловое свечение (без backdrop-filter — только цвет/тень) */}
-      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 3, background: `linear-gradient(90deg, ${iconColor}, transparent 75%)` }} />
-      <div style={{ position: 'absolute', top: -30, right: -30, width: 90, height: 90, borderRadius: '50%', background: `radial-gradient(circle, ${iconColor}26, transparent 70%)`, pointerEvents: 'none' }} />
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, position: 'relative' }}>
-        <div style={{ width: 40, height: 40, borderRadius: 12, background: `linear-gradient(135deg, ${iconColor}33, ${iconColor}14)`, border: `1px solid ${iconColor}3a`, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: `0 0 16px ${iconColor}26` }}>
+        <div style={{ width: 40, height: 40, borderRadius: 12, background: `${iconColor}1a`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <Icon name={icon} size={20} color={iconColor} />
         </div>
         {delta !== undefined ? <DeltaBadge delta={delta} /> : clickable ? <Icon name="chevron_right" size={16} color="rgba(204,195,216,0.55)" /> : null}
       </div>
-      <p style={{ fontSize: 25, fontWeight: 900, fontStyle: 'italic', margin: '0 0 4px', color: 'var(--on-surface)', lineHeight: 1, fontVariantNumeric: 'tabular-nums', position: 'relative' }}>{displayValue}</p>
+      <p style={{ fontSize: 25, fontWeight: 800, margin: '0 0 4px', color: 'var(--on-surface)', lineHeight: 1, fontVariantNumeric: 'tabular-nums', position: 'relative' }}>{displayValue}</p>
       <p style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 2px', color: 'var(--on-surface-variant)' }}>{label}</p>
       <p style={{ fontSize: 11, color: 'rgba(204,195,216,0.6)', margin: 0 }}>{sub}</p>
     </div>
@@ -365,11 +361,11 @@ function KpiBreakdownModal({ title, subtitle, b, onClose }: { title: string; sub
     <Sheet title={title} subtitle={subtitle} onClose={onClose}>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 18 }}>
         <div style={{ padding: '12px 14px', borderRadius: 10, background: 'rgba(255,255,255,0.04)' }}>
-          <p style={{ fontSize: 18, fontWeight: 800, fontStyle: 'italic', margin: '0 0 4px', color: '#8B5CF6', lineHeight: 1 }}>{b.checks}</p>
+          <p style={{ fontSize: 18, fontWeight: 800, margin: '0 0 4px', color: '#8B5CF6', lineHeight: 1 }}>{b.checks}</p>
           <p style={{ fontSize: 10, color: 'var(--on-surface-variant)', margin: 0, textTransform: 'uppercase', letterSpacing: '0.06em', fontFamily: "'JetBrains Mono',monospace" }}>Чеков</p>
         </div>
         <div style={{ padding: '12px 14px', borderRadius: 10, background: 'rgba(255,255,255,0.04)' }}>
-          <p style={{ fontSize: 18, fontWeight: 800, fontStyle: 'italic', margin: '0 0 4px', color: '#4cd7f6', lineHeight: 1 }}>{fmt(parseNum(b.avgCheck))} ₽</p>
+          <p style={{ fontSize: 18, fontWeight: 800, margin: '0 0 4px', color: '#4cd7f6', lineHeight: 1 }}>{fmt(parseNum(b.avgCheck))} ₽</p>
           <p style={{ fontSize: 10, color: 'var(--on-surface-variant)', margin: 0, textTransform: 'uppercase', letterSpacing: '0.06em', fontFamily: "'JetBrains Mono',monospace" }}>Средний чек</p>
         </div>
       </div>
@@ -388,7 +384,7 @@ function MetricDetailModal({ title, subtitle, value, valueColor = '#8B5CF6', row
   return (
     <Sheet title={title} subtitle={subtitle} onClose={onClose}>
       <div style={{ padding: '16px 18px', borderRadius: 14, background: 'rgba(255,255,255,0.04)', marginBottom: 16 }}>
-        <p style={{ fontSize: 28, fontWeight: 900, fontStyle: 'italic', margin: 0, color: valueColor, lineHeight: 1 }}>{value}</p>
+        <p style={{ fontSize: 28, fontWeight: 900, margin: 0, color: valueColor, lineHeight: 1 }}>{value}</p>
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
         {rows.map((r, i) => (
@@ -419,7 +415,7 @@ function ItemDetailModal({ item, totalRev, onClose }: { item: any; totalRev: num
           { label: 'Доля выручки', value: `${share.toFixed(1)}%`, color: ABC_COLORS[abc] ?? '#94A3B8' },
         ].map(m => (
           <div key={m.label} style={{ padding: '12px 14px', borderRadius: 10, background: 'rgba(255,255,255,0.04)' }}>
-            <p style={{ fontSize: 18, fontWeight: 800, fontStyle: 'italic', margin: '0 0 4px', color: m.color, lineHeight: 1 }}>{m.value}</p>
+            <p style={{ fontSize: 18, fontWeight: 800, margin: '0 0 4px', color: m.color, lineHeight: 1 }}>{m.value}</p>
             <p style={{ fontSize: 10, color: 'var(--on-surface-variant)', margin: 0, textTransform: 'uppercase', letterSpacing: '0.06em', fontFamily: "'JetBrains Mono',monospace" }}>{m.label}</p>
           </div>
         ))}
@@ -474,7 +470,7 @@ function PlayerDetailModal({ player, onClose }: { player: any; onClose: () => vo
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
           {kpis.map(m => (
             <div key={m.label} style={{ padding: '12px 14px', borderRadius: 10, background: 'rgba(255,255,255,0.04)' }}>
-              <p style={{ fontSize: 18, fontWeight: 800, fontStyle: 'italic', margin: '0 0 4px', color: m.color, lineHeight: 1 }}>{m.value}</p>
+              <p style={{ fontSize: 18, fontWeight: 800, margin: '0 0 4px', color: m.color, lineHeight: 1 }}>{m.value}</p>
               <p style={{ fontSize: 10, color: 'var(--on-surface-variant)', margin: 0, textTransform: 'uppercase', letterSpacing: '0.06em', fontFamily: "'JetBrains Mono',monospace" }}>{m.label}</p>
             </div>
           ))}
@@ -495,7 +491,7 @@ function PlayerDetailModal({ player, onClose }: { player: any; onClose: () => vo
             {recent.length === 0 ? <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', textAlign: 'center', padding: '12px 0' }}>Нет чеков</p> : recent.map(rc => (
               <button key={rc.id} onClick={() => setOpenCheckId(rc.id)} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 10, background: 'rgba(255,255,255,0.03)', border: 'none', cursor: 'pointer', color: 'var(--on-surface)', textAlign: 'left' }}>
                 <span style={{ fontSize: 12, color: 'var(--on-surface-variant)', flex: 1, minWidth: 0 }}>{fmtMskDate(rc.createdAt)} · {fmtMsk(rc.createdAt)}</span>
-                <span style={{ fontSize: 13, fontWeight: 800, fontStyle: 'italic', flexShrink: 0 }}>{fmt(parseNum(rc.totalAmount))} ₽</span>
+                <span style={{ fontSize: 13, fontWeight: 800, flexShrink: 0 }}>{fmt(parseNum(rc.totalAmount))} ₽</span>
                 <Icon name="chevron_right" size={14} color="rgba(204,195,216,0.4)" />
               </button>
             ))}
@@ -579,7 +575,7 @@ function TodayTab({ businessDay }: { businessDay: string }) {
             <p style={{ fontSize: 10, color: 'var(--on-surface-variant)', margin: '2px 0 0' }}>комиссия СБП 8%</p>
           </div>
         </div>
-        <span style={{ fontSize: 16, fontWeight: 800, fontStyle: 'italic', color: '#F59E0B' }}>{fmt(commission)} ₽</span>
+        <span style={{ fontSize: 16, fontWeight: 800, color: '#F59E0B' }}>{fmt(commission)} ₽</span>
       </div>
 
       {/* Методы оплаты за сегодня */}
@@ -657,7 +653,7 @@ function TodayTab({ businessDay }: { businessDay: string }) {
                 <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: '0 0 5px' }}>{c.staffNickname || '—'} · {c.itemCount ?? 0} поз.</p>
                 <PayChips payments={c.payments ?? []} />
               </div>
-              <span style={{ fontSize: 14, fontWeight: 800, fontStyle: 'italic', flexShrink: 0 }}>{fmt(parseNum(c.totalAmount))} ₽</span>
+              <span style={{ fontSize: 14, fontWeight: 800, flexShrink: 0 }}>{fmt(parseNum(c.totalAmount))} ₽</span>
             </button>
           ))}
       </div>
@@ -700,15 +696,13 @@ function OverviewTab({ overview, periodText }: { overview: any; periodText: stri
       <div className="glass-l2" role="button" tabIndex={0}
         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setModal({ title: `Прибыль · ${periodText}`, subtitle: 'раскладка валовая → чистая', b: cur }) } }}
         onClick={() => setModal({ title: `Прибыль · ${periodText}`, subtitle: 'раскладка валовая → чистая', b: cur })}
-        style={{ borderRadius: 20, padding: 22, cursor: 'pointer', position: 'relative', overflow: 'hidden', border: `1px solid ${profitColor}40`, background: `${profitColor}0d` }}>
-        <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 3, background: `linear-gradient(90deg, ${profitColor}, transparent 75%)` }} />
-        <div style={{ position: 'absolute', top: -50, right: -40, width: 180, height: 180, borderRadius: '50%', background: `radial-gradient(circle, ${profitColor}24, transparent 70%)`, pointerEvents: 'none' }} />
+        style={{ borderRadius: 20, padding: 22, cursor: 'pointer', position: 'relative', overflow: 'hidden' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'relative' }}>
           <span style={{ ...LBL, margin: 0 }}>Прибыль за период · {periodText}</span>
           <Icon name="chevron_right" size={16} color="rgba(204,195,216,0.55)" />
         </div>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, margin: '8px 0 4px', flexWrap: 'wrap' }}>
-          <span style={{ fontSize: 40, fontWeight: 900, fontStyle: 'italic', color: profitColor, lineHeight: 1, fontVariantNumeric: 'tabular-nums', textShadow: `0 0 28px ${profitColor}55` }}>{net >= 0 ? '' : '−'}{fmt(Math.abs(net))} ₽</span>
+          <span style={{ fontSize: 40, fontWeight: 800, color: profitColor, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{net >= 0 ? '' : '−'}{fmt(Math.abs(net))} ₽</span>
           <span style={{ fontSize: 12, fontWeight: 700, padding: '3px 10px', borderRadius: 9999, background: `${profitColor}22`, color: profitColor }}>маржа {margin == null ? '—' : `${margin}%`}</span>
           {typeof deltas.profit === 'number' && <DeltaBadge delta={deltas.profit} />}
         </div>
@@ -743,11 +737,11 @@ function OverviewTab({ overview, periodText }: { overview: any; periodText: stri
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
             <div style={{ padding: '14px 16px', borderRadius: 12, background: 'rgba(236,72,153,0.08)' }}>
-              <p style={{ fontSize: 24, fontWeight: 900, fontStyle: 'italic', color: '#EC4899', margin: '0 0 4px', lineHeight: 1 }}>{eventChecks}</p>
+              <p style={{ fontSize: 24, fontWeight: 900, color: '#EC4899', margin: '0 0 4px', lineHeight: 1 }}>{eventChecks}</p>
               <p style={{ fontSize: 10, color: 'var(--on-surface-variant)', margin: 0, textTransform: 'uppercase', letterSpacing: '0.06em', fontFamily: "'JetBrains Mono',monospace" }}>Мероприятий</p>
             </div>
             <div style={{ padding: '14px 16px', borderRadius: 12, background: 'rgba(236,72,153,0.08)' }}>
-              <p style={{ fontSize: 24, fontWeight: 900, fontStyle: 'italic', color: '#EC4899', margin: '0 0 4px', lineHeight: 1 }}>{fmt(eventRevenue)} ₽</p>
+              <p style={{ fontSize: 24, fontWeight: 900, color: '#EC4899', margin: '0 0 4px', lineHeight: 1 }}>{fmt(eventRevenue)} ₽</p>
               <p style={{ fontSize: 10, color: 'var(--on-surface-variant)', margin: 0, textTransform: 'uppercase', letterSpacing: '0.06em', fontFamily: "'JetBrains Mono',monospace" }}>Выручка</p>
             </div>
           </div>
@@ -784,7 +778,7 @@ function OverviewTab({ overview, periodText }: { overview: any; periodText: stri
               { label: 'Эквайринг (потери)', value: `${fmt(parseNum(today.commission))} ₽`, color: '#F59E0B' },
             ].map(it => (
               <div key={it.label} style={{ padding: '12px 14px', borderRadius: 10, background: 'rgba(255,255,255,0.04)' }}>
-                <p style={{ fontSize: 18, fontWeight: 800, fontStyle: 'italic', margin: '0 0 4px', color: it.color, lineHeight: 1 }}>{it.value}</p>
+                <p style={{ fontSize: 18, fontWeight: 800, margin: '0 0 4px', color: it.color, lineHeight: 1 }}>{it.value}</p>
                 <p style={{ fontSize: 10, color: 'var(--on-surface-variant)', margin: 0, textTransform: 'uppercase', letterSpacing: '0.06em', fontFamily: "'JetBrains Mono',monospace" }}>{it.label}</p>
               </div>
             ))}
@@ -882,7 +876,7 @@ function ReportsTab({ from, to }: { from: string; to: string }) {
             {cards.map(k => (
               <button key={k.label} onClick={k.onClick} className="glass-l2" style={{ position: 'relative', overflow: 'hidden', borderRadius: 14, padding: '14px 16px', textAlign: 'left', border: `1px solid ${k.color}33`, cursor: 'pointer', color: 'var(--on-surface)' }}>
                 <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: `linear-gradient(90deg, ${k.color}, transparent 75%)` }} />
-                <p style={{ fontSize: 21, fontWeight: 900, fontStyle: 'italic', color: k.color, margin: '0 0 4px', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{k.value}</p>
+                <p style={{ fontSize: 21, fontWeight: 900, color: k.color, margin: '0 0 4px', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{k.value}</p>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
                   <p style={{ fontSize: 10, color: 'var(--on-surface-variant)', margin: 0, textTransform: 'uppercase', letterSpacing: '0.06em', fontFamily: "'JetBrains Mono',monospace" }}>{k.label}</p>
                   {typeof k.delta === 'number' && <DeltaBadge delta={k.delta} />}
@@ -1039,7 +1033,7 @@ function ProductsTab({ products, from, to }: { products: any; from: string; to: 
         <div>
           <span style={{ ...LBL, margin: 0 }}>Выручка бара за период</span>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginTop: 4 }}>
-            <p style={{ fontSize: 24, fontWeight: 900, fontStyle: 'italic', color: '#4cd7f6', margin: 0, lineHeight: 1 }}>{fmt(totalRev)} ₽</p>
+            <p style={{ fontSize: 24, fontWeight: 900, color: '#4cd7f6', margin: 0, lineHeight: 1 }}>{fmt(totalRev)} ₽</p>
             <DeltaBadge delta={revDelta} />
           </div>
         </div>
@@ -1121,7 +1115,7 @@ function SegmentMembersSheet({ seg, onClose, onPlayer }: { seg: { key: string; l
                   <p style={{ fontSize: 13, fontWeight: 600, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.nickname ?? 'Игрок'}</p>
                   <p style={{ fontSize: 11, color: TIER_COLORS[tier] ?? 'var(--on-surface-variant)', margin: 0 }}>{TIER_LABELS[tier] ?? tier}{p.visits ? ` · ${p.visits} визитов` : ''}</p>
                 </div>
-                {parseNum(p.total) > 0 && <span style={{ fontSize: 13, fontWeight: 800, fontStyle: 'italic', flexShrink: 0 }}>{fmt(parseNum(p.total))} ₽</span>}
+                {parseNum(p.total) > 0 && <span style={{ fontSize: 13, fontWeight: 800, flexShrink: 0 }}>{fmt(parseNum(p.total))} ₽</span>}
                 <Icon name="chevron_right" size={14} color="rgba(204,195,216,0.4)" />
               </button>
             )
@@ -1165,11 +1159,11 @@ function PlayersTab({ clients }: { clients: any }) {
 
       <div className="glass-l2" style={{ borderRadius: 16, padding: 20 }}>
         <span style={LBL}>Сегменты</span>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 10 }}>
           {segData.map(seg => (
             <button key={seg.label} onClick={() => setSegOpen({ key: seg.key, label: seg.label })} style={{ textAlign: 'left', padding: 14, borderRadius: 12, background: `${seg.color}10`, border: `1px solid ${seg.color}22`, cursor: 'pointer', color: 'var(--on-surface)' }}>
               <Icon name={seg.icon} size={18} color={seg.color} />
-              <p style={{ fontSize: 24, fontWeight: 900, fontStyle: 'italic', color: 'var(--on-surface)', margin: '8px 0 2px', lineHeight: 1 }}>{seg.value}</p>
+              <p style={{ fontSize: 24, fontWeight: 900, color: 'var(--on-surface)', margin: '8px 0 2px', lineHeight: 1 }}>{seg.value}</p>
               <p style={{ fontSize: 11, color: seg.color, fontWeight: 600, margin: '0 0 2px' }}>{seg.label}</p>
               <p style={{ fontSize: 10, color: 'var(--on-surface-variant)', margin: '0 0 8px' }}>{seg.desc}</p>
               <div style={{ height: 4, borderRadius: 9999, background: 'rgba(255,255,255,0.08)' }}>
@@ -1217,7 +1211,7 @@ function PlayersTab({ clients }: { clients: any }) {
                     <p style={{ fontSize: 13, fontWeight: 600, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sp.nickname ?? 'Гость'}</p>
                     <p style={{ fontSize: 11, color: TIER_COLORS[tier] ?? 'var(--on-surface-variant)', margin: 0 }}>{TIER_LABELS[tier] ?? tier} · {sp.visits ?? 0} визитов</p>
                   </div>
-                  <p style={{ fontSize: 14, fontWeight: 800, fontStyle: 'italic', color: 'var(--on-surface)', margin: 0, flexShrink: 0 }}>{fmt(parseNum(sp.total))} ₽</p>
+                  <p style={{ fontSize: 14, fontWeight: 800, color: 'var(--on-surface)', margin: 0, flexShrink: 0 }}>{fmt(parseNum(sp.total))} ₽</p>
                 </button>
               )
             })}
@@ -1231,7 +1225,7 @@ function PlayersTab({ clients }: { clients: any }) {
                   <p style={{ fontSize: 13, fontWeight: 600, margin: 0, color: 'var(--on-surface-variant)' }}>Без игрока</p>
                   <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: 0 }}>обезличенные продажи · {guestSales.visits ?? 0} чеков</p>
                 </div>
-                <p style={{ fontSize: 14, fontWeight: 800, fontStyle: 'italic', color: 'var(--on-surface-variant)', margin: 0, flexShrink: 0 }}>{fmt(parseNum(guestSales.total))} ₽</p>
+                <p style={{ fontSize: 14, fontWeight: 800, color: 'var(--on-surface-variant)', margin: 0, flexShrink: 0 }}>{fmt(parseNum(guestSales.total))} ₽</p>
               </div>
             )}
           </div>
@@ -1366,7 +1360,7 @@ function CheckDetailModal({ id, onClose }: { id: string; onClose: () => void }) 
           <div style={{ padding: '12px 14px', borderRadius: 12, background: 'rgba(139,92,246,0.08)', display: 'flex', flexDirection: 'column', gap: 10 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span style={{ fontSize: 13, fontWeight: 700 }}>Итого</span>
-              <span style={{ fontSize: 18, fontWeight: 800, fontStyle: 'italic', color: '#A78BFA' }}>{fmt(parseNum(check.totalAmount))} ₽</span>
+              <span style={{ fontSize: 18, fontWeight: 800, color: '#A78BFA' }}>{fmt(parseNum(check.totalAmount))} ₽</span>
             </div>
             <div>
               <span style={{ fontSize: 11, color: 'var(--on-surface-variant)', display: 'block', marginBottom: 6 }}>Как оплачено</span>
@@ -1453,7 +1447,7 @@ function ChecksTab({ from, to }: { from: string; to: string }) {
                 <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: '0 0 5px' }}>{c.staffNickname || '—'} · {c.itemCount ?? 0} поз.</p>
                 <PayChips payments={c.payments ?? []} />
               </div>
-              <span style={{ fontSize: 14, fontWeight: 800, fontStyle: 'italic', flexShrink: 0 }}>{fmt(parseNum(c.totalAmount))} ₽</span>
+              <span style={{ fontSize: 14, fontWeight: 800, flexShrink: 0 }}>{fmt(parseNum(c.totalAmount))} ₽</span>
             </button>
           ))}
       </div>
@@ -1500,12 +1494,12 @@ function TariffsTab({ from, to }: { from: string; to: string }) {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 10 }}>
             <div className="glass-l2" style={{ position: 'relative', overflow: 'hidden', borderRadius: 14, padding: '14px 16px', border: '1px solid #8B5CF633' }}>
               <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: 'linear-gradient(90deg, #8B5CF6, transparent 75%)' }} />
-              <p style={{ fontSize: 21, fontWeight: 900, fontStyle: 'italic', color: '#8B5CF6', margin: '0 0 4px', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{totalCount}</p>
+              <p style={{ fontSize: 21, fontWeight: 900, color: '#8B5CF6', margin: '0 0 4px', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{totalCount}</p>
               <p style={{ fontSize: 10, color: 'var(--on-surface-variant)', margin: 0, textTransform: 'uppercase', letterSpacing: '0.06em', fontFamily: "'JetBrains Mono',monospace" }}>Тарифов продано</p>
             </div>
             <div className="glass-l2" style={{ position: 'relative', overflow: 'hidden', borderRadius: 14, padding: '14px 16px', border: '1px solid #4cd7f633' }}>
               <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: 'linear-gradient(90deg, #4cd7f6, transparent 75%)' }} />
-              <p style={{ fontSize: 21, fontWeight: 900, fontStyle: 'italic', color: '#4cd7f6', margin: '0 0 4px', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{fmt(totalRevenue)} ₽</p>
+              <p style={{ fontSize: 21, fontWeight: 900, color: '#4cd7f6', margin: '0 0 4px', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{fmt(totalRevenue)} ₽</p>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
                 <p style={{ fontSize: 10, color: 'var(--on-surface-variant)', margin: 0, textTransform: 'uppercase', letterSpacing: '0.06em', fontFamily: "'JetBrains Mono',monospace" }}>Выручка по тарифам</p>
                 <DeltaBadge delta={revDelta} />
@@ -1525,7 +1519,7 @@ function TariffsTab({ from, to }: { from: string; to: string }) {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: 10 }}>
               {gameEvenings.map((e: any) => (
                 <div key={e.eveningKey} style={{ padding: '12px 14px', borderRadius: 12, background: e.count > 0 ? 'rgba(167,139,250,0.1)' : 'rgba(255,255,255,0.04)' }}>
-                  <p style={{ fontSize: 22, fontWeight: 900, fontStyle: 'italic', color: e.count > 0 ? '#A78BFA' : 'var(--on-surface-variant)', margin: '0 0 4px', lineHeight: 1 }}>{e.count}</p>
+                  <p style={{ fontSize: 22, fontWeight: 900, color: e.count > 0 ? '#A78BFA' : 'var(--on-surface-variant)', margin: '0 0 4px', lineHeight: 1 }}>{e.count}</p>
                   <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.label}</p>
                 </div>
               ))}
@@ -1651,17 +1645,17 @@ function StaffTab({ staff, periodText, from, to }: { staff: any; periodText: str
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))', gap: 12 }}>
         <div className="glass-l2" style={{ position: 'relative', overflow: 'hidden', borderRadius: 14, padding: '16px 18px', border: '1px solid #4cd7f633' }}>
           <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: 'linear-gradient(90deg, #4cd7f6, transparent 75%)' }} />
-          <p style={{ fontSize: 22, fontWeight: 900, fontStyle: 'italic', color: '#4cd7f6', margin: '0 0 4px', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{fmt(parseNum(totals.retail))} ₽</p>
+          <p style={{ fontSize: 22, fontWeight: 900, color: '#4cd7f6', margin: '0 0 4px', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{fmt(parseNum(totals.retail))} ₽</p>
           <p style={{ fontSize: 10, color: 'var(--on-surface-variant)', margin: 0, textTransform: 'uppercase', letterSpacing: '0.06em', fontFamily: "'JetBrains Mono',monospace" }}>Товарная сумма</p>
         </div>
         <div className="glass-l2" style={{ position: 'relative', overflow: 'hidden', borderRadius: 14, padding: '16px 18px', border: '1px solid #F59E0B33' }}>
           <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: 'linear-gradient(90deg, #F59E0B, transparent 75%)' }} />
-          <p style={{ fontSize: 22, fontWeight: 900, fontStyle: 'italic', color: '#F59E0B', margin: '0 0 4px', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{fmt(parseNum(totals.cost))} ₽</p>
+          <p style={{ fontSize: 22, fontWeight: 900, color: '#F59E0B', margin: '0 0 4px', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{fmt(parseNum(totals.cost))} ₽</p>
           <p style={{ fontSize: 10, color: 'var(--on-surface-variant)', margin: 0, textTransform: 'uppercase', letterSpacing: '0.06em', fontFamily: "'JetBrains Mono',monospace" }}>Себестоимость («оплачено»)</p>
         </div>
         <div className="glass-l2" style={{ position: 'relative', overflow: 'hidden', borderRadius: 14, padding: '16px 18px', border: '1px solid #8B5CF633' }}>
           <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: 'linear-gradient(90deg, #8B5CF6, transparent 75%)' }} />
-          <p style={{ fontSize: 22, fontWeight: 900, fontStyle: 'italic', color: '#8B5CF6', margin: '0 0 4px', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{totals.checks ?? 0}</p>
+          <p style={{ fontSize: 22, fontWeight: 900, color: '#8B5CF6', margin: '0 0 4px', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{totals.checks ?? 0}</p>
           <p style={{ fontSize: 10, color: 'var(--on-surface-variant)', margin: 0, textTransform: 'uppercase', letterSpacing: '0.06em', fontFamily: "'JetBrains Mono',monospace" }}>Списаний</p>
         </div>
       </div>
@@ -1682,7 +1676,7 @@ function StaffTab({ staff, periodText, from, to }: { staff: any; periodText: str
                 <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: 0 }}>{r.checksCount ?? 0} списаний · товар {fmt(parseNum(r.retail))} ₽</p>
               </div>
               <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                <p style={{ fontSize: 14, fontWeight: 800, fontStyle: 'italic', color: '#F59E0B', margin: 0 }}>{fmt(parseNum(r.cost))} ₽</p>
+                <p style={{ fontSize: 14, fontWeight: 800, color: '#F59E0B', margin: 0 }}>{fmt(parseNum(r.cost))} ₽</p>
                 <p style={{ fontSize: 9, color: 'var(--on-surface-variant)', margin: 0, textTransform: 'uppercase', letterSpacing: '0.05em' }}>себестоимость</p>
               </div>
             </div>
@@ -1707,7 +1701,7 @@ function StaffTab({ staff, periodText, from, to }: { staff: any; periodText: str
                 <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: 0 }}>товар {fmt(parseNum(t.retail))} ₽</p>
               </div>
               <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                <p style={{ fontSize: 13, fontWeight: 800, fontStyle: 'italic', color: '#F59E0B', margin: 0 }}>{fmt(parseNum(t.cost))} ₽</p>
+                <p style={{ fontSize: 13, fontWeight: 800, color: '#F59E0B', margin: 0 }}>{fmt(parseNum(t.cost))} ₽</p>
                 <p style={{ fontSize: 9, color: 'var(--on-surface-variant)', margin: 0 }}>себест.</p>
               </div>
               <Icon name="chevron_right" size={14} color="rgba(204,195,216,0.4)" />
@@ -1776,7 +1770,7 @@ export default function DashboardPage() {
       <div style={{ padding: '16px 16px 0', flexShrink: 0, zIndex: 10, background: 'rgba(21,18,27,0.92)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)' }}>
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
           <div>
-            <h1 style={{ fontSize: 22, fontWeight: 900, fontStyle: 'italic', letterSpacing: '-0.01em', margin: 0, background: 'linear-gradient(135deg, #A78BFA, #4cd7f6)', WebkitBackgroundClip: 'text', backgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>Аналитика</h1>
+            <h1 style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.01em', margin: 0, color: 'var(--on-surface)' }}>Аналитика</h1>
             <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: '2px 0 0' }}>
               {format(new Date(), 'd MMMM yyyy', { locale: ru })}
             </p>
@@ -1803,10 +1797,9 @@ export default function DashboardPage() {
                 padding: '9px 14px', minHeight: 40,
                 borderRadius: 9999,
                 border: active ? 'none' : '1px solid rgba(255,255,255,0.1)',
-                background: active ? 'linear-gradient(135deg, #8B5CF6, #4cd7f6)' : 'rgba(255,255,255,0.05)',
+                background: active ? 'var(--primary-violet)' : 'rgba(255,255,255,0.05)',
                 color: active ? '#fff' : 'var(--on-surface-variant)',
-                fontSize: 12.5, fontWeight: active ? 800 : 600,
-                boxShadow: active ? '0 4px 16px rgba(139,92,246,0.4)' : 'none',
+                fontSize: 12.5, fontWeight: active ? 700 : 600,
                 cursor: 'pointer', transition: 'all 0.2s', whiteSpace: 'nowrap', flexShrink: 0,
               }}>
                 <Icon name={tab.icon} size={15} color={active ? '#fff' : 'currentColor'} />

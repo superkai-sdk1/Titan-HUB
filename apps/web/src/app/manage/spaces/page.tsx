@@ -84,9 +84,8 @@ export default function SpacesPage() {
                   style={{ borderRadius: 18, padding: 18, cursor: 'pointer', position: 'relative', overflow: 'hidden', transition: 'border-color 0.2s, transform 0.15s', opacity: s.isActive ? 1 : 0.5 }}
                   onMouseEnter={e => { e.currentTarget.style.borderColor = `${color}55`; e.currentTarget.style.transform = 'translateY(-2px)' }}
                   onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)'; e.currentTarget.style.transform = 'translateY(0)' }}>
-                  <div style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 3, background: `linear-gradient(180deg, ${color}, ${color}44)` }} />
                   <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 14 }}>
-                    <div style={{ width: 48, height: 48, borderRadius: 14, background: `${color}22`, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: `0 0 16px ${color}22` }}>
+                    <div style={{ width: 48, height: 48, borderRadius: 14, background: `${color}22`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                       <Icon name={icon} size={24} color={color} />
                     </div>
                     <span style={{ fontSize: 10, fontWeight: 700, fontFamily: "'JetBrains Mono',monospace", padding: '3px 8px', borderRadius: 6, background: s.isActive ? 'rgba(16,185,129,0.15)' : 'rgba(255,255,255,0.06)', color: s.isActive ? '#10B981' : 'rgba(204,195,216,0.4)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
@@ -96,7 +95,7 @@ export default function SpacesPage() {
                   <p style={{ fontSize: 15, fontWeight: 700, margin: '0 0 3px' }}>{s.name}</p>
                   <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: '0 0 12px' }}>{label}</p>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <span style={{ fontSize: 16, fontWeight: 800, fontStyle: 'italic', color, fontFamily: "'JetBrains Mono',monospace" }}>
+                    <span style={{ fontSize: 16, fontWeight: 800, color, fontFamily: "'JetBrains Mono',monospace" }}>
                       {parseFloat(String(s.hourlyRate ?? 0)).toLocaleString('ru')} ₽/ч
                     </span>
                     {s.capacity && <span style={{ fontSize: 11, color: 'var(--on-surface-variant)' }}>{s.capacity} чел.</span>}

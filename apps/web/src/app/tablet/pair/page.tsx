@@ -82,7 +82,7 @@ export default function TabletPairPage() {
         <Icon name="tablet_mac" size={52} color="#A78BFA" />
       </div>
       <div style={{ textAlign: 'center', maxWidth: 480 }}>
-        <h1 style={{ fontSize: 28, fontWeight: 900, fontStyle: 'italic', textTransform: 'uppercase', margin: '0 0 12px' }}>
+        <h1 style={{ fontSize: 28, fontWeight: 900, textTransform: 'uppercase', margin: '0 0 12px' }}>
           Привязка планшета
         </h1>
         <p style={{ fontSize: 14, color: 'var(--on-surface-variant)', margin: 0, lineHeight: 1.5 }}>

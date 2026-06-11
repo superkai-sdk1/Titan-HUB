@@ -243,7 +243,7 @@ export default function ClientsPage() {
               const active = seg === key
               const isArch = key === 'archive'
               return (
-                <button key={key} onClick={() => setSeg(key)} style={{ flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 5, padding: '7px 13px', borderRadius: 9999, border: active ? 'none' : '1px solid rgba(255,255,255,0.08)', cursor: 'pointer', fontSize: 12.5, fontWeight: 700, whiteSpace: 'nowrap', color: active ? '#fff' : 'var(--on-surface-variant)', background: active ? (isArch ? 'linear-gradient(135deg,#64748B,#475569)' : 'linear-gradient(135deg,#9D6CFF,#8B5CF6 45%,#4cd7f6 130%)') : 'rgba(255,255,255,0.05)', boxShadow: active ? (isArch ? '0 2px 12px rgba(100,116,139,0.3)' : '0 3px 14px rgba(139,92,246,0.4), inset 0 1px 0 rgba(255,255,255,0.25)') : 'none', transition: 'transform 0.18s cubic-bezier(0.34,1.56,0.64,1)', WebkitTapHighlightColor: 'transparent', touchAction: 'manipulation' }} onPointerDown={e => { e.currentTarget.style.transform = 'scale(0.94)' }} onPointerUp={e => { e.currentTarget.style.transform = 'scale(1)' }} onPointerLeave={e => { e.currentTarget.style.transform = 'scale(1)' }}>
+                <button key={key} onClick={() => setSeg(key)} style={{ flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 5, padding: '7px 13px', borderRadius: 9999, border: active ? 'none' : '1px solid rgba(255,255,255,0.08)', cursor: 'pointer', fontSize: 12.5, fontWeight: 700, whiteSpace: 'nowrap', color: active ? '#fff' : 'var(--on-surface-variant)', background: active ? (isArch ? '#64748B' : 'var(--primary-violet)') : 'rgba(255,255,255,0.05)', transition: 'transform 0.18s cubic-bezier(0.34,1.56,0.64,1)', WebkitTapHighlightColor: 'transparent', touchAction: 'manipulation' }} onPointerDown={e => { e.currentTarget.style.transform = 'scale(0.94)' }} onPointerUp={e => { e.currentTarget.style.transform = 'scale(1)' }} onPointerLeave={e => { e.currentTarget.style.transform = 'scale(1)' }}>
                   <Icon name={icon} size={14} /> {label}
                 </button>
               )
@@ -280,7 +280,6 @@ export default function ClientsPage() {
                   style={{ position: 'relative', overflow: 'hidden', borderRadius: 14, padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 14, cursor: 'pointer', transition: 'border-color 0.2s' }}
                   onMouseEnter={e => { e.currentTarget.style.borderColor = `${tierColor}55` }}
                   onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)' }}>
-                  <div style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 3, background: `linear-gradient(180deg, ${tierColor}, ${tierColor}44)` }} />
                   <div style={{ width: 46, height: 46, borderRadius: '50%', flexShrink: 0, background: `${tierColor}22`, border: `2px solid ${tierColor}55`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 800, color: tierColor }}>
                     {(c.nickname ?? '?').slice(0, 2).toUpperCase()}
                   </div>
@@ -292,7 +291,7 @@ export default function ClientsPage() {
                     <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: 0 }}>{c.phone ?? 'Нет телефона'}</p>
                   </div>
                   <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                    <p style={{ fontSize: 14, fontWeight: 700, fontStyle: 'italic', color: 'var(--on-surface)', margin: 0, fontFamily: "'JetBrains Mono',monospace" }}>{fmt(parseNum(c.balance))} ₽</p>
+                    <p style={{ fontSize: 14, fontWeight: 700, color: 'var(--on-surface)', margin: 0, fontFamily: "'JetBrains Mono',monospace" }}>{fmt(parseNum(c.balance))} ₽</p>
                     <p style={{ fontSize: 11, color: '#EAB308', margin: '3px 0 0', display: 'flex', alignItems: 'center', gap: 3, justifyContent: 'flex-end' }}>
                       <Icon name="star" size={12} />{fmt(parseNum(c.bonusPoints))}
                     </p>
@@ -535,7 +534,7 @@ export default function ClientsPage() {
                             </p>
                             <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: '2px 0 0' }}>{tx.createdAt ? formatDistanceToNow(new Date(tx.createdAt), { locale: ru, addSuffix: true }) : ''}</p>
                           </div>
-                          <p style={{ fontSize: 14, fontWeight: 700, fontStyle: 'italic', color: amt >= 0 ? '#10B981' : '#F43F5E', margin: 0, fontFamily: "'JetBrains Mono',monospace", flexShrink: 0 }}>
+                          <p style={{ fontSize: 14, fontWeight: 700, color: amt >= 0 ? '#10B981' : '#F43F5E', margin: 0, fontFamily: "'JetBrains Mono',monospace", flexShrink: 0 }}>
                             {amt >= 0 ? '+' : ''}{isVisit ? `${amt} ${pluralVisits(Math.abs(amt))}` : `${fmt(amt)} ₽`}
                           </p>
                         </div>
@@ -621,7 +620,7 @@ export default function ClientsPage() {
                   )}
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: 12, marginBottom: parseNum(ch.tipAmount) > 0 ? 6 : 12 }}>
                     <span style={{ fontSize: 14, color: 'var(--on-surface-variant)' }}>Итого</span>
-                    <span style={{ fontSize: 20, fontWeight: 800, fontStyle: 'italic' }}>{fmt(parseNum(ch.totalAmount))} ₽</span>
+                    <span style={{ fontSize: 20, fontWeight: 800 }}>{fmt(parseNum(ch.totalAmount))} ₽</span>
                   </div>
                   {parseNum(ch.tipAmount) > 0 && (
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>

@@ -193,7 +193,7 @@ function OverviewTab({ data }: { data: any }) {
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
               <Icon name={s.icon} size={18} color={s.color} />
             </div>
-            <p style={{ fontSize: 24, fontWeight: 900, fontStyle: 'italic', fontVariantNumeric: 'tabular-nums', margin: '0 0 4px', color: 'var(--on-surface)' }}>{s.value}</p>
+            <p style={{ fontSize: 24, fontWeight: 900, fontVariantNumeric: 'tabular-nums', margin: '0 0 4px', color: 'var(--on-surface)' }}>{s.value}</p>
             <p style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--on-surface-variant)', margin: 0 }}>{s.label}</p>
           </div>
         ))}
@@ -258,7 +258,7 @@ function ChecksTab({ checks }: { checks: any[] }) {
               {ch.createdAt ? format(new Date(ch.createdAt), 'HH:mm', { locale: ru }) : '—'}
             </p>
           </div>
-          <p style={{ fontSize: 14, fontWeight: 800, fontStyle: 'italic', fontVariantNumeric: 'tabular-nums', color: 'var(--on-surface)', margin: 0, flexShrink: 0 }}>
+          <p style={{ fontSize: 14, fontWeight: 800, fontVariantNumeric: 'tabular-nums', color: 'var(--on-surface)', margin: 0, flexShrink: 0 }}>
             {fmt(parseNum(ch.totalAmount))} ₽
           </p>
         </div>
@@ -293,7 +293,7 @@ function ProductsTab({ items }: { items: any[] }) {
             <p style={{ fontSize: 13, fontWeight: 500, margin: 0, color: 'var(--on-surface)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.name ?? '—'}</p>
             <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: 0 }}>×{parseNum(item.totalQty).toFixed(0)} · {item.category ?? ''}</p>
           </div>
-          <p style={{ fontSize: 14, fontWeight: 700, fontStyle: 'italic', fontVariantNumeric: 'tabular-nums', color: 'var(--on-surface)', margin: 0, flexShrink: 0 }}>
+          <p style={{ fontSize: 14, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: 'var(--on-surface)', margin: 0, flexShrink: 0 }}>
             {fmt(parseNum(item.totalRev))} ₽
           </p>
         </div>
@@ -329,7 +329,7 @@ function ShiftPlayersTab({ players }: { players: any[] }) {
               <p style={{ fontSize: 13, fontWeight: 600, margin: 0, color: 'var(--on-surface)' }}>{sp.nickname ?? 'Гость'}</p>
               <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: 0 }}>{sp.cnt ?? 0} чека(ов)</p>
             </div>
-            <p style={{ fontSize: 14, fontWeight: 800, fontStyle: 'italic', fontVariantNumeric: 'tabular-nums', color: 'var(--on-surface)', margin: 0, flexShrink: 0 }}>
+            <p style={{ fontSize: 14, fontWeight: 800, fontVariantNumeric: 'tabular-nums', color: 'var(--on-surface)', margin: 0, flexShrink: 0 }}>
               {fmt(parseNum(sp.total))} ₽
             </p>
           </div>

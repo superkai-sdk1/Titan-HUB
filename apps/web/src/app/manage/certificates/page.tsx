@@ -85,7 +85,6 @@ export default function CertificatesPage() {
               const isCopied = copiedId === cert.id
               return (
                 <div key={cert.id} className="glass-l2" onClick={() => setSelected(cert)} style={{ borderRadius: 16, padding: 18, cursor: 'pointer', position: 'relative', overflow: 'hidden' }}>
-                  <span style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 3, background: `linear-gradient(180deg, ${statusColor}, color-mix(in srgb, ${statusColor} 27%, transparent))` }} />
                   <span style={{ position: 'absolute', top: 16, right: 16, padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700, background: `color-mix(in srgb, ${statusColor} 16%, transparent)`, color: statusColor, border: `1px solid ${statusColor}` }}>
                     {statusLabel}
                   </span>
