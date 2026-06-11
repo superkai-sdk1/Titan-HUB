@@ -466,11 +466,15 @@ export function PageHeader({
       borderBottom: '1px solid rgba(255,255,255,0.06)',
       padding: '16px 20px',
     }}>
+      <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: 1, background: 'linear-gradient(90deg, transparent, rgba(139,92,246,0.4), rgba(76,215,246,0.3), transparent)' }} />
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, maxWidth: 680, margin: '0 auto', width: '100%' }}>
         <button
           onClick={onBack ?? (() => router.back())}
           aria-label="Назад"
-          style={{ width: 44, height: 44, borderRadius: 12, border: '1px solid rgba(255,255,255,0.08)', background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--on-surface-variant)', flexShrink: 0 }}
+          onPointerDown={e => { e.currentTarget.style.transform = 'scale(0.9)' }}
+          onPointerUp={e => { e.currentTarget.style.transform = 'scale(1)' }}
+          onPointerLeave={e => { e.currentTarget.style.transform = 'scale(1)' }}
+          style={{ width: 44, height: 44, borderRadius: 12, border: '1px solid rgba(255,255,255,0.1)', background: 'linear-gradient(135deg, rgba(255,255,255,0.08), rgba(255,255,255,0.035))', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--on-surface-variant)', flexShrink: 0, transition: 'transform 0.22s cubic-bezier(0.34,1.56,0.64,1), border-color 0.2s', WebkitTapHighlightColor: 'transparent', touchAction: 'manipulation' }}
         >
           <Icon name="arrow_back" size={18} />
         </button>
@@ -481,7 +485,10 @@ export function PageHeader({
         {action && (
           <button
             onClick={action.onClick}
-            style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 16px', borderRadius: 14, border: 'none', cursor: 'pointer', background: 'linear-gradient(135deg, #8B5CF6, #4cd7f6)', color: '#fff', fontSize: 13, fontWeight: 700, flexShrink: 0, boxShadow: '0 4px 20px rgba(139,92,246,0.3)' }}
+            onPointerDown={e => { e.currentTarget.style.transform = 'scale(0.95)' }}
+            onPointerUp={e => { e.currentTarget.style.transform = 'scale(1)' }}
+            onPointerLeave={e => { e.currentTarget.style.transform = 'scale(1)' }}
+            style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 16px', borderRadius: 14, border: 'none', cursor: 'pointer', background: 'linear-gradient(135deg, #9D6CFF 0%, #8B5CF6 42%, #4cd7f6 130%)', color: '#fff', fontSize: 13, fontWeight: 700, flexShrink: 0, boxShadow: '0 6px 22px rgba(139,92,246,0.38), inset 0 1px 0 rgba(255,255,255,0.28)', transition: 'transform 0.22s cubic-bezier(0.34,1.56,0.64,1)', WebkitTapHighlightColor: 'transparent', touchAction: 'manipulation' }}
           >
             <Icon name={action.icon} size={18} />
             {action.label}
