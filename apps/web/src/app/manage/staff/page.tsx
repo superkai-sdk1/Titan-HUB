@@ -1,13 +1,15 @@
 'use client'
 
 import React, { useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
-import { PageHeader, Sheet, Toggle, LBL, INP, SEL } from '@/components/manage/DesignSystem'
+import { PageHeader, Sheet, Toggle, LBL, INP } from '@/components/manage/DesignSystem'
 import { StateView } from '@/components/StateView'
 import { useToast } from '@/components/Toast'
 import { useAuthStore } from '@/store/auth.store'
 import { Icon } from '@/components/Icon'
+import { MyProfile, PinKeypad } from './MyProfile'
 
 interface StaffMember {
   id: string
@@ -33,17 +35,17 @@ const DEFAULT_PERMISSIONS: Record<string, boolean> = {
 }
 
 const PERMISSION_LABELS = [
-  { key: 'menu',      label: 'Меню',          icon: 'restaurant_menu' },
-  { key: 'inventory', label: 'Инвентарь',     icon: 'inventory_2' },
-  { key: 'supplies',  label: 'Снабжение',     icon: 'local_shipping' },
-  { key: 'clients',   label: 'Клиенты',       icon: 'group' },
-  { key: 'discounts', label: 'Скидки',        icon: 'discount' },
-  { key: 'bonus',     label: 'Бонусы',        icon: 'loyalty' },
-  { key: 'expenses',  label: 'Расходы',       icon: 'payments' },
-  { key: 'debtors',   label: 'Должники',      icon: 'account_balance_wallet' },
-  { key: 'staff',     label: 'Персонал',      icon: 'badge' },
-  { key: 'salary',    label: 'Зарплата',      icon: 'savings' },
-  { key: 'about',     label: 'О заведении',   icon: 'info' },
+  { key: 'menu',      label: 'Меню',                  icon: 'restaurant_menu' },
+  { key: 'inventory', label: 'Инвентарь',             icon: 'inventory_2' },
+  { key: 'supplies',  label: 'Снабжение',             icon: 'local_shipping' },
+  { key: 'clients',   label: 'Клиенты',               icon: 'group' },
+  { key: 'discounts', label: 'Скидки (лояльность)',   icon: 'discount' },
+  { key: 'bonus',     label: 'Бонусы (лояльность)',   icon: 'loyalty' },
+  { key: 'expenses',  label: 'Расходы (аналитика)',   icon: 'payments' },
+  { key: 'debtors',   label: 'Депозиты и долги',      icon: 'account_balance_wallet' },
+  { key: 'staff',     label: 'Персонал',              icon: 'badge' },
+  { key: 'salary',    label: 'Зарплата',              icon: 'savings' },
+  { key: 'about',     label: 'О заведении',           icon: 'info' },
 ]
 
 const ROLE_LABELS: Record<string, { label: string; color: string }> = {
@@ -70,83 +72,37 @@ function PermissionRow({ label, icon, value, onChange }: { label: string; icon: 
   )
 }
 
-// ─── 4-digit PIN keypad ────────────────────────────────────────────────────
-
-function PinKeypad({
-  value,
-  onChange,
-  error,
-  label,
-}: {
-  value: string
-  onChange: (v: string) => void
-  error?: boolean
-  label?: string
-}) {
-  const PAD = ['1','2','3','4','5','6','7','8','9','','0','⌫']
-
-  function press(key: string) {
-    if (key === '⌫') { onChange(value.slice(0, -1)); return }
-    if (value.length >= 4) return
-    onChange(value + key)
-  }
-
-  return (
-    <div>
-      {label && <label style={LBL}>{label}</label>}
-
-      {/* Dots */}
-      <div style={{ display: 'flex', justifyContent: 'center', gap: 14, marginBottom: 20 }}>
-        {[0,1,2,3].map(i => (
-          <div key={i} style={{
-            width: 14, height: 14, borderRadius: '50%',
-            background: i < value.length ? (error ? '#F43F5E' : '#8B5CF6') : 'rgba(255,255,255,0.15)',
-            border: `2px solid ${i < value.length ? (error ? '#F43F5E' : '#8B5CF6') : 'rgba(255,255,255,0.2)'}`,
-            boxShadow: (i < value.length && !error) ? '0 0 10px rgba(139,92,246,0.6)' : 'none',
-            transition: 'all 0.15s',
-            transform: i < value.length ? 'scale(1.15)' : 'scale(1)',
-          }} />
-        ))}
-      </div>
-
-      {/* Keypad */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
-        {PAD.map((key, idx) => {
-          if (key === '') return <div key={idx} />
-          const isDel = key === '⌫'
-          return (
-            <button
-              key={idx}
-              onClick={() => press(key)}
-              aria-label={isDel ? 'Стереть' : key}
-              className="glass-l2"
-              style={{
-                padding: '14px 0', borderRadius: 14,
-                border: '1px solid rgba(255,255,255,0.08)',
-                background: isDel ? 'transparent' : 'rgba(255,255,255,0.04)',
-                color: 'var(--on-surface)', fontSize: isDel ? 18 : 22, fontWeight: 600,
-                cursor: 'pointer', transition: 'background 0.12s',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-              }}
-              onMouseDown={e => { e.currentTarget.style.background = 'rgba(139,92,246,0.15)' }}
-              onMouseUp={e => { e.currentTarget.style.background = isDel ? 'transparent' : 'rgba(255,255,255,0.04)' }}
-              onMouseLeave={e => { e.currentTarget.style.background = isDel ? 'transparent' : 'rgba(255,255,255,0.04)' }}
-            >
-              {key}
-            </button>
-          )
-        })}
-      </div>
-    </div>
-  )
-}
-
 // ─── Main page ─────────────────────────────────────────────────────────────
 
 export default function StaffPage() {
+  const router = useRouter()
+  const role = useAuthStore(s => s.user?.role)
+  const myId = useAuthStore(s => s.user?.id)
+
+  // staff видит только свой профиль — без списка.
+  if (role !== 'owner') {
+    return (
+      <div style={{ minHeight: '100dvh', display: 'flex', flexDirection: 'column' }}>
+        <PageHeader title="Мой профиль" onBack={() => router.push('/manage')} />
+        <div style={{ padding: '16px 16px var(--bottom-nav-clear, 24px)', maxWidth: 'var(--content-narrow)', margin: '0 auto', width: '100%' }}>
+          <MyProfile />
+        </div>
+      </div>
+    )
+  }
+
+  return <OwnerView myId={myId} />
+}
+
+// ─── Owner view (свою карточку сверху + управление остальными) ───────────────
+
+function OwnerView({ myId }: { myId?: string }) {
+  const router = useRouter()
   const qc = useQueryClient()
+  const { show } = useToast()
 
   // Sheets
+  const [showProfile, setShowProfile] = useState(false)
   const [selected, setSelected] = useState<StaffMember | null>(null)
   const [showForm, setShowForm] = useState(false)
   const [editTarget, setEditTarget] = useState<StaffMember | null>(null)
@@ -158,8 +114,9 @@ export default function StaffPage() {
   const [formPhone, setFormPhone] = useState('')
   const [formRole, setFormRole] = useState<'staff' | 'owner'>('staff')
   const [formPassword, setFormPassword] = useState('')
-  const [formPinStep, setFormPinStep] = useState(false) // show PIN keypad after filling main fields
+  const [formPinStep, setFormPinStep] = useState(false)
   const [formPin, setFormPin] = useState('')
+  const [formError, setFormError] = useState<string | null>(null)
 
   // PIN reset
   const [pinValue, setPinValue] = useState('')
@@ -172,14 +129,14 @@ export default function StaffPage() {
   const [perms, setPerms] = useState<Record<string, boolean>>(DEFAULT_PERMISSIONS)
   const [permsSaved, setPermsSaved] = useState(false)
 
-  const currentUser = useAuthStore(s => s.user)
-  const { show } = useToast()
-
   const { data, isLoading } = useQuery<{ staff: StaffMember[] }>({
     queryKey: ['staff'],
     queryFn: () => api.get('/staff'),
   })
-  const staff = data?.staff ?? []
+  // Свою карточку показываем закреплённой сверху — из списка её исключаем.
+  const allStaff = data?.staff ?? []
+  const others = allStaff.filter(s => s.id !== myId)
+  const self = allStaff.find(s => s.id === myId)
   const invalidate = () => qc.invalidateQueries({ queryKey: ['staff'] })
 
   // Passkeys for selected staff member
@@ -196,24 +153,16 @@ export default function StaffPage() {
     onSuccess: () => refetchPasskeys(),
   })
 
-  const [formError, setFormError] = useState<string | null>(null)
-
   const createMutation = useMutation({
     mutationFn: (body: object) => api.post('/staff', body),
     onSuccess: () => { invalidate(); closeForm() },
-    onError: (err: any) => {
-      const msg = err?.message || 'Ошибка сохранения. Проверьте данные.'
-      setFormError(msg)
-    },
+    onError: (err: any) => setFormError(err?.message || 'Ошибка сохранения. Проверьте данные.'),
   })
 
   const updateMutation = useMutation({
     mutationFn: ({ id, body }: { id: string; body: object }) => api.patch(`/staff/${id}`, body),
     onSuccess: () => { invalidate(); closeForm() },
-    onError: (err: any) => {
-      const msg = err?.message || 'Ошибка сохранения. Проверьте данные.'
-      setFormError(msg)
-    },
+    onError: (err: any) => setFormError(err?.message || 'Ошибка сохранения. Проверьте данные.'),
   })
 
   const deleteMutation = useMutation({
@@ -302,7 +251,6 @@ export default function StaffPage() {
     setPermsSaved(false)
   }
 
-  // Проверяем что основные поля заполнены
   const mainFieldsOk = formNickname.trim().length >= 2 && (!editTarget ? formPassword.length >= 4 : true)
 
   function handleNextToPin() {
@@ -336,13 +284,11 @@ export default function StaffPage() {
     if (pinStep === 'enter') {
       setPinValue(v)
       if (v.length === 4) {
-        // авто-переход к подтверждению
         setTimeout(() => { setPinStep('confirm') }, 200)
       }
     } else {
       setPinConfirm(v)
       if (v.length === 4) {
-        // авто-сабмит
         setTimeout(() => {
           if (v === pinValue) {
             resetPinMutation.mutate({ id: pinTarget!.id, pin: pinValue })
@@ -362,372 +308,403 @@ export default function StaffPage() {
 
   const isPending = createMutation.isPending || updateMutation.isPending
 
+  // Имя владельца для собственной карточки.
+  const selfNickname = self?.nickname ?? useAuthStore.getState().user?.nickname ?? 'Вы'
+
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100dvh' }}>
       <PageHeader
-        title="Персонал"
-        subtitle={`${staff.length} ${staff.length === 1 ? 'сотрудник' : staff.length <= 4 ? 'сотрудника' : 'сотрудников'}`}
+        title="Пользователи"
+        subtitle={`${others.length + 1} ${others.length + 1 === 1 ? 'пользователь' : others.length + 1 <= 4 ? 'пользователя' : 'пользователей'}`}
         action={{ label: 'Добавить', icon: 'person_add', onClick: openCreate }}
       />
-      <div style={{ padding: '20px 16px var(--bottom-nav-clear, 24px)', maxWidth: 'var(--content-narrow)', margin: '0 auto', width: '100%' }}>
-        {/* List */}
+      <div style={{ padding: '16px 16px var(--bottom-nav-clear, 24px)', maxWidth: 'var(--content-narrow)', margin: '0 auto', width: '100%' }}>
+
+        {/* ─── Своя карточка (закреплена сверху) ─────────────────────────── */}
+        <div
+          className="glass-l2"
+          onClick={() => setShowProfile(true)}
+          style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 16px', borderRadius: 16, cursor: 'pointer', border: '1px solid rgba(139,92,246,0.3)', marginBottom: 18 }}
+        >
+          <div style={{
+            width: 48, height: 48, borderRadius: '50%', flexShrink: 0,
+            background: getAvatarColor(selfNickname),
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontWeight: 700, fontSize: 19, color: '#fff',
+          }}>
+            {selfNickname[0]?.toUpperCase()}
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3 }}>
+              <span style={{ fontWeight: 600, fontSize: 15, color: 'var(--on-surface)' }}>{selfNickname}</span>
+              <span style={{ fontSize: 10, fontWeight: 700, padding: '1px 7px', borderRadius: 999, background: 'rgba(139,92,246,0.2)', color: '#A78BFA' }}>вы</span>
+            </div>
+            <span style={{ fontSize: 12, color: 'var(--on-surface-variant)' }}>Мой профиль · {ROLE_LABELS.owner.label}</span>
+          </div>
+          <Icon name="chevron_right" size={20} color="var(--on-surface-variant)" />
+        </div>
+
+        {/* ─── Список остальных пользователей ────────────────────────────── */}
+        <p style={{ ...LBL, marginBottom: 10, paddingLeft: 4 }}>Сотрудники</p>
         {isLoading && !data ? (
           <StateView state="loading" />
-        ) : staff.length === 0 ? (
-          <StateView state="empty" icon="group" title="Нет сотрудников" />
+        ) : others.length === 0 ? (
+          <StateView state="empty" icon="group" title="Других пользователей нет" />
         ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {staff.map(s => {
-            const roleInfo = ROLE_LABELS[s.role] ?? ROLE_LABELS.staff
-            return (
-              <div
-                key={s.id}
-                className="glass-l2"
-                onClick={() => openDetail(s)}
-                style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 16px', borderRadius: 16, cursor: 'pointer', border: '1px solid rgba(255,255,255,0.07)' }}
-              >
-                <div style={{
-                  width: 44, height: 44, borderRadius: '50%', flexShrink: 0,
-                  background: getAvatarColor(s.nickname),
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontWeight: 700, fontSize: 18, color: '#fff',
-                }}>
-                  {s.nickname[0]?.toUpperCase()}
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 600, fontSize: 15, color: 'var(--on-surface)', marginBottom: 3 }}>{s.nickname}</div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span style={{
-                      fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 8,
-                      background: `${roleInfo.color}22`, color: roleInfo.color,
-                    }}>{roleInfo.label}</span>
-                    {s.phone && <span style={{ fontSize: 12, color: 'var(--on-surface-variant)' }}>{s.phone}</span>}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {others.map(s => {
+              const roleInfo = ROLE_LABELS[s.role] ?? ROLE_LABELS.staff
+              return (
+                <div
+                  key={s.id}
+                  className="glass-l2"
+                  onClick={() => openDetail(s)}
+                  style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 16px', borderRadius: 16, cursor: 'pointer', border: '1px solid rgba(255,255,255,0.07)' }}
+                >
+                  <div style={{
+                    width: 44, height: 44, borderRadius: '50%', flexShrink: 0,
+                    background: getAvatarColor(s.nickname),
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontWeight: 700, fontSize: 18, color: '#fff',
+                  }}>
+                    {s.nickname[0]?.toUpperCase()}
                   </div>
-                </div>
-                <Icon name="chevron_right" size={20} color="var(--on-surface-variant)" />
-              </div>
-            )
-          })}
-        </div>
-      )}
-
-      {/* ─── Detail Sheet ──────────────────────────────────────────────────── */}
-      <Sheet open={!!selected} onClose={() => { setSelected(null); setTgLink(null) }} title={selected?.nickname}>
-        {selected && (
-          <div>
-            {/* Avatar + role */}
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, marginBottom: 24 }}>
-              <div style={{
-                width: 72, height: 72, borderRadius: '50%',
-                background: getAvatarColor(selected.nickname),
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontWeight: 700, fontSize: 30, color: '#fff',
-              }}>
-                {selected.nickname[0]?.toUpperCase()}
-              </div>
-              <span style={{
-                fontSize: 12, fontWeight: 600, padding: '3px 12px', borderRadius: 999,
-                background: `${(ROLE_LABELS[selected.role]?.color ?? '#8B5CF6')}22`,
-                color: ROLE_LABELS[selected.role]?.color ?? '#8B5CF6',
-              }}>
-                {ROLE_LABELS[selected.role]?.label}
-              </span>
-            </div>
-
-            {/* Action buttons */}
-            <div style={{ display: 'flex', gap: 10, marginBottom: 20 }}>
-              <button
-                onClick={() => openEdit(selected)}
-                style={{
-                  flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-                  padding: '12px', borderRadius: 14,
-                  border: '1px solid rgba(139,92,246,0.4)', background: 'rgba(139,92,246,0.1)',
-                  color: '#A78BFA', fontWeight: 600, fontSize: 14, cursor: 'pointer',
-                }}
-              >
-                <Icon name="edit" size={18} />
-                Изменить
-              </button>
-              <button
-                onClick={() => openPinReset(selected)}
-                style={{
-                  flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-                  padding: '12px', borderRadius: 14,
-                  border: '1px solid rgba(76,215,246,0.4)', background: 'rgba(76,215,246,0.1)',
-                  color: '#4cd7f6', fontWeight: 600, fontSize: 14, cursor: 'pointer',
-                }}
-              >
-                <Icon name="pin" size={18} />
-                Задать PIN
-              </button>
-            </div>
-
-            {/* Telegram (админ-бот) */}
-            <div style={{ marginBottom: 20 }}>
-              <p style={{ ...LBL, marginBottom: 8 }}>Telegram (админ-бот)</p>
-              {selected.tgId ? (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', borderRadius: 12, background: 'rgba(34,158,217,0.08)', border: '1px solid rgba(34,158,217,0.2)' }}>
-                  <Icon name="send" size={18} color="#229ED9" />
-                  <span style={{ fontSize: 13, color: 'var(--on-surface)' }}>Привязан{selected.tgUsername ? ` · @${selected.tgUsername}` : ''}</span>
-                </div>
-              ) : tgLink ? (
-                <div style={{ padding: '14px', borderRadius: 12, background: 'rgba(34,158,217,0.06)', border: '1px solid rgba(34,158,217,0.2)', textAlign: 'center' }}>
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={tgLink.qrDataUrl} alt="QR для привязки Telegram" width={180} height={180} style={{ borderRadius: 12, background: '#fff', padding: 6 }} />
-                  <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: '10px 0' }}>Откройте ссылку на телефоне сотрудника или отсканируйте QR. Ссылка действует 15 минут.</p>
-                  <a href={tgLink.deepLink} target="_blank" rel="noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '10px 18px', borderRadius: 12, background: 'linear-gradient(135deg,#229ED9,#4cd7f6)', color: '#fff', fontSize: 13, fontWeight: 700, textDecoration: 'none' }}>
-                    <Icon name="send" size={16} />Открыть в Telegram
-                  </a>
-                </div>
-              ) : (
-                <button onClick={() => tgLinkMutation.mutate(selected.id)} disabled={tgLinkMutation.isPending}
-                  style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '12px', borderRadius: 14, border: '1px solid rgba(34,158,217,0.4)', background: 'rgba(34,158,217,0.1)', color: '#229ED9', fontWeight: 600, fontSize: 14, cursor: 'pointer' }}>
-                  <Icon name="send" size={18} />{tgLinkMutation.isPending ? 'Создаём ссылку…' : 'Привязать Telegram'}
-                </button>
-              )}
-            </div>
-
-            {/* Passkeys section */}
-            <div style={{ marginBottom: 20 }}>
-              <p style={{ ...LBL, marginBottom: 8 }}>Passkey / биометрия</p>
-              {staffPasskeys.length === 0 ? (
-                <div style={{
-                  display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px',
-                  borderRadius: 12, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)',
-                }}>
-                  <Icon name="fingerprint" size={18} color="var(--on-surface-variant)" />
-                  <span style={{ fontSize: 13, color: 'var(--on-surface-variant)' }}>Passkey не настроен</span>
-                </div>
-              ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  {staffPasskeys.map(pk => (
-                    <div key={pk.id} style={{
-                      display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px',
-                      borderRadius: 12, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)',
-                    }}>
-                      <Icon name="fingerprint" size={18} color="#A78BFA" />
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--on-surface)' }}>
-                          {pk.deviceType === 'multiDevice' ? 'Синхронизированный ключ' : pk.deviceType === 'singleDevice' ? 'Ключ устройства' : 'Passkey'}
-                          {pk.backedUp && <span style={{ fontSize: 10, marginLeft: 6, color: '#10B981', background: 'rgba(16,185,129,0.1)', padding: '1px 6px', borderRadius: 4 }}>Cloud</span>}
-                        </div>
-                        <div style={{ fontSize: 11, color: 'var(--on-surface-variant)' }}>
-                          {new Date(pk.createdAt).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' })}
-                        </div>
-                      </div>
-                      <button
-                        onClick={() => deletePasskeyMutation.mutate({ staffId: selected.id, passkeyId: pk.id })}
-                        disabled={deletePasskeyMutation.isPending}
-                        style={{
-                          display: 'flex', alignItems: 'center', justifyContent: 'center',
-                          width: 32, height: 32, borderRadius: 8,
-                          border: '1px solid rgba(239,68,68,0.3)', background: 'rgba(239,68,68,0.08)',
-                          color: '#EF4444', cursor: 'pointer',
-                        }}
-                      >
-                        <Icon name="delete" size={16} />
-                      </button>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 600, fontSize: 15, color: 'var(--on-surface)', marginBottom: 3 }}>{s.nickname}</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{
+                        fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 8,
+                        background: `${roleInfo.color}22`, color: roleInfo.color,
+                      }}>{roleInfo.label}</span>
+                      {s.phone && <span style={{ fontSize: 12, color: 'var(--on-surface-variant)' }}>{s.phone}</span>}
                     </div>
-                  ))}
+                  </div>
+                  <Icon name="chevron_right" size={20} color="var(--on-surface-variant)" />
                 </div>
-              )}
-            </div>
+              )
+            })}
+          </div>
+        )}
 
-            {/* Permissions (staff only) */}
-            {selected.role === 'staff' && (
-              <div style={{ marginBottom: 20 }}>
-                <p style={{ ...LBL, marginBottom: 6 }}>Права доступа</p>
-                <div style={{ marginBottom: 12 }}>
-                  {PERMISSION_LABELS.map(({ key, label, icon }) => (
-                    <PermissionRow
-                      key={key}
-                      label={label}
-                      icon={icon}
-                      value={perms[key] ?? DEFAULT_PERMISSIONS[key] ?? true}
-                      onChange={v => setPerms(p => ({ ...p, [key]: v }))}
-                    />
-                  ))}
+        {/* ─── Свой профиль (Sheet) ──────────────────────────────────────── */}
+        <Sheet open={showProfile} onClose={() => setShowProfile(false)} title="Мой профиль">
+          {showProfile && <MyProfile />}
+        </Sheet>
+
+        {/* ─── Detail / управление пользователем (Sheet) ─────────────────── */}
+        <Sheet open={!!selected} onClose={() => { setSelected(null); setTgLink(null) }} title={selected?.nickname}>
+          {selected && (
+            <div>
+              {/* Avatar + role */}
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, marginBottom: 24 }}>
+                <div style={{
+                  width: 72, height: 72, borderRadius: '50%',
+                  background: getAvatarColor(selected.nickname),
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontWeight: 700, fontSize: 30, color: '#fff',
+                }}>
+                  {selected.nickname[0]?.toUpperCase()}
                 </div>
+                <span style={{
+                  fontSize: 12, fontWeight: 600, padding: '3px 12px', borderRadius: 999,
+                  background: `${(ROLE_LABELS[selected.role]?.color ?? '#8B5CF6')}22`,
+                  color: ROLE_LABELS[selected.role]?.color ?? '#8B5CF6',
+                }}>
+                  {ROLE_LABELS[selected.role]?.label}
+                </span>
+              </div>
+
+              {/* Action buttons */}
+              <div style={{ display: 'flex', gap: 10, marginBottom: 20 }}>
                 <button
-                  onClick={() => updatePermsMutation.mutate({ id: selected.id, permissions: perms })}
-                  disabled={updatePermsMutation.isPending}
+                  onClick={() => openEdit(selected)}
                   style={{
-                    width: '100%', padding: '12px', borderRadius: 12, border: 'none', cursor: 'pointer',
-                    background: permsSaved ? 'rgba(16,185,129,0.15)' : 'linear-gradient(135deg,#8B5CF6,#4cd7f6)',
-                    color: permsSaved ? '#10B981' : '#fff', fontWeight: 700, fontSize: 14, transition: 'background 0.3s',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                    flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                    padding: '12px', borderRadius: 14,
+                    border: '1px solid rgba(139,92,246,0.4)', background: 'rgba(139,92,246,0.1)',
+                    color: '#A78BFA', fontWeight: 600, fontSize: 14, cursor: 'pointer',
                   }}
                 >
-                  {permsSaved
-                    ? <><Icon name="check_circle" size={16} />Сохранено</>
-                    : updatePermsMutation.isPending ? 'Сохранение...' : 'Сохранить права'}
+                  <Icon name="edit" size={18} />
+                  Изменить
+                </button>
+                <button
+                  onClick={() => openPinReset(selected)}
+                  style={{
+                    flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                    padding: '12px', borderRadius: 14,
+                    border: '1px solid rgba(76,215,246,0.4)', background: 'rgba(76,215,246,0.1)',
+                    color: '#4cd7f6', fontWeight: 600, fontSize: 14, cursor: 'pointer',
+                  }}
+                >
+                  <Icon name="pin" size={18} />
+                  Задать PIN
                 </button>
               </div>
-            )}
 
-            {/* Delete */}
-            <button
-              onClick={() => deleteMutation.mutate(selected.id)}
-              disabled={deleteMutation.isPending}
-              style={{
-                width: '100%', padding: '13px', borderRadius: 14,
-                border: '1px solid rgba(239,68,68,0.3)', background: 'rgba(239,68,68,0.08)',
-                color: '#EF4444', fontWeight: 600, fontSize: 14, cursor: 'pointer',
-              }}
-            >
-              {deleteMutation.isPending ? 'Удаление...' : 'Удалить сотрудника'}
-            </button>
-          </div>
-        )}
-      </Sheet>
+              {/* Telegram (админ-бот) */}
+              <div style={{ marginBottom: 20 }}>
+                <p style={{ ...LBL, marginBottom: 8 }}>Telegram (админ-бот)</p>
+                {selected.tgId ? (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', borderRadius: 12, background: 'rgba(34,158,217,0.08)', border: '1px solid rgba(34,158,217,0.2)' }}>
+                    <Icon name="send" size={18} color="#229ED9" />
+                    <span style={{ fontSize: 13, color: 'var(--on-surface)' }}>Привязан{selected.tgUsername ? ` · @${selected.tgUsername}` : ''}</span>
+                  </div>
+                ) : tgLink ? (
+                  <div style={{ padding: '14px', borderRadius: 12, background: 'rgba(34,158,217,0.06)', border: '1px solid rgba(34,158,217,0.2)', textAlign: 'center' }}>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={tgLink.qrDataUrl} alt="QR для привязки Telegram" width={180} height={180} style={{ borderRadius: 12, background: '#fff', padding: 6 }} />
+                    <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: '10px 0' }}>Откройте ссылку на телефоне сотрудника или отсканируйте QR. Ссылка действует 15 минут.</p>
+                    <a href={tgLink.deepLink} target="_blank" rel="noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '10px 18px', borderRadius: 12, background: 'linear-gradient(135deg,#229ED9,#4cd7f6)', color: '#fff', fontSize: 13, fontWeight: 700, textDecoration: 'none' }}>
+                      <Icon name="send" size={16} />Открыть в Telegram
+                    </a>
+                  </div>
+                ) : (
+                  <button onClick={() => tgLinkMutation.mutate(selected.id)} disabled={tgLinkMutation.isPending}
+                    style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '12px', borderRadius: 14, border: '1px solid rgba(34,158,217,0.4)', background: 'rgba(34,158,217,0.1)', color: '#229ED9', fontWeight: 600, fontSize: 14, cursor: 'pointer' }}>
+                    <Icon name="send" size={18} />{tgLinkMutation.isPending ? 'Создаём ссылку…' : 'Привязать Telegram'}
+                  </button>
+                )}
+              </div>
 
-      {/* ─── Create / Edit Sheet ────────────────────────────────────────────── */}
-      <Sheet
-        open={showForm}
-        onClose={closeForm}
-        title={formPinStep ? 'PIN сотрудника' : editTarget ? 'Редактировать' : 'Новый сотрудник'}
-      >
-        {!formPinStep ? (
-          // Step 1: main fields
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-            <div>
-              <label style={LBL}>Никнейм *</label>
-              <input style={INP} placeholder="Например: Алекс" value={formNickname} onChange={e => setFormNickname(e.target.value)} />
-            </div>
-            <div>
-              <label style={LBL}>Телефон</label>
-              <input style={INP} placeholder="+7 999 000 00 00" value={formPhone} onChange={e => setFormPhone(e.target.value)} />
-            </div>
-            <div>
-              <label style={LBL}>Роль</label>
-              <select style={{ ...INP, background: 'rgba(29,26,36,0.8)', cursor: 'pointer' }} value={formRole} onChange={e => setFormRole(e.target.value as 'staff' | 'owner')}>
-                <option value="staff">Персонал</option>
-                <option value="owner">Владелец</option>
-              </select>
-            </div>
-            <div>
-              <label style={LBL}>{editTarget ? 'Новый пароль (необязательно)' : 'Пароль для входа *'}</label>
-              <input
-                style={INP} type="password"
-                placeholder={editTarget ? 'Оставьте пустым, чтобы не менять' : 'Минимум 4 символа'}
-                value={formPassword}
-                onChange={e => setFormPassword(e.target.value)}
-              />
-            </div>
+              {/* Passkeys section */}
+              <div style={{ marginBottom: 20 }}>
+                <p style={{ ...LBL, marginBottom: 8 }}>Passkey / биометрия</p>
+                {staffPasskeys.length === 0 ? (
+                  <div style={{
+                    display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px',
+                    borderRadius: 12, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)',
+                  }}>
+                    <Icon name="fingerprint" size={18} color="var(--on-surface-variant)" />
+                    <span style={{ fontSize: 13, color: 'var(--on-surface-variant)' }}>Passkey не настроен</span>
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {staffPasskeys.map(pk => (
+                      <div key={pk.id} style={{
+                        display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px',
+                        borderRadius: 12, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)',
+                      }}>
+                        <Icon name="fingerprint" size={18} color="#A78BFA" />
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--on-surface)' }}>
+                            {pk.deviceType === 'multiDevice' ? 'Синхронизированный ключ' : pk.deviceType === 'singleDevice' ? 'Ключ устройства' : 'Passkey'}
+                            {pk.backedUp && <span style={{ fontSize: 10, marginLeft: 6, color: '#10B981', background: 'rgba(16,185,129,0.1)', padding: '1px 6px', borderRadius: 4 }}>Cloud</span>}
+                          </div>
+                          <div style={{ fontSize: 11, color: 'var(--on-surface-variant)' }}>
+                            {new Date(pk.createdAt).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' })}
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => deletePasskeyMutation.mutate({ staffId: selected.id, passkeyId: pk.id })}
+                          disabled={deletePasskeyMutation.isPending}
+                          style={{
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            width: 32, height: 32, borderRadius: 8,
+                            border: '1px solid rgba(239,68,68,0.3)', background: 'rgba(239,68,68,0.08)',
+                            color: '#EF4444', cursor: 'pointer',
+                          }}
+                        >
+                          <Icon name="delete" size={16} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
 
-            {/* Hint about PIN step */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 12, background: 'rgba(139,92,246,0.08)', border: '1px solid rgba(139,92,246,0.2)' }}>
-              <Icon name="pin" size={18} color="#A78BFA" />
-              <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: 0 }}>
-                На следующем шаге можно сразу задать 4-значный PIN для быстрого входа
+              {/* Permissions (staff only) */}
+              {selected.role === 'staff' && (
+                <div style={{ marginBottom: 20 }}>
+                  <p style={{ ...LBL, marginBottom: 6 }}>Права доступа</p>
+                  <div style={{ marginBottom: 12 }}>
+                    {PERMISSION_LABELS.map(({ key, label, icon }) => (
+                      <PermissionRow
+                        key={key}
+                        label={label}
+                        icon={icon}
+                        value={perms[key] ?? DEFAULT_PERMISSIONS[key] ?? true}
+                        onChange={v => setPerms(p => ({ ...p, [key]: v }))}
+                      />
+                    ))}
+                  </div>
+                  <button
+                    onClick={() => updatePermsMutation.mutate({ id: selected.id, permissions: perms })}
+                    disabled={updatePermsMutation.isPending}
+                    style={{
+                      width: '100%', padding: '12px', borderRadius: 12, border: 'none', cursor: 'pointer',
+                      background: permsSaved ? 'rgba(16,185,129,0.15)' : 'linear-gradient(135deg,#8B5CF6,#4cd7f6)',
+                      color: permsSaved ? '#10B981' : '#fff', fontWeight: 700, fontSize: 14, transition: 'background 0.3s',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                    }}
+                  >
+                    {permsSaved
+                      ? <><Icon name="check_circle" size={16} />Сохранено</>
+                      : updatePermsMutation.isPending ? 'Сохранение...' : 'Сохранить права'}
+                  </button>
+                </div>
+              )}
+
+              {/* Delete */}
+              <button
+                onClick={() => deleteMutation.mutate(selected.id)}
+                disabled={deleteMutation.isPending}
+                style={{
+                  width: '100%', padding: '13px', borderRadius: 14,
+                  border: '1px solid rgba(239,68,68,0.3)', background: 'rgba(239,68,68,0.08)',
+                  color: '#EF4444', fontWeight: 600, fontSize: 14, cursor: 'pointer',
+                }}
+              >
+                {deleteMutation.isPending ? 'Удаление...' : 'Удалить сотрудника'}
+              </button>
+            </div>
+          )}
+        </Sheet>
+
+        {/* ─── Create / Edit Sheet ────────────────────────────────────────── */}
+        <Sheet
+          open={showForm}
+          onClose={closeForm}
+          title={formPinStep ? 'PIN сотрудника' : editTarget ? 'Редактировать' : 'Новый сотрудник'}
+        >
+          {!formPinStep ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              <div>
+                <label style={LBL}>Никнейм *</label>
+                <input style={INP} placeholder="Например: Алекс" value={formNickname} onChange={e => setFormNickname(e.target.value)} />
+              </div>
+              <div>
+                <label style={LBL}>Телефон</label>
+                <input style={INP} placeholder="+7 999 000 00 00" value={formPhone} onChange={e => setFormPhone(e.target.value)} />
+              </div>
+              <div>
+                <label style={LBL}>Роль</label>
+                <select style={{ ...INP, background: 'rgba(29,26,36,0.8)', cursor: 'pointer' }} value={formRole} onChange={e => setFormRole(e.target.value as 'staff' | 'owner')}>
+                  <option value="staff">Персонал</option>
+                  <option value="owner">Владелец</option>
+                </select>
+              </div>
+              <div>
+                <label style={LBL}>{editTarget ? 'Новый пароль (необязательно)' : 'Пароль для входа *'}</label>
+                <input
+                  style={INP} type="password"
+                  placeholder={editTarget ? 'Оставьте пустым, чтобы не менять' : 'Минимум 4 символа'}
+                  value={formPassword}
+                  onChange={e => setFormPassword(e.target.value)}
+                />
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 12, background: 'rgba(139,92,246,0.08)', border: '1px solid rgba(139,92,246,0.2)' }}>
+                <Icon name="pin" size={18} color="#A78BFA" />
+                <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: 0 }}>
+                  На следующем шаге можно сразу задать 4-значный PIN для быстрого входа
+                </p>
+              </div>
+
+              <button
+                onClick={handleNextToPin}
+                disabled={!mainFieldsOk || isPending}
+                style={{
+                  padding: '14px', borderRadius: 14, border: 'none', cursor: mainFieldsOk ? 'pointer' : 'not-allowed',
+                  background: mainFieldsOk ? 'linear-gradient(135deg,#8B5CF6,#4cd7f6)' : 'rgba(255,255,255,0.08)',
+                  color: mainFieldsOk ? '#fff' : 'var(--on-surface-variant)', fontWeight: 700, fontSize: 15,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                }}
+              >
+                Далее — задать PIN
+                <Icon name="arrow_forward" size={18} />
+              </button>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+              <p style={{ fontSize: 13, color: 'var(--on-surface-variant)', margin: 0, textAlign: 'center' }}>
+                Введите 4-значный PIN для сотрудника <strong style={{ color: 'var(--on-surface)' }}>{formNickname}</strong>.
+                Это необязательно — без PIN сотрудник войдёт по паролю и установит PIN сам.
               </p>
-            </div>
 
-            <button
-              onClick={handleNextToPin}
-              disabled={!mainFieldsOk || isPending}
-              style={{
-                padding: '14px', borderRadius: 14, border: 'none', cursor: mainFieldsOk ? 'pointer' : 'not-allowed',
-                background: mainFieldsOk ? 'linear-gradient(135deg,#8B5CF6,#4cd7f6)' : 'rgba(255,255,255,0.08)',
-                color: mainFieldsOk ? '#fff' : 'var(--on-surface-variant)', fontWeight: 700, fontSize: 15,
-                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-              }}
-            >
-              Далее — задать PIN
-              <Icon name="arrow_forward" size={18} />
-            </button>
-          </div>
-        ) : (
-          // Step 2: PIN keypad (optional)
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-            <p style={{ fontSize: 13, color: 'var(--on-surface-variant)', margin: 0, textAlign: 'center' }}>
-              Введите 4-значный PIN для сотрудника <strong style={{ color: 'var(--on-surface)' }}>{formNickname}</strong>.
-              Это необязательно — без PIN сотрудник войдёт по паролю и установит PIN сам.
-            </p>
+              <PinKeypad
+                value={formPin}
+                onChange={setFormPin}
+                label="4-значный PIN (необязательно)"
+              />
 
-            <PinKeypad
-              value={formPin}
-              onChange={setFormPin}
-              label="4-значный PIN (необязательно)"
-            />
-
-            <div style={{ display: 'flex', gap: 10 }}>
-              <button
-                onClick={() => setFormPinStep(false)}
-                style={{
-                  flex: 1, padding: '13px', borderRadius: 14,
-                  border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.05)',
-                  color: 'var(--on-surface-variant)', fontWeight: 600, fontSize: 14, cursor: 'pointer',
-                }}
-              >
-                Назад
-              </button>
-              <button
-                onClick={submitForm}
-                disabled={isPending || (formPin.length > 0 && formPin.length < 4)}
-                style={{
-                  flex: 2, padding: '13px', borderRadius: 14, border: 'none', cursor: 'pointer',
-                  background: 'linear-gradient(135deg,#8B5CF6,#4cd7f6)',
-                  color: '#fff', fontWeight: 700, fontSize: 15,
-                  opacity: (isPending || (formPin.length > 0 && formPin.length < 4)) ? 0.6 : 1,
-                }}
-              >
-                {isPending ? 'Сохранение...' : editTarget ? 'Сохранить' : 'Создать'}
-              </button>
-            </div>
-
-            {formError && (
-              <div style={{ padding: '10px 14px', borderRadius: 10, background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.3)', color: '#EF4444', fontSize: 13 }}>
-                {formError}
+              <div style={{ display: 'flex', gap: 10 }}>
+                <button
+                  onClick={() => setFormPinStep(false)}
+                  style={{
+                    flex: 1, padding: '13px', borderRadius: 14,
+                    border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.05)',
+                    color: 'var(--on-surface-variant)', fontWeight: 600, fontSize: 14, cursor: 'pointer',
+                  }}
+                >
+                  Назад
+                </button>
+                <button
+                  onClick={submitForm}
+                  disabled={isPending || (formPin.length > 0 && formPin.length < 4)}
+                  style={{
+                    flex: 2, padding: '13px', borderRadius: 14, border: 'none', cursor: 'pointer',
+                    background: 'linear-gradient(135deg,#8B5CF6,#4cd7f6)',
+                    color: '#fff', fontWeight: 700, fontSize: 15,
+                    opacity: (isPending || (formPin.length > 0 && formPin.length < 4)) ? 0.6 : 1,
+                  }}
+                >
+                  {isPending ? 'Сохранение...' : editTarget ? 'Сохранить' : 'Создать'}
+                </button>
               </div>
-            )}
-          </div>
-        )}
-      </Sheet>
 
-      {/* ─── PIN Reset Sheet ────────────────────────────────────────────────── */}
-      <Sheet
-        open={showPin}
-        onClose={() => setShowPin(false)}
-        title={pinStep === 'enter' ? `PIN — ${pinTarget?.nickname}` : 'Подтвердите PIN'}
-      >
-        {pinSuccess ? (
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16, padding: '20px 0' }}>
-            <div style={{ width: 72, height: 72, borderRadius: '50%', background: 'rgba(16,185,129,0.15)', border: '2px solid #10B981', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <Icon name="check_circle" size={38} color="#10B981" />
+              {formError && (
+                <div style={{ padding: '10px 14px', borderRadius: 10, background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.3)', color: '#EF4444', fontSize: 13 }}>
+                  {formError}
+                </div>
+              )}
             </div>
-            <p style={{ fontSize: 16, fontWeight: 700, color: '#10B981', margin: 0 }}>PIN установлен!</p>
-          </div>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-            <p style={{ fontSize: 13, color: 'var(--on-surface-variant)', margin: 0, textAlign: 'center' }}>
-              {pinStep === 'enter'
-                ? 'Введите новый 4-значный PIN'
-                : 'Введите PIN ещё раз для подтверждения'}
-            </p>
+          )}
+        </Sheet>
 
-            <PinKeypad
-              value={pinStep === 'enter' ? pinValue : pinConfirm}
-              onChange={handlePinInput}
-              error={pinError}
-            />
-
-            {pinError && (
-              <div style={{ padding: '10px 14px', borderRadius: 10, background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.3)', color: '#EF4444', fontSize: 13, textAlign: 'center' }}>
-                PIN-коды не совпадают — попробуйте снова
+        {/* ─── PIN Reset Sheet ────────────────────────────────────────────── */}
+        <Sheet
+          open={showPin}
+          onClose={() => setShowPin(false)}
+          title={pinStep === 'enter' ? `PIN — ${pinTarget?.nickname}` : 'Подтвердите PIN'}
+        >
+          {pinSuccess ? (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16, padding: '20px 0' }}>
+              <div style={{ width: 72, height: 72, borderRadius: '50%', background: 'rgba(16,185,129,0.15)', border: '2px solid #10B981', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Icon name="check_circle" size={38} color="#10B981" />
               </div>
-            )}
+              <p style={{ fontSize: 16, fontWeight: 700, color: '#10B981', margin: 0 }}>PIN установлен!</p>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+              <p style={{ fontSize: 13, color: 'var(--on-surface-variant)', margin: 0, textAlign: 'center' }}>
+                {pinStep === 'enter'
+                  ? 'Введите новый 4-значный PIN'
+                  : 'Введите PIN ещё раз для подтверждения'}
+              </p>
 
-            {resetPinMutation.isError && (
-              <div style={{ padding: '10px 14px', borderRadius: 10, background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.3)', color: '#EF4444', fontSize: 13 }}>
-                Ошибка сохранения PIN
-              </div>
-            )}
-          </div>
-        )}
-      </Sheet>
+              <PinKeypad
+                value={pinStep === 'enter' ? pinValue : pinConfirm}
+                onChange={handlePinInput}
+                error={pinError}
+              />
+
+              {pinError && (
+                <div style={{ padding: '10px 14px', borderRadius: 10, background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.3)', color: '#EF4444', fontSize: 13, textAlign: 'center' }}>
+                  PIN-коды не совпадают — попробуйте снова
+                </div>
+              )}
+
+              {resetPinMutation.isError && (
+                <div style={{ padding: '10px 14px', borderRadius: 10, background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.3)', color: '#EF4444', fontSize: 13 }}>
+                  Ошибка сохранения PIN
+                </div>
+              )}
+            </div>
+          )}
+        </Sheet>
       </div>
     </div>
   )

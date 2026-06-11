@@ -16,6 +16,8 @@ import { Icon } from '@/components/Icon'
 interface NavItem {
   href: string
   label: string
+  /** Альтернативная подпись для роли 'staff' (напр. «Мой профиль» вместо «Пользователи»). */
+  labelStaff?: string
   icon: string
   color: string
   bg: string
@@ -64,7 +66,8 @@ const NAV: NavGroup[] = [
     title: 'Персонал и смены',
     icon: 'badge',
     items: [
-      { href: '/manage/staff', label: 'Сотрудники', icon: 'group',    color: '#A78BFA', bg: 'rgba(167,139,250,0.15)', roles: ['owner'], perm: 'staff' },
+      // Владелец: «Пользователи» (управление + свой профиль). Сотрудник: «Мой профиль» (только своё).
+      { href: '/manage/staff', label: 'Пользователи', labelStaff: 'Мой профиль', icon: 'group', color: '#A78BFA', bg: 'rgba(167,139,250,0.15)', roles: ['owner','staff'] },
       // Смена и касса в одном экране (инкассация встроена).
       { href: '/shifts',       label: 'Смены',      icon: 'schedule', color: '#8B5CF6', bg: 'rgba(139,92,246,0.15)',  roles: ['owner','staff'] },
       { href: '/manage/salary', label: 'Зарплата',  icon: 'payments', color: '#10B981', bg: 'rgba(16,185,129,0.15)', roles: ['owner'], perm: 'salary' },
@@ -75,9 +78,6 @@ const NAV: NavGroup[] = [
     icon: 'settings',
     items: [
       { href: '/manage/settings', label: 'Настройки',   icon: 'settings',    color: '#94A3B8', bg: 'rgba(148,163,184,0.15)', roles: ['owner'] },
-      { href: '/manage/ai',       label: 'AI Помощник', icon: 'psychology',  color: '#4cd7f6', bg: 'rgba(76,215,246,0.15)',   roles: ['owner','staff'] },
-      { href: '/manage/notifications', label: 'Уведомления', icon: 'notifications', color: '#F59E0B', bg: 'rgba(245,158,11,0.15)', roles: ['owner','staff'] },
-      { href: '/manage/security', label: 'Мой Passkey', icon: 'fingerprint', color: '#A78BFA', bg: 'rgba(167,139,250,0.15)', roles: ['owner','staff'] },
       { href: '/manage/about',    label: 'О системе',   icon: 'info',        color: '#94A3B8', bg: 'rgba(148,163,184,0.15)', roles: ['owner'] },
     ],
   },
@@ -199,7 +199,7 @@ export function ManageMenu() {
               {/* Grid */}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10 }}>
                 {visibleItems.map(item => (
-                  <NavCard key={item.href} {...item} active={pathname === item.href || pathname.startsWith(item.href + '/')} />
+                  <NavCard key={item.href} {...item} label={role !== 'owner' && item.labelStaff ? item.labelStaff : item.label} active={pathname === item.href || pathname.startsWith(item.href + '/')} />
                 ))}
               </div>
             </div>

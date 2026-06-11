@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
-import { db, profiles, transactions, bonusLots, bonusHistory, checks, checkItems, checkPayments, checkDiscounts, inventory, spaces, eq, and, isNull, inArray, desc, gt, sql } from '@titan/database'
+import { db, profiles, transactions, bonusLots, bonusHistory, checks, checkItems, checkPayments, checkDiscounts, inventory, spaces, eq, ne, and, isNull, inArray, desc, gt, ilike, sql } from '@titan/database'
 import { visitProgress } from '../../lib/loyalty.js'
 // @ts-ignore
 import { passkeys } from '@titan/database'
@@ -370,6 +370,32 @@ authRouter.post('/pin/set', requireAuth, zValidator('json', SetPinSchema), async
 
 authRouter.get('/me', requireAuth, async (c) => {
   const user = c.get('user')
+  const [profile] = await db.select().from(profiles).where(eq(profiles.id, user.sub))
+  if (!profile) return c.json({ error: 'Not found' }, 404)
+  const { pin, passwordHash, ...safe } = profile
+  return c.json(safe)
+})
+
+// PATCH /auth/me — правка СВОИХ данных (ник/имя/телефон). Роль и права через self
+// не меняются (их выдаёт только владелец через /staff). Ник уникален без регистра.
+authRouter.patch('/me', requireAuth, zValidator('json', z.object({
+  nickname: z.string().trim().min(1).max(40).optional(),
+  fullName: z.string().trim().max(120).nullable().optional(),
+  phone: z.string().trim().max(40).nullable().optional(),
+})), async (c) => {
+  const user = c.get('user')
+  const body = c.req.valid('json')
+  const update: Record<string, unknown> = {}
+  if (body.nickname !== undefined) {
+    const [clash] = await db.select({ id: profiles.id }).from(profiles)
+      .where(and(ilike(profiles.nickname, body.nickname), ne(profiles.id, user.sub)))
+    if (clash) return c.json({ error: 'Ник уже занят' }, 409)
+    update.nickname = body.nickname
+  }
+  if (body.fullName !== undefined) update.fullName = body.fullName || null
+  if (body.phone !== undefined) update.phone = body.phone || null
+  if (Object.keys(update).length === 0) return c.json({ ok: true })
+  await db.update(profiles).set(update).where(eq(profiles.id, user.sub))
   const [profile] = await db.select().from(profiles).where(eq(profiles.id, user.sub))
   if (!profile) return c.json({ error: 'Not found' }, 404)
   const { pin, passwordHash, ...safe } = profile
