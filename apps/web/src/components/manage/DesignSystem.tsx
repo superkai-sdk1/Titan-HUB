@@ -290,7 +290,7 @@ export function Sheet({
                   borderBottom: '1px solid rgba(255,255,255,0.06)',
                   flexShrink: 0,
                 }}>
-                  <h2 style={{ fontSize: 17, fontWeight: 800, margin: 0 }}>{title}</h2>
+                  <h2 style={{ fontSize: 17, fontWeight: 800, margin: 0, background: 'linear-gradient(135deg, #C4B5FD, #4cd7f6)', WebkitBackgroundClip: 'text', backgroundClip: 'text', WebkitTextFillColor: 'transparent', letterSpacing: '-0.01em' }}>{title}</h2>
                   <button onClick={onClose} aria-label="Закрыть" style={{
                     width: 32, height: 32, borderRadius: 9,
                     border: '1px solid rgba(255,255,255,0.1)',
@@ -390,8 +390,8 @@ export function Sheet({
                 }}
               >
                 <div style={{
-                  width: 40, height: 4,
-                  background: 'rgba(255,255,255,0.2)',
+                  width: 44, height: 5,
+                  background: 'linear-gradient(90deg, rgba(139,92,246,0.5), rgba(76,215,246,0.5))',
                   borderRadius: 4,
                   margin: '0 auto',
                 }} />
@@ -405,8 +405,8 @@ export function Sheet({
                   borderBottom: '1px solid rgba(255,255,255,0.06)',
                   flexShrink: 0,
                 }}>
-                  <h2 style={{ fontSize: 17, fontWeight: 800, margin: 0 }}>{title}</h2>
-                  <button onClick={onClose} style={{
+                  <h2 style={{ fontSize: 17, fontWeight: 800, margin: 0, background: 'linear-gradient(135deg, #C4B5FD, #4cd7f6)', WebkitBackgroundClip: 'text', backgroundClip: 'text', WebkitTextFillColor: 'transparent', letterSpacing: '-0.01em' }}>{title}</h2>
+                  <button onClick={onClose} aria-label="Закрыть" style={{
                     width: 30, height: 30, borderRadius: 9,
                     border: '1px solid rgba(255,255,255,0.1)',
                     background: 'rgba(255,255,255,0.04)',
