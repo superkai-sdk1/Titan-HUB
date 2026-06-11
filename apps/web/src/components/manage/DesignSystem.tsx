@@ -53,18 +53,19 @@ export function Toggle({
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onChange(!value) } }}
       style={{
         width: d.w, height: d.h, borderRadius: d.h / 2,
-        background: value ? color : 'rgba(255,255,255,0.1)',
+        background: value ? `linear-gradient(135deg, ${color}, #4cd7f6)` : 'rgba(255,255,255,0.1)',
         position: 'relative', cursor: 'pointer',
-        transition: 'background 0.2s',
+        transition: 'background 0.25s, box-shadow 0.25s',
         flexShrink: 0,
-        boxShadow: value ? `0 0 12px ${color}55` : 'none',
+        boxShadow: value ? `0 0 16px ${color}66, inset 0 1px 1px rgba(255,255,255,0.25)` : 'inset 0 1px 2px rgba(0,0,0,0.35)',
+        WebkitTapHighlightColor: 'transparent', touchAction: 'manipulation',
       }}
     >
       <div style={{
         position: 'absolute', top: 3, left: value ? d.on : 3,
         width: d.knob, height: d.knob, borderRadius: '50%',
-        background: '#fff', transition: 'left 0.2s',
-        boxShadow: '0 1px 4px rgba(0,0,0,0.3)',
+        background: 'linear-gradient(180deg, #ffffff, #e9e6f0)', transition: 'left 0.28s cubic-bezier(0.34,1.56,0.64,1)',
+        boxShadow: '0 2px 6px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.9)',
       }} />
     </div>
   )
@@ -542,8 +543,8 @@ export function ToggleRow({
 
 export function StatChip({ value, label, color }: { value: string | number; label: string; color: string }) {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '10px 14px', borderRadius: 12, background: `${color}11`, border: `1px solid ${color}33`, minWidth: 72 }}>
-      <span style={{ fontSize: 18, fontWeight: 800, color, fontStyle: 'italic', lineHeight: 1 }}>{value}</span>
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '10px 14px', borderRadius: 12, background: `linear-gradient(160deg, ${color}1f, ${color}0a)`, border: `1px solid ${color}33`, boxShadow: `inset 0 1px 0 rgba(255,255,255,0.06)`, minWidth: 72 }}>
+      <span style={{ fontSize: 18, fontWeight: 800, color, fontStyle: 'italic', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{value}</span>
       <span style={{ fontSize: 10, color: 'var(--on-surface-variant)', marginTop: 4, fontFamily: "'JetBrains Mono',monospace", textTransform: 'uppercase', letterSpacing: '0.06em' }}>{label}</span>
     </div>
   )
@@ -563,14 +564,18 @@ export function SaveButton({
     <button
       onClick={onClick}
       disabled={isPending}
+      onPointerDown={e => { if (!isPending) e.currentTarget.style.transform = 'scale(0.98)' }}
+      onPointerUp={e => { e.currentTarget.style.transform = 'scale(1)' }}
+      onPointerLeave={e => { e.currentTarget.style.transform = 'scale(1)' }}
       style={{
         width: '100%', padding: '16px', borderRadius: 16, border: 'none', cursor: isPending ? 'not-allowed' : 'pointer',
-        background: isSaved ? 'rgba(16,185,129,0.8)' : isPending ? 'rgba(255,255,255,0.08)' : 'linear-gradient(135deg, #8B5CF6, #4cd7f6)',
+        background: isSaved ? 'linear-gradient(135deg, #10B981, #0EA5A5)' : isPending ? 'rgba(255,255,255,0.08)' : 'linear-gradient(135deg, #9D6CFF 0%, #8B5CF6 42%, #4cd7f6 130%)',
         color: isPending ? 'var(--on-surface-variant)' : '#fff',
         fontSize: 15, fontWeight: 700,
-        transition: 'all 0.3s',
+        transition: 'background 0.3s, box-shadow 0.3s, transform 0.22s cubic-bezier(0.34,1.56,0.64,1)',
         display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-        boxShadow: isSaved ? '0 4px 20px rgba(16,185,129,0.3)' : '0 4px 20px rgba(139,92,246,0.3)',
+        WebkitTapHighlightColor: 'transparent', touchAction: 'manipulation',
+        boxShadow: isSaved ? '0 6px 22px rgba(16,185,129,0.35), inset 0 1px 0 rgba(255,255,255,0.25)' : isPending ? 'none' : '0 6px 22px rgba(139,92,246,0.38), inset 0 1px 0 rgba(255,255,255,0.28)',
       }}
     >
       {isSaved
@@ -628,23 +633,28 @@ export function Button({
   const s = BTN_SIZES[size]
   const isDisabled = disabled || loading
   const variantStyle: React.CSSProperties =
-    variant === 'primary' ? { background: 'linear-gradient(135deg, #8B5CF6, #4cd7f6)', color: '#fff', border: 'none', boxShadow: '0 4px 20px rgba(139,92,246,0.3)' }
-    : variant === 'danger' ? { background: 'rgba(251,113,133,0.12)', color: 'var(--danger)', border: '1px solid rgba(251,113,133,0.3)' }
-    : variant === 'secondary' ? { background: 'rgba(255,255,255,0.06)', color: 'var(--on-surface)', border: '1px solid rgba(255,255,255,0.1)' }
+    variant === 'primary' ? { background: 'linear-gradient(135deg, #9D6CFF 0%, #8B5CF6 42%, #4cd7f6 130%)', color: '#fff', border: 'none', boxShadow: '0 6px 22px rgba(139,92,246,0.38), inset 0 1px 0 rgba(255,255,255,0.28)' }
+    : variant === 'danger' ? { background: 'linear-gradient(135deg, rgba(251,113,133,0.16), rgba(251,113,133,0.08))', color: 'var(--danger)', border: '1px solid rgba(251,113,133,0.35)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06)' }
+    : variant === 'secondary' ? { background: 'linear-gradient(135deg, rgba(255,255,255,0.08), rgba(255,255,255,0.04))', color: 'var(--on-surface)', border: '1px solid rgba(255,255,255,0.12)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06)' }
     : { background: 'transparent', color: 'var(--on-surface-variant)', border: '1px solid transparent' }
+  const press = (v: string) => (e: React.PointerEvent<HTMLButtonElement>) => { if (!isDisabled) e.currentTarget.style.transform = v }
   return (
     <button
       type={type}
       onClick={onClick}
       disabled={isDisabled}
       aria-label={ariaLabel}
+      onPointerDown={press('scale(0.96)')}
+      onPointerUp={press('scale(1)')}
+      onPointerLeave={press('scale(1)')}
       style={{
         minHeight: s.minHeight, padding: s.padding, borderRadius: s.radius, fontSize: s.fontSize, fontWeight: 700,
         cursor: isDisabled ? 'not-allowed' : 'pointer',
         width: fullWidth ? '100%' : undefined,
         display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8,
         opacity: isDisabled ? 0.55 : 1,
-        transition: 'opacity 0.2s, transform 0.1s',
+        transition: 'opacity 0.2s, transform 0.22s cubic-bezier(0.34,1.56,0.64,1), box-shadow 0.2s',
+        WebkitTapHighlightColor: 'transparent', userSelect: 'none', touchAction: 'manipulation',
         ...variantStyle,
         ...style,
       }}
@@ -671,20 +681,27 @@ export function IconButton({
   disabled?: boolean
   style?: React.CSSProperties
 }) {
-  const bg = variant === 'danger' ? 'rgba(251,113,133,0.1)' : variant === 'ghost' ? 'transparent' : 'rgba(255,255,255,0.05)'
+  const bg = variant === 'danger' ? 'linear-gradient(135deg, rgba(251,113,133,0.16), rgba(251,113,133,0.07))' : variant === 'ghost' ? 'transparent' : 'linear-gradient(135deg, rgba(255,255,255,0.08), rgba(255,255,255,0.035))'
   const color = variant === 'danger' ? 'var(--danger)' : 'var(--on-surface-variant)'
-  const border = variant === 'ghost' ? '1px solid transparent' : '1px solid rgba(255,255,255,0.08)'
+  const border = variant === 'ghost' ? '1px solid transparent' : variant === 'danger' ? '1px solid rgba(251,113,133,0.28)' : '1px solid rgba(255,255,255,0.1)'
+  const press = (v: string) => (e: React.PointerEvent<HTMLButtonElement>) => { if (!disabled) e.currentTarget.style.transform = v }
   return (
     <button
       onClick={onClick}
       aria-label={ariaLabel}
       disabled={disabled}
+      onPointerDown={press('scale(0.9)')}
+      onPointerUp={press('scale(1)')}
+      onPointerLeave={press('scale(1)')}
       style={{
         width: size, height: size, minWidth: size, borderRadius: Math.round(size * 0.28),
         border, background: bg, color,
         cursor: disabled ? 'not-allowed' : 'pointer',
         display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
         opacity: disabled ? 0.5 : 1,
+        transition: 'transform 0.22s cubic-bezier(0.34,1.56,0.64,1), border-color 0.2s, background 0.2s',
+        WebkitTapHighlightColor: 'transparent', touchAction: 'manipulation',
+        boxShadow: variant === 'ghost' ? undefined : 'inset 0 1px 0 rgba(255,255,255,0.06)',
         ...style,
       }}
     >
