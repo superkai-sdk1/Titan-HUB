@@ -444,3 +444,19 @@ input[type="datetime-local"]::-webkit-calendar-picker-indicator {
   filter: invert(0.75);
   cursor: pointer;
 }
+
+/* ── Анти-зум iOS Safari при фокусе на поле ─────────────────────────────
+   iOS Safari/WebKit автоматически зумит страницу, когда пользователь
+   фокусируется на input/textarea/select с font-size < 16px. В проекте
+   контролы стилизуются inline (INP/SEL fontSize:15, date-инпуты dashboard
+   fontSize:12 и т.п.), поэтому обычное правило их не перебивает — нужен
+   !important. Ограничиваем мобильной шириной (<1024px, как и прочие
+   телефонные правки), чтобы не менять визуальный размер на десктоп/планшете.
+   16px на телефоне — стандарт, поле не выглядит крупнее обычного. */
+@media (max-width: 1023px) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]),
+  textarea,
+  select {
+    font-size: 16px !important;
+  }
+}
