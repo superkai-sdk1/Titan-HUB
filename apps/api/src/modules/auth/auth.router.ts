@@ -42,6 +42,10 @@ const PIN_WINDOW_SECONDS = 900
 // ограничивает суммарное число неудачных fan-out попыток по всему деплою за окно,
 // независимо от IP. Это и есть настоящий backstop против brute-force PIN.
 const PIN_GLOBAL_FAIL_KEY = 'pin:fail:global'
+// Отдельный глобальный счётчик для планшета-киоска: DoS на /login/pin (слепой
+// fan-out) НЕ должен блокировать вход на киосках и наоборот. Каждая поверхность
+// имеет свой потолок и изолированный blast-radius.
+const PIN_GLOBAL_FAIL_KEY_TABLET = 'pin:fail:global:tablet'
 const PIN_GLOBAL_MAX = 50 // суммарных неудачных попыток без userId за окно
 
 // Реальный IP клиента. nginx ставит X-Real-IP = $remote_addr (подделать нельзя).
@@ -81,9 +85,9 @@ authRouter.post('/tablet-session', zValidator('json', z.object({
       const ttl = await redis.ttl(key)
       return c.json({ error: `Слишком много попыток. Попробуйте через ${Math.ceil(ttl / 60)} мин.` }, 429)
     }
-    const globalFails = parseInt((await redis.get(PIN_GLOBAL_FAIL_KEY)) ?? '0')
+    const globalFails = parseInt((await redis.get(PIN_GLOBAL_FAIL_KEY_TABLET)) ?? '0')
     if (globalFails >= PIN_GLOBAL_MAX) {
-      const ttl = await redis.ttl(PIN_GLOBAL_FAIL_KEY)
+      const ttl = await redis.ttl(PIN_GLOBAL_FAIL_KEY_TABLET)
       return c.json({ error: `Слишком много попыток. Попробуйте через ${Math.ceil(Math.max(ttl, 0) / 60)} мин.` }, 429)
     }
 
@@ -100,7 +104,7 @@ authRouter.post('/tablet-session', zValidator('json', z.object({
     }
     if (!staff) {
       await redis.incr(key); await redis.expire(key, PIN_WINDOW_SECONDS)
-      await redis.incr(PIN_GLOBAL_FAIL_KEY); await redis.expire(PIN_GLOBAL_FAIL_KEY, PIN_WINDOW_SECONDS)
+      await redis.incr(PIN_GLOBAL_FAIL_KEY_TABLET); await redis.expire(PIN_GLOBAL_FAIL_KEY_TABLET, PIN_WINDOW_SECONDS)
       return c.json({ error: 'Неверный PIN' }, 401)
     }
     await redis.del(key)
