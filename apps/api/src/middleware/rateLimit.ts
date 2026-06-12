@@ -31,8 +31,12 @@ export const rateLimit = createMiddleware(async (c, next) => {
   // Пропускаем SSE-стримы (долгие connections, не должны попадать в лимит)
   if (c.req.path.includes('/notifications/stream')) return next()
   if (c.req.header('accept')?.includes('text/event-stream')) return next()
-  // Пропускаем health-check
-  if (c.req.path === '/health' || c.req.path === '/api/health') return next()
+  // Пропускаем health-check (liveness + readiness)
+  if (c.req.path === '/health' || c.req.path === '/api/health' || c.req.path === '/api/health/ready') return next()
+  // Вебхук Platega: внешние ретраи провайдера НЕ должны попадать под лимит, иначе
+  // подтверждение оплаты могло бы отброситься как 429. Доступ гейтит секрет в
+  // самом обработчике (X-MerchantId/X-Secret) — без него ответ 401 без работы.
+  if (c.req.path === '/api/platega/webhook') return next()
 
   let key: string
   let limit: number
