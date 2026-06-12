@@ -15,12 +15,15 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
   // не вмешивается — иначе свежий планшет без токена улетал бы на /tablet/pair,
   // а после входа staff-токеном — на /pos.
   const isTablet = pathname.startsWith('/tablet')
+  // Суперадмин-контур платформы — ОТДЕЛЬНАЯ авторизация (свой токен), клубный
+  // гвард его не касается (иначе без клубного токена улетало бы на /login).
+  const isSuperadmin = pathname.startsWith('/superadmin')
 
   useEffect(() => {
     if (!_hasHydrated) return
 
-    // Публичные страницы и планшетный киоск — никаких редиректов
-    if (PUBLIC.includes(pathname) || isTablet) return
+    // Публичные страницы, планшетный киоск и суперадмин — никаких редиректов
+    if (PUBLIC.includes(pathname) || isTablet || isSuperadmin) return
 
     if (!token) {
       router.replace('/login')
@@ -33,6 +36,6 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
   }, [token, user, pathname, router, _hasHydrated, isTablet])
 
   if (!_hasHydrated) return null
-  if (!token && !PUBLIC.includes(pathname) && !isTablet) return null
+  if (!token && !PUBLIC.includes(pathname) && !isTablet && !isSuperadmin) return null
   return <>{children}</>
 }

@@ -1,5 +1,6 @@
 'use client'
 import { useState, useEffect, useCallback } from 'react'
+import { usePathname } from 'next/navigation'
 import { useAuthStore, INACTIVITY_TIMEOUT_MS } from '@/store/auth.store'
 import { api } from '@/lib/api'
 import { startAuthentication } from '@simplewebauthn/browser'
@@ -9,11 +10,13 @@ import { Icon } from '@/components/Icon'
 
 export function SessionLock() {
   const { token, user, isLocked, lock, unlock, updateActivity } = useAuthStore()
+  const pathname = usePathname()
 
   // Планшеты (role 'tablet') не имеют PIN/passkey — для них блокировка по
   // бездействию означала бы вечную блокировку (выход только через перепривязку).
   // Поэтому планшеты вообще не отслеживаем и не блокируем.
-  const isTablet = user?.role === 'tablet'
+  // Суперадмин-контур (/superadmin) — отдельная авторизация, клубный лок неуместен.
+  const isTablet = user?.role === 'tablet' || pathname.startsWith('/superadmin')
 
   // Track user activity
   useEffect(() => {
