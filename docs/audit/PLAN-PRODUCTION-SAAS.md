@@ -275,5 +275,7 @@ Baseline-миграция (000) ──► Tenant-context (убрать синг�
 - [x] 0.1.5 Двойная бронь зоны — app-guard «одна аренда на зону» (type-check ✓). Follow-up: partial unique index `checks(space_id) WHERE status='open'` + dedup.
 - [~] 0.1.6 Quick wins — сделано: вебхук Platega вне rate-limit, единый 401 на login (анти-enumeration). Идемпотентность cashops/`/clients/:id/balance` уже была. Осталось: приватный MinIO + signed URLs.
 - [x] HOTFIX (не из аудита): фантомная «сдача» при СБП с надбавкой/чаевыми — фолбэк проводил tender на qrAmount вместо qrBaseAmount; обострено латентностью серверной сверки вебхука. Фикс в `CheckDetailView.tsx` + бамп SW v214. Деплой verified.
-- [ ] 0.2 Целостность денег/склада — COGS/маржа по `stock_movements.unit_cost`, фикс WAC на оверселле, cron-сверка балансов. **Money-sensitive — отдельный аккуратный заход с проверкой владельцем.**
-- [~] 0.3 Прод-надёжность — сделано: graceful shutdown, `/api/health/ready`, ротация docker-логов. Осталось: Sentry (нужен аккаунт/DSN), атомарный restore + maintenance-флаг, non-root `USER node` в Dockerfile.
+- [x] 0.2 Целостность денег/склада — COGS по `stock_movements.unit_cost` (себестоимость проданного, фолбэк WAC), фикс WAC на оверселле, cron-сверка балансов (05:00 MSK). Deployed. ⚠️ COGS меняет цифры P&L владельца — проверить. Осталось: нетить возвраты в COGS (для бара несущественно).
+- [x] DB hardening — миграции 048 (unique аренда зоны, создан) + 049 (12 FK/hot-path индексов). Deployed.
+- [x] Адаптив — 16px инпуты (анти-зум iOS) в globals.css. SW v215. Deployed.
+- [~] 0.3 Прод-надёжность — сделано: graceful shutdown, `/api/health/ready`, ротация docker-логов, non-root боты (USER node). Осталось: Sentry (нужен аккаунт/DSN), атомарный restore + maintenance-флаг, non-root для web/wallet (риск nginx-цепочки).
