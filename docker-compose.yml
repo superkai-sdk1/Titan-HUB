@@ -83,6 +83,11 @@ services:
       # Рантайм app её НЕ использует, пока не построен суперадмин/провижининг —
       # переменная задаётся заранее, чтобы control-инструменты её подхватили.
       CONTROL_DATABASE_URL: postgresql://titan:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/titan_control
+      # WebAuthn суперадмина: панель на поддомене admin.titanpos.ru. RP_ID —
+      # регистрируемый домен titanpos.ru (валиден для всех *.titanpos.ru),
+      # ORIGIN — фактический origin панели. Отделены от клубных WEBAUTHN_*.
+      SUPERADMIN_WEBAUTHN_ORIGIN: https://admin.titanpos.ru
+      SUPERADMIN_WEBAUTHN_RP_ID: titanpos.ru
       REDIS_URL: redis://redis:6379
       # Бэкап/восстановление выполняются из API (кнопки в «О системе»).
       BACKUP_DIR: /backups

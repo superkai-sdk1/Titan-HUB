@@ -16,8 +16,9 @@
 //      токен, чтобы можно было зарегистрировать первый пасскей.
 //
 // Зеркалит проверенный в проде клубный passkey-флоу (apps/api/src/modules/auth/
-// auth.router.ts), но: challenge в Redis под префиксом `sa:`, RP_ID/ORIGIN/RP_NAME
-// из env WEBAUTHN_*, хранилище — control-БД.
+// auth.router.ts), но: challenge в Redis под префиксом `sa:`, RP_ID/ORIGIN из
+// отдельных env SUPERADMIN_WEBAUTHN_* (панель на поддомене admin.titanpos.ru),
+// хранилище — control-БД.
 //
 // БЕЗОПАСНОСТЬ: единый ответ при неверном логине/пароле (анти-enumeration);
 // пароли только bcrypt-хешем; challenge одноразовый (удаляется после verify);
@@ -51,9 +52,19 @@ import {
   eq,
 } from '../../../../../packages/database/dist/control/index.js'
 
-const RP_NAME = process.env['WEBAUTHN_RP_NAME'] ?? 'Titan HUB'
-const RP_ID = process.env['WEBAUTHN_RP_ID'] ?? 'localhost'
-const ORIGIN = process.env['WEBAUTHN_ORIGIN'] ?? 'http://localhost:3000'
+// WebAuthn-конфиг СУПЕРАДМИНА. Панель живёт на отдельном поддомене
+// admin.titanpos.ru, поэтому RP_ID/ORIGIN отделены от клубных WEBAUTHN_*:
+//  • SA_RP_ID — РЕГИСТРИРУЕМЫЙ домен `titanpos.ru` (валиден для всех *.titanpos.ru:
+//    пасскей с rpID=titanpos.ru проходит и на admin.titanpos.ru — это поддомен).
+//  • SA_ORIGIN — фактический browser-origin панели (https://admin.titanpos.ru).
+//  • SA_RP_NAME — человекочитаемое имя RP (общее с клубным).
+const SA_RP_ID = process.env['SUPERADMIN_WEBAUTHN_RP_ID'] ?? process.env['WEBAUTHN_RP_ID'] ?? 'titanpos.ru'
+const SA_ORIGIN = process.env['SUPERADMIN_WEBAUTHN_ORIGIN'] ?? 'https://admin.titanpos.ru'
+const SA_RP_NAME = process.env['WEBAUTHN_RP_NAME'] ?? 'Titan HUB'
+// expectedOrigin — массив (@simplewebauthn принимает string | string[]): допускаем
+// и поддомен admin.titanpos.ru, и (на переходный период) основной titanpos.ru,
+// чтобы вход работал и со страницы /superadmin на основном домене.
+const SA_EXPECTED_ORIGINS = [SA_ORIGIN, process.env['WEBAUTHN_ORIGIN'] ?? 'https://titanpos.ru']
 
 // Отдельный Redis-клиент на запрос (как в клубном auth.router.ts: getRedis()).
 function getRedis() {
@@ -135,8 +146,8 @@ superadminAuthRouter.post('/passkey/register/options', requireSuperadmin, async 
   }))
 
   const options = await generateRegistrationOptions({
-    rpName: RP_NAME,
-    rpID: RP_ID,
+    rpName: SA_RP_NAME,
+    rpID: SA_RP_ID,
     userID: isoUint8Array.fromUTF8String(sa.sub),
     userName: sa.login,
     excludeCredentials,
@@ -182,8 +193,8 @@ superadminAuthRouter.post('/passkey/register/verify', requireSuperadmin, async (
     verification = await verifyRegistrationResponse({
       response: body,
       expectedChallenge,
-      expectedOrigin: ORIGIN,
-      expectedRPID: RP_ID,
+      expectedOrigin: SA_EXPECTED_ORIGINS,
+      expectedRPID: SA_RP_ID,
     })
   } catch (err: any) {
     return c.json({ error: err?.message ?? 'Verification failed' }, 400)
@@ -280,7 +291,7 @@ superadminAuthRouter.post(
         transports: parseTransports(pk.transports),
       }))
       const options = await generateAuthenticationOptions({
-        rpID: RP_ID,
+        rpID: SA_RP_ID,
         allowCredentials,
         userVerification: 'preferred',
       })
@@ -340,8 +351,8 @@ superadminAuthRouter.post(
       verification = await verifyAuthenticationResponse({
         response,
         expectedChallenge,
-        expectedOrigin: ORIGIN,
-        expectedRPID: RP_ID,
+        expectedOrigin: SA_EXPECTED_ORIGINS,
+        expectedRPID: SA_RP_ID,
         credential: {
           id: pkRecord.credentialId,
           publicKey: isoBase64URL.toBuffer(pkRecord.publicKey),
