@@ -34,4 +34,9 @@ WORKDIR /app
 COPY --from=builder /app /app
 WORKDIR /app/apps/bot-admin
 
+# Security hardening: запускаем бота от встроенного непривилегированного
+# пользователя `node` (UID 1000), а не от root. Бот только сеть+БД, файлы не
+# пишет — чтения /app (принадлежит root) достаточно, оно разрешено всем.
+USER node
+
 CMD ["node", "dist/index.js"]
