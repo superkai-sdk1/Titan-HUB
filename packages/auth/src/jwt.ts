@@ -34,3 +34,25 @@ export async function verifyToken(token: string): Promise<JwtPayload> {
   const { payload } = await jwtVerify(token, getSecret())
   return payload as unknown as JwtPayload
 }
+
+/**
+ * Низкоуровневая подпись JWT с ПРОИЗВОЛЬНЫМИ клеймами — для отдельных контуров
+ * авторизации (напр. суперадмин со scope). Тот же секрет/алгоритм (HS256), что и
+ * клубные токены: разделение контуров обеспечивает клейм (scope), а не отдельный ключ.
+ */
+export async function signJwt(claims: Record<string, unknown>, expiresIn: string): Promise<string> {
+  return new SignJWT(claims)
+    .setProtectedHeader({ alg: 'HS256' })
+    .setIssuedAt()
+    .setExpirationTime(expiresIn)
+    .sign(getSecret())
+}
+
+/**
+ * Низкоуровневая проверка JWT — возвращает сырые клеймы. Вызывающий сам валидирует
+ * нужные поля (scope и т.п.). Бросает при неверной подписи/сроке.
+ */
+export async function verifyJwt(token: string): Promise<Record<string, unknown>> {
+  const { payload } = await jwtVerify(token, getSecret())
+  return payload as Record<string, unknown>
+}
