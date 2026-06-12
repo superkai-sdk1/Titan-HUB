@@ -273,6 +273,7 @@ Baseline-миграция (000) ──► Tenant-context (убрать синг�
 - [x] 0.1.1 Platega webhook — серверная сверка транзакции через `GET /transaction/{id}` (type-check ✓). ⚠️ протестировать на реальной транзакции (поля `status`/`amount` ответа API) + поведение 503-retry на проде.
 - [~] 0.1.4 PIN — частично: развёл глобальные счётчики `/login/pin` и `/tablet-session` (DoS одного не лочит другой, type-check ✓). Полный per-account lockout — позже (нужен UX логина).
 - [x] 0.1.5 Двойная бронь зоны — app-guard «одна аренда на зону» (type-check ✓). Follow-up: partial unique index `checks(space_id) WHERE status='open'` + dedup.
-- [~] 0.1.6 Quick wins — сделано: вебхук Platega вне rate-limit. Осталось: idempotency `adjBal`, единый 401 на login, приватный MinIO + signed URLs.
-- [ ] 0.2 Целостность денег/склада — COGS/маржа по `stock_movements.unit_cost`, фикс WAC на оверселле, cron-сверка балансов.
+- [~] 0.1.6 Quick wins — сделано: вебхук Platega вне rate-limit, единый 401 на login (анти-enumeration). Идемпотентность cashops/`/clients/:id/balance` уже была. Осталось: приватный MinIO + signed URLs.
+- [x] HOTFIX (не из аудита): фантомная «сдача» при СБП с надбавкой/чаевыми — фолбэк проводил tender на qrAmount вместо qrBaseAmount; обострено латентностью серверной сверки вебхука. Фикс в `CheckDetailView.tsx` + бамп SW v214. Деплой verified.
+- [ ] 0.2 Целостность денег/склада — COGS/маржа по `stock_movements.unit_cost`, фикс WAC на оверселле, cron-сверка балансов. **Money-sensitive — отдельный аккуратный заход с проверкой владельцем.**
 - [~] 0.3 Прод-надёжность — сделано: graceful shutdown, `/api/health/ready`, ротация docker-логов. Осталось: Sentry (нужен аккаунт/DSN), атомарный restore + maintenance-флаг, non-root `USER node` в Dockerfile.
