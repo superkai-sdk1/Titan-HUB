@@ -611,19 +611,28 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
         const res = await api.get<{ status: string }>(`/pos/checks/${checkId}/qr/${qrTransactionId}/status`)
         if (res.status === 'CONFIRMED') {
           setQrStatus('confirmed')
-          // Webhook Platega мог уже закрыть чек на сервере. Сверяемся со статусом,
-          // чтобы не пытаться повторно провести уже закрытый чек ("Check not open").
-          try {
-            const { check: fresh } = await api.get<{ check: { status: string } }>(`/pos/checks/${checkId}`)
-            if (fresh.status === 'closed') {
-              markPaidAndClose()
-              return
+          // Webhook Platega АВТОРИТЕТНО закрывает чек на сервере (фиксирует надбавку
+          // и чаевые отдельно от выручки). Даём ему фору: несколько раз переспрашиваем
+          // статус чека перед фолбэком, чтобы попасть в чистый путь, а не в ручной
+          // сплит. Раньше POS-поллинг часто выигрывал гонку у вебхука → срабатывал
+          // фолбэк ниже с неверной суммой.
+          for (let i = 0; i < 4; i++) {
+            try {
+              const { check: fresh } = await api.get<{ check: { status: string } }>(`/pos/checks/${checkId}`)
+              if (fresh.status === 'closed') {
+                markPaidAndClose()
+                return
+              }
+            } catch {
+              // не смогли свериться — пробуем ещё раз
             }
-          } catch {
-            // не смогли свериться — продолжаем обычным путём ниже
+            await new Promise((r) => setTimeout(r, 800))
           }
-          // Чек ещё открыт (частичная оплата/сплит или webhook не успел) — обычная финализация.
-          addSplitPart({ method: 'transfer', amount: qrAmount, label: 'СБП (Platega)' })
+          // Вебхук так и не закрыл чек (медленный/недоступен) — фолбэк: проводим СБП
+          // как tender. ВАЖНО: на БАЗОВУЮ сумму (qrBaseAmount = товары/итог чека), а
+          // НЕ qrAmount — надбавку 8% и чаевые гость платит СВЕРХ чека (эквайеру), в
+          // оплату чека они не идут. Иначе splitSum > due → фантомная «сдача».
+          addSplitPart({ method: 'transfer', amount: qrBaseAmount || qrAmount, label: 'СБП (Platega)' })
           setPayScreen('split')
         } else if (res.status === 'CANCELED') {
           setQrStatus('canceled')
@@ -635,7 +644,7 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
     }
     const t = setInterval(poll, 3000)
     return () => clearInterval(t)
-  }, [payScreen, qrTransactionId, qrStatus, qrLoading, checkId, qrAmount, markPaidAndClose])
+  }, [payScreen, qrTransactionId, qrStatus, qrLoading, checkId, qrAmount, qrBaseAmount, markPaidAndClose])
 
   // Ответ мутации = свежий чек целиком (getCheckWithItems). Пишем его прямо в кэш
   // вместо invalidate+refetch — карточка обновляется мгновенно, без сетевой задержки.
