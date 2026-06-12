@@ -75,7 +75,11 @@ salaryRouter.get('/estimate', requireRole('owner', 'staff'), async (c) => {
 
   const from = c.req.query('from')
   const to = c.req.query('to')
-  const staffId = c.req.query('staffId') ?? c.get('user').sub
+  // Приватность: staff видит ТОЛЬКО свою оценку — чужой ?staffId= игнорируется.
+  // Только owner может запросить расчёт по конкретному сотруднику. Раньше любой
+  // staff мог подставить чужой uuid и узнать выручку/ЗП коллеги.
+  const user = c.get('user')
+  const staffId = user.role === 'owner' ? (c.req.query('staffId') ?? user.sub) : user.sub
 
   // Границы периода строим по календарю МСК (как аналитика): from — 00:00 МСК
   // указанной даты, to — эксклюзивная верхняя граница (следующие сутки 00:00 МСК),
