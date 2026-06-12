@@ -1,5 +1,5 @@
 import { serve } from '@hono/node-server'
-import { closeDb } from '@titan/database'
+import { closeDb, closeClubDbs } from '@titan/database'
 import { app } from './app.js'
 import { checkBirthdays } from './cron/birthdays.js'
 import { auditBalances } from './cron/balance-audit.js'
@@ -55,7 +55,7 @@ function setupGracefulShutdown(server: { close: (cb?: () => void) => void }) {
     }, 8000)
     force.unref()
     server.close(() => {
-      closeDb()
+      Promise.all([closeDb(), closeClubDbs()])
         .finally(() => {
           try { getSharedRedis().disconnect() } catch { /* noop */ }
         })

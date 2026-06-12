@@ -79,6 +79,10 @@ services:
     env_file: .env
     environment:
       DATABASE_URL: postgresql://titan:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/titan_hub
+      # Control-plane (реестр клубов, Фаза 1). Отдельная БД на том же сервере.
+      # Рантайм app её НЕ использует, пока не построен суперадмин/провижининг —
+      # переменная задаётся заранее, чтобы control-инструменты её подхватили.
+      CONTROL_DATABASE_URL: postgresql://titan:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/titan_control
       REDIS_URL: redis://redis:6379
       # Бэкап/восстановление выполняются из API (кнопки в «О системе»).
       BACKUP_DIR: /backups

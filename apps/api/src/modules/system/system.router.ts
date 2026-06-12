@@ -2,7 +2,7 @@ import type { AppEnv } from '../../types.js'
 import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
-import { db, appSettings, eveningTypes, eq } from '@titan/database'
+import { appSettings, eveningTypes, eq } from '@titan/database'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
 import { getCurrentShift } from '../shifts/shifts.service.js'
 import { Redis } from 'ioredis'
@@ -11,6 +11,7 @@ import { createBackup, listBackups, lastBackup, restoreNamed, restoreFromUpload,
 export const systemRouter = new Hono<AppEnv>()
 
 systemRouter.get('/info', requireAuth, async (c) => {
+  const db = c.var.db
   const shift = await getCurrentShift()
 
   // Название вечера открытой смены: shift.eveningType — это ключ справочника
@@ -35,6 +36,7 @@ systemRouter.get('/info', requireAuth, async (c) => {
 })
 
 systemRouter.get('/settings', requireAuth, requireRole('owner', 'staff'), async (c) => {
+  const db = c.var.db
   const rows = await db.select().from(appSettings)
   const settings = Object.fromEntries(rows.map(r => [r.key, r.value]))
   return c.json({ settings })
@@ -50,6 +52,7 @@ const SettingsSchema = z
   })
 
 systemRouter.patch('/settings', requireAuth, requireRole('owner'), zValidator('json', SettingsSchema), async (c) => {
+  const db = c.var.db
   const body = c.req.valid('json')
   for (const [key, value] of Object.entries(body)) {
     const [existing] = await db.select().from(appSettings).where(eq(appSettings.key, key))

@@ -6,6 +6,7 @@ import { prettyJSON } from 'hono/pretty-json'
 import { bodyLimit } from 'hono/body-limit'
 import { db, sql } from '@titan/database'
 import { rateLimit } from './middleware/rateLimit.js'
+import { tenantContext } from './middleware/tenant.js'
 
 import { authRouter } from './modules/auth/auth.router.js'
 import { posRouter } from './modules/pos/pos.router.js'
@@ -93,6 +94,8 @@ app.use(
 app.use('*', prettyJSON())
 app.use('/api/*', bodyLimit({ maxSize: 1 * 1024 * 1024 }))
 app.use('/api/*', rateLimit)
+// Инжект БД клуба в контекст (Фаза 1). Wave 0: дефолтная БД = синглтон.
+app.use('/api/*', tenantContext)
 
 // Liveness: процесс жив (используется healthcheck контейнера).
 app.get('/health', (c) => c.json({ ok: true, ts: Date.now() }))
