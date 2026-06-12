@@ -229,7 +229,9 @@ authRouter.post('/login/password', zValidator('json', LoginPasswordSchema), asyn
     if (!profile?.passwordHash) {
       await redis.incr(key)
       await redis.expire(key, PIN_WINDOW_SECONDS)
-      return c.json({ error: 'User not found' }, 404)
+      // Анти-enumeration: ответ неотличим от «неверный пароль» (статус + текст).
+      // Иначе по 404 «User not found» vs 401 атакующий выясняет существование ника.
+      return c.json({ error: 'Неверный логин или пароль' }, 401)
     }
 
     let ok = false
@@ -245,7 +247,8 @@ authRouter.post('/login/password', zValidator('json', LoginPasswordSchema), asyn
     if (!ok) {
       await redis.incr(key)
       await redis.expire(key, PIN_WINDOW_SECONDS)
-      return c.json({ error: 'Invalid password' }, 401)
+      // Тот же ответ, что и при несуществующем нике (анти-enumeration).
+      return c.json({ error: 'Неверный логин или пароль' }, 401)
     }
 
     // Успешный вход — сбрасываем счётчик
