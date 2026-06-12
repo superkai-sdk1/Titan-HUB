@@ -2,7 +2,7 @@ import type { AppEnv } from '../../types.js'
 import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
-import { db, spaces, eq } from '@titan/database'
+import { spaces, eq } from '@titan/database'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
 import { Redis } from 'ioredis'
 
@@ -19,28 +19,33 @@ export const spacesRouter = new Hono<AppEnv>()
 spacesRouter.use('*', requireAuth)
 
 spacesRouter.get('/', async (c) => {
+  const db = c.var.db
   const rows = await db.select().from(spaces).where(eq(spaces.isActive, true))
   return c.json({ spaces: rows })
 })
 
 spacesRouter.get('/all', requireRole('owner', 'staff'), async (c) => {
+  const db = c.var.db
   const rows = await db.select().from(spaces)
   return c.json({ spaces: rows })
 })
 
 spacesRouter.post('/', requireRole('owner'), zValidator('json', SpaceSchema), async (c) => {
+  const db = c.var.db
   const body = c.req.valid('json')
   const [space] = await db.insert(spaces).values({ ...body, hourlyRate: String(body.hourlyRate) }).returning()
   return c.json({ space }, 201)
 })
 
 spacesRouter.get('/:id', async (c) => {
+  const db = c.var.db
   const [space] = await db.select().from(spaces).where(eq(spaces.id, c.req.param('id')))
   if (!space) return c.json({ error: 'Not found' }, 404)
   return c.json({ space })
 })
 
 spacesRouter.patch('/:id', requireRole('owner'), zValidator('json', SpaceSchema.partial()), async (c) => {
+  const db = c.var.db
   const body = c.req.valid('json')
   const update: Record<string, any> = { ...body }
   if (body.hourlyRate !== undefined) update.hourlyRate = String(body.hourlyRate)
@@ -50,6 +55,7 @@ spacesRouter.patch('/:id', requireRole('owner'), zValidator('json', SpaceSchema.
 })
 
 spacesRouter.delete('/:id', requireRole('owner'), async (c) => {
+  const db = c.var.db
   await db.update(spaces).set({ isActive: false }).where(eq(spaces.id, c.req.param('id')))
   return c.json({ ok: true })
 })
@@ -57,6 +63,7 @@ spacesRouter.delete('/:id', requireRole('owner'), async (c) => {
 // ── POST /:id/tablet-link-code — сгенерировать 6-значный код привязки ───
 // Код хранится в Redis 5 минут. Планшет вводит его на экране /tablet/pair.
 spacesRouter.post('/:id/tablet-link-code', requireRole('owner'), async (c) => {
+  const db = c.var.db
   const spaceId = c.req.param('id')
   const [space] = await db.select().from(spaces).where(eq(spaces.id, spaceId))
   if (!space) return c.json({ error: 'Space not found' }, 404)

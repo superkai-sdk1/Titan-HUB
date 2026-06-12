@@ -1,9 +1,10 @@
 import type { AppEnv } from '../../types.js'
+import type { Database } from '@titan/database'
 import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import {
-  db, checks, checkItems, checkPayments, checkDiscounts, inventory, menuCategories, profiles, shifts, expenses, events,
+  checks, checkItems, checkPayments, checkDiscounts, inventory, menuCategories, profiles, shifts, expenses, events,
   salaryPayments, refunds, tariffs, eveningTypes, analyticsEvents, stockMovements,
   eq, and, gte, lte, lt, desc, asc, sql, sum, count, avg, isNull, isNotNull, ne, inArray,
 } from '@titan/database'
@@ -19,6 +20,7 @@ analyticsRouter.post('/track', zValidator('json', z.object({
   event: z.string().min(1).max(64),
   props: z.record(z.unknown()).optional(),
 })), async (c) => {
+  const db = c.var.db
   const user = c.get('user')
   const { event, props } = c.req.valid('json')
   try {
@@ -94,8 +96,8 @@ function bizDayBounds(dateStr: string): { start: Date; end: Date } {
 // Чистая разбивка за окно [start, end): валовая выручка, возвраты, эквайринг (8%
 // от СБП-переводов), себестоимость проданного, операционные расходы (без ЗП) и ЗП.
 // Возвращает и «грязные», и «чистые» показатели — фронт сам решает, что показывать.
-async function netBreakdown(start: Date, end: Date, expFrom: string, expTo: string) {
-  const [grossRow] = await db
+async function netBreakdown(database: Database, start: Date, end: Date, expFrom: string, expTo: string) {
+  const [grossRow] = await database
     .select({ revenue: sum(checks.totalAmount), cnt: count() })
     .from(checks)
     .where(and(eq(checks.status, 'closed'), gte(checks.createdAt, start), lt(checks.createdAt, end)))
@@ -104,7 +106,7 @@ async function netBreakdown(start: Date, end: Date, expFrom: string, expTo: stri
   // мероприятия. Их выводим ОТДЕЛЬНО (полная выручка + кол-во) и исключаем из
   // «среднего чека», чтобы крупная база мероприятия не раздувала клубный средний.
   // В общую выручку/прибыль мероприятия по-прежнему входят (gross/net не меняем).
-  const [eventRow] = await db
+  const [eventRow] = await database
     .select({ revenue: sum(checks.totalAmount), cnt: count() })
     .from(checks)
     .where(and(
@@ -113,7 +115,7 @@ async function netBreakdown(start: Date, end: Date, expFrom: string, expTo: stri
     ))
 
   // Возвраты за окно (по дате возврата).
-  const [refundRow] = await db
+  const [refundRow] = await database
     .select({ total: sum(refunds.totalAmount) })
     .from(refunds)
     .where(and(gte(refunds.createdAt, start), lt(refunds.createdAt, end)))
@@ -122,7 +124,7 @@ async function netBreakdown(start: Date, end: Date, expFrom: string, expTo: stri
   // закрытых чеков окна — но ТОЛЬКО по чекам, где надбавку НЕ доплатил клиент
   // (acquiring_surcharge = 0). Если комиссию закрыл покупатель — для владельца это
   // не потеря, и такой чек в расчёт не входит.
-  const [sbpRow] = await db
+  const [sbpRow] = await database
     .select({ total: sum(checkPayments.amount) })
     .from(checkPayments)
     .leftJoin(checks, eq(checks.id, checkPayments.checkId))
@@ -138,27 +140,27 @@ async function netBreakdown(start: Date, end: Date, expFrom: string, expTo: stri
   // при каждой новой закупке. Продажа: delta<0 → (−delta) добавляет к COGS; возврат
   // (refund/снятие позиции/void): delta>0 → (−delta) вычитает — возвращённый товар
   // проданным не считается. Фолбэк на текущий cost_price для исторических NULL.
-  const [cogsRow] = await db
+  const [cogsRow] = await database
     .select({ total: sql<number>`sum((0 - ${stockMovements.delta})::numeric * coalesce(${stockMovements.unitCost}, ${inventory.costPrice}, 0)::numeric)` })
     .from(stockMovements)
     .leftJoin(inventory, eq(inventory.id, stockMovements.itemId))
     .where(and(inArray(stockMovements.type, ['sale', 'return']), gte(stockMovements.createdAt, start), lt(stockMovements.createdAt, end)))
 
   // Операционные расходы без ЗП (по text-дате expenseDate, YYYY-MM-DD).
-  const [opexRow] = await db
+  const [opexRow] = await database
     .select({ total: sum(expenses.amount) })
     .from(expenses)
     .where(and(gte(expenses.expenseDate, expFrom), lte(expenses.expenseDate, expTo), ne(expenses.category, 'salary')))
 
   // ФОТ — из выплат ЗП (единый источник).
-  const [salaryRow] = await db
+  const [salaryRow] = await database
     .select({ total: sum(salaryPayments.amount) })
     .from(salaryPayments)
     .where(and(gte(salaryPayments.createdAt, start), lt(salaryPayments.createdAt, end)))
 
   // Расходы, привязанные к мероприятиям (приз/обед/иные миникапа) — подмножество
   // opex, показываем отдельно для «нетто по мероприятиям». В прибыль уже входят.
-  const [eventCostRow] = await db
+  const [eventCostRow] = await database
     .select({ total: sum(expenses.amount) })
     .from(expenses)
     .where(and(gte(expenses.expenseDate, expFrom), lte(expenses.expenseDate, expTo), isNotNull(expenses.eventId)))
@@ -199,6 +201,7 @@ async function netBreakdown(start: Date, end: Date, expFrom: string, expTo: stri
 
 // ─── Dashboard ───────────────────────────────────────────────────────────────
 analyticsRouter.get('/dashboard', async (c) => {
+  const db = c.var.db
   // «Сегодня/вчера» считаем по БИЗНЕС-ДНЮ (09:00→06:00), а не по календарным суткам:
   // заведение работает с 9 утра до 6 утра, и «итоги дня» должны покрывать этот
   // промежуток. Бизнес-день D = [D 09:00 МСК, D+1 09:00 МСК).
@@ -306,8 +309,8 @@ analyticsRouter.get('/dashboard', async (c) => {
 
   // Net-разбивка (с учётом расходов/комиссий/возвратов) для дня и месяца.
   const { end: todayEnd } = bizDayBounds(todayBizStr)
-  const netToday = await netBreakdown(todayStart, todayEnd, todayBizStr, todayBizStr)
-  const netMonth = await netBreakdown(thirtyDaysAgo, todayEnd, bizDayStr(30), bizDayStr(0))
+  const netToday = await netBreakdown(db, todayStart, todayEnd, todayBizStr, todayBizStr)
+  const netMonth = await netBreakdown(db, thirtyDaysAgo, todayEnd, bizDayStr(30), bizDayStr(0))
 
   const monthRev = parseNum(monthStats?.revenue)
   const prevMonthRev = parseNum(prevMonthStats?.revenue)
@@ -365,6 +368,7 @@ analyticsRouter.get('/dashboard', async (c) => {
 // оплаты ИМЕННО за период (проценты на фронте считаются от выручки периода — §9.1),
 // плюс отдельный блок текущего бизнес-дня.
 analyticsRouter.get('/overview', zValidator('query', dateRangeQuerySchema), async (c) => {
+  const db = c.var.db
   const q = c.req.valid('query')
   const from = q.from ?? bizDayStr(0)
   const to = q.to ?? bizDayStr(0)
@@ -381,8 +385,8 @@ analyticsRouter.get('/overview', zValidator('query', dateRangeQuerySchema), asyn
   const { end: prevEnd } = bizDayBounds(prevTo)
 
   const [current, previous] = await Promise.all([
-    netBreakdown(start, end, from, to),
-    netBreakdown(prevStart, prevEnd, prevFrom, prevTo),
+    netBreakdown(db, start, end, from, to),
+    netBreakdown(db, prevStart, prevEnd, prevFrom, prevTo),
   ])
 
   // Способы оплаты строго за период (фронт считает % от current.gross).
@@ -396,7 +400,7 @@ analyticsRouter.get('/overview', zValidator('query', dateRangeQuerySchema), asyn
   // Текущий бизнес-день — отдельный блок «Обзора».
   const todayBizStr = bizDayStr(0)
   const tb = bizDayBounds(todayBizStr)
-  const today = await netBreakdown(tb.start, tb.end, todayBizStr, todayBizStr)
+  const today = await netBreakdown(db, tb.start, tb.end, todayBizStr, todayBizStr)
 
   const pct = (cur: number, prev: number) => (prev > 0 ? Math.round(((cur - prev) / prev) * 100) : (cur > 0 ? 100 : 0))
   const margin = current.gross > 0 ? Math.round((current.net / current.gross) * 100) : null
@@ -425,6 +429,7 @@ analyticsRouter.get('/revenue', zValidator('query', dateRangeQuerySchema), async
   // созданный в 23:30 МСК последнего дня, попадает в нужные сутки, а не в UTC-день.
   // from/to валидированы (см. dateRangeQuerySchema): мусорные/Invalid даты уже
   // отброшены в undefined, поэтому здесь надёжно падаем на дефолты.
+  const db = c.var.db
   const q = c.req.valid('query')
   const from = q.from ?? bizDayStr(30)
   const to = q.to ?? bizDayStr(0)
@@ -491,6 +496,7 @@ analyticsRouter.get('/revenue', zValidator('query', dateRangeQuerySchema), async
 // [fromStart, toEndExclusive) по МСК, что и в /revenue; только закрытые чеки.
 // Потребляется вкладкой «Отчёты → Платежи» на фронте.
 analyticsRouter.get('/payments', zValidator('query', dateRangeQuerySchema), async (c) => {
+  const db = c.var.db
   const q = c.req.valid('query')
   const from = q.from ?? bizDayStr(30)
   const to = q.to ?? bizDayStr(0)
@@ -518,6 +524,7 @@ analyticsRouter.get('/payments', zValidator('query', dateRangeQuerySchema), asyn
 analyticsRouter.get('/products', zValidator('query', dateRangeQuerySchema), async (c) => {
   // Период по МСК, полуоткрытое окно [fromStart, toEndExclusive) — как в /revenue.
   // from/to валидированы (dateRangeQuerySchema), мусор отброшен → дефолты.
+  const db = c.var.db
   const q = c.req.valid('query')
   const from = q.from ?? bizDayStr(30)
   const to = q.to ?? bizDayStr(0)
@@ -576,6 +583,7 @@ analyticsRouter.get('/products', zValidator('query', dateRangeQuerySchema), asyn
 // Окно — то же полуоткрытое [fromStart, toEndExclusive) по МСК, что и в /revenue;
 // только закрытые чеки. Тип вечера берём со смены чека (shifts.evening_type).
 analyticsRouter.get('/tariffs', zValidator('query', dateRangeQuerySchema), async (c) => {
+  const db = c.var.db
   const q = c.req.valid('query')
   const from = q.from ?? bizDayStr(30)
   const to = q.to ?? bizDayStr(0)
@@ -693,6 +701,7 @@ analyticsRouter.get('/tariffs', zValidator('query', dateRangeQuerySchema), async
 
 // ─── Clients / Players ────────────────────────────────────────────────────────
 analyticsRouter.get('/clients', zValidator('query', dateRangeQuerySchema), async (c) => {
+  const db = c.var.db
   const q = c.req.valid('query')
   const from = q.from ?? bizDayStr(30)
   const to = q.to ?? bizDayStr(0)
@@ -834,6 +843,7 @@ analyticsRouter.get('/clients', zValidator('query', dateRangeQuerySchema), async
 
 // ─── Список игроков сегмента (клик по сегменту в «Игроках») ────────────────────
 analyticsRouter.get('/segment-members', zValidator('query', z.object({ segment: z.enum(['new', 'active', 'sleeping']) })), async (c) => {
+  const db = c.var.db
   const { segment } = c.req.valid('query')
   const now = Date.now()
   const d14 = new Date(now - 14 * 86400000)
@@ -875,6 +885,7 @@ analyticsRouter.get('/segment-members', zValidator('query', z.object({ segment: 
 // Чеки со staffCompId (бесплатные, итог 0₽). По каждому сотруднику — товарная
 // сумма (сколько бы стоило в рознице) и себестоимость («как бы оплатил»).
 analyticsRouter.get('/staff', zValidator('query', dateRangeQuerySchema), async (c) => {
+  const db = c.var.db
   const q = c.req.valid('query')
   // Окно — по БИЗНЕС-ДНЮ (09:00→06:00), как и весь остальной дашборд. Раньше тут
   // были календарные сутки (mskBoundary = 00:00 МСК), из-за чего comp-чек, пробитый
@@ -928,6 +939,7 @@ analyticsRouter.get('/staff', zValidator('query', dateRangeQuerySchema), async (
 
 // ─── Карточка игрока: статистика визитов/трат + последние чеки ─────────────────
 analyticsRouter.get('/players/:id', async (c) => {
+  const db = c.var.db
   const id = c.req.param('id')
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) return c.json({ error: 'Bad id' }, 400)
   const now = Date.now()
@@ -979,6 +991,7 @@ analyticsRouter.get('/players/:id', async (c) => {
 
 // ─── Shifts analytics ─────────────────────────────────────────────────────────
 analyticsRouter.get('/shifts', async (c) => {
+  const db = c.var.db
   const rows = await db
     .select({ shift: shifts, staffNickname: profiles.nickname })
     .from(shifts)
@@ -1054,6 +1067,7 @@ analyticsRouter.get('/shifts', async (c) => {
 
 // ─── Single shift detail ──────────────────────────────────────────────────────
 analyticsRouter.get('/shifts/:id', async (c) => {
+  const db = c.var.db
   const shiftId = c.req.param('id')
 
   const shiftChecks = await db
@@ -1132,6 +1146,7 @@ analyticsRouter.get('/shifts/:id', async (c) => {
 // Окно по timestamptz — [from 09:00 МСК, to+1 09:00 МСК). Отдаёт сводку (net/gross)
 // и список чеков с именем гостя/игрока, кассиром, способами оплаты и числом позиций.
 analyticsRouter.get('/checks', zValidator('query', dateRangeQuerySchema), async (c) => {
+  const db = c.var.db
   const q = c.req.valid('query')
   const from = q.from ?? bizDayStr(0)
   const to = q.to ?? from
@@ -1219,12 +1234,13 @@ analyticsRouter.get('/checks', zValidator('query', dateRangeQuerySchema), async 
     }
   })
 
-  const summary = await netBreakdown(start, end, from, to)
+  const summary = await netBreakdown(db, start, end, from, to)
   return c.json({ from, to, summary, checks: list })
 })
 
 // ─── Детализация одного чека (что в чеке, чей, как оплачен) ─────────────────────
 analyticsRouter.get('/checks/:id', async (c) => {
+  const db = c.var.db
   const id = c.req.param('id')
   const [check] = await db.select().from(checks).where(eq(checks.id, id)).limit(1)
   if (!check) return c.json({ error: 'not_found' }, 404)

@@ -3,7 +3,7 @@ import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import {
-  db, tariffs, eveningTypes, eventHourlyRates, inventory, menuCategories,
+  tariffs, eveningTypes, eventHourlyRates, inventory, menuCategories,
   eq, asc, sql, like,
 } from '@titan/database'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
@@ -33,11 +33,13 @@ const UpdateTariffSchema = z.object({
 })
 
 pricingRouter.get('/tariffs', async (c) => {
+  const db = c.var.db
   const rows = await db.select().from(tariffs).orderBy(asc(tariffs.sortOrder), asc(tariffs.name))
   return c.json({ tariffs: rows })
 })
 
 pricingRouter.post('/tariffs', requireRole('owner'), zValidator('json', CreateTariffSchema), async (c) => {
+  const db = c.var.db
   const body = c.req.valid('json')
   const color = body.color?.trim() || '#8B5CF6'
 
@@ -94,6 +96,7 @@ pricingRouter.post('/tariffs', requireRole('owner'), zValidator('json', CreateTa
 })
 
 pricingRouter.patch('/tariffs/:id', requireRole('owner'), zValidator('json', UpdateTariffSchema), async (c) => {
+  const db = c.var.db
   const id = c.req.param('id')
   const body = c.req.valid('json')
 
@@ -125,6 +128,7 @@ pricingRouter.patch('/tariffs/:id', requireRole('owner'), zValidator('json', Upd
 })
 
 pricingRouter.delete('/tariffs/:id', requireRole('owner'), async (c) => {
+  const db = c.var.db
   const id = c.req.param('id')
   // Мягкое удаление: тариф и его backing-позиция остаются ради исторических чеков,
   // лишь помечаются неактивными (исчезают из меню/кассы и списка тарифов).
@@ -158,6 +162,7 @@ function slugifyKey(label: string): string {
 }
 
 pricingRouter.get('/evening-types', async (c) => {
+  const db = c.var.db
   const rows = await db.select().from(eveningTypes).orderBy(asc(eveningTypes.sortOrder), asc(eveningTypes.key))
   return c.json({ eveningTypes: rows })
 })
@@ -167,6 +172,7 @@ const CreateEveningTypeSchema = z.object({
   color: z.string().min(1).max(40).optional(),
 })
 pricingRouter.post('/evening-types', requireRole('owner'), zValidator('json', CreateEveningTypeSchema), async (c) => {
+  const db = c.var.db
   const body = c.req.valid('json')
   let key = slugifyKey(body.label)
   // Уникальность ключа: если занят — добавляем числовой суффикс.
@@ -187,6 +193,7 @@ const UpdateEveningTypeSchema = z.object({
   sortOrder: z.number().int().optional(),
 })
 pricingRouter.patch('/evening-types/:key', requireRole('owner'), zValidator('json', UpdateEveningTypeSchema), async (c) => {
+  const db = c.var.db
   const body = c.req.valid('json')
   const update: Record<string, any> = {}
   if (body.label !== undefined) update.label = body.label.trim()
@@ -203,6 +210,7 @@ pricingRouter.patch('/evening-types/:key', requireRole('owner'), zValidator('jso
 })
 
 pricingRouter.delete('/evening-types/:key', requireRole('owner'), async (c) => {
+  const db = c.var.db
   const key = c.req.param('key')
   const [row] = await db.select().from(eveningTypes).where(eq(eveningTypes.key, key))
   if (!row) return c.json({ error: 'Not found' }, 404)
@@ -216,6 +224,7 @@ pricingRouter.delete('/evening-types/:key', requireRole('owner'), async (c) => {
 // Цена за весь период по числу часов (1ч=5000 … 6ч=18000). Используется при
 // billingMode=hourly: основа чека = цена тарифа по plannedHours события.
 pricingRouter.get('/event-rates', async (c) => {
+  const db = c.var.db
   const rows = await db.select().from(eventHourlyRates).orderBy(asc(eventHourlyRates.hours))
   return c.json({ rates: rows })
 })
@@ -224,6 +233,7 @@ pricingRouter.patch('/event-rates/:hours', requireRole('owner'), zValidator('jso
   const hours = parseInt(c.req.param('hours'), 10)
   if (!Number.isInteger(hours) || hours < 1) return c.json({ error: 'Bad hours' }, 400)
   const { price } = c.req.valid('json')
+  const db = c.var.db
   const [row] = await db
     .insert(eventHourlyRates)
     .values({ hours, price: String(price) })

@@ -2,7 +2,7 @@ import type { AppEnv } from '../../types.js'
 import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
-import { db, menuCategories, inventory, modifiers, eq, and, asc, desc, isNull } from '@titan/database'
+import { menuCategories, inventory, modifiers, eq, and, asc, desc, isNull } from '@titan/database'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
 
 const CategorySchema = z.object({
@@ -41,6 +41,7 @@ export const menuRouter = new Hono<AppEnv>()
 
 // Categories — no auth required for tablet reads
 menuRouter.get('/categories', async (c) => {
+  const db = c.var.db
   const tabletOnly = c.req.query('tabletOnly') === 'true'
   const where = tabletOnly
     ? and(eq(menuCategories.isActive, true), eq(menuCategories.isTabletVisible, true))
@@ -50,6 +51,7 @@ menuRouter.get('/categories', async (c) => {
 })
 
 menuRouter.post('/categories', requireAuth, requireRole('owner', 'staff'), zValidator('json', CategorySchema), async (c) => {
+  const db = c.var.db
   const body = c.req.valid('json')
   const [cat] = await db.insert(menuCategories).values(body).returning()
   return c.json({ category: cat }, 201)
@@ -59,6 +61,7 @@ menuRouter.post('/categories', requireAuth, requireRole('owner', 'staff'), zVali
 menuRouter.patch('/categories/reorder', requireAuth, requireRole('owner', 'staff'), zValidator('json', z.object({
   items: z.array(z.object({ id: z.string().uuid(), sortOrder: z.number().int() }))
 })), async (c) => {
+  const db = c.var.db
   const { items } = c.req.valid('json')
   await db.transaction(async (tx) => {
     for (const { id, sortOrder } of items) {
@@ -69,6 +72,7 @@ menuRouter.patch('/categories/reorder', requireAuth, requireRole('owner', 'staff
 })
 
 menuRouter.patch('/categories/:id', requireAuth, requireRole('owner', 'staff'), zValidator('json', CategorySchema.partial()), async (c) => {
+  const db = c.var.db
   const body = c.req.valid('json')
   const [cat] = await db.update(menuCategories).set(body).where(eq(menuCategories.id, c.req.param('id'))).returning()
   if (!cat) return c.json({ error: 'Not found' }, 404)
@@ -76,6 +80,7 @@ menuRouter.patch('/categories/:id', requireAuth, requireRole('owner', 'staff'), 
 })
 
 menuRouter.delete('/categories/:id', requireAuth, requireRole('owner'), async (c) => {
+  const db = c.var.db
   const id = c.req.param('id')
   await db.transaction(async (tx) => {
     // Открепляем товары от категории, иначе FK не даст удалить (товары осиротеют).
@@ -87,6 +92,7 @@ menuRouter.delete('/categories/:id', requireAuth, requireRole('owner'), async (c
 
 // Items
 menuRouter.get('/items', async (c) => {
+  const db = c.var.db
   const categoryId = c.req.query('categoryId')
   const tabletVisible = c.req.query('tabletVisible') === 'true'
   const baseFilter = and(eq(inventory.isActive, true), isNull(inventory.deletedAt))
@@ -103,6 +109,7 @@ menuRouter.get('/items', async (c) => {
 })
 
 menuRouter.get('/items/all', requireAuth, async (c) => {
+  const db = c.var.db
   const items = await db
     .select()
     .from(inventory)
@@ -112,6 +119,7 @@ menuRouter.get('/items/all', requireAuth, async (c) => {
 })
 
 menuRouter.get('/items/:id', async (c) => {
+  const db = c.var.db
   const [item] = await db.select().from(inventory).where(eq(inventory.id, c.req.param('id')))
   if (!item) return c.json({ error: 'Not found' }, 404)
   const mods = await db.select().from(modifiers).where(eq(modifiers.productId, item.id))
@@ -120,6 +128,7 @@ menuRouter.get('/items/:id', async (c) => {
 })
 
 menuRouter.post('/items', requireAuth, requireRole('owner', 'staff'), zValidator('json', ItemSchema), async (c) => {
+  const db = c.var.db
   const body = c.req.valid('json')
   const [item] = await db.insert(inventory).values({
     ...body,
@@ -136,6 +145,7 @@ menuRouter.post('/items', requireAuth, requireRole('owner', 'staff'), zValidator
 menuRouter.patch('/items/reorder', requireAuth, requireRole('owner', 'staff'), zValidator('json', z.object({
   items: z.array(z.object({ id: z.string().uuid(), sortOrder: z.number().int() }))
 })), async (c) => {
+  const db = c.var.db
   const { items } = c.req.valid('json')
   await db.transaction(async (tx) => {
     for (const { id, sortOrder } of items) {
@@ -146,6 +156,7 @@ menuRouter.patch('/items/reorder', requireAuth, requireRole('owner', 'staff'), z
 })
 
 menuRouter.patch('/items/:id', requireAuth, requireRole('owner', 'staff'), zValidator('json', ItemSchema.partial()), async (c) => {
+  const db = c.var.db
   const body = c.req.valid('json')
   const updateData: Record<string, any> = { ...body, updatedAt: new Date() }
   // Остаток меняется ТОЛЬКО через аудируемый PATCH /inventory/:id (с блокировкой
@@ -161,6 +172,7 @@ menuRouter.patch('/items/:id', requireAuth, requireRole('owner', 'staff'), zVali
 })
 
 menuRouter.delete('/items/:id', requireAuth, requireRole('owner'), async (c) => {
+  const db = c.var.db
   // Мягкое удаление: позиция остаётся в БД ради исторических чеков, но помечается
   // deletedAt и исчезает из всех списков меню. См. 009_inventory_soft_delete.sql.
   await db.update(inventory).set({ deletedAt: new Date() }).where(eq(inventory.id, c.req.param('id')))
@@ -169,11 +181,13 @@ menuRouter.delete('/items/:id', requireAuth, requireRole('owner'), async (c) => 
 
 // Modifiers
 menuRouter.get('/items/:id/modifiers', async (c) => {
+  const db = c.var.db
   const mods = await db.select().from(modifiers).where(eq(modifiers.productId, c.req.param('id')))
   return c.json({ modifiers: mods })
 })
 
 menuRouter.post('/items/:id/modifiers', requireAuth, requireRole('owner', 'staff'), zValidator('json', ModifierSchema), async (c) => {
+  const db = c.var.db
   const body = c.req.valid('json')
   const [mod] = await db.insert(modifiers).values({
     ...body,
@@ -184,6 +198,7 @@ menuRouter.post('/items/:id/modifiers', requireAuth, requireRole('owner', 'staff
 })
 
 menuRouter.delete('/items/:itemId/modifiers/:modId', requireAuth, requireRole('owner', 'staff'), async (c) => {
+  const db = c.var.db
   await db.delete(modifiers).where(eq(modifiers.id, c.req.param('modId')))
   return c.json({ ok: true })
 })
