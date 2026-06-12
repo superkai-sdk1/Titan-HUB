@@ -11,10 +11,9 @@ import { useCountUp } from '@/hooks/useCountUp'
 import { StateView } from '@/components/StateView'
 import { Chip } from '@/components/manage/DesignSystem'
 import { ExpensesTab } from './ExpensesTab'
-import { AiTab } from './AiTab'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-type MainTab = 'overview' | 'finance' | 'expenses' | 'games' | 'bar' | 'players' | 'staff' | 'ai'
+type MainTab = 'overview' | 'finance' | 'expenses' | 'games' | 'bar' | 'players' | 'staff'
 type ReportRange = '7d' | '30d' | 'month' | 'custom'
 
 const PAY_COLORS: Record<string, string> = {
@@ -1722,7 +1721,7 @@ export default function DashboardPage() {
   // Читаем window.location в useEffect (без next/navigation useSearchParams,
   // чтобы не требовать Suspense-границу).
   useEffect(() => {
-    const TAB_KEYS: MainTab[] = ['overview', 'finance', 'expenses', 'games', 'bar', 'players', 'staff', 'ai']
+    const TAB_KEYS: MainTab[] = ['overview', 'finance', 'expenses', 'games', 'bar', 'players', 'staff']
     const tab = new URLSearchParams(window.location.search).get('tab')
     if (tab && (TAB_KEYS as string[]).includes(tab)) setActiveTab(tab as MainTab)
   }, [])
@@ -1767,7 +1766,6 @@ export default function DashboardPage() {
     { key: 'bar'      as MainTab, label: 'Бар',            icon: 'inventory_2' },
     { key: 'players'  as MainTab, label: 'Игроки',         icon: 'group' },
     { key: 'staff'    as MainTab, label: 'Персонал',       icon: 'badge' },
-    { key: 'ai'       as MainTab, label: 'AI Помощник',    icon: 'psychology' },
   ]
 
   return (
@@ -1817,7 +1815,6 @@ export default function DashboardPage() {
             {activeTab === 'bar'       && <ProductsTab products={products} from={period.from} to={period.to} />}
             {activeTab === 'players'   && <PlayersTab clients={clients} />}
             {activeTab === 'staff'     && <StaffTab staff={staff} periodText={period.label} from={period.from} to={period.to} />}
-            {activeTab === 'ai'        && <AiTab />}
           </div>
         </PullToRefreshContainer>
       </div>

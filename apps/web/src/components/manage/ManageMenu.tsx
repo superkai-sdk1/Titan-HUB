@@ -69,7 +69,7 @@ const NAV: NavGroup[] = [
       // Владелец: «Пользователи» (управление + свой профиль). Сотрудник: «Мой профиль» (только своё).
       { href: '/manage/staff', label: 'Пользователи', labelStaff: 'Мой профиль', icon: 'group', color: '#A78BFA', bg: 'rgba(167,139,250,0.15)', roles: ['owner','staff'] },
       // Смена и касса в одном экране (инкассация встроена).
-      { href: '/shifts',       label: 'Смены',      icon: 'schedule', color: '#8B5CF6', bg: 'rgba(139,92,246,0.15)',  roles: ['owner','staff'] },
+      { href: '/manage/shifts', label: 'Смены',     icon: 'schedule', color: '#8B5CF6', bg: 'rgba(139,92,246,0.15)',  roles: ['owner','staff'] },
       { href: '/manage/salary', label: 'Зарплата',  icon: 'payments', color: '#10B981', bg: 'rgba(16,185,129,0.15)', roles: ['owner'], perm: 'salary' },
     ],
   },

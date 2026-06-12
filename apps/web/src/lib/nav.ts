@@ -16,7 +16,7 @@ export const NAV_PRIMARY: NavItem[] = [
   { href: '/manage',    icon: 'settings',      label: 'Управление', short: 'Меню' },
 ]
 
-export const NAV_SHIFTS: NavItem = { href: '/shifts', icon: 'schedule', label: 'Смены' }
+export const NAV_SHIFTS: NavItem = { href: '/manage/shifts', icon: 'schedule', label: 'Смены' }
 
 /** Единая логика подсветки активного пункта. */
 export function isNavActive(href: string, pathname: string): boolean {

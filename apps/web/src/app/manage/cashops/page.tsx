@@ -7,7 +7,7 @@ import { useRouter } from 'next/navigation'
 export default function CashOpsRedirectPage() {
   const router = useRouter()
   useEffect(() => {
-    router.replace('/shifts')
+    router.replace('/manage/shifts')
   }, [router])
   return null
 }

@@ -75,7 +75,11 @@ export function BottomNav() {
   // глобальная навигация лишняя и перекрывала бы футер. /pos (список) — оставляем.
   if (pathname.startsWith('/pos/')) return null
 
+  // На экране Аналитики центральная кнопка превращается в вызов TITAN AI.
+  const onDashboard = pathname === '/dashboard' || pathname.startsWith('/dashboard/')
+
   function handleFAB() {
+    if (onDashboard) { router.push('/ai'); return }
     const onPOS = pathname === '/pos' || pathname.startsWith('/pos/')
     if (onPOS) {
       window.dispatchEvent(new CustomEvent('titan:new-check'))
@@ -120,7 +124,7 @@ export function BottomNav() {
         {/* CENTER FAB */}
         <button
           onClick={handleFAB}
-          aria-label="Новый чек"
+          aria-label={onDashboard ? 'TITAN AI' : 'Новый чек'}
           style={{
             width: 52,
             height: 52,
@@ -147,7 +151,7 @@ export function BottomNav() {
             e.currentTarget.style.boxShadow = '0 4px 20px rgba(139,92,246,0.5), 0 0 0 3px rgba(29,26,36,0.8)'
           }}
         >
-          <Icon name="add" size={26} color="#fff" />
+          <Icon name={onDashboard ? 'titan_ai' : 'add'} size={onDashboard ? 24 : 26} color="#fff" />
         </button>
 
         {/* RIGHT tabs */}

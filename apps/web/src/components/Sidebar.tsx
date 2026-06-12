@@ -148,6 +148,31 @@ export function Sidebar() {
 
         {/* Bottom section */}
         <div style={{ borderTop: '1px solid rgba(255,255,255,0.05)', padding: collapsed ? '12px 10px 24px' : '12px 12px 24px' }}>
+          {/* TITAN AI — отдельная фирменная кнопка ассистента */}
+          {(() => {
+            const aiActive = isNavActive('/ai', pathname)
+            return (
+              <Link
+                href="/ai"
+                title={collapsed ? 'TITAN AI' : undefined}
+                aria-current={aiActive ? 'page' : undefined}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: collapsed ? 0 : 12,
+                  padding: collapsed ? '8px 0' : '8px 10px', justifyContent: collapsed ? 'center' : 'flex-start',
+                  borderRadius: 12, marginBottom: 8, textDecoration: 'none',
+                  background: aiActive ? 'rgba(139,92,246,0.12)' : 'transparent',
+                  border: '1px solid rgba(139,92,246,0.25)',
+                }}
+              >
+                <div style={{ width: 30, height: 30, borderRadius: 9, background: 'linear-gradient(135deg, #8B5CF6, #4cd7f6)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, boxShadow: '0 2px 10px rgba(139,92,246,0.45)' }}>
+                  <Icon name="titan_ai" size={18} color="#fff" />
+                </div>
+                {!collapsed && (
+                  <span style={{ fontSize: 14, fontWeight: 700, whiteSpace: 'nowrap', background: 'linear-gradient(135deg, #a78bfa, #4cd7f6)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>TITAN AI</span>
+                )}
+              </Link>
+            )
+          })()}
           {BOTTOM_NAV.map(({ href, icon, label }) => {
             const active = isNavActive(href, pathname)
             return (

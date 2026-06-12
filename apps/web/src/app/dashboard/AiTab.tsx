@@ -113,7 +113,7 @@ export function AiTab() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16, paddingTop: 8, paddingBottom: 16 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
               <div style={{ width: 44, height: 44, borderRadius: 14, background: 'rgba(124,58,237,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                <Icon name="psychology" size={24} color="#a78bfa" />
+                <Icon name="titan_ai" size={24} color="#a78bfa" />
               </div>
               <p style={{ margin: 0, fontSize: 14, color: 'var(--on-surface-variant)', lineHeight: 1.4 }}>
                 Спросите что угодно о клубе или выберите готовый отчёт ниже — отвечу сразу.

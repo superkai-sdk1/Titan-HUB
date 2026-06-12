@@ -113,7 +113,7 @@ export function notifUrl(n: { type: string; meta?: Record<string, unknown> }): s
   switch (n.type) {
     case 'low_stock': return '/manage/inventory'
     case 'supply_received': return '/manage/supplies'
-    case 'shift_open': case 'shift_close': case 'cash_discrepancy': return '/shifts'
+    case 'shift_open': case 'shift_close': case 'cash_discrepancy': return '/manage/shifts'
     case 'event_created': case 'event_completed': return '/events'
     case 'new_client': case 'birthday': return '/manage/clients'
     case 'staff_call': return checkId ? `/pos/${checkId}` : '/pos'
