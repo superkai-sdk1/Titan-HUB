@@ -271,8 +271,8 @@ Baseline-миграция (000) ──► Tenant-context (убрать синг�
 - [x] 0.1.3 Утечка зарплат — `salary.router.ts`: staff видит только свою оценку (type-check ✓)
 - [x] 0.1.2 Кап ручных скидок — `staff_max_discount_percent` (по умолч. 50%), enforcement в `pos.router.ts` (type-check ✓)
 - [x] 0.1.1 Platega webhook — серверная сверка транзакции через `GET /transaction/{id}` (type-check ✓). ⚠️ протестировать на реальной транзакции (поля `status`/`amount` ответа API) + поведение 503-retry на проде.
-- [ ] 0.1.4 PIN per-account — **security-чувствительно + завязано на UX логина**; делать отдельным проверенным изменением (риск локаута прода). Безопасный промежуточный шаг: развести глобальные счётчики `/login/pin` и `/tablet-session` (DoS одного не лочит другой).
+- [~] 0.1.4 PIN — частично: развёл глобальные счётчики `/login/pin` и `/tablet-session` (DoS одного не лочит другой, type-check ✓). Полный per-account lockout — позже (нужен UX логина).
 - [x] 0.1.5 Двойная бронь зоны — app-guard «одна аренда на зону» (type-check ✓). Follow-up: partial unique index `checks(space_id) WHERE status='open'` + dedup.
-- [ ] 0.1.6 Quick wins безопасности
-- [ ] 0.2 Целостность денег/склада
-- [ ] 0.3 Прод-надёжность
+- [~] 0.1.6 Quick wins — сделано: вебхук Platega вне rate-limit. Осталось: idempotency `adjBal`, единый 401 на login, приватный MinIO + signed URLs.
+- [ ] 0.2 Целостность денег/склада — COGS/маржа по `stock_movements.unit_cost`, фикс WAC на оверселле, cron-сверка балансов.
+- [~] 0.3 Прод-надёжность — сделано: graceful shutdown, `/api/health/ready`, ротация docker-логов. Осталось: Sentry (нужен аккаунт/DSN), атомарный restore + maintenance-флаг, non-root `USER node` в Dockerfile.
