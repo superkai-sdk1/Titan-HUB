@@ -25,6 +25,7 @@ function disabledFor(p: string): boolean {
     || p.startsWith('/tablet')
     || p === '/pos' || p.startsWith('/pos/')
     || p === '/dashboard' || p.startsWith('/dashboard/')
+    || p === '/ai' || p.startsWith('/ai/') // у TITAN AI свой внутренний скролл + композер
 }
 
 export function GlobalPullToRefresh() {
