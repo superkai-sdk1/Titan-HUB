@@ -132,17 +132,17 @@ async function netBreakdown(start: Date, end: Date, expFrom: string, expTo: stri
       gte(checks.createdAt, start), lt(checks.createdAt, end),
     ))
 
-  // Себестоимость ПРОДАННОГО за окно (COGS): агрегат по движениям продажи склада.
+  // Себестоимость ПРОДАННОГО за окно (COGS): движения склада продажа МИНУС возврат.
   // Берём зафиксированную на момент списания себестоимость (stock_movements.unit_cost,
   // см. ledger.ts), а не текущий WAC карточки — иначе COGS прошлых периодов «плывёт»
-  // при каждой новой закупке. Окно — по дате движения. delta продажи отрицательна,
-  // поэтому берём abs(delta). Фолбэк на текущий cost_price для исторических движений,
-  // где unit_cost не заполнен (мог быть NULL до бэкфилла) — не ломает старые периоды.
+  // при каждой новой закупке. Продажа: delta<0 → (−delta) добавляет к COGS; возврат
+  // (refund/снятие позиции/void): delta>0 → (−delta) вычитает — возвращённый товар
+  // проданным не считается. Фолбэк на текущий cost_price для исторических NULL.
   const [cogsRow] = await db
-    .select({ total: sql<number>`sum(abs(${stockMovements.delta})::numeric * coalesce(${stockMovements.unitCost}, ${inventory.costPrice}, 0)::numeric)` })
+    .select({ total: sql<number>`sum((0 - ${stockMovements.delta})::numeric * coalesce(${stockMovements.unitCost}, ${inventory.costPrice}, 0)::numeric)` })
     .from(stockMovements)
     .leftJoin(inventory, eq(inventory.id, stockMovements.itemId))
-    .where(and(eq(stockMovements.type, 'sale'), gte(stockMovements.createdAt, start), lt(stockMovements.createdAt, end)))
+    .where(and(inArray(stockMovements.type, ['sale', 'return']), gte(stockMovements.createdAt, start), lt(stockMovements.createdAt, end)))
 
   // Операционные расходы без ЗП (по text-дате expenseDate, YYYY-MM-DD).
   const [opexRow] = await db
@@ -241,15 +241,15 @@ analyticsRouter.get('/dashboard', async (c) => {
       lt(checks.createdAt, thirtyDaysAgo),
     ))
 
-  // COGS this month — себестоимость ПРОДАННОГО (агрегат по движениям продажи), а не
+  // COGS this month — себестоимость ПРОДАННОГО (продажа МИНУС возврат), а не
   // стоимость поставок. Зафиксированная себестоимость на момент списания
   // (stock_movements.unit_cost) с фолбэком на текущий WAC для исторических NULL.
-  // delta продажи отрицательна → abs(delta). См. netBreakdown.
+  // Продажа delta<0 добавляет, возврат delta>0 вычитает → (0 − delta). См. netBreakdown.
   const [cogsRow] = await db
-    .select({ total: sql<number>`sum(abs(${stockMovements.delta})::numeric * coalesce(${stockMovements.unitCost}, ${inventory.costPrice}, 0)::numeric)` })
+    .select({ total: sql<number>`sum((0 - ${stockMovements.delta})::numeric * coalesce(${stockMovements.unitCost}, ${inventory.costPrice}, 0)::numeric)` })
     .from(stockMovements)
     .leftJoin(inventory, eq(inventory.id, stockMovements.itemId))
-    .where(and(eq(stockMovements.type, 'sale'), gte(stockMovements.createdAt, thirtyDaysAgo)))
+    .where(and(inArray(stockMovements.type, ['sale', 'return']), gte(stockMovements.createdAt, thirtyDaysAgo)))
 
   // Expenses this month.
   // ПРАВИЛО ЗАРПЛАТЫ В ПРИБЫЛИ: единственный источник истины по ФОТ — таблица
@@ -465,18 +465,19 @@ analyticsRouter.get('/revenue', zValidator('query', dateRangeQuerySchema), async
     ))
     .groupBy(expenses.expenseDate)
 
-  // COGS by day — себестоимость ПРОДАННОГО (движения продажи), а не стоимость
+  // COGS by day — себестоимость ПРОДАННОГО (продажа МИНУС возврат), а не стоимость
   // поставок. Группировка по БИЗНЕС-ДНЮ движения; зафиксированный unit_cost с
-  // фолбэком на текущий WAC для исторических NULL. delta продажи < 0 → abs(delta).
+  // фолбэком на текущий WAC для исторических NULL. Продажа delta<0 добавляет,
+  // возврат delta>0 вычитает → (0 − delta).
   const cogsRows = await db
     .select({
       date: sql<string>`((${stockMovements.createdAt} AT TIME ZONE 'Europe/Moscow') - interval '9 hours')::date::text`,
-      total: sql<number>`sum(abs(${stockMovements.delta})::numeric * coalesce(${stockMovements.unitCost}, ${inventory.costPrice}, 0)::numeric)`,
+      total: sql<number>`sum((0 - ${stockMovements.delta})::numeric * coalesce(${stockMovements.unitCost}, ${inventory.costPrice}, 0)::numeric)`,
     })
     .from(stockMovements)
     .leftJoin(inventory, eq(inventory.id, stockMovements.itemId))
     .where(and(
-      eq(stockMovements.type, 'sale'),
+      inArray(stockMovements.type, ['sale', 'return']),
       gte(stockMovements.createdAt, fromStart),
       lt(stockMovements.createdAt, toEndExclusive),
     ))
