@@ -1,8 +1,17 @@
+# Ротация Docker-логов: ни один сервис не должен забить диск VPS json-логами.
+# API пишет строку на каждый запрос — без лимита файл растёт безгранично.
+x-logging: &default-logging
+  driver: "json-file"
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   postgres:
     image: postgres:16-alpine
     container_name: titan-postgres
     restart: unless-stopped
+    logging: *default-logging
     # Лимиты памяти: ни один контейнер не может уронить хост (4 ГБ RAM).
     mem_limit: 768m
     environment:
@@ -23,6 +32,7 @@ services:
     image: redis:7-alpine
     container_name: titan-redis
     restart: unless-stopped
+    logging: *default-logging
     mem_limit: 256m
     # AOF: переживаем краш без потери rate-limit/blacklist состояния.
     command: redis-server --save 60 1 --appendonly yes --loglevel warning
@@ -40,6 +50,7 @@ services:
     image: minio/minio:RELEASE.2023-06-29T05-12-28Z
     container_name: titan-minio
     restart: unless-stopped
+    logging: *default-logging
     mem_limit: 512m
     command: server /data --console-address ":9001"
     environment:
@@ -63,6 +74,7 @@ services:
       dockerfile: apps/api/Dockerfile
     container_name: titan-api
     restart: unless-stopped
+    logging: *default-logging
     mem_limit: 768m
     env_file: .env
     environment:
@@ -97,6 +109,7 @@ services:
       dockerfile: apps/web/Dockerfile
     container_name: titan-web
     restart: unless-stopped
+    logging: *default-logging
     mem_limit: 768m
     env_file: .env
     environment:
@@ -116,6 +129,7 @@ services:
       dockerfile: apps/wallet/Dockerfile
     container_name: titan-wallet
     restart: unless-stopped
+    logging: *default-logging
     mem_limit: 512m
     env_file: .env
     healthcheck:
@@ -133,6 +147,7 @@ services:
       dockerfile: apps/bot-admin/Dockerfile
     container_name: titan-bot-admin
     restart: unless-stopped
+    logging: *default-logging
     mem_limit: 256m
     env_file: .env
     environment:
@@ -149,6 +164,7 @@ services:
       dockerfile: apps/bot-wallet/Dockerfile
     container_name: titan-bot-wallet
     restart: unless-stopped
+    logging: *default-logging
     mem_limit: 256m
     env_file: .env
     environment:
@@ -163,6 +179,7 @@ services:
     image: nginx:alpine
     container_name: titan-nginx
     restart: unless-stopped
+    logging: *default-logging
     mem_limit: 128m
     ports:
       - "80:80"
