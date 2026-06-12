@@ -88,18 +88,34 @@ plategaRouter.post('/webhook', async (c) => {
   if (!transactionId) {
     return c.json({ error: 'missing transaction id' }, 400)
   }
-  const verified = await fetchPlategaStatus(transactionId)
-  if (verified === null) {
-    // Проверка недоступна (сеть/конфиг) — чек НЕ закрываем; 503 → Platega повторит.
-    console.error(`[platega] verify unavailable for tx ${transactionId} (check ${checkId})`)
-    return c.json({ error: 'verification unavailable' }, 503)
+  // Устойчивость к eventual-consistency: Platega может прислать вебхук на миг раньше,
+  // чем её же API отдаст CONFIRMED. Поэтому переспрашиваем несколько раз. Финальные
+  // статусы (отказ/отмена) — фиксируем сразу; промежуточные — ждём и повторяем.
+  const FAILED_STATUSES = new Set(['DECLINED', 'CANCELLED', 'CANCELED', 'FAILED', 'EXPIRED', 'ERROR', 'REJECTED'])
+  let verified: { status?: string; amount?: number } | null = null
+  let confirmed = false
+  let definitelyFailed = false
+  for (let i = 0; i < 3; i++) {
+    verified = await fetchPlategaStatus(transactionId)
+    const s = (verified?.status ?? '').toUpperCase()
+    if (s === 'CONFIRMED') { confirmed = true; break }
+    if (FAILED_STATUSES.has(s)) { definitelyFailed = true; break }
+    // verified===null (сеть/конфиг) или промежуточный статус — подождать и повторить.
+    if (i < 2) await new Promise((r) => setTimeout(r, 700))
   }
-  if (verified.status !== 'CONFIRMED') {
-    console.error(`[platega] webhook CONFIRMED but API status=${verified.status} (tx ${transactionId})`)
+  if (definitelyFailed) {
+    // Транзакция реально НЕ оплачена (или поддельный вебхук) — чек не закрываем, не ретраим.
+    console.error(`[platega] webhook CONFIRMED but API status=${verified?.status} (tx ${transactionId})`)
     return c.json({ error: 'not confirmed' }, 400)
   }
+  if (!confirmed) {
+    // Подтверждения пока нет (лаг/недоступность). Чек НЕ закрываем; 503 → Platega
+    // повторит вебхук позже. Подделка так и не закроет чек (CONFIRMED не наступит).
+    console.error(`[platega] verify pending/unavailable for tx ${transactionId} (check ${checkId}, last=${verified?.status ?? 'null'})`)
+    return c.json({ error: 'verification pending' }, 503)
+  }
   // Авторитетная сумма — из ответа Platega (если есть), иначе из тела вебхука.
-  const verifiedAmount = verified.amount != null && !Number.isNaN(verified.amount)
+  const verifiedAmount = verified?.amount != null && !Number.isNaN(verified.amount)
     ? verified.amount
     : reportedAmount
 
