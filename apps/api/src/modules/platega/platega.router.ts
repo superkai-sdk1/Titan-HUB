@@ -29,6 +29,35 @@ function safeEqual(a: string | undefined | null, b: string | undefined | null): 
   return timingSafeEqual(ba, bb)
 }
 
+// Серверная сверка транзакции с Platega: тело вебхука НЕ авторитетно. Спрашиваем
+// у самой Platega статус транзакции по её id (тот же endpoint, что и /qr/.../status
+// в pos.router.ts). Защищает от поддельного вебхука даже при утечке статического
+// X-Secret: подделать «CONFIRMED» в теле можно, но Platega для несуществующей/
+// неоплаченной транзакции этого не подтвердит.
+// Возвращает null, если проверить НЕ удалось (нет конфига/сеть/не-2xx) — вызывающий
+// код тогда НЕ закрывает чек и отдаёт 5xx, чтобы Platega повторила вебхук.
+async function fetchPlategaStatus(
+  transactionId: string,
+): Promise<{ status?: string; amount?: number } | null> {
+  const merchantId = process.env['PLATEGA_MERCHANT_ID']
+  const secret = process.env['PLATEGA_SECRET']
+  if (!merchantId || !secret) return null
+  try {
+    const res = await fetch(`https://app.platega.io/transaction/${transactionId}`, {
+      headers: { 'X-MerchantId': merchantId, 'X-Secret': secret },
+    })
+    if (!res.ok) return null
+    const data = (await res.json()) as Record<string, unknown>
+    const rawAmount = data['amount'] ?? (data['paymentDetails'] as Record<string, unknown> | undefined)?.['amount']
+    return {
+      status: data['status'] as string | undefined,
+      amount: rawAmount != null ? Number(rawAmount) : undefined,
+    }
+  } catch {
+    return null
+  }
+}
+
 export const plategaRouter = new Hono<AppEnv>()
 
 plategaRouter.post('/webhook', async (c) => {
@@ -53,6 +82,26 @@ plategaRouter.post('/webhook', async (c) => {
     // Прочие статусы просто подтверждаем получением.
     return c.json({ ok: true })
   }
+
+  // P0: тело вебхука НЕ авторитетно. Серверно подтверждаем транзакцию у Platega,
+  // прежде чем закрывать чек как оплаченный. Без id транзакции проверить нельзя.
+  if (!transactionId) {
+    return c.json({ error: 'missing transaction id' }, 400)
+  }
+  const verified = await fetchPlategaStatus(transactionId)
+  if (verified === null) {
+    // Проверка недоступна (сеть/конфиг) — чек НЕ закрываем; 503 → Platega повторит.
+    console.error(`[platega] verify unavailable for tx ${transactionId} (check ${checkId})`)
+    return c.json({ error: 'verification unavailable' }, 503)
+  }
+  if (verified.status !== 'CONFIRMED') {
+    console.error(`[platega] webhook CONFIRMED but API status=${verified.status} (tx ${transactionId})`)
+    return c.json({ error: 'not confirmed' }, 400)
+  }
+  // Авторитетная сумма — из ответа Platega (если есть), иначе из тела вебхука.
+  const verifiedAmount = verified.amount != null && !Number.isNaN(verified.amount)
+    ? verified.amount
+    : reportedAmount
 
   let didClose = false
   try {
@@ -93,20 +142,20 @@ plategaRouter.post('/webhook', async (c) => {
       const requestedTip = parseFloat(check.tipAmount ?? '0') || 0
       const expectedWithTip = round2(total + requestedTip)
 
-      // Сверка суммы (если провайдер её прислал). Допускаем переплату до +8% от
-      // (товары+чаевые) — эквайринговая надбавка, которую заплатил клиент.
-      // Недоплата (reportedAmount < total) по-прежнему отклоняется.
-      if (reportedAmount != null && !Number.isNaN(reportedAmount)) {
-        const tooLow = reportedAmount < total - 0.01
-        const tooHigh = reportedAmount > round2(expectedWithTip * 1.08) + 1
+      // Сверка суммы (источник истины — verifiedAmount: сумма из API Platega, иначе
+      // из тела). Допускаем переплату до +8% от (товары+чаевые) — эквайринговая
+      // надбавка, которую заплатил клиент. Недоплата (< total) отклоняется.
+      if (verifiedAmount != null && !Number.isNaN(verifiedAmount)) {
+        const tooLow = verifiedAmount < total - 0.01
+        const tooHigh = verifiedAmount > round2(expectedWithTip * 1.08) + 1
         if (tooLow || tooHigh) {
           throw new Error('AMOUNT_MISMATCH')
         }
       }
 
       // Фактически уплаченные чаевые: только если гость реально оплатил ≥ товары+чаевые
-      // (если провайдер сумму не прислал — доверяем запрошенным). Иначе чаевые = 0.
-      const tipPaid = requestedTip > 0 && (reportedAmount == null || Number.isNaN(reportedAmount) || reportedAmount >= expectedWithTip - 1)
+      // (если суммы нет — доверяем запрошенным). Иначе чаевые = 0.
+      const tipPaid = requestedTip > 0 && (verifiedAmount == null || Number.isNaN(verifiedAmount) || verifiedAmount >= expectedWithTip - 1)
         ? requestedTip
         : 0
 
@@ -114,8 +163,8 @@ plategaRouter.post('/webhook', async (c) => {
       // Источник истины — фактически уплаченная сумма: если клиент перевёл ≈ ×1.08,
       // надбавку оплатил он (потерей владельца НЕ считается). Если провайдер сумму не
       // прислал — доверяем флагу, сохранённому при генерации QR (checks.acquiring_surcharge>0).
-      const surchargePaid = reportedAmount != null && !Number.isNaN(reportedAmount)
-        ? reportedAmount >= round2(expectedWithTip * 1.08) - 1
+      const surchargePaid = verifiedAmount != null && !Number.isNaN(verifiedAmount)
+        ? verifiedAmount >= round2(expectedWithTip * 1.08) - 1
         : parseFloat(check.acquiringSurcharge ?? '0') > 0
       const acquiringSurcharge = surchargePaid ? round2(expectedWithTip * 0.08) : 0
 
