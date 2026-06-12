@@ -1,9 +1,13 @@
 'use client'
 /**
- * Глобальный pull-to-refresh: свайп сверху вниз (когда скролл вверху) обновляет
- * данные на ЛЮБОМ экране. Не создаёт свой скролл-контейнер — цепляется к уже
- * существующему `.layout-content` (главная скролл-область из root layout) и тянет
- * его контент вниз во время жеста. Обновление = invalidate всех React Query.
+ * Pull-to-refresh для ОСНОВНОГО контента: свайп сверху вниз (когда скролл вверху)
+ * обновляет данные. Не создаёт свой скролл-контейнер — цепляется к уже существующему
+ * `.layout-content` и тянет его контент вниз во время жеста. Обновление = invalidate
+ * всех React Query.
+ *
+ * ВАЖНО: жест срабатывает ТОЛЬКО когда тянут сам основной контент. Если касание
+ * началось внутри модалки/Sheet (портал вне .layout-content) или внутри вложенного
+ * вертикального скроллера — PTR не вмешивается, чтобы не блокировать их прокрутку.
  *
  * Отключён там, где свайп неуместен или есть свой PTR: /login, /tablet*, /pos*
  * (свой PTR + карточка чека), /dashboard* (свой PTR).
@@ -38,6 +42,19 @@ export function GlobalPullToRefresh() {
 
     let startY: number | null = null
     let cur = 0
+
+    // Касание началось внутри вложенного вертикального скроллера (Sheet/список
+    // с overflow:auto) между target и .layout-content? Тогда PTR не вмешивается —
+    // прокрутка модалки/списка должна работать как обычно.
+    const inNestedScroll = (target: EventTarget | null): boolean => {
+      let node = target as HTMLElement | null
+      while (node && node !== el) {
+        const oy = getComputedStyle(node).overflowY
+        if ((oy === 'auto' || oy === 'scroll') && node.scrollHeight > node.clientHeight + 1) return true
+        node = node.parentElement
+      }
+      return false
+    }
     const apply = (v: number) => {
       cur = v
       setPull(v)
@@ -54,6 +71,11 @@ export function GlobalPullToRefresh() {
 
     const onStart = (e: TouchEvent) => {
       if (refreshingRef.current) return
+      const target = e.target as Node | null
+      // Касание вне основного контента (портал модалки/Sheet) — игнорируем.
+      if (!target || !el.contains(target)) { startY = null; return }
+      // Касание внутри вложенного скроллера (Sheet/список) — не вмешиваемся.
+      if (inNestedScroll(e.target)) { startY = null; return }
       if (el.scrollTop > 0) { startY = null; return }
       startY = e.touches[0].clientY
     }
