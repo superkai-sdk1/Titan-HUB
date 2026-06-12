@@ -34,3 +34,9 @@ export const LARGE_CHECK_KEY = 'large_check_threshold'
 export const LARGE_REFUND_KEY = 'large_refund_threshold'
 export const DEFAULT_LARGE_CHECK = 3000
 export const DEFAULT_LARGE_REFUND = 3000
+
+// Максимальная СУММАРНАЯ скидка (в % от суммы позиций), которую может навесить
+// сотрудник (staff). Owner — без лимита. Защита от обнуления чека несколькими
+// скидками подряд. Настраивается; 0 = staff вообще не может давать скидки.
+export const STAFF_MAX_DISCOUNT_KEY = 'staff_max_discount_percent'
+export const DEFAULT_STAFF_MAX_DISCOUNT = 50

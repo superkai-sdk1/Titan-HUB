@@ -14,7 +14,7 @@ import { getCurrentShift } from '../shifts/shifts.service.js'
 import { notify, notifyClient } from '../notifications/push.js'
 import { maybePromoteToResident } from '../../lib/loyalty.js'
 import { accrueBonusLot, spendBonusLots, getBonusExpiryDays } from '../../lib/bonusLots.js'
-import { getNumericSetting, LARGE_CHECK_KEY, DEFAULT_LARGE_CHECK, getBoolSetting, STAFF_DISCOUNT_KEY } from '../../lib/appSettings.js'
+import { getNumericSetting, LARGE_CHECK_KEY, DEFAULT_LARGE_CHECK, getBoolSetting, STAFF_DISCOUNT_KEY, STAFF_MAX_DISCOUNT_KEY, DEFAULT_STAFF_MAX_DISCOUNT } from '../../lib/appSettings.js'
 import { round2, computeRental, computeTotals } from '../../lib/money.js'
 import { Redis } from 'ioredis'
 import { streamSSE } from 'hono/streaming'
@@ -1137,6 +1137,26 @@ posRouter.post('/checks/:id/discount', requireRole('owner', 'staff'), zValidator
   const discountAmount = body.type === 'percent'
     ? baseAmount * (body.value / 100)
     : Math.min(body.value, baseAmount)  // fixed скидка не может быть больше базы
+
+  // Анти-злоупотребление: сотрудник (staff) не может суммарно «обнулить» чек,
+  // навесив несколько скидок подряд. Owner — без лимита. Порог настраивается
+  // (staff_max_discount_percent, по умолчанию 50% от суммы позиций). Считаем в
+  // деньгах: сумма всех уже применённых скидок + новая ≤ cap% × itemsSum.
+  const user = c.get('user')
+  if (user.role !== 'owner' && itemsSum > 0) {
+    const capPct = await getNumericSetting(STAFF_MAX_DISCOUNT_KEY, DEFAULT_STAFF_MAX_DISCOUNT)
+    const existingRows = await db.select({ amount: checkDiscounts.amount })
+      .from(checkDiscounts).where(eq(checkDiscounts.checkId, checkId))
+    const existingSum = existingRows.reduce((s, r) => s + (parseFloat(r.amount) || 0), 0)
+    const maxAllowed = itemsSum * (capPct / 100)
+    if (existingSum + discountAmount > maxAllowed + 0.01) {
+      return c.json({
+        error: capPct <= 0
+          ? 'Скидки доступны только владельцу'
+          : `Суммарная скидка сотрудника не может превышать ${capPct}% от суммы позиций — обратитесь к владельцу`,
+      }, 403)
+    }
+  }
 
   await db.insert(checkDiscounts).values({
     checkId,
