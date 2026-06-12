@@ -4,6 +4,7 @@ import type { MiddlewareHandler } from 'hono'
 import { secureHeaders } from 'hono/secure-headers'
 import { prettyJSON } from 'hono/pretty-json'
 import { bodyLimit } from 'hono/body-limit'
+import { db, sql } from '@titan/database'
 import { rateLimit } from './middleware/rateLimit.js'
 
 import { authRouter } from './modules/auth/auth.router.js'
@@ -93,8 +94,20 @@ app.use('*', prettyJSON())
 app.use('/api/*', bodyLimit({ maxSize: 1 * 1024 * 1024 }))
 app.use('/api/*', rateLimit)
 
+// Liveness: процесс жив (используется healthcheck контейнера).
 app.get('/health', (c) => c.json({ ok: true, ts: Date.now() }))
 app.get('/api/health', (c) => c.json({ ok: true, ts: Date.now() }))
+
+// Readiness: готов обслуживать (БД доступна). Деплой/оркестратор может ждать его,
+// чтобы не слать трафик до прогрева. 503 — пока не готов.
+app.get('/api/health/ready', async (c) => {
+  try {
+    await db.execute(sql`select 1`)
+    return c.json({ ready: true, ts: Date.now() })
+  } catch {
+    return c.json({ ready: false, ts: Date.now() }, 503)
+  }
+})
 
 app.route('/api/auth', authRouter)
 app.route('/api/pos', posRouter)

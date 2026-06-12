@@ -1,7 +1,9 @@
 import { serve } from '@hono/node-server'
+import { closeDb } from '@titan/database'
 import { app } from './app.js'
 import { checkBirthdays } from './cron/birthdays.js'
 import { runMigrations } from './migrations/runner.js'
+import { getSharedRedis } from './lib/redis.js'
 
 const port = Number(process.env['API_PORT'] ?? 3001)
 
@@ -25,14 +27,47 @@ assertEnv()
 // Запускаем миграции перед стартом сервера
 runMigrations()
   .then(() => {
-    serve({ fetch: app.fetch, port }, (info) => {
+    const server = serve({ fetch: app.fetch, port }, (info) => {
       console.log(`🚀 Titan HUB API running on http://localhost:${info.port}`)
     })
+    setupGracefulShutdown(server)
   })
   .catch((err) => {
     console.error('[migrations] FATAL — server will not start:', err)
     process.exit(1)
   })
+
+// Graceful shutdown: при деплое Docker шлёт SIGTERM. Перестаём принимать новые
+// соединения, даём активным запросам/транзакциям завершиться, закрываем пул БД и
+// Redis. Это и закрывает «деплой рвёт in-flight транзакции/SSE» из аудита.
+function setupGracefulShutdown(server: { close: (cb?: () => void) => void }) {
+  let shuttingDown = false
+  const shutdown = (signal: string) => {
+    if (shuttingDown) return
+    shuttingDown = true
+    console.log(`[shutdown] ${signal} — завершаю работу, дренаж соединений…`)
+    // Форс-выход, если дренаж завис (SSE/долгие соединения) — раньше, чем
+    // Docker пришлёт SIGKILL (по умолчанию через 10с после SIGTERM).
+    const force = setTimeout(() => {
+      console.error('[shutdown] таймаут дренажа — выходим принудительно')
+      closeDb().finally(() => process.exit(1))
+    }, 8000)
+    force.unref()
+    server.close(() => {
+      closeDb()
+        .finally(() => {
+          try { getSharedRedis().disconnect() } catch { /* noop */ }
+        })
+        .finally(() => {
+          clearTimeout(force)
+          console.log('[shutdown] готово')
+          process.exit(0)
+        })
+    })
+  }
+  process.on('SIGTERM', () => shutdown('SIGTERM'))
+  process.on('SIGINT', () => shutdown('SIGINT'))
+}
 
 // Ежедневная проверка дней рождения в 09:00 по Москве.
 // MSK = UTC+3 (без перехода на летнее время) → 06:00 UTC. Считаем в UTC,

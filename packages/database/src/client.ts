@@ -15,3 +15,15 @@ const queryClient = postgres(connectionString, {
 })
 export const db = drizzle(queryClient, { schema })
 export type Database = typeof db
+
+/**
+ * Закрыть пул соединений с БД (graceful shutdown). Даёт активным запросам
+ * завершиться (timeout сек), затем закрывает сокеты. Идемпотентно/безопасно.
+ */
+export async function closeDb(): Promise<void> {
+  try {
+    await queryClient.end({ timeout: 5 })
+  } catch {
+    /* уже закрыт / недоступен — игнорируем */
+  }
+}
