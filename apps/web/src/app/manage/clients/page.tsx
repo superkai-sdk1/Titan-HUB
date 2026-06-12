@@ -43,8 +43,9 @@ function VisitButtons({ onAdj, disabled }: { onAdj: (d: number) => void; disable
 function adjBtnStyle(color: string): React.CSSProperties {
   return { flex: 1, padding: '12px 0', borderRadius: 12, border: `1px solid ${color}40`, background: `${color}14`, color, fontSize: 14, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6 }
 }
+// Канон подписей: enum card = «Перевод» (на карту), enum transfer = «СБП» (Platega QR) — как кнопки в POS.
 const PAY_LABELS: Record<string, string> = {
-  cash: 'Наличные', card: 'Карта', transfer: 'СБП', bonus: 'Бонусы',
+  cash: 'Наличные', card: 'Перевод', transfer: 'СБП', bonus: 'Бонусы',
   deposit: 'Депозит', debt: 'Долг', certificate: 'Сертификат', split: 'Раздельная',
 }
 

@@ -138,8 +138,8 @@ export default function SettingsPage() {
               <Field label="Оплата по умолчанию" icon="payments">
                 <select style={SEL} value={form.default_payment} onChange={e => set('default_payment', e.target.value)}>
                   <option value="cash">Наличные</option>
-                  <option value="card">Карта</option>
-                  <option value="transfer">Перевод</option>
+                  <option value="card">Перевод</option>
+                  <option value="transfer">СБП</option>
                 </select>
               </Field>
               <Field label="Подпись в чеке" icon="receipt_long">

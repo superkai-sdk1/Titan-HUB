@@ -20,10 +20,6 @@ const PAY_COLORS: Record<string, string> = {
   cash: '#10B981', card: '#3B82F6', transfer: '#8B5CF6',
   bonus: '#F59E0B', deposit: '#06B6D4', certificate: '#14B8A6', debt: '#F43F5E',
 }
-const PAY_LABELS: Record<string, string> = {
-  cash: 'Наличные', card: 'Карта', transfer: 'Перевод',
-  bonus: 'Бонусы', deposit: 'Депозит', certificate: 'Сертификат', debt: 'Долг',
-}
 const TIER_COLORS: Record<string, string> = {
   bronze: '#cd7f32', silver: '#94A3B8', gold: '#F59E0B',
   platinum: '#E2E8F0', null: 'rgba(204,195,216,0.4)',
@@ -262,7 +258,7 @@ function PayBreakdown({ data }: { data: { method: string; total: string | number
       <div style={{ height: 18, borderRadius: 9999, display: 'flex', overflow: 'hidden', marginBottom: 14, gap: 2 }}>
         {data.map(p => {
           const pct = total > 0 ? (parseNum(p.total) / total) * 100 : 0
-          return <div key={p.method} style={{ width: `${pct}%`, minWidth: pct > 0 ? 3 : 0, background: PAY_COLORS[p.method] ?? '#8B5CF6' }} title={`${PAY_LABELS[p.method] ?? p.method}: ${pct.toFixed(1)}%`} />
+          return <div key={p.method} style={{ width: `${pct}%`, minWidth: pct > 0 ? 3 : 0, background: PAY_COLORS[p.method] ?? '#8B5CF6' }} title={`${payLabel(p.method)}: ${pct.toFixed(1)}%`} />
         })}
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -271,7 +267,7 @@ function PayBreakdown({ data }: { data: { method: string; total: string | number
           return (
             <div key={p.method} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <div style={{ width: 8, height: 8, borderRadius: '50%', background: PAY_COLORS[p.method] ?? '#8B5CF6', flexShrink: 0 }} />
-              <span style={{ flex: 1, fontSize: 12, color: 'var(--on-surface-variant)' }}>{PAY_LABELS[p.method] ?? p.method}</span>
+              <span style={{ flex: 1, fontSize: 12, color: 'var(--on-surface-variant)' }}>{payLabel(p.method)}</span>
               <span style={{ fontSize: 12, fontWeight: 700 }}>{fmt(parseNum(p.total))} ₽</span>
               <span style={{ fontSize: 11, color: 'rgba(204,195,216,0.45)', width: 30, textAlign: 'right' }}>{pct}%</span>
             </div>
@@ -583,7 +579,7 @@ function TodayTab({ businessDay }: { businessDay: string }) {
               return (
                 <div key={p.method}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                    <span style={{ fontSize: 12, color: 'var(--on-surface-variant)' }}>{PAY_LABELS[p.method] ?? p.method}</span>
+                    <span style={{ fontSize: 12, color: 'var(--on-surface-variant)' }}>{payLabel(p.method)}</span>
                     <span style={{ fontSize: 12, fontWeight: 700 }}>{fmt(parseNum(p.total))} ₽ · {pct.toFixed(1)}%</span>
                   </div>
                   <div style={{ height: 6, borderRadius: 3, background: 'rgba(255,255,255,0.06)', overflow: 'hidden' }}>
@@ -976,7 +972,7 @@ function ReportsTab({ from, to }: { from: string; to: string }) {
                   return (
                     <div key={p.method}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                        <span style={{ fontSize: 12, color: 'var(--on-surface-variant)' }}>{PAY_LABELS[p.method] ?? p.method}</span>
+                        <span style={{ fontSize: 12, color: 'var(--on-surface-variant)' }}>{payLabel(p.method)}</span>
                         <span style={{ fontSize: 12, fontWeight: 700 }}>{fmt(parseNum(p.total))} ₽ · {pct.toFixed(1)}%</span>
                       </div>
                       <div style={{ height: 6, borderRadius: 3, background: 'rgba(255,255,255,0.06)', overflow: 'hidden' }}>

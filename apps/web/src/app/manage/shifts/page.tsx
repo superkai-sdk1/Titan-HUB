@@ -51,8 +51,9 @@ const PAY_COLORS: Record<string, string> = {
   cash: '#10B981', card: '#3B82F6', transfer: '#8B5CF6',
   bonus: '#F59E0B', deposit: '#06B6D4', certificate: '#14B8A6', debt: '#F43F5E',
 }
+// Канон подписей: enum card = «Перевод» (на карту), enum transfer = «СБП» (Platega QR).
 const PAY_LABELS: Record<string, string> = {
-  cash: 'Наличные', card: 'Карта', transfer: 'Перевод',
+  cash: 'Наличные', card: 'Перевод', transfer: 'СБП',
   bonus: 'Бонусы', deposit: 'Депозит', certificate: 'Сертификат', debt: 'Долг',
 }
 

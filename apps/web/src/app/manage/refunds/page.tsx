@@ -17,8 +17,9 @@ const REASONS = [
 ] as const
 const REASON_LABELS: Record<string, string> = Object.fromEntries(REASONS)
 
+// Канон подписей: enum card = «Перевод» (на карту), enum transfer = «СБП» (Platega QR).
 const METHOD_LABELS: Record<string, string> = {
-  cash: 'Наличные', card: 'Карта', transfer: 'Перевод',
+  cash: 'Наличные', card: 'Перевод', transfer: 'СБП',
   deposit: 'Депозит', bonus: 'Бонусы', certificate: 'Сертификат', debt: 'Долг',
 }
 
