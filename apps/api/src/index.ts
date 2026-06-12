@@ -2,6 +2,7 @@ import { serve } from '@hono/node-server'
 import { closeDb } from '@titan/database'
 import { app } from './app.js'
 import { checkBirthdays } from './cron/birthdays.js'
+import { auditBalances } from './cron/balance-audit.js'
 import { runMigrations } from './migrations/runner.js'
 import { getSharedRedis } from './lib/redis.js'
 
@@ -88,3 +89,24 @@ function scheduleBirthdayCron() {
 }
 
 scheduleBirthdayCron()
+
+// Ежедневная сверка целостности балансов клиентов в 05:00 по Москве.
+// MSK = UTC+3 → 02:00 UTC. Раннее утро: тихий час, сверяем итог за прошлые сутки.
+// auditBalances() сама обёрнута в try/catch и НИКОГДА не бросает — .catch здесь
+// лишь страхует от отказа самого вызова, чтобы не уронить интервал/процесс.
+function scheduleBalanceAuditCron() {
+  const now = new Date()
+  const next = new Date()
+  next.setUTCHours(2, 0, 0, 0)
+  if (next <= now) next.setUTCDate(next.getUTCDate() + 1)
+  const msUntil = next.getTime() - now.getTime()
+
+  setTimeout(async () => {
+    await auditBalances().catch(console.error)
+    setInterval(() => auditBalances().catch(console.error), 24 * 60 * 60 * 1000)
+  }, msUntil)
+
+  console.log(`🧾 Balance-audit cron scheduled (05:00 MSK), next run in ${Math.round(msUntil / 60000)} min`)
+}
+
+scheduleBalanceAuditCron()
