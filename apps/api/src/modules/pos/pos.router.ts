@@ -562,6 +562,21 @@ posRouter.post('/checks', requireRole('owner', 'staff'), zValidator('json', Open
     }
   }
 
+  // Анти-двойная-бронь: одна активная аренда на зону. Если зона уже занята другим
+  // открытым чеком — отклоняем (иначе двойная тарификация/путаница на одном столе).
+  // Вторую «вкладку» на тот же стол можно открыть без spaceId (без аренды зоны).
+  // ПРИМЕЧАНИЕ: app-level гард закрывает обычный случай; от гонки двух одновременных
+  // запросов защитит partial unique index (см. план, follow-up миграция).
+  if (body.spaceId) {
+    const [occupied] = await db.select({ id: checks.id })
+      .from(checks)
+      .where(and(eq(checks.spaceId, body.spaceId), eq(checks.status, 'open')))
+      .limit(1)
+    if (occupied) {
+      return c.json({ error: 'Зона уже занята другим открытым чеком' }, 409)
+    }
+  }
+
   const [check] = await db.insert(checks).values({
     staffId: user.sub,
     shiftId: shift.id,
