@@ -110,6 +110,15 @@ plategaRouter.post('/webhook', async (c) => {
         ? requestedTip
         : 0
 
+      // Эквайринговая надбавка 8% (её доплачивает КЛИЕНТ поверх товаров+чаевых).
+      // Источник истины — фактически уплаченная сумма: если клиент перевёл ≈ ×1.08,
+      // надбавку оплатил он (потерей владельца НЕ считается). Если провайдер сумму не
+      // прислал — доверяем флагу, сохранённому при генерации QR (checks.acquiring_surcharge>0).
+      const surchargePaid = reportedAmount != null && !Number.isNaN(reportedAmount)
+        ? reportedAmount >= round2(expectedWithTip * 1.08) - 1
+        : parseFloat(check.acquiringSurcharge ?? '0') > 0
+      const acquiringSurcharge = surchargePaid ? round2(expectedWithTip * 0.08) : 0
+
       await tx.insert(checkPayments).values({
         checkId,
         method: 'transfer',
@@ -129,6 +138,8 @@ plategaRouter.post('/webhook', async (c) => {
         plategaTxId: transactionId ?? null,
         // Фиксируем фактически уплаченные чаевые (или 0, если не оплачены).
         tipAmount: String(tipPaid),
+        // Кто оплатил эквайринг: >0 — клиент доплатил надбавку (не потеря владельца).
+        acquiringSurcharge: String(acquiringSurcharge),
         // Фиксируем конец аренды при закрытии (зеркало pos.router.ts close).
         spaceEndAt: check.spaceEndAt ?? (check.spaceId ? new Date() : undefined),
         closedAt: new Date(),

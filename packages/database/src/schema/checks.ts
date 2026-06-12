@@ -67,6 +67,10 @@ export const checks = pgTable('checks', {
   tipAmount: numeric('tip_amount', { precision: 12, scale: 2 }).notNull().default('0'),
   // id подтверждённой транзакции Platega (реконсиляция СБП-оплаты, см. 033_*.sql).
   plategaTxId: text('platega_tx_id'),
+  // Эквайринговая надбавка СБП (8%), которую ДОПЛАТИЛ КЛИЕНТ поверх товаров (вопрос
+  // «Добавить комиссию 8%?»). >0 ⇒ комиссию закрыл покупатель — потерей владельца НЕ
+  // считается; 0 ⇒ 8% удержал банк из выручки владельца (потеря). См. 047_*.sql.
+  acquiringSurcharge: numeric('acquiring_surcharge', { precision: 12, scale: 2 }).notNull().default('0'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   closedAt: timestamp('closed_at', { withTimezone: true }),
 })

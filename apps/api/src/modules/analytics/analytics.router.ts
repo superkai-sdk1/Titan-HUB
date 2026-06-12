@@ -118,12 +118,19 @@ async function netBreakdown(start: Date, end: Date, expFrom: string, expTo: stri
     .from(refunds)
     .where(and(gte(refunds.createdAt, start), lt(refunds.createdAt, end)))
 
-  // Эквайринг СБП: 8% от суммы переводов (method='transfer') закрытых чеков окна.
+  // Эквайринг СБП (ПОТЕРЯ ВЛАДЕЛЬЦА): 8% от суммы переводов (method='transfer')
+  // закрытых чеков окна — но ТОЛЬКО по чекам, где надбавку НЕ доплатил клиент
+  // (acquiring_surcharge = 0). Если комиссию закрыл покупатель — для владельца это
+  // не потеря, и такой чек в расчёт не входит.
   const [sbpRow] = await db
     .select({ total: sum(checkPayments.amount) })
     .from(checkPayments)
     .leftJoin(checks, eq(checks.id, checkPayments.checkId))
-    .where(and(eq(checks.status, 'closed'), eq(checkPayments.method, 'transfer'), gte(checks.createdAt, start), lt(checks.createdAt, end)))
+    .where(and(
+      eq(checks.status, 'closed'), eq(checkPayments.method, 'transfer'),
+      sql`coalesce(${checks.acquiringSurcharge}, 0) = 0`,
+      gte(checks.createdAt, start), lt(checks.createdAt, end),
+    ))
 
   // Себестоимость поставок, пришедших в окно (приближение COGS периода).
   const [cogsRow] = await db

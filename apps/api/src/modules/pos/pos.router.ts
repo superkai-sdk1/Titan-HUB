@@ -1279,15 +1279,20 @@ posRouter.post('/checks/:id/qr', requireRole('owner', 'staff', 'tablet'), async 
   const tip = Number.isFinite(rawTip) && rawTip > 0
     ? Math.min(round2(rawTip), round2(baseAmount * 3) + 100000)
     : 0
-  // Сохраняем запрошенные чаевые на чеке — webhook по ним валидирует увеличенную
-  // сумму к оплате и зафиксирует факт. Перезаписываем всегда (повторная генерация
-  // QR с другими/нулевыми чаевыми корректно обновляет значение).
-  await db.update(checks).set({ tipAmount: String(tip) }).where(eq(checks.id, checkId))
-
   // amount — сумма к оплате в QR (товары + чаевые, ×1.08 при надбавке). baseAmount —
   // товарная сумма, на которую webhook закроет чек.
   const beforeSurcharge = round2(baseAmount + tip)
   const amount = surcharge8 ? round2(beforeSurcharge * 1.08) : beforeSurcharge
+
+  // Сохраняем запрошенные чаевые и предварительную эквайринговую надбавку на чеке —
+  // webhook по ним валидирует увеличенную сумму к оплате и зафиксирует факт. Надбавка
+  // (8%, её доплачивает клиент) хранится, чтобы в отчётах эквайринг не списывался как
+  // потеря владельца. Перезаписываем всегда (повторная генерация QR с другими
+  // параметрами корректно обновляет значения).
+  await db.update(checks).set({
+    tipAmount: String(tip),
+    acquiringSurcharge: surcharge8 ? String(round2(beforeSurcharge * 0.08)) : '0',
+  }).where(eq(checks.id, checkId))
 
   const createRes = await fetch('https://app.platega.io/transaction/process', {
     method: 'POST',

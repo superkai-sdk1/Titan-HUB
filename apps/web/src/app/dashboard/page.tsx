@@ -836,9 +836,11 @@ function ReportsTab({ from, to }: { from: string; to: string }) {
   const totalProdRev: number = parseNum(prodData?.totalRev)
   // /analytics/payments → { breakdown: [{ method, total }] } за выбранный период.
   const payBreakdown: any[] = payData?.breakdown ?? []
-  // Эквайринг (потери) = 8% от СБП-переводов за период (как в бэкенде netBreakdown).
-  const transferTotal = parseNum(payBreakdown.find((p: any) => p.method === 'transfer')?.total)
-  const acquiring     = Math.round(transferTotal * 0.08 * 100) / 100
+  // Эквайринг (потери) — берём с сервера (/overview → netBreakdown). Сервер считает
+  // его только по чекам, где надбавку НЕ доплатил клиент (acquiring_surcharge=0):
+  // если комиссию закрыл покупатель, это не потеря владельца. Клиентский пересчёт по
+  // всем СБП-переводам был бы неверным (списывал комиссию даже на оплаченную клиентом).
+  const acquiring     = parseNum(ov?.current?.commission)
   // Прибыль с учётом эквайринга — согласуется со сводкой бэкенда.
   const profit        = totalRevenue - totalExpenses - totalCogs - acquiring
 
