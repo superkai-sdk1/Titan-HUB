@@ -180,8 +180,10 @@ export function ManageMenu() {
         </div>
       </div>
 
-      {/* Sections */}
-      <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: 24, maxWidth: 'var(--content-narrow)', margin: '0 auto', width: '100%', boxSizing: 'border-box' }}>
+      {/* Sections. Нижний отступ — под плавающую навигацию: глобальное правило
+          padding-bottom не доходит сюда (обёртки .manage-split* = display:contents
+          на мобильном глушат его), поэтому задаём явно. На десктопе var=0 → norm. */}
+      <div style={{ padding: '16px 16px calc(16px + var(--bottom-nav-clear, 0px))', display: 'flex', flexDirection: 'column', gap: 24, maxWidth: 'var(--content-narrow)', margin: '0 auto', width: '100%', boxSizing: 'border-box' }}>
         {NAV.map(group => {
           const visibleItems = group.items.filter(isAllowed)
           if (visibleItems.length === 0) return null

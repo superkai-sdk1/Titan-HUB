@@ -3,6 +3,7 @@ import './globals.css'
 import { Providers } from './providers'
 import { AuthGuard } from '@/components/AuthGuard'
 import { BottomNav } from '@/components/BottomNav'
+import { GlobalPullToRefresh } from '@/components/GlobalPullToRefresh'
 import { Sidebar } from '@/components/Sidebar'
 import { SessionLock } from '@/components/SessionLock'
 import { ServiceWorkerRegister } from '@/components/ServiceWorkerRegister'
@@ -85,6 +86,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 {children}
               </main>
             </div>
+
+            {/* Глобальный pull-to-refresh (цепляется к .layout-content) */}
+            <GlobalPullToRefresh />
 
             {/* Mobile bottom nav (hidden on desktop via CSS) */}
             <BottomNav />
