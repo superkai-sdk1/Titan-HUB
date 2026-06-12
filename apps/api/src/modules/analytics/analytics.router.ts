@@ -4,7 +4,7 @@ import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import {
   db, checks, checkItems, checkPayments, checkDiscounts, inventory, menuCategories, profiles, shifts, expenses, events,
-  supplies, supplyItems, salaryPayments, refunds, tariffs, eveningTypes, analyticsEvents,
+  salaryPayments, refunds, tariffs, eveningTypes, analyticsEvents, stockMovements,
   eq, and, gte, lte, lt, desc, asc, sql, sum, count, avg, isNull, isNotNull, ne, inArray,
 } from '@titan/database'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
@@ -132,12 +132,17 @@ async function netBreakdown(start: Date, end: Date, expFrom: string, expTo: stri
       gte(checks.createdAt, start), lt(checks.createdAt, end),
     ))
 
-  // Себестоимость поставок, пришедших в окно (приближение COGS периода).
+  // Себестоимость ПРОДАННОГО за окно (COGS): агрегат по движениям продажи склада.
+  // Берём зафиксированную на момент списания себестоимость (stock_movements.unit_cost,
+  // см. ledger.ts), а не текущий WAC карточки — иначе COGS прошлых периодов «плывёт»
+  // при каждой новой закупке. Окно — по дате движения. delta продажи отрицательна,
+  // поэтому берём abs(delta). Фолбэк на текущий cost_price для исторических движений,
+  // где unit_cost не заполнен (мог быть NULL до бэкфилла) — не ломает старые периоды.
   const [cogsRow] = await db
-    .select({ total: sql<number>`sum(${supplyItems.quantity}::numeric * ${supplyItems.costPerUnit}::numeric)` })
-    .from(supplyItems)
-    .leftJoin(supplies, eq(supplies.id, supplyItems.supplyId))
-    .where(and(gte(supplies.createdAt, start), lt(supplies.createdAt, end)))
+    .select({ total: sql<number>`sum(abs(${stockMovements.delta})::numeric * coalesce(${stockMovements.unitCost}, ${inventory.costPrice}, 0)::numeric)` })
+    .from(stockMovements)
+    .leftJoin(inventory, eq(inventory.id, stockMovements.itemId))
+    .where(and(eq(stockMovements.type, 'sale'), gte(stockMovements.createdAt, start), lt(stockMovements.createdAt, end)))
 
   // Операционные расходы без ЗП (по text-дате expenseDate, YYYY-MM-DD).
   const [opexRow] = await db
@@ -236,12 +241,15 @@ analyticsRouter.get('/dashboard', async (c) => {
       lt(checks.createdAt, thirtyDaysAgo),
     ))
 
-  // COGS this month (supply costs)
+  // COGS this month — себестоимость ПРОДАННОГО (агрегат по движениям продажи), а не
+  // стоимость поставок. Зафиксированная себестоимость на момент списания
+  // (stock_movements.unit_cost) с фолбэком на текущий WAC для исторических NULL.
+  // delta продажи отрицательна → abs(delta). См. netBreakdown.
   const [cogsRow] = await db
-    .select({ total: sql<number>`sum(${supplyItems.quantity}::numeric * ${supplyItems.costPerUnit}::numeric)` })
-    .from(supplyItems)
-    .leftJoin(supplies, eq(supplies.id, supplyItems.supplyId))
-    .where(gte(supplies.createdAt, thirtyDaysAgo))
+    .select({ total: sql<number>`sum(abs(${stockMovements.delta})::numeric * coalesce(${stockMovements.unitCost}, ${inventory.costPrice}, 0)::numeric)` })
+    .from(stockMovements)
+    .leftJoin(inventory, eq(inventory.id, stockMovements.itemId))
+    .where(and(eq(stockMovements.type, 'sale'), gte(stockMovements.createdAt, thirtyDaysAgo)))
 
   // Expenses this month.
   // ПРАВИЛО ЗАРПЛАТЫ В ПРИБЫЛИ: единственный источник истины по ФОТ — таблица
@@ -457,19 +465,22 @@ analyticsRouter.get('/revenue', zValidator('query', dateRangeQuerySchema), async
     ))
     .groupBy(expenses.expenseDate)
 
-  // COGS by day (supply costs) — те же полуоткрытые границы МСК.
+  // COGS by day — себестоимость ПРОДАННОГО (движения продажи), а не стоимость
+  // поставок. Группировка по БИЗНЕС-ДНЮ движения; зафиксированный unit_cost с
+  // фолбэком на текущий WAC для исторических NULL. delta продажи < 0 → abs(delta).
   const cogsRows = await db
     .select({
-      date: sql<string>`((${supplies.createdAt} AT TIME ZONE 'Europe/Moscow') - interval '9 hours')::date::text`,
-      total: sql<number>`sum(${supplyItems.quantity}::numeric * ${supplyItems.costPerUnit}::numeric)`,
+      date: sql<string>`((${stockMovements.createdAt} AT TIME ZONE 'Europe/Moscow') - interval '9 hours')::date::text`,
+      total: sql<number>`sum(abs(${stockMovements.delta})::numeric * coalesce(${stockMovements.unitCost}, ${inventory.costPrice}, 0)::numeric)`,
     })
-    .from(supplyItems)
-    .leftJoin(supplies, eq(supplies.id, supplyItems.supplyId))
+    .from(stockMovements)
+    .leftJoin(inventory, eq(inventory.id, stockMovements.itemId))
     .where(and(
-      gte(supplies.createdAt, fromStart),
-      lt(supplies.createdAt, toEndExclusive),
+      eq(stockMovements.type, 'sale'),
+      gte(stockMovements.createdAt, fromStart),
+      lt(stockMovements.createdAt, toEndExclusive),
     ))
-    .groupBy(sql`((${supplies.createdAt} AT TIME ZONE 'Europe/Moscow') - interval '9 hours')::date`)
+    .groupBy(sql`((${stockMovements.createdAt} AT TIME ZONE 'Europe/Moscow') - interval '9 hours')::date`)
 
   return c.json({ revenue: rows, expenses: expRows, cogs: cogsRows })
 })

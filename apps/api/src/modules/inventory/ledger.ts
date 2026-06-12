@@ -65,8 +65,16 @@ export async function recordMovement(tx: Tx, input: RecordMovementInput): Promis
   const oldCost = parseFloat(String(item.costPrice ?? 0)) || 0
   let avgCost = oldCost
   // WAC только на приходе с известной ценой: (before·old + in·cost) / after.
+  // База «до» клампится в ноль: после оверселла остаток уходит в минус
+  // (clamp:false у продажи), а отрицательный before искажает средневзвешенную
+  // (числитель занижается, WAC может уйти в минус и отравить маржу/стоимость
+  // склада навсегда). Приход на «дыру» считаем как чистый приход по своей цене:
+  // используем effectiveBefore = max(0, before) и в числителе, и в знаменателе.
   if (input.type === 'receipt' && applied > 0 && input.unitCost !== undefined && qtyAfter > 0) {
-    avgCost = round2((before * oldCost + applied * input.unitCost) / qtyAfter)
+    const effectiveBefore = Math.max(0, before)
+    avgCost = round2(
+      (effectiveBefore * oldCost + applied * input.unitCost) / (effectiveBefore + applied),
+    )
   }
 
   if (applied !== 0 || avgCost !== oldCost) {
