@@ -48,6 +48,12 @@ export const requireAuth = createMiddleware<{ Variables: Variables }>(async (c, 
     return c.json({ error: 'Invalid token' }, 401)
   }
 
+  // Суперадмин-токен (scope='superadmin') НЕ принимается клубными роутами —
+  // контуры строго разделены (см. modules/superadmin/superadmin-token.ts).
+  if ((user as unknown as { scope?: string }).scope === 'superadmin') {
+    return c.json({ error: 'Invalid token' }, 401)
+  }
+
   // Проверка отзыва токена (logout/блокировка). Best-effort: если Redis
   // недоступен — пропускаем (fail-open), чтобы не ронять авторизацию.
   try {
