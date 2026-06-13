@@ -9,6 +9,7 @@ import {
 import { accrueBonusLot, getBonusExpiryDays } from '../../lib/bonusLots.js'
 import { round2, computeRental, computeTotals } from '../../lib/money.js'
 import { publishEvent } from '../../lib/realtime.js'
+import { getClubIntegration } from '../../lib/secrets.js'
 
 // Сумма по позициям — общий computeTotals из lib/money.js (один источник правды).
 
@@ -31,9 +32,9 @@ function safeEqual(a: string | undefined | null, b: string | undefined | null): 
 // код тогда НЕ закрывает чек и отдаёт 5xx, чтобы Platega повторила вебхук.
 async function fetchPlategaStatus(
   transactionId: string,
+  merchantId: string | undefined | null,
+  secret: string | undefined | null,
 ): Promise<{ status?: string; amount?: number } | null> {
-  const merchantId = process.env['PLATEGA_MERCHANT_ID']
-  const secret = process.env['PLATEGA_SECRET']
   if (!merchantId || !secret) return null
   try {
     const res = await fetch(`https://app.platega.io/transaction/${transactionId}`, {
@@ -54,8 +55,14 @@ async function fetchPlategaStatus(
 export const plategaRouter = new Hono<AppEnv>()
 
 plategaRouter.post('/webhook', async (c) => {
-  const merchantOk = safeEqual(c.req.header('X-MerchantId'), process.env['PLATEGA_MERCHANT_ID'])
-  const secretOk = safeEqual(c.req.header('X-Secret'), process.env['PLATEGA_SECRET'])
+  // Креды Platega — пер-клубные (из integrations БД клуба, резолвится по Host
+  // клуб-поддомена), с фолбэком на env. На основном домене c.var.db = синглтон,
+  // integrations пусты → используется env (поведение одно-клубного прода идентично).
+  const merchantId = (await getClubIntegration(c.var.db, 'platega_merchant_id')) ?? process.env['PLATEGA_MERCHANT_ID']
+  const secret = (await getClubIntegration(c.var.db, 'platega_secret')) ?? process.env['PLATEGA_SECRET']
+
+  const merchantOk = safeEqual(c.req.header('X-MerchantId'), merchantId)
+  const secretOk = safeEqual(c.req.header('X-Secret'), secret)
   if (!merchantOk || !secretOk) {
     return c.json({ error: 'Unauthorized' }, 401)
   }
@@ -89,7 +96,7 @@ plategaRouter.post('/webhook', async (c) => {
   let confirmed = false
   let definitelyFailed = false
   for (let i = 0; i < 3; i++) {
-    verified = await fetchPlategaStatus(transactionId)
+    verified = await fetchPlategaStatus(transactionId, merchantId, secret)
     const s = (verified?.status ?? '').toUpperCase()
     if (s === 'CONFIRMED') { confirmed = true; break }
     if (FAILED_STATUSES.has(s)) { definitelyFailed = true; break }

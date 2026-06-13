@@ -4,16 +4,18 @@ import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import { expenses, salaryPayments, checks, checkItems, inventory, profiles, eq, and, gte, lte, lt, desc, sql, isNotNull } from '@titan/database'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
+import { getBusinessDayStartHour } from '../../lib/appSettings.js'
 
-// Бизнес-день (09:00→06:00): окно [dateStr 09:00 МСК, +24ч), как в analytics.
+// Бизнес-день (по умолч. 09:00→06:00): окно [dateStr startHour:00 МСК, +24ч), как
+// в analytics. startHour по умолч. 9 → байт-в-байт прежнее поведение (09:00).
 const MSK_OFFSET_MS = 3 * 3600 * 1000
-function bizBounds(dateStr: string): { start: Date; end: Date } {
-  const start = new Date(`${dateStr}T09:00:00+03:00`)
+function bizBounds(dateStr: string, startHour = 9): { start: Date; end: Date } {
+  const start = new Date(`${dateStr}T${String(startHour).padStart(2, '0')}:00:00+03:00`)
   return { start, end: new Date(start.getTime() + 86400000) }
 }
-// YYYY-MM-DD бизнес-дня, отстоящего на `daysAgo` суток (00:00–08:59 → прошлая дата).
-function bizDayStr(daysAgo = 0): string {
-  return new Date(Date.now() + MSK_OFFSET_MS - 9 * 3600000 - daysAgo * 86400000).toISOString().split('T')[0]
+// YYYY-MM-DD бизнес-дня, отстоящего на `daysAgo` суток (00:00..(startHour−1):59 → прошлая дата).
+function bizDayStr(daysAgo = 0, startHour = 9): string {
+  return new Date(Date.now() + MSK_OFFSET_MS - startHour * 3600000 - daysAgo * 86400000).toISOString().split('T')[0]
 }
 const num = (v: unknown) => { const n = parseFloat(String(v ?? '0')); return Number.isFinite(n) ? n : 0 }
 
@@ -73,10 +75,11 @@ expensesRouter.get('/', requireRole('owner', 'staff'), async (c) => {
 // ВАЖНО: маршрут объявлен ДО '/:id', иначе '/summary' попал бы в param-роут.
 expensesRouter.get('/summary', requireRole('owner', 'staff'), async (c) => {
   const db = c.var.db
-  const from = c.req.query('from') || bizDayStr(30)
-  const to = c.req.query('to') || bizDayStr(0)
-  const { start } = bizBounds(from)
-  const { end } = bizBounds(to)
+  const h = await getBusinessDayStartHour(db)
+  const from = c.req.query('from') || bizDayStr(30, h)
+  const to = c.req.query('to') || bizDayStr(0, h)
+  const { start } = bizBounds(from, h)
+  const { end } = bizBounds(to, h)
 
   // 1. Операционные расходы (без зарплаты) по категориям + сырые строки за период.
   const catRows = await db

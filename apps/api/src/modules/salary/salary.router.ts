@@ -5,6 +5,7 @@ import { z } from 'zod'
 import { salaryPayments, shifts, checks, checkPayments, cashOperations, profiles, eq, and, desc, sum, gte, lte, lt, sql } from '@titan/database'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
 import { getCurrentShift } from '../shifts/shifts.service.js'
+import { getBusinessDayStartHour } from '../../lib/appSettings.js'
 
 // Период (YYYY-MM) кладётся в note первым токеном (см. фронт salary/page.tsx).
 // Достаём его в отдельное поле period, остаток оставляем как комментарий.
@@ -58,14 +59,18 @@ salaryRouter.get('/', requireRole('owner'), async (c) => {
 })
 
 salaryRouter.get('/estimate', requireRole('owner', 'staff'), async (c) => {
-  // Дневной расчёт по БИЗНЕС-ДНЮ (09:00→06:00): зарплата зависит от выручки КЛУБА
-  // за бизнес-день по той же формуле, но БЕЗ учёта мероприятий — из суммы чеков
-  // вычитаем базовую сумму мероприятия (event_base_amount). Списания на персонал
-  // имеют итог 0₽ и в выручку не идут. Зарплата выдаётся ежедневно.
+  // Дневной расчёт по БИЗНЕС-ДНЮ (по умолч. 09:00→06:00): зарплата зависит от
+  // выручки КЛУБА за бизнес-день по той же формуле, но БЕЗ учёта мероприятий — из
+  // суммы чеков вычитаем базовую сумму мероприятия (event_base_amount). Списания
+  // на персонал имеют итог 0₽ и в выручку не идут. Зарплата выдаётся ежедневно.
   const db = c.var.db
+  // Час начала бизнес-дня (настройка business_day_start_hour, по умолч. 9). При h=9
+  // строка границы = прежняя 'YYYY-MM-DDT09:00:00+03:00' — поведение байт-в-байт.
+  const h = await getBusinessDayStartHour(db)
+  const hh = `${String(h).padStart(2, '0')}:00:00+03:00`
   const day = c.req.query('day')
   if (day && /^\d{4}-\d{2}-\d{2}$/.test(day)) {
-    const start = new Date(`${day}T09:00:00+03:00`)
+    const start = new Date(`${day}T${hh}`)
     const end = new Date(start.getTime() + 86400000)
     const [r] = await db
       .select({ revenue: sql<string>`coalesce(sum(${checks.totalAmount}::numeric - coalesce(${checks.eventBaseAmount}, 0)::numeric), 0)` })
@@ -88,9 +93,10 @@ salaryRouter.get('/estimate', requireRole('owner', 'staff'), async (c) => {
   // иначе new Date('YYYY-MM-DD') трактовалось как UTC и окно съезжало на 3ч,
   // а чек последнего дня после 21:00 МСК выпадал из расчёта.
   const conditions = [eq(checks.staffId, staffId), eq(checks.status, 'closed')]
-  // По БИЗНЕС-ДНЮ (09:00→06:00), как и дневная ветка выше: окно [from 09:00, to+1 09:00).
-  if (from) conditions.push(gte(checks.createdAt, new Date(`${from}T09:00:00+03:00`)))
-  if (to) conditions.push(lt(checks.createdAt, new Date(new Date(`${to}T09:00:00+03:00`).getTime() + 86400000)))
+  // По БИЗНЕС-ДНЮ (по умолч. 09:00→06:00), как и дневная ветка выше: окно
+  // [from h:00, to+1 h:00). hh берётся из настройки (см. выше).
+  if (from) conditions.push(gte(checks.createdAt, new Date(`${from}T${hh}`)))
+  if (to) conditions.push(lt(checks.createdAt, new Date(new Date(`${to}T${hh}`).getTime() + 86400000)))
 
   const [result] = await db
     .select({ revenue: sum(checks.totalAmount) })

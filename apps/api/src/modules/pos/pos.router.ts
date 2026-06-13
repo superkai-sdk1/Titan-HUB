@@ -18,6 +18,7 @@ import { accrueBonusLot, spendBonusLots, getBonusExpiryDays } from '../../lib/bo
 import { getNumericSetting, LARGE_CHECK_KEY, DEFAULT_LARGE_CHECK, getBoolSetting, STAFF_DISCOUNT_KEY, STAFF_MAX_DISCOUNT_KEY, DEFAULT_STAFF_MAX_DISCOUNT } from '../../lib/appSettings.js'
 import { round2, computeRental, computeTotals } from '../../lib/money.js'
 import { publishEvent, updatesChannel } from '../../lib/realtime.js'
+import { getClubIntegration } from '../../lib/secrets.js'
 import { Redis } from 'ioredis'
 import { streamSSE } from 'hono/streaming'
 
@@ -1300,8 +1301,10 @@ posRouter.post('/checks/:id/qr', requireRole('owner', 'staff', 'tablet'), async 
   const db = c.var.db
   const checkId = c.req.param('id')
   const user = c.get('user')
-  const merchantId = process.env['PLATEGA_MERCHANT_ID']
-  const secret = process.env['PLATEGA_SECRET']
+  // Креды Platega — пер-клубные (integrations БД клуба) с фолбэком на env.
+  // На основном домене integrations пусты → env (одно-клубный прод не затронут).
+  const merchantId = (await getClubIntegration(db, 'platega_merchant_id')) ?? process.env['PLATEGA_MERCHANT_ID']
+  const secret = (await getClubIntegration(db, 'platega_secret')) ?? process.env['PLATEGA_SECRET']
   if (!merchantId || !secret) return c.json({ error: 'Platega не настроен' }, 503)
 
   const [check] = await db.select().from(checks).where(eq(checks.id, checkId))
@@ -1411,9 +1414,12 @@ posRouter.post('/checks/:id/qr', requireRole('owner', 'staff', 'tablet'), async 
 })
 
 posRouter.get('/checks/:id/qr/:transactionId/status', requireRole('owner', 'staff'), async (c) => {
+  const db = c.var.db
   const transactionId = c.req.param('transactionId')
-  const merchantId = process.env['PLATEGA_MERCHANT_ID']
-  const secret = process.env['PLATEGA_SECRET']
+  // Креды Platega — пер-клубные (integrations БД клуба) с фолбэком на env.
+  // На основном домене integrations пусты → env (одно-клубный прод не затронут).
+  const merchantId = (await getClubIntegration(db, 'platega_merchant_id')) ?? process.env['PLATEGA_MERCHANT_ID']
+  const secret = (await getClubIntegration(db, 'platega_secret')) ?? process.env['PLATEGA_SECRET']
   if (!merchantId || !secret) return c.json({ error: 'Platega не настроен' }, 503)
 
   const res = await fetch(`https://app.platega.io/transaction/${transactionId}`, {

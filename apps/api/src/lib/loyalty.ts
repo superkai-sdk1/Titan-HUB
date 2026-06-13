@@ -1,4 +1,5 @@
 import { db, profiles, eq, and, sql, type Database } from '@titan/database'
+import { getBusinessDayStartHour } from './appSettings.js'
 
 // Пер-клубный db (Фаза 1): опциональный параметр, по умолч. синглтон (переходный
 // режим — см. lib/appSettings.ts). Перед включением тенантности станет обязательным.
@@ -14,8 +15,10 @@ export const STARTER_TIER = 'newbie'
 
 // Число посещений = различные бизнес-дни с закрытым чеком + ручные корректировки.
 export async function countVisits(profileId: string, database: DbLike): Promise<number> {
+  // Граница бизнес-дня — настраиваемая (по умолч. 9 → прежний interval '9 hours').
+  const h = await getBusinessDayStartHour(database)
   const res: any = await database.execute(sql`
-    SELECT count(distinct date_trunc('day', (created_at AT TIME ZONE 'Europe/Moscow') - interval '9 hours'))::int AS n
+    SELECT count(distinct date_trunc('day', (created_at AT TIME ZONE 'Europe/Moscow') - interval '${sql.raw(String(h))} hours'))::int AS n
     FROM checks
     WHERE player_id = ${profileId} AND status = 'closed'
   `)

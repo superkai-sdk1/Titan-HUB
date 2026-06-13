@@ -33,6 +33,8 @@ import {
 } from '@titan/database'
 import type { Database } from '@titan/database'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
+import { getClubIntegration } from '../../lib/secrets.js'
+import { getBusinessDayStartHour } from '../../lib/appSettings.js'
 
 // Источник БД для модульных хелперов: пер-запросный c.var.db (на основном домене
 // === синглтон) либо tx внутри read-only транзакции answerFromDb/runReadonly.
@@ -41,16 +43,19 @@ type DbOrTx = Database | Parameters<Parameters<Database['transaction']>[0]>[0]
 // Снимаем возможные кавычки/пробелы вокруг значений из .env (docker не всегда их убирает)
 const clean = (v: string | undefined): string => (v ?? '').trim().replace(/^["']|["']$/g, '')
 const POLZA_BASE = clean(process.env['POLZA_BASE_URL']) || 'https://polza.ai/api/v1'
-const POLZA_KEY = clean(process.env['POLZA_API_KEY'])
 // id модели на Polza: с префиксом провайдера и точкой в версии
 const POLZA_MODEL = clean(process.env['POLZA_MODEL']) || 'google/gemini-3.1-flash-lite'
 
-async function callAI(systemPrompt: string, userMessage: string): Promise<string> {
+async function callAI(db: Database, systemPrompt: string, userMessage: string): Promise<string> {
+  // Ключ AI — пер-клубный (integrations БД клуба) с фолбэком на env. На основном
+  // домене integrations пусты → env POLZA_API_KEY (одно-клубный прод не затронут).
+  // BASE_URL/MODEL остаются из env.
+  const apiKey = clean((await getClubIntegration(db, 'ai_api_key')) ?? process.env['POLZA_API_KEY'])
   const res = await fetch(`${POLZA_BASE}/chat/completions`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${POLZA_KEY}`,
+      'Authorization': `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
       model: POLZA_MODEL,
@@ -109,8 +114,10 @@ const ActionSchema = z.object({
 // угадывал. Долг клиента = отрицательный profiles.balance; депозит = положительный.
 async function buildBusinessSnapshot(db: DbOrTx): Promise<string> {
   const parts: string[] = []
-  // Начало текущего БИЗНЕС-ДНЯ (09:00 МСК), а не календарной полуночи локали сервера.
-  const todayStart = bizDayStart(bizDayStr(0))
+  // Начало текущего БИЗНЕС-ДНЯ (по настройке business_day_start_hour, по умолч.
+  // 09:00 МСК), а не календарной полуночи локали сервера.
+  const h = await getBusinessDayStartHour(db)
+  const todayStart = bizDayStart(bizDayStr(0, h), h)
 
   // Должники (balance < 0) + общий долг.
   try {
@@ -260,7 +267,7 @@ const SQLGEN_PROMPT = [
 async function answerFromDb(db: Database, query: string): Promise<string | null> {
   try {
     const schema = await getSchemaDoc(db)
-    const rawSql = await callAI(SQLGEN_PROMPT, `СХЕМА БАЗЫ:\n${schema}\n\nВОПРОС: ${query}`)
+    const rawSql = await callAI(db, SQLGEN_PROMPT, `СХЕМА БАЗЫ:\n${schema}\n\nВОПРОС: ${query}`)
     const clean = sanitizeSql(rawSql)
     const rows = await runReadonly(db, clean)
     const json = JSON.stringify(rows).slice(0, 6000)
@@ -274,10 +281,12 @@ async function answerFromDb(db: Database, query: string): Promise<string | null>
 async function buildContext(db: Database, action: string, payload?: Record<string, unknown>, question?: string): Promise<string> {
   const thirtyDays = new Date(Date.now() - 30 * 86400000)
   const fourteenDays = new Date(Date.now() - 14 * 86400000)
-  // Границы — по БИЗНЕС-ДНЮ/БИЗНЕС-МЕСЯЦУ в МСК (09:00), а не по локальной полуночи сервера.
-  const todayStart = bizDayStart(bizDayStr(0))
-  const firstOfMonth = bizMonthStart(0)
-  const firstOfLastMonth = bizMonthStart(-1)
+  // Границы — по БИЗНЕС-ДНЮ/БИЗНЕС-МЕСЯЦУ в МСК (по настройке business_day_start_hour,
+  // по умолч. 09:00), а не по локальной полуночи сервера.
+  const h = await getBusinessDayStartHour(db)
+  const todayStart = bizDayStart(bizDayStr(0, h), h)
+  const firstOfMonth = bizMonthStart(0, h)
+  const firstOfLastMonth = bizMonthStart(-1, h)
   const lastMonthEnd = new Date(firstOfMonth.getTime() - 1)
 
   switch (action) {
@@ -645,7 +654,7 @@ async function handleChat(c: any) {
 
   let result: string
   try {
-    result = await callAI(SYSTEM_PROMPT, userMessage)
+    result = await callAI(db, SYSTEM_PROMPT, userMessage)
   } catch (e) {
     return c.json({ error: `AI недоступен: ${String(e)}` }, 502)
   }

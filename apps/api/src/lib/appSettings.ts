@@ -36,6 +36,21 @@ export async function getBoolSetting(key: string, fallback = false, database: Db
   }
 }
 
+// Час начала БИЗНЕС-ДНЯ (граница операционных суток) из app_settings. Целое в
+// [0..23]; всё прочее (отсутствие/мусор/ошибка) → дефолт 9 — байт-в-байт прежнее
+// поведение клуба (бизнес-день 09:00→06:00). Никогда не бросает. Возвращаемое
+// число безопасно для интерполяции в SQL-интервал (НЕ пользовательская строка).
+export const BUSINESS_DAY_START_HOUR_KEY = 'business_day_start_hour'
+export async function getBusinessDayStartHour(database: DbLike): Promise<number> {
+  try {
+    const [row] = await database.select({ value: appSettings.value }).from(appSettings).where(eq(appSettings.key, BUSINESS_DAY_START_HOUR_KEY))
+    const n = parseInt(String(row?.value ?? ''), 10)
+    return Number.isInteger(n) && n >= 0 && n <= 23 ? n : 9
+  } catch {
+    return 9
+  }
+}
+
 export const STAFF_DISCOUNT_KEY = 'staff_discount_enabled'
 
 // Ключи настроек порогов (валидны под regex /^[a-z][a-z0-9_]{0,63}$/).
