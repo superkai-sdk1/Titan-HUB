@@ -2,7 +2,7 @@ import type { AppEnv } from '../../types.js'
 import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
-import { db, salaryPayments, shifts, checks, checkPayments, cashOperations, profiles, eq, and, desc, sum, gte, lte, lt, sql } from '@titan/database'
+import { salaryPayments, shifts, checks, checkPayments, cashOperations, profiles, eq, and, desc, sum, gte, lte, lt, sql } from '@titan/database'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
 import { getCurrentShift } from '../shifts/shifts.service.js'
 
@@ -33,6 +33,7 @@ export const salaryRouter = new Hono<AppEnv>()
 salaryRouter.use('*', requireAuth)
 
 salaryRouter.get('/', requireRole('owner'), async (c) => {
+  const db = c.var.db
   const rows = await db
     .select({
       id: salaryPayments.id,
@@ -61,6 +62,7 @@ salaryRouter.get('/estimate', requireRole('owner', 'staff'), async (c) => {
   // за бизнес-день по той же формуле, но БЕЗ учёта мероприятий — из суммы чеков
   // вычитаем базовую сумму мероприятия (event_base_amount). Списания на персонал
   // имеют итог 0₽ и в выручку не идут. Зарплата выдаётся ежедневно.
+  const db = c.var.db
   const day = c.req.query('day')
   if (day && /^\d{4}-\d{2}-\d{2}$/.test(day)) {
     const start = new Date(`${day}T09:00:00+03:00`)
@@ -103,6 +105,7 @@ salaryRouter.get('/estimate', requireRole('owner', 'staff'), async (c) => {
 
 salaryRouter.post('/pay', requireRole('owner'), zValidator('json', PaySalarySchema), async (c) => {
   const user = c.get('user')
+  const db = c.var.db
   const body = c.req.valid('json')
   // Наличная зарплата — это деньги, покинувшие кассу: помимо записи о выплате
   // создаём cashOperation type='salary' за текущую смену, иначе сверка кассы
@@ -123,7 +126,7 @@ salaryRouter.post('/pay', requireRole('owner'), zValidator('json', PaySalarySche
       // если смена закрылась между приёмом запроса и коммитом, cashOperation
       // не должна лечь на устаревший shiftId. Если открытой смены нет — выплату
       // фиксируем, но кассовую операцию не создаём (как и раньше при shift=null).
-      const shift = await getCurrentShift()
+      const shift = await getCurrentShift(db)
       if (shift) {
         await tx.insert(cashOperations).values({
           type: 'salary',

@@ -3,7 +3,7 @@ import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import {
-  db, profiles, transactions, bonusHistory, clientTiers, clientDiscountRules,
+  profiles, transactions, bonusHistory, clientTiers, clientDiscountRules,
   eq, and, isNull, isNotNull, ilike, or, desc, asc, sql, count, inArray,
 } from '@titan/database'
 
@@ -52,6 +52,7 @@ clientsRouter.use('*', requireAuth)
 clientsRouter.use('*', requireRole('owner', 'staff'))
 
 clientsRouter.get('/', async (c) => {
+  const db = c.var.db
   const search = c.req.query('search')
   const filter = c.req.query('filter')
   const page = Number(c.req.query('page') ?? 1)
@@ -159,6 +160,7 @@ function slugifyTierKey(label: string): string {
 }
 
 clientsRouter.get('/tiers', async (c) => {
+  const db = c.var.db
   const tiers = await db.select().from(clientTiers).orderBy(asc(clientTiers.sortOrder), asc(clientTiers.key))
   return c.json({ tiers })
 })
@@ -169,6 +171,7 @@ const CreateTierSchema = z.object({
   key: z.string().min(1).max(32).optional(),
 })
 clientsRouter.post('/tiers', requireRole('owner'), zValidator('json', CreateTierSchema), async (c) => {
+  const db = c.var.db
   const body = c.req.valid('json')
   let key = (body.key && body.key.trim()) ? slugifyTierKey(body.key) : slugifyTierKey(body.label)
   // Уникальность ключа: если занят — добавляем суффикс.
@@ -184,6 +187,7 @@ clientsRouter.post('/tiers', requireRole('owner'), zValidator('json', CreateTier
 })
 
 clientsRouter.delete('/tiers/:key', requireRole('owner'), async (c) => {
+  const db = c.var.db
   const key = c.req.param('key')
   const [tier] = await db.select().from(clientTiers).where(eq(clientTiers.key, key))
   if (!tier) return c.json({ error: 'Not found' }, 404)
@@ -200,6 +204,7 @@ clientsRouter.delete('/tiers/:key', requireRole('owner'), async (c) => {
 })
 
 clientsRouter.post('/', requireRole('owner', 'staff'), zValidator('json', CreateClientSchema), async (c) => {
+  const db = c.var.db
   const body = c.req.valid('json')
   const passwordHash = body.password ? await hashPassword(body.password) : undefined
   const [client] = await db.insert(profiles).values({
@@ -222,12 +227,13 @@ clientsRouter.post('/', requireRole('owner', 'staff'), zValidator('json', Create
     title: 'Новый клиент',
     body: newClientTier ? `${client.nickname} · ${newClientTier}` : client.nickname,
     meta: { clientId: client.id },
-  }).catch(() => {})
+  }, db).catch(() => {})
 
   return c.json({ client: safe }, 201)
 })
 
 clientsRouter.get('/:id', async (c) => {
+  const db = c.var.db
   const [client] = await db.select().from(profiles).where(and(eq(profiles.id, c.req.param('id')), isNull(profiles.deletedAt)))
   if (!client) return c.json({ error: 'Not found' }, 404)
   const { pin, passwordHash, ...safe } = client
@@ -235,6 +241,7 @@ clientsRouter.get('/:id', async (c) => {
 })
 
 clientsRouter.patch('/:id', requireRole('owner', 'staff'), zValidator('json', UpdateClientSchema), async (c) => {
+  const db = c.var.db
   const body = c.req.valid('json')
   const update: Record<string, any> = { ...body }
   if (body.deletedAt !== undefined) update.deletedAt = body.deletedAt ? new Date(body.deletedAt) : null
@@ -251,6 +258,7 @@ clientsRouter.patch('/:id', requireRole('owner', 'staff'), zValidator('json', Up
 const WALLET_BOT_USERNAME = process.env['WALLET_BOT_USERNAME'] ?? 'titanwalletrobot'
 
 clientsRouter.post('/:id/telegram-link', requireRole('owner', 'staff'), async (c) => {
+  const db = c.var.db
   const [client] = await db
     .select()
     .from(profiles)
@@ -276,6 +284,7 @@ clientsRouter.post('/:id/telegram-link', requireRole('owner', 'staff'), async (c
 })
 
 clientsRouter.delete('/:id', requireRole('owner'), async (c) => {
+  const db = c.var.db
   await db.update(profiles).set({ deletedAt: new Date() }).where(eq(profiles.id, c.req.param('id')))
   return c.json({ ok: true })
 })
@@ -289,6 +298,7 @@ clientsRouter.delete('/:id', requireRole('owner'), async (c) => {
 //    (напр. checks.shift_id → shifts), либо разрушило бы операционно-финансовую
 //    историю заведения. Сотрудник со сменами/чеками теперь удаляется корректно.
 clientsRouter.delete('/:id/permanent', requireRole('owner'), async (c) => {
+  const db = c.var.db
   const id = c.req.param('id')
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
     return c.json({ error: 'Bad id' }, 400)
@@ -341,7 +351,8 @@ clientsRouter.delete('/:id/permanent', requireRole('owner'), async (c) => {
 
 // Прогресс к статусу Резидент (посещения) — для карточки клиента.
 clientsRouter.get('/:id/visit-progress', requireRole('owner', 'staff'), async (c) => {
-  return c.json(await visitProgress(c.req.param('id')))
+  const db = c.var.db
+  return c.json(await visitProgress(c.req.param('id'), db))
 })
 
 // Ручная корректировка «виртуальных» посещений (±). На кассу/баланс не влияет:
@@ -349,6 +360,7 @@ clientsRouter.get('/:id/visit-progress', requireRole('owner', 'staff'), async (c
 clientsRouter.post('/:id/visits', requireRole('owner', 'staff'), zValidator('json', z.object({
   delta: z.number().int().refine(v => v !== 0, 'Шаг не может быть 0'),
 })), async (c) => {
+  const db = c.var.db
   const user = c.get('user')
   const id = c.req.param('id')
   const { delta } = c.req.valid('json')
@@ -362,11 +374,12 @@ clientsRouter.post('/:id/visits', requireRole('owner', 'staff'), zValidator('jso
     createdBy: user.sub,
     description: delta > 0 ? `Начислено посещение (+${delta})` : `Снято посещение (${delta})`,
   })
-  const promo = delta > 0 ? await maybePromoteToResident(id) : { promoted: false }
-  return c.json({ ...(await visitProgress(id)), promoted: promo.promoted })
+  const promo = delta > 0 ? await maybePromoteToResident(id, db) : { promoted: false }
+  return c.json({ ...(await visitProgress(id, db)), promoted: promo.promoted })
 })
 
 clientsRouter.get('/:id/transactions', async (c) => {
+  const db = c.var.db
   const rows = await db
     .select()
     .from(transactions)
@@ -383,6 +396,7 @@ clientsRouter.post('/:id/balance', requireRole('owner', 'staff'), zValidator('js
   // Ключ идемпотентности (опционально): повтор с тем же ключом не задваивает баланс.
   idempotencyKey: z.string().min(1).max(80).optional(),
 })), async (c) => {
+  const db = c.var.db
   const { amount, description, reason, idempotencyKey } = c.req.valid('json')
   const note = description ?? reason
   if (!note) {
@@ -468,8 +482,8 @@ clientsRouter.post('/:id/balance', requireRole('owner', 'staff'), zValidator('js
         depBody = `${who} · внёс ${fmtAmt} ₽ · остаток долга ${Math.abs(result.newBalance).toLocaleString('ru', { maximumFractionDigits: 0 })} ₽`
       }
     }
-    void notify({ type: 'deposit_topup', title: depTitle, body: depBody, meta: { clientId } }).catch(() => {})
-    void notifyClient(clientId, `💰 Депозит пополнен на ${fmtAmt} ₽.\nБаланс: ${fmtBal} ₽`)
+    void notify({ type: 'deposit_topup', title: depTitle, body: depBody, meta: { clientId } }, db).catch(() => {})
+    void notifyClient(clientId, `💰 Депозит пополнен на ${fmtAmt} ₽.\nБаланс: ${fmtBal} ₽`, db)
   }
   // Долг образовался: баланс только что ушёл в минус (раньше был неотрицателен).
   if (result.newBalance < 0 && result.prevBalance >= 0) {
@@ -478,8 +492,8 @@ clientsRouter.post('/:id/balance', requireRole('owner', 'staff'), zValidator('js
       title: 'Новый долг клиента',
       body: `${who} · долг ${Math.abs(result.newBalance).toLocaleString('ru', { maximumFractionDigits: 0 })} ₽`,
       meta: { clientId },
-    }).catch(() => {})
-    void notifyClient(clientId, `⚠️ У вас образовался долг: ${Math.abs(result.newBalance).toLocaleString('ru')} ₽`)
+    }, db).catch(() => {})
+    void notifyClient(clientId, `⚠️ У вас образовался долг: ${Math.abs(result.newBalance).toLocaleString('ru')} ₽`, db)
   }
 
   return c.json({ balance: result.newBalance })
@@ -489,6 +503,7 @@ clientsRouter.post('/:id/bonus', requireRole('owner', 'staff'), zValidator('json
   amount: z.number().min(-1_000_000).max(1_000_000),
   reason: z.string().min(3, 'Причина обязательна (минимум 3 символа)'),
 })), async (c) => {
+  const db = c.var.db
   const { amount, reason } = c.req.valid('json')
   const user = c.get('user')
   const [client] = await db.select().from(profiles).where(eq(profiles.id, c.req.param('id')))
@@ -543,14 +558,15 @@ clientsRouter.post('/:id/bonus', requireRole('owner', 'staff'), zValidator('json
   }
 
   if (amount > 0) {
-    void notifyClient(client.id, `⭐ Вам начислено ${amount.toLocaleString('ru')} бонусов.\nВсего: ${Math.round(newBonus).toLocaleString('ru')} ⭐`)
+    void notifyClient(client.id, `⭐ Вам начислено ${amount.toLocaleString('ru')} бонусов.\nВсего: ${Math.round(newBonus).toLocaleString('ru')} ⭐`, db)
   } else if (amount < 0) {
-    void notifyClient(client.id, `💫 Списано ${Math.abs(amount).toLocaleString('ru')} бонусов.\nОстаток: ${Math.round(newBonus).toLocaleString('ru')} ⭐`)
+    void notifyClient(client.id, `💫 Списано ${Math.abs(amount).toLocaleString('ru')} бонусов.\nОстаток: ${Math.round(newBonus).toLocaleString('ru')} ⭐`, db)
   }
   return c.json({ bonusPoints: newBonus })
 })
 
 clientsRouter.get('/:id/bonus-history', async (c) => {
+  const db = c.var.db
   const rows = await db
     .select()
     .from(bonusHistory)

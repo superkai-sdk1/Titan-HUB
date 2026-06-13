@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
-import { db, profiles, transactions, bonusLots, bonusHistory, checks, checkItems, checkPayments, checkDiscounts, inventory, spaces, eq, ne, and, isNull, inArray, desc, gt, ilike, sql } from '@titan/database'
+import { profiles, transactions, bonusLots, bonusHistory, checks, checkItems, checkPayments, checkDiscounts, inventory, spaces, eq, ne, and, isNull, inArray, desc, gt, ilike, sql } from '@titan/database'
 import { visitProgress } from '../../lib/loyalty.js'
 // @ts-ignore
 import { passkeys } from '@titan/database'
@@ -58,6 +58,7 @@ const PIN_GLOBAL_MAX = 50 // суммарных неудачных попыто�
 // Публичный (без авторизации): планшет показывает выбор пространства ДО ввода
 // PIN сотрудника. Отдаём только id+name активных пространств — не чувствительно.
 authRouter.get('/tablet-spaces', async (c) => {
+  const db = c.var.db
   const rows = await db
     .select({ id: spaces.id, name: spaces.name })
     .from(spaces)
@@ -75,6 +76,7 @@ authRouter.post('/tablet-session', zValidator('json', z.object({
   pin: z.string().length(4).regex(/^\d{4}$/),
 })), async (c) => {
   const { spaceId, pin } = c.req.valid('json')
+  const db = c.var.db
   const ip = clientIp(c)
   const key = `pin:fail:${ip}:tablet`
   const redis = getRedis()
@@ -138,6 +140,7 @@ authRouter.post('/tablet-session', zValidator('json', z.object({
 
 authRouter.post('/login/pin', zValidator('json', LoginPinSchema), async (c) => {
   const { pin, userId } = c.req.valid('json')
+  const db = c.var.db
 
   // Идентификатор для rate-limit: доверенный IP + userId (если указан)
   const ip = clientIp(c)
@@ -209,6 +212,7 @@ authRouter.post('/login/pin', zValidator('json', LoginPinSchema), async (c) => {
 
 authRouter.post('/login/password', zValidator('json', LoginPasswordSchema), async (c) => {
   const { nickname, password } = c.req.valid('json')
+  const db = c.var.db
 
   // Rate limit для пароля: 5 попыток / 15 мин (по доверенному IP + нику)
   const ip = clientIp(c)
@@ -261,6 +265,7 @@ authRouter.post('/login/password', zValidator('json', LoginPasswordSchema), asyn
 
 // Хелпер: завершение успешного password-логина
 async function continueLoginPassword(c: any, profile: any) {
+  const db = c.var.db
   const needsPinSetup = !profile.pin
   // Check if user has any passkeys registered
   const userPasskeys = await db.select({ id: passkeys.id }).from(passkeys).where(eq(passkeys.userId, profile.id))
@@ -280,6 +285,7 @@ authRouter.post(
   })),
   async (c) => {
     const { code, deviceName } = c.req.valid('json')
+    const db = c.var.db
 
     // Rate-limit перебора 6-значного кода (как у PIN): по доверенному IP.
     const ip = clientIp(c)
@@ -344,6 +350,7 @@ authRouter.post(
 
 authRouter.post('/login/telegram', zValidator('json', LoginTelegramSchema), async (c) => {
   const { initData } = c.req.valid('json')
+  const db = c.var.db
   // WebApp может быть запущен из ЛЮБОГО бота (кошелёк — из wallet-бота, поэтому
   // initData подписан токеном wallet-бота). Раньше брали ADMIN-токен первым через
   // ?? — для wallet-WebApp подпись не сходилась → 401 и пустой кошелёк. Проверяем
@@ -369,6 +376,7 @@ authRouter.post('/login/telegram', zValidator('json', LoginTelegramSchema), asyn
 
 authRouter.post('/pin/set', requireAuth, zValidator('json', SetPinSchema), async (c) => {
   const user = c.get('user')
+  const db = c.var.db
   const { pin } = c.req.valid('json')
   const hashed = await hashPin(pin)
   await db.update(profiles).set({ pin: hashed, needsPinSetup: false }).where(eq(profiles.id, user.sub))
@@ -377,6 +385,7 @@ authRouter.post('/pin/set', requireAuth, zValidator('json', SetPinSchema), async
 
 authRouter.get('/me', requireAuth, async (c) => {
   const user = c.get('user')
+  const db = c.var.db
   const [profile] = await db.select().from(profiles).where(eq(profiles.id, user.sub))
   if (!profile) return c.json({ error: 'Not found' }, 404)
   const { pin, passwordHash, ...safe } = profile
@@ -391,6 +400,7 @@ authRouter.patch('/me', requireAuth, zValidator('json', z.object({
   phone: z.string().trim().max(40).nullable().optional(),
 })), async (c) => {
   const user = c.get('user')
+  const db = c.var.db
   const body = c.req.valid('json')
   const update: Record<string, unknown> = {}
   if (body.nickname !== undefined) {
@@ -414,6 +424,7 @@ authRouter.patch('/me', requireAuth, zValidator('json', z.object({
 // Возвращаем лоты с остатком, сначала ближайшие к сгоранию; бессрочные (NULL) — в конце.
 authRouter.get('/me/bonus-lots', requireAuth, async (c) => {
   const user = c.get('user')
+  const db = c.var.db
   const lots = await db.select({
     amount: bonusLots.amount,
     remaining: bonusLots.remaining,
@@ -427,6 +438,7 @@ authRouter.get('/me/bonus-lots', requireAuth, async (c) => {
 // Свои транзакции (для клиентского кошелька) — строго по своему профилю.
 authRouter.get('/me/transactions', requireAuth, async (c) => {
   const user = c.get('user')
+  const db = c.var.db
   const rows = await db.select({
     id: transactions.id,
     type: transactions.type,
@@ -445,6 +457,7 @@ authRouter.get('/me/transactions', requireAuth, async (c) => {
 // amount знаковый: + начисление, − списание.
 authRouter.get('/me/bonus-history', requireAuth, async (c) => {
   const user = c.get('user')
+  const db = c.var.db
   const rows = await db.select({
     id: bonusHistory.id,
     amount: bonusHistory.amount,
@@ -459,13 +472,14 @@ authRouter.get('/me/bonus-history', requireAuth, async (c) => {
 
 // Свой прогресс к статусу Резидент (для Wallet).
 authRouter.get('/me/visit-progress', requireAuth, async (c) => {
-  return c.json(await visitProgress(c.get('user').sub))
+  return c.json(await visitProgress(c.get('user').sub, c.var.db))
 })
 
 // Деталь СВОЕГО чека (для Wallet) — позиции, скидки, оплата, дата. Только если
 // чек принадлежит этому клиенту (playerId === user.sub).
 authRouter.get('/me/checks/:id', requireAuth, async (c) => {
   const user = c.get('user')
+  const db = c.var.db
   const id = c.req.param('id')
   const [check] = await db.select().from(checks).where(and(eq(checks.id, id), eq(checks.playerId, user.sub))).limit(1)
   if (!check) return c.json({ error: 'not_found' }, 404)
@@ -517,6 +531,7 @@ authRouter.post('/sse-ticket', requireAuth, async (c) => {
 // GET /auth/passkey/list  (requires auth) → list user's passkeys
 authRouter.get('/passkey/list', requireAuth, async (c) => {
   const user = c.get('user')
+  const db = c.var.db
   const rows = await db
     .select({ id: passkeys.id, deviceType: passkeys.deviceType, backedUp: passkeys.backedUp, createdAt: passkeys.createdAt })
     .from(passkeys)
@@ -527,6 +542,7 @@ authRouter.get('/passkey/list', requireAuth, async (c) => {
 // DELETE /auth/passkey/:id  (requires auth) → remove a passkey
 authRouter.delete('/passkey/:id', requireAuth, async (c) => {
   const user = c.get('user')
+  const db = c.var.db
   // Только свой passkey (иначе IDOR — удаление чужого ключа по id).
   await db.delete(passkeys).where(and(eq(passkeys.id, c.req.param('id')), eq(passkeys.userId, user.sub)))
   return c.json({ ok: true })
@@ -535,6 +551,7 @@ authRouter.delete('/passkey/:id', requireAuth, async (c) => {
 // POST /auth/passkey/register/options  (requires auth)
 authRouter.post('/passkey/register/options', requireAuth, async (c) => {
   const user = c.get('user')
+  const db = c.var.db
   const userId = user.sub
 
   // Fetch existing credentials to exclude from registration
@@ -570,6 +587,7 @@ authRouter.post('/passkey/register/options', requireAuth, async (c) => {
 // POST /auth/passkey/register/verify  (requires auth)
 authRouter.post('/passkey/register/verify', requireAuth, async (c) => {
   const user = c.get('user')
+  const db = c.var.db
   const userId = user.sub
   const body = await c.req.json()
 
@@ -631,6 +649,7 @@ authRouter.post(
   zValidator('json', z.object({ userId: z.string().optional() })),
   async (c) => {
     const { userId } = c.req.valid('json')
+    const db = c.var.db
 
     let allowCredentials: { id: string; transports?: AuthenticatorTransportFuture[] }[] = []
     if (userId) {
@@ -671,6 +690,7 @@ authRouter.post(
   zValidator('json', z.object({ challengeId: z.string(), response: z.any() })),
   async (c) => {
     const { challengeId, response } = c.req.valid('json')
+    const db = c.var.db
 
     const redis = getRedis()
     let raw: string | null = null

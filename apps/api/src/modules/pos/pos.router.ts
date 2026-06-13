@@ -3,11 +3,12 @@ import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import {
-  db, checks, checkItems, checkItemModifiers, checkPayments, checkDiscounts, pendingOrders, chatMessages,
+  checks, checkItems, checkItemModifiers, checkPayments, checkDiscounts, pendingOrders, chatMessages,
   inventory, profiles, spaces, certificates, bonusHistory, transactions, modifiers as modifiersTable,
   appSettings, events, discounts, clientDiscountRules,
   eq, and, ne, inArray, desc, sql, isNull,
 } from '@titan/database'
+import type { Database } from '@titan/database'
 import { recordMovement } from '../inventory/ledger.js'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
 import { getCurrentShift } from '../shifts/shifts.service.js'
@@ -67,27 +68,28 @@ posRouter.use('*', requireAuth)
 async function tabletZoneForbidden(c: any, checkId: string): Promise<Response | null> {
   const user = c.get('user')
   if (user.role !== 'tablet') return null
+  const db = c.var.db
   const [me] = await db.select({ spaceId: profiles.linkedSpaceId }).from(profiles).where(eq(profiles.id, user.sub))
   const [chk] = await db.select({ spaceId: checks.spaceId }).from(checks).where(eq(checks.id, checkId))
   if (!me?.spaceId || !chk || chk.spaceId !== me.spaceId) return c.json({ error: 'Forbidden' }, 403)
   return null
 }
 
-async function getCheckWithItems(checkId: string) {
-  const [check] = await db.select().from(checks).where(eq(checks.id, checkId))
+async function getCheckWithItems(checkId: string, exec: DbOrTx) {
+  const [check] = await exec.select().from(checks).where(eq(checks.id, checkId))
   if (!check) return null
-  const items = await db
+  const items = await exec
     .select({ checkItem: checkItems, item: inventory })
     .from(checkItems)
     .leftJoin(inventory, eq(inventory.id, checkItems.itemId))
     .where(eq(checkItems.checkId, checkId))
-  const payments = await db.select().from(checkPayments).where(eq(checkPayments.checkId, checkId))
-  const discountRows = await db.select().from(checkDiscounts).where(eq(checkDiscounts.checkId, checkId))
+  const payments = await exec.select().from(checkPayments).where(eq(checkPayments.checkId, checkId))
+  const discountRows = await exec.select().from(checkDiscounts).where(eq(checkDiscounts.checkId, checkId))
 
   // Модификаторы по позициям (для отображения и корректной суммы на фронте)
   const checkItemIds = items.map(i => i.checkItem.id)
   const itemMods = checkItemIds.length
-    ? await db.select().from(checkItemModifiers).where(inArray(checkItemModifiers.checkItemId, checkItemIds))
+    ? await exec.select().from(checkItemModifiers).where(inArray(checkItemModifiers.checkItemId, checkItemIds))
     : []
   const modsByItem = new Map<string, typeof itemMods>()
   for (const m of itemMods) {
@@ -100,7 +102,7 @@ async function getCheckWithItems(checkId: string) {
   // Получаем hourlyRate пространства для live-расчёта аренды на фронте
   let spaceHourlyRate: string | null = null
   if (check.spaceId) {
-    const [space] = await db.select({ hourlyRate: spaces.hourlyRate }).from(spaces).where(eq(spaces.id, check.spaceId))
+    const [space] = await exec.select({ hourlyRate: spaces.hourlyRate }).from(spaces).where(eq(spaces.id, check.spaceId))
     spaceHourlyRate = space?.hourlyRate ?? null
   }
 
@@ -108,7 +110,7 @@ async function getCheckWithItems(checkId: string) {
   // (раньше деталь не отдавала guestName — заголовок всегда показывал «Гость»).
   let guestName: string | null = null
   if (check.playerId) {
-    const [player] = await db.select({ nickname: profiles.nickname }).from(profiles).where(eq(profiles.id, check.playerId))
+    const [player] = await exec.select({ nickname: profiles.nickname }).from(profiles).where(eq(profiles.id, check.playerId))
     guestName = player?.nickname ?? null
   } else if (check.guestNames && check.guestNames.length > 0) {
     guestName = check.guestNames[0] ?? null
@@ -118,13 +120,13 @@ async function getCheckWithItems(checkId: string) {
   // мог предложить их вернуть. Берём только ещё существующие активные скидки.
   const excludedIds = check.excludedDiscountIds ?? []
   const excludedDiscounts = excludedIds.length
-    ? (await db.select({ id: discounts.id, name: discounts.name, type: discounts.type, value: discounts.value })
+    ? (await exec.select({ id: discounts.id, name: discounts.name, type: discounts.type, value: discounts.value })
         .from(discounts).where(inArray(discounts.id, excludedIds)))
     : []
 
   // Ожидающие подтверждения заказы гостя с планшета (для баннера на чеке POS и
   // отображения «ожидает подтверждения» на планшете).
-  const pending = await db
+  const pending = await exec
     .select()
     .from(pendingOrders)
     .where(and(eq(pendingOrders.checkId, checkId), eq(pendingOrders.status, 'pending')))
@@ -224,8 +226,8 @@ async function addCheckItemTx(
 // пересоздаются, чтобы суммы оставались верными при изменении позиций и не
 // плодились дубли. Ручные скидки (discountId IS NULL из /discount) не трогаем.
 // База/сумма считаются тем же правилом, что и computeTotals / ручная скидка.
-type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0]
-type DbOrTx = typeof db | Tx
+type Tx = Parameters<Parameters<Database['transaction']>[0]>[0]
+type DbOrTx = Database | Tx
 
 async function applyAutoDiscounts(exec: DbOrTx, checkId: string) {
   const [check] = await exec.select().from(checks).where(eq(checks.id, checkId))
@@ -345,7 +347,7 @@ async function applyStaffComp(exec: DbOrTx, checkId: string) {
   }
 }
 
-async function recalcCheckTotal(checkId: string, exec: DbOrTx = db) {
+async function recalcCheckTotal(checkId: string, exec: DbOrTx) {
   // Сначала пересчитываем авто-скидки от текущих позиций, затем списание на персонал, затем итог.
   await applyAutoDiscounts(exec, checkId)
   await applyStaffComp(exec, checkId)
@@ -394,6 +396,7 @@ async function computeCheckGrandTotal(exec: DbOrTx, check: typeof checks.$inferS
 }
 
 posRouter.get('/players/search', requireRole('owner', 'staff'), async (c) => {
+  const db = c.var.db
   const q = c.req.query('q') ?? ''
   if (!q.trim()) return c.json({ players: [] })
   const term = `%${q.toLowerCase()}%`
@@ -436,11 +439,13 @@ posRouter.get('/players/search', requireRole('owner', 'staff'), async (c) => {
 })
 
 posRouter.get('/spaces', async (c) => {
+  const db = c.var.db
   const rows = await db.select().from(spaces).where(eq(spaces.isActive, true))
   return c.json({ spaces: rows })
 })
 
 posRouter.get('/players/:id', requireRole('owner', 'staff', 'tablet'), async (c) => {
+  const db = c.var.db
   const [player] = await db.select({
     id: profiles.id,
     nickname: profiles.nickname,
@@ -455,7 +460,8 @@ posRouter.get('/players/:id', requireRole('owner', 'staff', 'tablet'), async (c)
 })
 
 posRouter.get('/checks', requireRole('owner', 'staff', 'tablet'), async (c) => {
-  const shift = await getCurrentShift()
+  const db = c.var.db
+  const shift = await getCurrentShift(db)
   if (!shift) return c.json({ checks: [] })
   const reqUser = c.get('user')
   let spaceId = c.req.query('spaceId')
@@ -545,9 +551,10 @@ posRouter.get('/checks', requireRole('owner', 'staff', 'tablet'), async (c) => {
 })
 
 posRouter.post('/checks', requireRole('owner', 'staff'), zValidator('json', OpenCheckSchema), async (c) => {
+  const db = c.var.db
   const user = c.get('user')
   const body = c.req.valid('json')
-  const shift = await getCurrentShift()
+  const shift = await getCurrentShift(db)
   if (!shift) return c.json({ error: 'No open shift' }, 400)
 
   // Проверка лимита гостей события, если чек привязывается к нему
@@ -609,7 +616,7 @@ posRouter.post('/checks', requireRole('owner', 'staff'), zValidator('json', Open
       title: 'Новый чек',
       body: guestInfo ? `Гость: ${guestInfo}` : 'Открыт новый чек',
       meta: { checkId: check!.id },
-    }).catch(() => {})
+    }, db).catch(() => {})
 
     if (check!.spaceId) {
       const [sp] = await db.select({ name: spaces.name }).from(spaces).where(eq(spaces.id, check!.spaceId))
@@ -618,7 +625,7 @@ posRouter.post('/checks', requireRole('owner', 'staff'), zValidator('json', Open
         title: 'Аренда зоны',
         body: sp?.name ? `Зона: ${sp.name}` : 'Начата аренда зоны',
         meta: { checkId: check!.id, spaceId: check!.spaceId },
-      }).catch(() => {})
+      }, db).catch(() => {})
     }
   }
 
@@ -628,6 +635,7 @@ posRouter.post('/checks', requireRole('owner', 'staff'), zValidator('json', Open
 // Недавно закрытые чеки — для выбора при оформлении возврата.
 // Должен идти ДО /checks/:id, иначе "closed" перехватится как id.
 posRouter.get('/checks/closed', requireRole('owner', 'staff'), async (c) => {
+  const db = c.var.db
   const limit = Math.min(Number(c.req.query('limit') ?? 30) || 30, 50)
   const rows = await db.select().from(checks)
     .where(eq(checks.status, 'closed'))
@@ -658,7 +666,8 @@ posRouter.get('/checks/closed', requireRole('owner', 'staff'), async (c) => {
 })
 
 posRouter.get('/checks/:id', requireRole('owner', 'staff', 'tablet'), async (c) => {
-  const data = await getCheckWithItems(c.req.param('id'))
+  const db = c.var.db
+  const data = await getCheckWithItems(c.req.param('id'), db)
   if (!data) return c.json({ error: 'Not found' }, 404)
   // IDOR-защита для планшета: планшет видит только чеки СВОЕЙ зоны
   // (linkedSpaceId), а не любой чек по id. owner/staff — без ограничений.
@@ -674,6 +683,7 @@ posRouter.get('/checks/:id', requireRole('owner', 'staff', 'tablet'), async (c) 
 // закрыт. Подписываемся на канал titan:updates и шлём только события ЭТОГО чека.
 // Планшет подключается с ?ticket= (см. /auth/sse-ticket). IDOR: только своя зона.
 posRouter.get('/checks/:id/events', requireRole('owner', 'staff', 'tablet'), async (c) => {
+  const db = c.var.db
   const checkId = c.req.param('id')
   const user = c.get('user')
   if (user.role === 'tablet') {
@@ -710,6 +720,7 @@ posRouter.patch('/checks/:id', requireRole('owner', 'staff'), zValidator('json',
   spaceStartAt: z.string().datetime().optional(),
   spaceEndAt: z.string().datetime().nullable().optional(),
 })), async (c) => {
+  const db = c.var.db
   const checkId = c.req.param('id')
   const { spaceStartAt, spaceEndAt, ...rest } = c.req.valid('json')
   const update: Record<string, any> = { ...rest }
@@ -722,14 +733,15 @@ posRouter.patch('/checks/:id', requireRole('owner', 'staff'), zValidator('json',
   // Смена клиента/зоны влияет на персональные/тировые авто-скидки и итог —
   // пересчитываем сразу, чтобы фронт получил актуальные суммы.
   if ((prev && updated.playerId !== prev.playerId) || (prev && updated.spaceId !== prev.spaceId)) {
-    await recalcCheckTotal(checkId)
+    await recalcCheckTotal(checkId, db)
   }
   publishEvent('check:updated', { checkId })
-  const data = await getCheckWithItems(checkId)
+  const data = await getCheckWithItems(checkId, db)
   return c.json({ check: data })
 })
 
 posRouter.delete('/checks/:id', requireRole('owner', 'staff'), async (c) => {
+  const db = c.var.db
   const checkId = c.req.param('id')
   const user = c.get('user')
   const check = await db.transaction(async (tx) => {
@@ -772,6 +784,7 @@ posRouter.delete('/checks/:id', requireRole('owner', 'staff'), async (c) => {
 })
 
 posRouter.post('/checks/:id/items', requireRole('owner', 'staff', 'tablet'), zValidator('json', AddItemSchema), async (c) => {
+  const db = c.var.db
   const _tf = await tabletZoneForbidden(c, c.req.param('id')); if (_tf) return _tf
   const { itemId, quantity, modifierIds } = c.req.valid('json')
   const checkId = c.req.param('id')
@@ -789,7 +802,7 @@ posRouter.post('/checks/:id/items', requireRole('owner', 'staff', 'tablet'), zVa
 
     if (!checkItem) return c.json({ error: 'Failed to add item' }, 500)
 
-    await recalcCheckTotal(checkId)
+    await recalcCheckTotal(checkId, db)
     publishEvent('check:updated', { checkId })
 
     if (lowStock) {
@@ -799,10 +812,10 @@ posRouter.post('/checks/:id/items', requireRole('owner', 'staff', 'tablet'), zVa
         title: 'Низкий остаток',
         body: `${ls.name}: осталось ${ls.newQty}`,
         meta: { itemId },
-      }).catch(() => {})
+      }, db).catch(() => {})
     }
 
-    const data = await getCheckWithItems(checkId)
+    const data = await getCheckWithItems(checkId, db)
     return c.json({ check: data }, 201)
   } catch (err: any) {
     if (err.message === 'CHECK_NOT_OPEN') return c.json({ error: 'Check not open' }, 400)
@@ -826,6 +839,7 @@ const CreateOrderSchema = z.object({
 // добавляет в чек), шлёт уведомление персоналу (тип client_order). Позиции
 // попадут в чек только при подтверждении сотрудником.
 posRouter.post('/checks/:id/orders', requireRole('owner', 'staff', 'tablet'), zValidator('json', CreateOrderSchema), async (c) => {
+  const db = c.var.db
   const _tf = await tabletZoneForbidden(c, c.req.param('id')); if (_tf) return _tf
   const checkId = c.req.param('id')
   const user = c.get('user')
@@ -868,7 +882,7 @@ posRouter.post('/checks/:id/orders', requireRole('owner', 'staff', 'tablet'), zV
     title: spaceName ? `Новый заказ: ${spaceName}` : 'Новый заказ',
     body: `${lines} — ${sum.toLocaleString('ru')} ₽`,
     meta: { checkId, spaceId: check.spaceId, orderId: order!.id },
-  }).catch(() => {})
+  }, db).catch(() => {})
 
   publishEvent('order:created', { checkId, orderId: order!.id })
   return c.json({ order }, 201)
@@ -877,6 +891,7 @@ posRouter.post('/checks/:id/orders', requireRole('owner', 'staff', 'tablet'), zV
 // POST /orders/:orderId/confirm — сотрудник подтверждает: позиции добавляются в
 // чек (через ту же логику склада). Только owner/staff.
 posRouter.post('/orders/:orderId/confirm', requireRole('owner', 'staff'), async (c) => {
+  const db = c.var.db
   const orderId = c.req.param('orderId')
   const user = c.get('user')
   const [order] = await db.select().from(pendingOrders).where(eq(pendingOrders.id, orderId))
@@ -904,19 +919,20 @@ posRouter.post('/orders/:orderId/confirm', requireRole('owner', 'staff'), async 
     return c.json({ error: 'Internal error' }, 500)
   }
 
-  await recalcCheckTotal(order.checkId)
+  await recalcCheckTotal(order.checkId, db)
   publishEvent('check:updated', { checkId: order.checkId })
   publishEvent('order:resolved', { checkId: order.checkId, orderId, status: 'confirmed' })
   for (const ls of lowStocks) {
-    void notify({ type: 'low_stock', title: 'Низкий остаток', body: `${ls.name}: осталось ${ls.newQty}`, meta: {} }).catch(() => {})
+    void notify({ type: 'low_stock', title: 'Низкий остаток', body: `${ls.name}: осталось ${ls.newQty}`, meta: {} }, db).catch(() => {})
   }
 
-  const data = await getCheckWithItems(order.checkId)
+  const data = await getCheckWithItems(order.checkId, db)
   return c.json({ check: data }, 200)
 })
 
 // POST /orders/:orderId/reject — сотрудник отклоняет заказ. Только owner/staff.
 posRouter.post('/orders/:orderId/reject', requireRole('owner', 'staff'), async (c) => {
+  const db = c.var.db
   const orderId = c.req.param('orderId')
   const user = c.get('user')
   const [order] = await db.select().from(pendingOrders).where(eq(pendingOrders.id, orderId))
@@ -931,6 +947,7 @@ posRouter.post('/orders/:orderId/reject', requireRole('owner', 'staff'), async (
 
 // POST /orders/:orderId/cancel — гость отменяет СВОЙ ещё не подтверждённый заказ.
 posRouter.post('/orders/:orderId/cancel', requireRole('owner', 'staff', 'tablet'), async (c) => {
+  const db = c.var.db
   const orderId = c.req.param('orderId')
   const [order] = await db.select().from(pendingOrders).where(eq(pendingOrders.id, orderId))
   if (!order) return c.json({ error: 'Not found' }, 404)
@@ -954,6 +971,7 @@ const ChatSendSchema = z.object({
 
 // GET /checks/:id/chat — история сообщений чека (по возрастанию времени).
 posRouter.get('/checks/:id/chat', requireRole('owner', 'staff', 'tablet'), async (c) => {
+  const db = c.var.db
   const _tf = await tabletZoneForbidden(c, c.req.param('id')); if (_tf) return _tf
   const checkId = c.req.param('id')
   const rows = await db
@@ -969,6 +987,7 @@ posRouter.get('/checks/:id/chat', requireRole('owner', 'staff', 'tablet'), async
 // персоналу (тип chat_message, настраивается). Живое обновление — через SSE
 // (chat:message по titan:updates, фильтр по checkId).
 posRouter.post('/checks/:id/chat', requireRole('owner', 'staff', 'tablet'), zValidator('json', ChatSendSchema), async (c) => {
+  const db = c.var.db
   const _tf = await tabletZoneForbidden(c, c.req.param('id')); if (_tf) return _tf
   const checkId = c.req.param('id')
   const user = c.get('user')
@@ -999,7 +1018,7 @@ posRouter.post('/checks/:id/chat', requireRole('owner', 'staff', 'tablet'), zVal
       title: spaceName ? `Сообщение из «${spaceName}»` : 'Сообщение от гостя',
       body: body.text.slice(0, 140),
       meta: { checkId, spaceId: check.spaceId },
-    }).catch(() => {})
+    }, db).catch(() => {})
   }
 
   return c.json({ message: msg }, 201)
@@ -1008,6 +1027,7 @@ posRouter.post('/checks/:id/chat', requireRole('owner', 'staff', 'tablet'), zVal
 // POST /checks/:id/chat/read — читающая сторона ({as}) видит чат: помечаем
 // прочитанными сообщения ПРОТИВОПОЛОЖНОЙ стороны (read_at = now).
 posRouter.post('/checks/:id/chat/read', requireRole('owner', 'staff', 'tablet'), zValidator('json', z.object({ as: z.enum(['guest', 'staff']) })), async (c) => {
+  const db = c.var.db
   const _tf = await tabletZoneForbidden(c, c.req.param('id')); if (_tf) return _tf
   const checkId = c.req.param('id')
   const { as } = c.req.valid('json')
@@ -1020,6 +1040,7 @@ posRouter.post('/checks/:id/chat/read', requireRole('owner', 'staff', 'tablet'),
 })
 
 posRouter.patch('/checks/:id/items/:itemId', requireRole('owner', 'staff', 'tablet'), zValidator('json', z.object({ quantity: z.number().int().min(0) })), async (c) => {
+  const db = c.var.db
   const _tf = await tabletZoneForbidden(c, c.req.param('id')); if (_tf) return _tf
   const checkId = c.req.param('id')
   const itemId = c.req.param('itemId')
@@ -1068,15 +1089,16 @@ posRouter.patch('/checks/:id/items/:itemId', requireRole('owner', 'staff', 'tabl
     return c.json({ error: 'Internal error' }, 500)
   }
 
-  await recalcCheckTotal(checkId)
+  await recalcCheckTotal(checkId, db)
   // Realtime: уведомляем планшет клиента (и кассу), что состав чека изменился —
   // иначе изменение/удаление позиции персоналом не отражалось бы на планшете.
   publishEvent('check:updated', { checkId })
-  const data = await getCheckWithItems(checkId)
+  const data = await getCheckWithItems(checkId, db)
   return c.json({ check: data })
 })
 
 posRouter.delete('/checks/:id/items/:itemId', requireRole('owner', 'staff', 'tablet'), async (c) => {
+  const db = c.var.db
   const _tf = await tabletZoneForbidden(c, c.req.param('id')); if (_tf) return _tf
   const checkId = c.req.param('id')
   const itemId = c.req.param('itemId')
@@ -1103,10 +1125,10 @@ posRouter.delete('/checks/:id/items/:itemId', requireRole('owner', 'staff', 'tab
     console.error('DELETE /checks/:id/items/:itemId error:', err)
     return c.json({ error: 'Internal error' }, 500)
   }
-  await recalcCheckTotal(checkId)
+  await recalcCheckTotal(checkId, db)
   // Realtime: удаление позиции персоналом должно сразу отражаться на планшете клиента.
   publishEvent('check:updated', { checkId })
-  const data = await getCheckWithItems(checkId)
+  const data = await getCheckWithItems(checkId, db)
   return c.json({ check: data })
 })
 
@@ -1121,6 +1143,7 @@ posRouter.post('/checks/:id/discount', requireRole('owner', 'staff'), zValidator
   message: 'Процентная скидка не может превышать 100%',
   path: ['value'],
 })), async (c) => {
+  const db = c.var.db
   const checkId = c.req.param('id')
   const body = c.req.valid('json')
 
@@ -1159,7 +1182,7 @@ posRouter.post('/checks/:id/discount', requireRole('owner', 'staff'), zValidator
   // деньгах: сумма всех уже применённых скидок + новая ≤ cap% × itemsSum.
   const user = c.get('user')
   if (user.role !== 'owner' && itemsSum > 0) {
-    const capPct = await getNumericSetting(STAFF_MAX_DISCOUNT_KEY, DEFAULT_STAFF_MAX_DISCOUNT)
+    const capPct = await getNumericSetting(STAFF_MAX_DISCOUNT_KEY, DEFAULT_STAFF_MAX_DISCOUNT, db)
     const existingRows = await db.select({ amount: checkDiscounts.amount })
       .from(checkDiscounts).where(eq(checkDiscounts.checkId, checkId))
     const existingSum = existingRows.reduce((s, r) => s + (parseFloat(r.amount) || 0), 0)
@@ -1183,9 +1206,9 @@ posRouter.post('/checks/:id/discount', requireRole('owner', 'staff'), zValidator
     itemId: body.itemId,
   })
 
-  await recalcCheckTotal(checkId)
+  await recalcCheckTotal(checkId, db)
   publishEvent('check:updated', { checkId })
-  const data = await getCheckWithItems(checkId)
+  const data = await getCheckWithItems(checkId, db)
   return c.json({ check: data })
 })
 
@@ -1193,6 +1216,7 @@ posRouter.post('/checks/:id/discount', requireRole('owner', 'staff'), zValidator
 // удаляем строку. Авто/тир (discountId задан) — заносим discountId в исключения
 // чека, иначе recalcCheckTotal пересоздал бы её. Снятие постоянно для этого чека.
 posRouter.delete('/checks/:id/discount/:discountRowId', requireRole('owner', 'staff'), async (c) => {
+  const db = c.var.db
   const checkId = c.req.param('id')
   const rowId = c.req.param('discountRowId')
   const [check] = await db.select().from(checks).where(eq(checks.id, checkId))
@@ -1211,24 +1235,25 @@ posRouter.delete('/checks/:id/discount/:discountRowId', requireRole('owner', 'st
     await db.delete(checkDiscounts).where(and(eq(checkDiscounts.id, rowId), eq(checkDiscounts.checkId, checkId)))
   }
 
-  await recalcCheckTotal(checkId)
+  await recalcCheckTotal(checkId, db)
   publishEvent('check:updated', { checkId })
-  const data = await getCheckWithItems(checkId)
+  const data = await getCheckWithItems(checkId, db)
   return c.json({ check: data })
 })
 
 // Вернуть ранее снятую авто/тир-скидку: убираем её discountId из исключений чека,
 // recalc применит её заново (если она всё ещё подходит чеку).
 posRouter.post('/checks/:id/discount/:discountId/restore', requireRole('owner', 'staff'), async (c) => {
+  const db = c.var.db
   const checkId = c.req.param('id')
   const discountId = c.req.param('discountId')
   const [check] = await db.select().from(checks).where(eq(checks.id, checkId))
   if (!check || check.status !== 'open') return c.json({ error: 'Check not open' }, 400)
   const next = (check.excludedDiscountIds ?? []).filter(id => id !== discountId)
   await db.update(checks).set({ excludedDiscountIds: next }).where(eq(checks.id, checkId))
-  await recalcCheckTotal(checkId)
+  await recalcCheckTotal(checkId, db)
   publishEvent('check:updated', { checkId })
-  const data = await getCheckWithItems(checkId)
+  const data = await getCheckWithItems(checkId, db)
   return c.json({ check: data })
 })
 
@@ -1236,6 +1261,7 @@ posRouter.post('/checks/:id/discount/:discountId/restore', requireRole('owner', 
 // Остаток уже списан при добавлении позиций. Товар «продан за 0₽», а в аналитике
 // «Персонал» учитывается товарная сумма и себестоимость по staffCompId.
 posRouter.post('/checks/:id/comp', requireRole('owner', 'staff'), zValidator('json', z.object({ staffId: z.string().uuid().optional() })), async (c) => {
+  const db = c.var.db
   const checkId = c.req.param('id')
   const user = c.get('user')
   const { staffId } = c.req.valid('json')
@@ -1269,11 +1295,12 @@ posRouter.post('/checks/:id/comp', requireRole('owner', 'staff'), zValidator('js
   }
   publishEvent('check:paid', { checkId })
   publishEvent('check:closed', { checkId })
-  const data = await getCheckWithItems(checkId)
+  const data = await getCheckWithItems(checkId, db)
   return c.json({ check: data })
 })
 
 posRouter.post('/checks/:id/qr', requireRole('owner', 'staff', 'tablet'), async (c) => {
+  const db = c.var.db
   const checkId = c.req.param('id')
   const user = c.get('user')
   const merchantId = process.env['PLATEGA_MERCHANT_ID']
@@ -1301,7 +1328,7 @@ posRouter.post('/checks/:id/qr', requireRole('owner', 'staff', 'tablet'), async 
   // Сумма QR считается на СЕРВЕРЕ из чека (позиции−скидки+аренда+база события),
   // а НЕ берётся с клиента — иначе можно выставить QR на произвольную сумму.
   // Сначала пересчитываем авто/тир-скидки, затем берём авторитетный итог.
-  await recalcCheckTotal(checkId)
+  await recalcCheckTotal(checkId, db)
   const baseAmount = await computeCheckGrandTotal(db, check)
   if (baseAmount < 0.01) return c.json({ error: 'Сумма чека равна нулю' }, 400)
 
@@ -1402,6 +1429,7 @@ posRouter.get('/checks/:id/qr/:transactionId/status', requireRole('owner', 'staf
 })
 
 posRouter.post('/checks/:id/pay', requireRole('owner', 'staff'), zValidator('json', PaySchema), async (c) => {
+  const db = c.var.db
   const checkId = c.req.param('id')
   const user = c.get('user')
   const body = c.req.valid('json')
@@ -1656,7 +1684,7 @@ posRouter.post('/checks/:id/pay', requireRole('owner', 'staff'), zValidator('jso
     const paidTotal = parseFloat(String(closedCheck?.totalAmount ?? 0)) || 0
     // ОДНО сводное уведомление о закрытии чека вместо 3–4 (оплата/крупный/сертификат/
     // долг несли близкий смысл и раздували ленту). Порог «крупного» — настраиваемый.
-    const largeThreshold = await getNumericSetting(LARGE_CHECK_KEY, DEFAULT_LARGE_CHECK)
+    const largeThreshold = await getNumericSetting(LARGE_CHECK_KEY, DEFAULT_LARGE_CHECK, db)
     const isLargeCheck = paidTotal >= largeThreshold
     const checkExtras: string[] = []
     if ((closed?.certSent ?? 0) > 0.005) checkExtras.push(`сертификат ${Number(closed!.certSent).toLocaleString('ru')} ₽`)
@@ -1666,19 +1694,19 @@ posRouter.post('/checks/:id/pay', requireRole('owner', 'staff'), zValidator('jso
       title: isLargeCheck ? 'Крупный чек оплачен' : 'Чек оплачен',
       body: `${paidTotal.toLocaleString('ru')} ₽${checkExtras.length ? ' · ' + checkExtras.join(' · ') : ''}`,
       meta: { checkId, playerId: closed?.playerId ?? undefined },
-    }).catch(() => {})
+    }, db).catch(() => {})
     // Личные уведомления клиенту в Wallet-бот (о ЕГО событиях).
     if (closed?.playerId) {
       const pid = closed.playerId
       if ((closed.bonusAwarded ?? 0) > 0) {
-        void notifyClient(pid, `⭐ Начислено ${Number(closed.bonusAwarded).toLocaleString('ru')} бонусов за покупку на ${paidTotal.toLocaleString('ru')} ₽`)
+        void notifyClient(pid, `⭐ Начислено ${Number(closed.bonusAwarded).toLocaleString('ru')} бонусов за покупку на ${paidTotal.toLocaleString('ru')} ₽`, db)
       }
       if ((closed.debtAmount ?? 0) > 0) {
-        void notifyClient(pid, `⚠️ Оплата в долг: ${Number(closed.debtAmount).toLocaleString('ru')} ₽`)
+        void notifyClient(pid, `⚠️ Оплата в долг: ${Number(closed.debtAmount).toLocaleString('ru')} ₽`, db)
       }
       // Авто-повышение Гость→Резидент после 10 посещений (бизнес-дней с чеком).
-      void maybePromoteToResident(pid).then(r => {
-        if (r.promoted) void notifyClient(pid, '🎉 Поздравляем! Вы стали Резидентом Titan — спасибо, что с нами!')
+      void maybePromoteToResident(pid, db).then(r => {
+        if (r.promoted) void notifyClient(pid, '🎉 Поздравляем! Вы стали Резидентом Titan — спасибо, что с нами!', db)
       }).catch(() => {})
     }
     if (closed?.completedEvent) {
@@ -1687,7 +1715,7 @@ posRouter.post('/checks/:id/pay', requireRole('owner', 'staff'), zValidator('jso
         title: 'Мероприятие завершено',
         body: closed.completedEvent.title ?? 'Мероприятие завершено',
         meta: { eventId: closed.completedEvent.id, checkId },
-      }).catch(() => {})
+      }, db).catch(() => {})
     }
 
     return c.json({ check: closedCheck })

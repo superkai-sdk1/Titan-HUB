@@ -2,7 +2,7 @@ import type { AppEnv } from '../../types.js'
 import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
-import { db, refunds, checks, inventory, checkItems, checkPayments, transactions, profiles, bonusHistory, certificates, appSettings, eq, and, like, inArray, desc } from '@titan/database'
+import { refunds, checks, inventory, checkItems, checkPayments, transactions, profiles, bonusHistory, certificates, appSettings, eq, and, like, inArray, desc } from '@titan/database'
 import { recordMovement } from '../inventory/ledger.js'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
 import { accrueBonusLot, spendBonusLots, getBonusExpiryDays } from '../../lib/bonusLots.js'
@@ -59,11 +59,13 @@ export const refundsRouter = new Hono<AppEnv>()
 refundsRouter.use('*', requireAuth)
 
 refundsRouter.get('/', requireRole('owner', 'staff'), async (c) => {
+  const db = c.var.db
   const rows = await db.select().from(refunds).orderBy(desc(refunds.createdAt)).limit(50)
   return c.json({ refunds: rows })
 })
 
 refundsRouter.post('/', requireRole('owner', 'staff'), zValidator('json', RefundSchema), async (c) => {
+  const db = c.var.db
   const user = c.get('user')
   const body = c.req.valid('json')
 
@@ -273,6 +275,7 @@ refundsRouter.post('/', requireRole('owner', 'staff'), zValidator('json', Refund
 // Данные для формы возврата по чеку: позиции, оплата по методам, уже возвращено,
 // доступно по каждому методу. Должен идти ДО /:id.
 refundsRouter.get('/prepare/:checkId', requireRole('owner', 'staff'), async (c) => {
+  const db = c.var.db
   const checkId = c.req.param('checkId')
   const [check] = await db.select().from(checks).where(eq(checks.id, checkId))
   if (!check) return c.json({ error: 'Not found' }, 404)
@@ -312,6 +315,7 @@ refundsRouter.get('/prepare/:checkId', requireRole('owner', 'staff'), async (c) 
 })
 
 refundsRouter.get('/:id', requireRole('owner', 'staff'), async (c) => {
+  const db = c.var.db
   const [refund] = await db.select().from(refunds).where(eq(refunds.id, c.req.param('id')))
   if (!refund) return c.json({ error: 'Not found' }, 404)
   return c.json({ refund })

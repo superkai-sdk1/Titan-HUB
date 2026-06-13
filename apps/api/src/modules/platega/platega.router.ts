@@ -3,7 +3,7 @@ import { Hono } from 'hono'
 import { Redis } from 'ioredis'
 import { timingSafeEqual } from 'node:crypto'
 import {
-  db, checks, checkItems, checkItemModifiers, checkDiscounts, spaces,
+  checks, checkItems, checkItemModifiers, checkDiscounts, spaces,
   checkPayments, transactions, profiles, bonusHistory, appSettings,
   eq, inArray,
 } from '@titan/database'
@@ -119,6 +119,7 @@ plategaRouter.post('/webhook', async (c) => {
     ? verified.amount
     : reportedAmount
 
+  const db = c.var.db
   let didClose = false
   try {
     await db.transaction(async (tx) => {

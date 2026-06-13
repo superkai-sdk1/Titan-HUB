@@ -2,11 +2,17 @@ import type { AppEnv } from '../../types.js'
 import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
-import { db, supplies, supplyItems, supplyCorrections, inventory, eq, and, asc, desc } from '@titan/database'
+import { supplies, supplyItems, supplyCorrections, inventory, eq, and, asc, desc } from '@titan/database'
+import type { Database } from '@titan/database'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
 import { round2 } from '../../lib/money.js'
 import { recordMovement } from '../inventory/ledger.js'
 import { notify } from '../notifications/push.js'
+
+// Источник БД — пер-запросный (c.var.db). Тип для хелперов, работающих как с
+// корневым соединением, так и внутри транзакции.
+type Tx = Parameters<Parameters<Database['transaction']>[0]>[0]
+type DbOrTx = Database | Tx
 
 const SupplySchema = z.object({
   note: z.string().optional(),
@@ -37,6 +43,7 @@ export const suppliesRouter = new Hono<AppEnv>()
 suppliesRouter.use('*', requireAuth)
 
 suppliesRouter.get('/', requireRole('owner', 'staff'), async (c) => {
+  const db = c.var.db
   const rows = await db.select().from(supplies).orderBy(desc(supplies.createdAt)).limit(50)
   const enriched = await Promise.all(rows.map(async (s) => {
     // У черновика нет supply_items — состав в draft_data.
@@ -64,6 +71,7 @@ suppliesRouter.get('/', requireRole('owner', 'staff'), async (c) => {
 })
 
 suppliesRouter.post('/', requireRole('owner', 'staff'), zValidator('json', SupplySchema), async (c) => {
+  const db = c.var.db
   const user = c.get('user')
   const body = c.req.valid('json')
   const totalCost = round2(body.items.reduce((s, i) => s + i.quantity * i.costPerUnit, 0))
@@ -136,7 +144,7 @@ suppliesRouter.post('/', requireRole('owner', 'staff'), zValidator('json', Suppl
 // Записать позиции приёмки + движения receipt (WAC). Общая логика проведения
 // свежей закупки и применения черновика.
 async function postSupplyLines(
-  tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+  tx: Tx,
   supplyId: string,
   items: { itemId?: string | null; name?: string; unit: string; quantity: number; costPerUnit: number }[],
   supplier: string | undefined,
@@ -170,6 +178,7 @@ suppliesRouter.post('/draft', requireRole('owner', 'staff'), zValidator('json', 
     costPerUnit: z.number().min(0),
   })).max(200),
 })), async (c) => {
+  const db = c.var.db
   const user = c.get('user')
   const { id, note, supplier, items } = c.req.valid('json')
   const draftData = { note, supplier, items }
@@ -204,6 +213,7 @@ const ApplySupplySchema = z.object({
 })
 
 suppliesRouter.post('/:id/apply', requireRole('owner', 'staff'), zValidator('json', ApplySupplySchema), async (c) => {
+  const db = c.var.db
   const user = c.get('user')
   const id = c.req.param('id')
   const body = c.req.valid('json')
@@ -225,6 +235,7 @@ suppliesRouter.post('/:id/apply', requireRole('owner', 'staff'), zValidator('jso
 // GET /supplies/items/:itemId/last-price — последняя цена закупки позиции.
 // Должен идти ДО /:id, иначе перехватится как id.
 suppliesRouter.get('/items/:itemId/last-price', requireRole('owner', 'staff'), async (c) => {
+  const db = c.var.db
   const [row] = await db
     .select({ costPerUnit: supplyItems.costPerUnit })
     .from(supplyItems)
@@ -236,6 +247,7 @@ suppliesRouter.get('/items/:itemId/last-price', requireRole('owner', 'staff'), a
 })
 
 suppliesRouter.get('/:id', async (c) => {
+  const db = c.var.db
   const [supply] = await db.select().from(supplies).where(eq(supplies.id, c.req.param('id')))
   if (!supply) return c.json({ error: 'Not found' }, 404)
   const rows = await db
@@ -291,6 +303,7 @@ const SupplyEditSchema = z.object({
 })
 
 suppliesRouter.patch('/:id', requireRole('owner', 'staff'), zValidator('json', SupplyEditSchema), async (c) => {
+  const db = c.var.db
   const user = c.get('user')
   const id = c.req.param('id')
   const body = c.req.valid('json')
@@ -362,6 +375,7 @@ suppliesRouter.patch('/:id', requireRole('owner', 'staff'), zValidator('json', S
 // (supply_items уходят каскадом). Известное ограничение: средневзвешенную
 // себестоимость НЕ «разворачиваем» — costPrice остаётся как есть.
 suppliesRouter.delete('/:id', requireRole('owner', 'staff'), async (c) => {
+  const db = c.var.db
   const user = c.get('user')
   const id = c.req.param('id')
 

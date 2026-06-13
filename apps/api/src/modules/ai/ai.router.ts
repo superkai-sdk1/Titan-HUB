@@ -5,7 +5,6 @@ import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import { Redis } from 'ioredis'
 import {
-  db,
   checks,
   checkItems,
   inventory,
@@ -32,7 +31,12 @@ import {
   isNull,
   or,
 } from '@titan/database'
+import type { Database } from '@titan/database'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
+
+// Источник БД для модульных хелперов: пер-запросный c.var.db (на основном домене
+// === синглтон) либо tx внутри read-only транзакции answerFromDb/runReadonly.
+type DbOrTx = Database | Parameters<Parameters<Database['transaction']>[0]>[0]
 
 // Снимаем возможные кавычки/пробелы вокруг значений из .env (docker не всегда их убирает)
 const clean = (v: string | undefined): string => (v ?? '').trim().replace(/^["']|["']$/g, '')
@@ -103,7 +107,7 @@ const ActionSchema = z.object({
 // Снимок актуального состояния клуба для произвольных вопросов (долги, остатки,
 // выручка и т.д.). Подаётся в промпт, чтобы ИИ отвечал по реальным данным, а не
 // угадывал. Долг клиента = отрицательный profiles.balance; депозит = положительный.
-async function buildBusinessSnapshot(): Promise<string> {
+async function buildBusinessSnapshot(db: DbOrTx): Promise<string> {
   const parts: string[] = []
   // Начало текущего БИЗНЕС-ДНЯ (09:00 МСК), а не календарной полуночи локали сервера.
   const todayStart = bizDayStart(bizDayStr(0))
@@ -196,7 +200,7 @@ let schemaCache: { doc: string; ts: number } | null = null
 const SENSITIVE_TABLES = new Set(['_migrations', 'push_subscriptions'])
 const SENSITIVE_COL = /pass|pin|hash|secret|token|credential|webauthn|private_key|public_key/i
 
-async function getSchemaDoc(): Promise<string> {
+async function getSchemaDoc(db: DbOrTx): Promise<string> {
   if (schemaCache && Date.now() - schemaCache.ts < 300000) return schemaCache.doc
   const res: any = await db.execute(sql`
     SELECT table_name, column_name, data_type
@@ -232,7 +236,7 @@ function sanitizeSql(raw: string): string {
 }
 
 // Выполнение в READ ONLY транзакции с таймаутом и лимитом строк.
-async function runReadonly(query: string): Promise<any[]> {
+async function runReadonly(db: Database, query: string): Promise<any[]> {
   const wrapped = `SELECT * FROM (${query}) AS _q LIMIT 200`
   return await db.transaction(async (tx) => {
     await tx.execute(sql`SET TRANSACTION READ ONLY`)
@@ -253,12 +257,12 @@ const SQLGEN_PROMPT = [
 ].join(' ')
 
 // Полный конвейер: вопрос → SQL → выполнение → блок данных для финального ответа ИИ.
-async function answerFromDb(query: string): Promise<string | null> {
+async function answerFromDb(db: Database, query: string): Promise<string | null> {
   try {
-    const schema = await getSchemaDoc()
+    const schema = await getSchemaDoc(db)
     const rawSql = await callAI(SQLGEN_PROMPT, `СХЕМА БАЗЫ:\n${schema}\n\nВОПРОС: ${query}`)
     const clean = sanitizeSql(rawSql)
-    const rows = await runReadonly(clean)
+    const rows = await runReadonly(db, clean)
     const json = JSON.stringify(rows).slice(0, 6000)
     return `Чтобы ответить, выполнен SQL-запрос к базе:\n${clean}\n\nРЕЗУЛЬТАТ (${rows.length} строк):\n${json}`
   } catch {
@@ -267,7 +271,7 @@ async function answerFromDb(query: string): Promise<string | null> {
   }
 }
 
-async function buildContext(action: string, payload?: Record<string, unknown>, question?: string): Promise<string> {
+async function buildContext(db: Database, action: string, payload?: Record<string, unknown>, question?: string): Promise<string> {
   const thirtyDays = new Date(Date.now() - 30 * 86400000)
   const fourteenDays = new Date(Date.now() - 14 * 86400000)
   // Границы — по БИЗНЕС-ДНЮ/БИЗНЕС-МЕСЯЦУ в МСК (09:00), а не по локальной полуночи сервера.
@@ -595,11 +599,11 @@ async function buildContext(action: string, payload?: Record<string, unknown>, q
 
     case 'custom_query': {
       const query = question ?? (payload?.query as string) ?? ''
-      const snapshot = await buildBusinessSnapshot()
+      const snapshot = await buildBusinessSnapshot(db)
       if (!query) return snapshot
       // Сначала пробуем точный ответ через SQL по всей базе; если не вышло —
       // подставляем общий снимок (покрывает частые вопросы).
-      const dbBlock = await answerFromDb(query)
+      const dbBlock = await answerFromDb(db, query)
       if (dbBlock) {
         return `ВОПРОС ПОЛЬЗОВАТЕЛЯ: ${query}\n\n${dbBlock}\n\nСправочно (общая сводка клуба):\n${snapshot}`
       }
@@ -616,6 +620,7 @@ aiRouter.use('*', requireAuth, requireRole('owner', 'staff'))
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function handleChat(c: any) {
+  const db = c.var.db
   const { action, payload, question } = c.req.valid('json') as z.infer<typeof ActionSchema>
   const cacheKey = `ai:${action}:${JSON.stringify(payload ?? {})}:${question ?? ''}`
 
@@ -627,7 +632,7 @@ async function handleChat(c: any) {
 
   let context: string
   try {
-    context = await buildContext(action, payload, question)
+    context = await buildContext(db, action, payload, question)
   } catch (e) {
     context = `Ошибка получения данных: ${String(e)}`
   }

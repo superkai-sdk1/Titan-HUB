@@ -1,8 +1,9 @@
 import type { AppEnv } from '../../types.js'
+import type { Database } from '@titan/database'
 import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
-import { db, inventory, stockMovements, supplies, supplyItems, checks, checkItems, revisions, revisionItems, profiles, eq, asc, isNull, and, gt, gte, lte, desc, sum, inArray, sql } from '@titan/database'
+import { inventory, stockMovements, supplies, supplyItems, checks, checkItems, revisions, revisionItems, profiles, eq, asc, isNull, and, gt, gte, lte, desc, sum, inArray, sql } from '@titan/database'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
 import { recordMovement } from './ledger.js'
 
@@ -17,6 +18,7 @@ inventoryRouter.use('*', requireAuth, requireRole('owner', 'staff'))
 // (sortOrder, затем имя). Эндпоинт за requireAuth (только персонал), поэтому
 // costPrice здесь допустим.
 inventoryRouter.get('/', async (c) => {
+  const db = c.var.db
   const rows = await db
     .select()
     .from(inventory)
@@ -30,6 +32,7 @@ inventoryRouter.get('/', async (c) => {
 
 // GET /api/inventory/revisions — список ревизий, новые сверху, со сводкой.
 inventoryRouter.get('/revisions', async (c) => {
+  const db = c.var.db
   const rows = await db.select().from(revisions).orderBy(desc(revisions.createdAt)).limit(100)
   const ids = rows.map(r => r.id)
   const items = ids.length
@@ -79,6 +82,7 @@ inventoryRouter.post(
     })).max(500),
   })),
   async (c) => {
+    const db = c.var.db
     const { id, items } = c.req.valid('json')
     const user = c.get('user')
     const draftData = { items }
@@ -100,6 +104,7 @@ inventoryRouter.post(
 
 // GET /api/inventory/revisions/:id — детали ревизии с позициями (в порядке добавления).
 inventoryRouter.get('/revisions/:id', async (c) => {
+  const db = c.var.db
   const id = c.req.param('id')
   const [rev] = await db.select().from(revisions).where(eq(revisions.id, id))
   if (!rev) return c.json({ error: 'Not found' }, 404)
@@ -124,7 +129,7 @@ const ApplyItemsSchema = z.array(z.object({
 // движение count через ledger, запись revision_items. Используется при проведении
 // свежей ревизии и при применении черновика.
 async function applyRevisionItems(
-  tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+  tx: Parameters<Parameters<Database['transaction']>[0]>[0],
   revId: string,
   items: { itemId: string; actual: number }[],
   userId: string,
@@ -155,6 +160,7 @@ function firstDuplicate(items: { itemId: string }[]): boolean {
 
 // POST /api/inventory/revisions — провести новую ревизию (create + apply), статус applied.
 inventoryRouter.post('/revisions', zValidator('json', z.object({ items: ApplyItemsSchema })), async (c) => {
+  const db = c.var.db
   const { items } = c.req.valid('json')
   const user = c.get('user')
   if (firstDuplicate(items)) return c.json({ error: 'Дублирующаяся позиция в ревизии' }, 400)
@@ -170,6 +176,7 @@ inventoryRouter.post('/revisions', zValidator('json', z.object({ items: ApplyIte
 // Snapshot expected берётся СЕЙЧАС (на момент применения), а не на момент сохранения черновика.
 inventoryRouter.post('/revisions/:id/apply', requireRole('owner', 'staff'),
   zValidator('json', z.object({ items: ApplyItemsSchema })), async (c) => {
+    const db = c.var.db
     const revId = c.req.param('id')
     const { items } = c.req.valid('json')
     const user = c.get('user')
@@ -189,6 +196,7 @@ inventoryRouter.post('/revisions/:id/apply', requireRole('owner', 'staff'),
 
 // DELETE /api/inventory/revisions/:id — удалить ЧЕРНОВИК (проведённую удалять нельзя).
 inventoryRouter.delete('/revisions/:id', requireRole('owner', 'staff'), async (c) => {
+  const db = c.var.db
   const id = c.req.param('id')
   const [row] = await db.delete(revisions)
     .where(and(eq(revisions.id, id), eq(revisions.status, 'draft')))
@@ -211,6 +219,7 @@ inventoryRouter.patch(
     })).min(1).max(500),
   })),
   async (c) => {
+    const db = c.var.db
     const revId = c.req.param('id')
     const { items } = c.req.valid('json')
     const user = c.get('user')
@@ -252,6 +261,7 @@ inventoryRouter.patch(
 // Стоимость склада по себестоимости, дефицит (≤ точки заказа), нет в наличии,
 // «мёртвый» сток (нет продаж и прихода > 180 дней), даты последней поставки/ревизии.
 inventoryRouter.get('/overview', async (c) => {
+  const db = c.var.db
   const agg: any = await db.execute(sql`
     SELECT
       COALESCE(SUM(stock_quantity * cost_price), 0)::float8 AS stock_value,
@@ -296,6 +306,7 @@ inventoryRouter.get('/overview', async (c) => {
 // продажи по дням за 30 дней (закрытые чеки, валовое количество) + агрегаты.
 // Бакетим по календарю МСК (UTC+3). Идёт ДО PATCH/:id по методу — конфликта нет.
 inventoryRouter.get('/:id/stats', async (c) => {
+  const db = c.var.db
   const id = c.req.param('id')
   const [item] = await db.select().from(inventory).where(eq(inventory.id, id))
   if (!item) return c.json({ error: 'Not found' }, 404)
@@ -356,6 +367,7 @@ inventoryRouter.get('/:id/stats', async (c) => {
 
 // GET /api/inventory/:id/movements — лента движений товара (журнал ledger) для карточки.
 inventoryRouter.get('/:id/movements', async (c) => {
+  const db = c.var.db
   const id = c.req.param('id')
   const rows = await db
     .select({
@@ -390,6 +402,7 @@ inventoryRouter.post(
     note: z.string().optional(),
   })),
   async (c) => {
+    const db = c.var.db
     const id = c.req.param('id')
     const { quantity, reason, note } = c.req.valid('json')
     const user = c.get('user')
@@ -423,6 +436,7 @@ inventoryRouter.patch(
     note: z.string().optional(),
   })),
   async (c) => {
+    const db = c.var.db
     const id = c.req.param('id')
     const body = c.req.valid('json')
     const user = c.get('user')
