@@ -2,13 +2,27 @@ import type { JwtPayload } from '@titan/auth'
 import type { Database } from '@titan/database'
 
 /**
+ * Подписка клуба в контексте запроса (для энфорсмента доступа).
+ *   undefined — обогащение не удалось → энфорсмент fail-open (не блокируем);
+ *   null      — подписки нет (клуб не настроен) → блок.
+ */
+export interface ClubSubscriptionInfo {
+  status: string
+  paidUntil: Date | null
+}
+
+/**
  * Описание клуба-арендатора в контексте запроса (Фаза 1, database-per-club).
- * null — одно-клубный/дефолтный режим (резолюции по поддомену ещё нет).
+ * null — одно-клубный/дефолтный режим (основной/служебный домен, синглтон-БД).
+ * Несёт подписку и фиче-флаги модулей для энфорсмента (middleware подписки/модулей).
  */
 export interface ClubContext {
   id: string
   slug: string
+  name: string
   dbName: string
+  subscription: ClubSubscriptionInfo | null | undefined
+  modules: Record<string, boolean>
 }
 
 export type AppEnv = {

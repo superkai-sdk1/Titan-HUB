@@ -67,6 +67,13 @@ export const tenantContext = createMiddleware<AppEnv>(async (c, next) => {
   }
 
   c.set('db', clubDb)
-  c.set('club', { id: club.id, slug: club.slug, dbName: club.dbName })
+  c.set('club', {
+    id: club.id,
+    slug: club.slug,
+    name: club.name,
+    dbName: club.dbName,
+    subscription: club.subscription,
+    modules: club.modules,
+  })
   return next()
 })

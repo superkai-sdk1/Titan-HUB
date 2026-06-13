@@ -7,6 +7,9 @@ import { bodyLimit } from 'hono/body-limit'
 import { db, sql } from '@titan/database'
 import { rateLimit } from './middleware/rateLimit.js'
 import { tenantContext } from './middleware/tenant.js'
+import { requireActiveSubscription } from './middleware/subscription.js'
+import { requireModule } from './middleware/module.js'
+import { clubRouter } from './modules/club/club.router.js'
 
 import { authRouter } from './modules/auth/auth.router.js'
 import { posRouter } from './modules/pos/pos.router.js'
@@ -112,6 +115,22 @@ app.get('/api/health/ready', async (c) => {
     return c.json({ ready: false, ts: Date.now() }, 503)
   }
 })
+
+// Публичный контекст клуба (подписка/модули) — ДО энфорсмента подписки, чтобы
+// заблокированный клуб мог прочитать свой статус и показать экран продления.
+app.route('/api/club', clubRouter)
+
+// Энфорсмент подписки на клуб-поддомене (грейс→блок). На основном домене (club=null)
+// и для allowlist (/api/club, /api/health, /api/superadmin) — пропуск.
+app.use('/api/*', requireActiveSubscription)
+
+// Фиче-гейты модулей: 403, если модуль явно выключен у клуба. На основном домене
+// и при отсутствии флага — пропуск (fail-open). Гейтим опциональные модули.
+app.use('/api/ai/*', requireModule('ai'))
+app.use('/api/platega/*', requireModule('platega'))
+app.use('/api/events/*', requireModule('events'))
+app.use('/api/certificates/*', requireModule('certificates'))
+app.use('/api/discounts/*', requireModule('discounts'))
 
 app.route('/api/auth', authRouter)
 app.route('/api/pos', posRouter)

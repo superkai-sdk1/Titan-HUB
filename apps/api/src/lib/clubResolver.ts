@@ -17,7 +17,10 @@
 import {
   getControlDb,
   clubs,
+  subscriptions,
+  clubModules,
   eq,
+  desc,
 } from '../../../../packages/database/dist/control/index.js'
 
 // Базовый домен платформы. На нём (и служебных поддоменах) — дефолтный синглтон.
@@ -26,11 +29,28 @@ const ROOT_DOMAIN = (process.env['ROOT_DOMAIN'] || 'titanpos.ru').toLowerCase()
 // Служебные поддомены первого уровня (НЕ клубы): admin → суперадмин-контур.
 const RESERVED_LABELS = new Set(['admin'])
 
-// Резолвленный клуб (минимум для подстановки БД).
+// Подписка клуба (минимум для энфорсмента доступа). paidUntil — дата окончания
+// оплаченного периода (null = бессрочно/не задана).
+export interface ClubSubscriptionInfo {
+  status: string
+  paidUntil: Date | null
+}
+
+// Резолвленный клуб. Кроме данных для подстановки БД несёт подписку и фиче-флаги
+// модулей (для энфорсмента подписки/модулей на клуб-поддомене).
+//   • subscription === undefined — обогащение НЕ удалось (control-БД моргнула) →
+//     энфорсмент FAIL-OPEN (доступность важнее: не блокируем платящий клуб из-за
+//     транзиентной ошибки).
+//   • subscription === null      — подписки нет (клуб не настроен) → блок.
+//   • modules                    — { ключ_модуля: enabled }. Отсутствие ключа =
+//     модуль доступен (энфорсмент режет только при ЯВНОМ enabled=false).
 export interface ResolvedClub {
   id: string
   slug: string
+  name: string
   dbName: string
+  subscription: ClubSubscriptionInfo | null | undefined
+  modules: Record<string, boolean>
 }
 
 // ─── Кэш host → клуб (или null = «нет такого клуба») с коротким TTL ──────────
@@ -144,30 +164,58 @@ export async function resolveClubByHost(host: string): Promise<ResolvedClub | nu
   // Ищем по subdomain (точное совпадение host), иначе — по slug (первая метка).
   // Сначала пробуем subdomain (если у клуба задан кастомный subdomain = host),
   // затем slug. Берём только active.
+  const cols = {
+    id: clubs.id,
+    slug: clubs.slug,
+    name: clubs.name,
+    dbName: clubs.dbName,
+    status: clubs.status,
+  }
   let row =
-    (
-      await control
-        .select({ id: clubs.id, slug: clubs.slug, dbName: clubs.dbName, status: clubs.status })
-        .from(clubs)
-        .where(eq(clubs.subdomain, host))
-        .limit(1)
-    )[0] ?? null
+    (await control.select(cols).from(clubs).where(eq(clubs.subdomain, host)).limit(1))[0] ?? null
 
   if (!row && slug) {
-    row =
-      (
-        await control
-          .select({ id: clubs.id, slug: clubs.slug, dbName: clubs.dbName, status: clubs.status })
-          .from(clubs)
-          .where(eq(clubs.slug, slug))
-          .limit(1)
-      )[0] ?? null
+    row = (await control.select(cols).from(clubs).where(eq(clubs.slug, slug)).limit(1))[0] ?? null
   }
 
-  const resolved: ResolvedClub | null =
-    row && row.status === 'active'
-      ? { id: row.id, slug: row.slug, dbName: row.dbName }
-      : null
+  if (!row || row.status !== 'active') {
+    cache.set(host, { value: null, expiresAt: now + CACHE_TTL_MS })
+    return null
+  }
+
+  // Обогащаем подпиской (самая свежая по created_at — как в панели суперадмина) и
+  // фиче-флагами модулей. FAIL-SOFT: ошибка обогащения НЕ роняет резолюцию клуба —
+  // subscription=undefined трактуется энфорсментом как fail-open (не блокируем).
+  let subscription: ClubSubscriptionInfo | null | undefined
+  let modules: Record<string, boolean> = {}
+  try {
+    const [sub] =
+      await control
+        .select({ status: subscriptions.status, paidUntil: subscriptions.paidUntil })
+        .from(subscriptions)
+        .where(eq(subscriptions.clubId, row.id))
+        .orderBy(desc(subscriptions.createdAt))
+        .limit(1)
+    subscription = sub ? { status: sub.status, paidUntil: sub.paidUntil } : null
+
+    const mods = await control
+      .select({ moduleKey: clubModules.moduleKey, enabled: clubModules.enabled })
+      .from(clubModules)
+      .where(eq(clubModules.clubId, row.id))
+    modules = Object.fromEntries(mods.map((m) => [m.moduleKey, m.enabled]))
+  } catch (err) {
+    console.error(`[tenant] Обогащение клуба «${row.slug}» (подписка/модули) не удалось:`, err)
+    subscription = undefined // fail-open в энфорсменте
+  }
+
+  const resolved: ResolvedClub = {
+    id: row.id,
+    slug: row.slug,
+    name: row.name,
+    dbName: row.dbName,
+    subscription,
+    modules,
+  }
 
   cache.set(host, { value: resolved, expiresAt: now + CACHE_TTL_MS })
   return resolved
