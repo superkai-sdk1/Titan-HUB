@@ -23,7 +23,26 @@ import { isoBase64URL, isoUint8Array } from '@simplewebauthn/server/helpers'
 
 const RP_NAME = process.env['WEBAUTHN_RP_NAME'] ?? 'Titan HUB'
 const RP_ID = process.env['WEBAUTHN_RP_ID'] ?? 'localhost'
-const ORIGIN = process.env['WEBAUTHN_ORIGIN'] ?? 'http://localhost:3000'
+
+// Корневой регистрируемый домен (напр. titanpos.ru). RP_ID = titanpos.ru валиден
+// для всех *.titanpos.ru: пасскей, зарегистрированный с rpID=titanpos.ru, проходит
+// и на клуб-поддомене (kbr.titanpos.ru). RP_ID НЕ зависит от поддомена.
+const ROOT_DOMAIN = process.env['WEBAUTHN_RP_ID'] ?? 'localhost'
+
+// Динамический список разрешённых origins для verify*. Браузерный origin на
+// клуб-поддомене = https://kbr.titanpos.ru, и фиксированный expectedOrigin=
+// https://titanpos.ru его ОТКЛОНИЛ бы. Поэтому к базовому WEBAUTHN_ORIGIN
+// добавляем origin текущего запроса, ЕСЛИ host — это корневой домен или его
+// поддомен (anti-spoofing: чужой host не пройдёт проверку endsWith).
+// На основном домене (host=titanpos.ru) список = [https://titanpos.ru,
+// https://titanpos.ru] → после дедупа поведение идентично прежнему.
+// @simplewebauthn принимает expectedOrigin: string | string[].
+function allowedOrigins(c: any): string[] {
+  const list = [process.env['WEBAUTHN_ORIGIN'] ?? 'http://localhost:3000']
+  const host = (c.req.header('host') ?? '').split(':')[0].toLowerCase()
+  if (host === ROOT_DOMAIN || host.endsWith('.' + ROOT_DOMAIN)) list.push(`https://${host}`)
+  return Array.from(new Set(list))
+}
 
 function getRedis() {
   return new Redis(process.env['REDIS_URL'] ?? 'redis://redis:6379', { lazyConnect: true })
@@ -609,7 +628,8 @@ authRouter.post('/passkey/register/verify', requireAuth, async (c) => {
     verification = await verifyRegistrationResponse({
       response: body,
       expectedChallenge,
-      expectedOrigin: ORIGIN,
+      // Динамический origin: основной домен ИЛИ текущий клуб-поддомен.
+      expectedOrigin: allowedOrigins(c),
       expectedRPID: RP_ID,
     })
   } catch (err: any) {
@@ -732,7 +752,8 @@ authRouter.post(
       verification = await verifyAuthenticationResponse({
         response,
         expectedChallenge,
-        expectedOrigin: ORIGIN,
+        // Динамический origin: основной домен ИЛИ текущий клуб-поддомен.
+        expectedOrigin: allowedOrigins(c),
         expectedRPID: RP_ID,
         credential: {
           id: pkRecord.id,
