@@ -59,6 +59,21 @@ const SubscriptionSchema = z.object({
   status: z.string().min(1).max(32).optional(),
 })
 
+const PaymentLinkSchema = z.object({
+  period: z.enum(['1m', '3m', '6m', '12m']),
+  amount: z.number().positive(),
+})
+
+// Креды Platega ПЛАТФОРМЫ (для приёма оплаты подписки с клубов). Отдельные
+// PLATFORM_PLATEGA_* если заданы; иначе — основной аккаунт владельца (PLATEGA_*),
+// т.к. владелец принимает оплату подписок «через свою Platega».
+function platformPlatega(): { merchantId?: string; secret?: string } {
+  return {
+    merchantId: process.env['PLATFORM_PLATEGA_MERCHANT_ID'] ?? process.env['PLATEGA_MERCHANT_ID'],
+    secret: process.env['PLATFORM_PLATEGA_SECRET'] ?? process.env['PLATEGA_SECRET'],
+  }
+}
+
 export const superadminClubsRouter = new Hono<SuperadminEnv>()
 
 // GET /clubs — список клубов с краткой подпиской/статусом.
@@ -232,6 +247,57 @@ superadminClubsRouter.post(
     })
 
     return c.json(result, 201)
+  },
+)
+
+// POST /clubs/:id/subscription/payment-link — ссылка Platega на оплату подписки.
+// Создаёт транзакцию на аккаунте ПЛАТФОРМЫ (владельца) и возвращает redirect-URL,
+// который суперадмин отправляет клубу. Подтверждение оплаты пока РУЧНОЕ (кнопка
+// «Продлить подписку») — авто-продление по вебхуку планируется отдельно.
+superadminClubsRouter.post(
+  '/clubs/:id/subscription/payment-link',
+  zValidator('json', PaymentLinkSchema),
+  async (c) => {
+    const db = getControlDb()
+    const id = c.req.param('id')
+    const { period, amount } = c.req.valid('json')
+
+    const [club] = await db.select().from(clubs).where(eq(clubs.id, id)).limit(1)
+    if (!club) return c.json({ error: 'Клуб не найден' }, 404)
+
+    const { merchantId, secret } = platformPlatega()
+    if (!merchantId || !secret) {
+      return c.json({ error: 'Platega платформы не настроена (PLATFORM_PLATEGA_* или PLATEGA_*)' }, 503)
+    }
+
+    try {
+      const res = await fetch('https://app.platega.io/transaction/process', {
+        method: 'POST',
+        headers: { 'X-MerchantId': merchantId, 'X-Secret': secret, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          paymentMethod: 2,
+          paymentDetails: { amount, currency: 'RUB' },
+          description: `Titan HUB · подписка «${club.name}» · ${period}`,
+          // payload помечаем как подписочный платёж (для будущего авто-продления по вебхуку).
+          payload: `sub:${club.id}:${period}`,
+        }),
+      })
+      if (!res.ok) {
+        const t = await res.text().catch(() => '')
+        console.error('[superadmin] platega payment-link error:', res.status, t)
+        return c.json({ error: 'Platega: не удалось создать ссылку' }, 502)
+      }
+      const data = (await res.json()) as Record<string, unknown>
+      return c.json({
+        redirect: (data['redirect'] as string | undefined) ?? null,
+        transactionId: (data['transactionId'] as string | undefined) ?? null,
+        amount,
+        period,
+      })
+    } catch (e) {
+      console.error('[superadmin] platega payment-link exception:', e)
+      return c.json({ error: 'Platega недоступна' }, 502)
+    }
   },
 )
 

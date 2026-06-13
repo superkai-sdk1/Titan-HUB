@@ -130,6 +130,11 @@ export function ClubDetail({
         />
       </Section>
 
+      {/* Платёжная ссылка Platega */}
+      <Section title="Ссылка на оплату (Platega)">
+        <PaymentLinkForm clubId={clubId} />
+      </Section>
+
       {/* Удаление */}
       <Section title="Опасная зона">
         <DeleteClub clubName={club.name} clubId={clubId} onDeleted={onDeleted} />
@@ -247,6 +252,86 @@ function SubscriptionForm({ clubId, onSaved }: { clubId: string; onSaved: () => 
       >
         {loading ? 'Сохранение…' : savedAt ? 'Подписка продлена!' : 'Продлить подписку'}
       </SaPrimaryButton>
+    </form>
+  )
+}
+
+// ─── Платёжная ссылка Platega (для отправки клубу) ─────────────────────────────
+
+const PAID_PERIODS = SUB_PERIODS.filter((p) => p.value !== 'trial_7d')
+
+function PaymentLinkForm({ clubId }: { clubId: string }) {
+  const [period, setPeriod] = useState<Exclude<SubPeriod, 'trial_7d'>>('1m')
+  const [amount, setAmount] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const [link, setLink] = useState('')
+  const [copied, setCopied] = useState(false)
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault()
+    setLoading(true)
+    setError('')
+    setLink('')
+    try {
+      const amt = parseFloat(amount.replace(',', '.'))
+      if (!Number.isFinite(amt) || amt <= 0) {
+        setError('Укажите сумму больше 0')
+        return
+      }
+      const res = await saApi.post<{ redirect: string | null }>(
+        `/clubs/${clubId}/subscription/payment-link`,
+        { period, amount: amt },
+      )
+      if (!res.redirect) {
+        setError('Platega не вернула ссылку')
+        return
+      }
+      setLink(res.redirect)
+    } catch (e) {
+      setError(e instanceof SaApiError ? e.message : 'Не удалось создать ссылку')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(link)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    } catch {
+      /* clipboard недоступен — пользователь скопирует вручную */
+    }
+  }
+
+  return (
+    <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <SaField label="Период">
+        <select value={period} onChange={(e) => setPeriod(e.target.value as Exclude<SubPeriod, 'trial_7d'>)} style={saSelectStyle}>
+          {PAID_PERIODS.map((p) => (
+            <option key={p.value} value={p.value} style={{ background: '#1d1a24' }}>
+              {p.label}
+            </option>
+          ))}
+        </select>
+      </SaField>
+      <SaField label="Сумма, ₽" hint="Оплата уйдёт на ваш аккаунт Platega. После оплаты продлите подписку кнопкой выше.">
+        <SaInput type="text" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="Например: 3000" />
+      </SaField>
+      {error && <SaErrorBanner message={error} />}
+      <SaButton type="submit" icon="link" disabled={loading} style={{ width: '100%' }}>
+        {loading ? 'Создание ссылки…' : 'Создать ссылку на оплату'}
+      </SaButton>
+      {link && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '12px 14px', borderRadius: 12, background: 'rgba(52,211,153,0.08)', border: '1px solid rgba(52,211,153,0.25)' }}>
+          <p style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', margin: 0, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Ссылка для клуба</p>
+          <p style={{ fontSize: 12.5, color: '#34D399', margin: 0, wordBreak: 'break-all', fontFamily: "'JetBrains Mono',monospace" }}>{link}</p>
+          <SaButton type="button" icon={copied ? 'check_circle' : 'content_copy'} onClick={copy} style={{ width: '100%', marginTop: 2 }}>
+            {copied ? 'Скопировано' : 'Копировать ссылку'}
+          </SaButton>
+        </div>
+      )}
     </form>
   )
 }
