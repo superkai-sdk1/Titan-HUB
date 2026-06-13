@@ -302,6 +302,31 @@ export function clubStatusView(status: string | null | undefined): { tone: 'ok' 
   }
 }
 
+// ── Относительный срок подписки (для ручного биллинга) ──────────────────────────
+// Сколько осталось / грейс / просрочка. Логика синхронна бэкенду (lib/subscription:
+// грейс 3 дня, «скоро» ≤ 5 дней). Бессрочную владельческую (+100 лет) показываем
+// как «Бессрочно», а не «Осталось 36500 дн.».
+export function subscriptionExpiryView(
+  paidUntil: string | null | undefined,
+  subStatus?: string | null,
+): { tone: 'ok' | 'warn' | 'danger' | 'neutral'; label: string } {
+  if (subStatus === 'suspended') return { tone: 'danger', label: 'Приостановлена' }
+  if (!paidUntil) return { tone: 'neutral', label: 'Срок не задан' }
+  const paid = new Date(paidUntil).getTime()
+  if (Number.isNaN(paid)) return { tone: 'neutral', label: 'Срок не задан' }
+  const DAY = 86_400_000
+  const now = Date.now()
+  const left = Math.floor((paid - now) / DAY)
+  if (now <= paid) {
+    if (left > 3000) return { tone: 'ok', label: 'Бессрочно' }
+    if (left <= 5) return { tone: 'warn', label: left <= 0 ? 'Истекает сегодня' : `Истекает через ${left} дн.` }
+    return { tone: 'ok', label: `Осталось ${left} дн.` }
+  }
+  const over = Math.floor((now - paid) / DAY)
+  if (now <= paid + 3 * DAY) return { tone: 'warn', label: `Грейс · истекла ${over} дн. назад` }
+  return { tone: 'danger', label: `Просрочена ${over} дн. назад` }
+}
+
 // ── Формат даты ────────────────────────────────────────────────────────────────
 
 export function fmtDate(s: string | null | undefined): string {

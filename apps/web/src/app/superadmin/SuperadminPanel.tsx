@@ -12,6 +12,7 @@ import {
   SaSpinner,
   SaErrorBanner,
   subStatusView,
+  subscriptionExpiryView,
   clubStatusView,
   fmtDate,
 } from './ui'
@@ -173,6 +174,7 @@ export function SuperadminPanel({
 function ClubCard({ club, onClick }: { club: ClubListItem; onClick: () => void }) {
   const sv = subStatusView(club.subStatus)
   const cs = clubStatusView(club.status)
+  const exp = subscriptionExpiryView(club.subPaidUntil, club.subStatus)
   return (
     <button
       onClick={onClick}
@@ -259,12 +261,13 @@ function ClubCard({ club, onClick }: { club: ClubListItem; onClick: () => void }
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
           <SaBadge tone={cs.tone}>{cs.label}</SaBadge>
           <SaBadge tone={sv.tone}>{sv.label}</SaBadge>
+          <SaBadge tone={exp.tone}>{exp.label}</SaBadge>
         </div>
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, color: 'rgba(255,255,255,0.4)' }}>
         <Icon name="schedule" size={13} color="rgba(255,255,255,0.3)" />
-        До {fmtDate(club.subPaidUntil)}
+        Оплачено до {fmtDate(club.subPaidUntil)}
       </div>
     </button>
   )

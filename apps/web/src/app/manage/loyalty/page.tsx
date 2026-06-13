@@ -9,16 +9,19 @@ import { useRouter } from 'next/navigation'
 import { PageHeader } from '@/components/manage/DesignSystem'
 import { Icon } from '@/components/Icon'
 import { useAuthStore } from '@/store/auth.store'
+import { useClubContext } from '@/components/ClubGate'
 import { DiscountsTab } from './tabs/DiscountsTab'
 import { BonusesTab } from './tabs/BonusesTab'
 import { CertificatesTab } from './tabs/CertificatesTab'
 
 type Tab = 'discounts' | 'bonuses' | 'certificates'
 
-const TABS: { key: Tab; label: string; icon: string }[] = [
-  { key: 'discounts',    label: 'Скидки',       icon: 'percent' },
+// module — ключ club_modules: вкладка скрывается, если модуль выключен у клуба.
+// Бонусы отдельного модуля не имеют (часть лояльности) — всегда доступны владельцу.
+const TABS: { key: Tab; label: string; icon: string; module?: string }[] = [
+  { key: 'discounts',    label: 'Скидки',       icon: 'percent',       module: 'discounts' },
   { key: 'bonuses',      label: 'Бонусы',       icon: 'star' },
-  { key: 'certificates', label: 'Сертификаты',  icon: 'card_giftcard' },
+  { key: 'certificates', label: 'Сертификаты',  icon: 'card_giftcard', module: 'certificates' },
 ]
 
 function isTab(v: string | null): v is Tab { return v === 'discounts' || v === 'bonuses' || v === 'certificates' }
@@ -27,7 +30,12 @@ export default function LoyaltyPage() {
   const router = useRouter()
   const role = useAuthStore(s => s.user?.role)
   const isOwner = role === 'owner'
+  const { moduleEnabled } = useClubContext()
+  // Видимые вкладки = не выключенные у клуба модули (fail-open: на осн. домене всё видно).
+  const visibleTabs = TABS.filter(t => !t.module || moduleEnabled(t.module))
   const [tab, setTab] = useState<Tab>(isOwner ? 'discounts' : 'certificates')
+  // Активная вкладка с учётом скрытых: если выбранная скрыта (модуль выкл) — первая видимая.
+  const effectiveTab: Tab = visibleTabs.some(t => t.key === tab) ? tab : (visibleTabs[0]?.key ?? 'bonuses')
 
   // Вкладка в URL (?tab=) — без next/navigation, чтобы не требовать Suspense.
   useEffect(() => {
@@ -50,11 +58,11 @@ export default function LoyaltyPage() {
       <PageHeader title="Лояльность" subtitle="Скидки · бонусы · сертификаты" onBack={() => router.push('/manage')} />
 
       <div style={{ padding: '16px 16px var(--bottom-nav-clear, 24px)', flex: 1, maxWidth: 'var(--content-narrow)', margin: '0 auto', width: '100%', boxSizing: 'border-box' }}>
-        {/* Переключатель вкладок (segmented) — только у владельца */}
-        {isOwner && (
+        {/* Переключатель вкладок (segmented) — только у владельца и если вкладок > 1 */}
+        {isOwner && visibleTabs.length > 1 && (
           <div style={{ display: 'flex', gap: 4, padding: 4, borderRadius: 14, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)', marginBottom: 16 }}>
-            {TABS.map(t => {
-              const active = tab === t.key
+            {visibleTabs.map(t => {
+              const active = effectiveTab === t.key
               return (
                 <button key={t.key} onClick={() => changeTab(t.key)} style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '10px 8px', borderRadius: 11, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 700, transition: 'all 0.15s', background: active ? 'var(--primary-violet)' : 'transparent', color: active ? '#fff' : 'var(--on-surface-variant)' }}>
                   <Icon name={t.icon} size={17} color={active ? '#fff' : 'var(--on-surface-variant)'} />
@@ -65,10 +73,10 @@ export default function LoyaltyPage() {
           </div>
         )}
 
-        {/* Содержимое вкладки */}
-        {isOwner && tab === 'discounts' && <DiscountsTab />}
-        {isOwner && tab === 'bonuses' && <BonusesTab />}
-        {(!isOwner || tab === 'certificates') && <CertificatesTab />}
+        {/* Содержимое вкладки (по effectiveTab — учитывает скрытые модулем вкладки) */}
+        {isOwner && effectiveTab === 'discounts' && moduleEnabled('discounts') && <DiscountsTab />}
+        {isOwner && effectiveTab === 'bonuses' && <BonusesTab />}
+        {(!isOwner || effectiveTab === 'certificates') && moduleEnabled('certificates') && <CertificatesTab />}
       </div>
     </div>
   )
