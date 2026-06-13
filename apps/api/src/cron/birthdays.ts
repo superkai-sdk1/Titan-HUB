@@ -1,12 +1,14 @@
-import { db, profiles, notifications, appSettings, bonusHistory } from '@titan/database'
+import { db, profiles, notifications, appSettings, bonusHistory, type Database } from '@titan/database'
 import { eq, and, isNull, inArray, sql } from 'drizzle-orm'
 import { accrueBonusLot, expireBonuses, getBonusExpiryDays } from '../lib/bonusLots.js'
 
-export async function checkBirthdays() {
+// database — БД клуба (пер-клубный cron). Дефолт = синглтон (одно-клубный режим /
+// основной клуб): поведение прежнее. Планировщик передаёт db каждого active-клуба.
+export async function checkBirthdays(database: Database = db) {
   // Ежедневный проход сгорания бонусов: список дней рождения мог быть пустым,
   // но сгорание должно отрабатывать каждый запуск. Изолируем от остального крона.
   try {
-    const expiredCount = await expireBonuses(db)
+    const expiredCount = await expireBonuses(database)
     if (expiredCount > 0) console.log(`[bonus-expiry] burned bonuses for ${expiredCount} client(s)`)
   } catch (e) {
     console.error('[bonus-expiry] pass failed', e)
@@ -22,7 +24,7 @@ export async function checkBirthdays() {
   // Clients with birthday today. birthday — свободный text, поэтому НЕ кастуем в
   // ::date (битая строка уронила бы весь запрос). Сравниваем MM-DD через substring
   // только для строк формата YYYY-MM-DD.
-  const birthdayClients = await db
+  const birthdayClients = await database
     .select({ id: profiles.id, nickname: profiles.nickname, birthday: profiles.birthday })
     .from(profiles)
     .where(and(
@@ -38,7 +40,7 @@ export async function checkBirthdays() {
   }
 
   // Настройки бонуса ко дню рождения (раздел «Бонусы»).
-  const settingRows = await db.select().from(appSettings)
+  const settingRows = await database.select().from(appSettings)
     .where(inArray(appSettings.key, ['bonus_enabled', 'birthday_bonus_enabled', 'birthday_bonus_amount']))
   const settings = Object.fromEntries(settingRows.map(r => [r.key, r.value]))
   // Требуется и общий тумблер программы, и тумблер бонуса ко дню рождения.
@@ -49,10 +51,10 @@ export async function checkBirthdays() {
   const credited = new Set<string>()
   if (bonusEnabled && bonusAmount > 0) {
     // Срок сгорания на момент начисления (null = бессрочно).
-    const expiryDays = await getBonusExpiryDays(db)
+    const expiryDays = await getBonusExpiryDays(database)
     for (const client of birthdayClients) {
       try {
-        const done = await db.transaction(async (tx) => {
+        const done = await database.transaction(async (tx) => {
           const already = await tx.select({ id: bonusHistory.id }).from(bonusHistory)
             .where(and(
               eq(bonusHistory.profileId, client.id),
@@ -83,7 +85,7 @@ export async function checkBirthdays() {
   }
 
   // All owners to notify
-  const owners = await db
+  const owners = await database
     .select({ id: profiles.id })
     .from(profiles)
     .where(and(eq(profiles.role, 'owner'), isNull(profiles.deletedAt)))
@@ -100,7 +102,7 @@ export async function checkBirthdays() {
 
     for (const owner of owners) {
       // Avoid duplicate notifications for the same client+owner today
-      const existing = await db
+      const existing = await database
         .select({ id: notifications.id })
         .from(notifications)
         .where(and(
@@ -113,7 +115,7 @@ export async function checkBirthdays() {
 
       if (existing.length > 0) continue
 
-      await db.insert(notifications).values({
+      await database.insert(notifications).values({
         type: 'birthday',
         title: '🎂 День рождения клиента',
         body,

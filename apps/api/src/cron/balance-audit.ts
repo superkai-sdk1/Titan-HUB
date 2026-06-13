@@ -1,4 +1,4 @@
-import { db, profiles, transactions, appSettings, eq, and, inArray, isNull, sql } from '@titan/database'
+import { db, profiles, transactions, appSettings, eq, and, inArray, isNull, sql, type Database } from '@titan/database'
 import { notify } from '../modules/notifications/push.js'
 
 // ─── Ежедневная сверка целостности балансов клиентов ─────────────────────────
@@ -50,14 +50,16 @@ type OverLimit = {
   debt: number // |balance|
 }
 
-export async function auditBalances(): Promise<void> {
+// database — БД клуба (пер-клубный cron). Дефолт = синглтон (основной клуб):
+// поведение прежнее. Планировщик передаёт db каждого active-клуба.
+export async function auditBalances(database: Database = db): Promise<void> {
   try {
     // ── 1. Реконструкция баланса из леджера ──────────────────────────────────
     // Считаем ожидаемый баланс по проводкам и сравниваем с profiles.balance.
     // LEFT JOIN: клиенты без единой балансовой проводки тоже попадают (expected=0),
     // чтобы поймать «висячий» ненулевой баланс без истории. Сравнение и фильтр
     // расхождения — в SQL, наружу приходят только проблемные строки.
-    const mismatchRows = await db
+    const mismatchRows = await database
       .select({
         id: profiles.id,
         nickname: profiles.nickname,
@@ -108,7 +110,7 @@ export async function auditBalances(): Promise<void> {
     // Тот же лимит, что POS/clients проверяют ПЕРЕД списанием. Здесь — пост-фактум
     // контроль: долг мог уйти за лимит другим путём (смена настройки в меньшую
     // сторону, гонка, ручная правка БД). 0/пусто → лимит выключен, проверку пропускаем.
-    const [maxDebtRow] = await db
+    const [maxDebtRow] = await database
       .select({ value: appSettings.value })
       .from(appSettings)
       .where(eq(appSettings.key, 'max_client_debt'))
@@ -116,7 +118,7 @@ export async function auditBalances(): Promise<void> {
 
     let overLimit: OverLimit[] = []
     if (maxDebt > 0) {
-      const overRows = await db
+      const overRows = await database
         .select({ id: profiles.id, nickname: profiles.nickname, balance: sql<string>`${profiles.balance}::numeric` })
         .from(profiles)
         .where(and(
@@ -180,7 +182,7 @@ export async function auditBalances(): Promise<void> {
         mismatches: mismatches.slice(0, 10),
         overLimit: overLimit.slice(0, 10),
       },
-    }, db)
+    }, database)
   } catch (e) {
     // Кран не должен ронять процесс/планировщик — логируем и выходим.
     console.error('[balance-audit] проход не выполнен', e)

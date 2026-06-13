@@ -221,5 +221,19 @@ export async function resolveClubByHost(host: string): Promise<ResolvedClub | nu
   return resolved
 }
 
+/**
+ * Имена app-БД всех АКТИВНЫХ клубов (для пер-клубных фоновых задач: cron, backup).
+ * Только status='active'. Бросает при недоступности control-БД — вызывающий
+ * (cron/backup) сам решает фолбэк (обычно: работать по основной БД).
+ */
+export async function listActiveClubDbNames(): Promise<string[]> {
+  const control = getControlDb()
+  const rows = await control
+    .select({ dbName: clubs.dbName })
+    .from(clubs)
+    .where(eq(clubs.status, 'active'))
+  return rows.map((r) => r.dbName)
+}
+
 // Реэкспорт билдера строки подключения — middleware строит её из dbName клуба.
 export { buildClubConnString }

@@ -46,3 +46,31 @@ if command -v rclone >/dev/null 2>&1 && rclone listremotes 2>/dev/null | grep -q
     echo "⚠️  Не удалось выгрузить бэкап в Google Drive (remote=${REMOTE}) — локальная копия сохранена"
   fi
 fi
+
+# ── Мультиклуб: control-реестр + пер-клубные БД (database-per-club) ───────────
+# Основной titan_hub забэкаплен выше (критичный путь + UI-restore). Здесь — ОТДЕЛЬНЫЕ
+# файлы для titan_control и каждой club_<slug>-БД, чтобы данные арендаторов не
+# терялись. BEST-EFFORT: сбой по любой из них логируется и НЕ роняет скрипт
+# (set -e не срабатывает — все шаги защищены). Имена файлов: <db>_<ts>.sql.gz,
+# своя ротация и выгрузка в Drive по маске на каждую БД.
+EXTRA_DBS=$(docker compose exec -T postgres psql -U titan -d titan_hub -tAc \
+  "SELECT datname FROM pg_database WHERE datname = 'titan_control' OR datname LIKE 'club_%' ORDER BY datname" 2>/dev/null | tr -d '\r' || true)
+for DBN in $EXTRA_DBS; do
+  [ -z "$DBN" ] && continue
+  EF="$BACKUP_DIR/${DBN}_${TS}.sql.gz"
+  if docker compose exec -T postgres pg_dump -U titan -d "$DBN" --clean --if-exists --no-owner --no-privileges 2>/dev/null | gzip > "$EF"; then
+    ESIZE=$(stat -f%z "$EF" 2>/dev/null || stat -c%s "$EF" 2>/dev/null || echo 0)
+    if [ "$ESIZE" -lt 512 ]; then
+      echo "⚠️  Бэкап $DBN подозрительно мал ($ESIZE б) — пропуск"; rm -f "$EF"; continue
+    fi
+    echo "✅ Бэкап $DBN: $EF ($(du -h "$EF" | cut -f1))"
+    find "$BACKUP_DIR" -name "${DBN}_*.sql.gz" -mtime +"$KEEP_DAYS" -delete 2>/dev/null || true
+    if command -v rclone >/dev/null 2>&1 && rclone listremotes 2>/dev/null | grep -q "^${REMOTE}:"; then
+      rclone copy "$EF" "${REMOTE}:${REMOTE_DIR}/" --no-traverse 2>/dev/null || \
+        echo "⚠️  Не удалось выгрузить $DBN в Drive — локальная копия сохранена"
+      rclone delete "${REMOTE}:${REMOTE_DIR}/" --include "${DBN}_*.sql.gz" --min-age "${KEEP_DAYS}d" 2>/dev/null || true
+    fi
+  else
+    echo "⚠️  Не удалось забэкапить $DBN — пропуск"; rm -f "$EF" 2>/dev/null || true
+  fi
+done

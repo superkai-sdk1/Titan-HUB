@@ -1,8 +1,9 @@
 import { serve } from '@hono/node-server'
-import { closeDb, closeClubDbs } from '@titan/database'
+import { closeDb, closeClubDbs, type Database } from '@titan/database'
 import { app } from './app.js'
 import { checkBirthdays } from './cron/birthdays.js'
 import { auditBalances } from './cron/balance-audit.js'
+import { getCronTargets } from './cron/targets.js'
 import { runMigrations } from './migrations/runner.js'
 import { getSharedRedis } from './lib/redis.js'
 
@@ -70,7 +71,21 @@ function setupGracefulShutdown(server: { close: (cb?: () => void) => void }) {
   process.on('SIGINT', () => shutdown('SIGINT'))
 }
 
-// Ежедневная проверка дней рождения в 09:00 по Москве.
+// Пер-клубный прогон фоновой задачи: по ВСЕМ активным клубам + основной БД (см.
+// getCronTargets — дедуп по db_name, фолбэк на основную). Падение по одному клубу
+// не прерывает остальных. Для одно-клубного прода = один проход на синглтоне.
+async function runForAllClubs(label: string, fn: (database: Database) => Promise<unknown>) {
+  const targets = await getCronTargets()
+  for (const t of targets) {
+    try {
+      await fn(t.db)
+    } catch (e) {
+      console.error(`[cron:${label}] клуб «${t.name}» упал`, e)
+    }
+  }
+}
+
+// Ежедневная проверка дней рождения в 09:00 по Москве (по всем клубам).
 // MSK = UTC+3 (без перехода на летнее время) → 06:00 UTC. Считаем в UTC,
 // чтобы не зависеть от таймзоны контейнера (обычно UTC).
 function scheduleBirthdayCron() {
@@ -81,8 +96,8 @@ function scheduleBirthdayCron() {
   const msUntil = next.getTime() - now.getTime()
 
   setTimeout(async () => {
-    await checkBirthdays().catch(console.error)
-    setInterval(() => checkBirthdays().catch(console.error), 24 * 60 * 60 * 1000)
+    await runForAllClubs('birthdays', checkBirthdays).catch(console.error)
+    setInterval(() => runForAllClubs('birthdays', checkBirthdays).catch(console.error), 24 * 60 * 60 * 1000)
   }, msUntil)
 
   console.log(`🎂 Birthday cron scheduled (09:00 MSK), next run in ${Math.round(msUntil / 60000)} min`)
@@ -90,7 +105,7 @@ function scheduleBirthdayCron() {
 
 scheduleBirthdayCron()
 
-// Ежедневная сверка целостности балансов клиентов в 05:00 по Москве.
+// Ежедневная сверка целостности балансов клиентов в 05:00 по Москве (по всем клубам).
 // MSK = UTC+3 → 02:00 UTC. Раннее утро: тихий час, сверяем итог за прошлые сутки.
 // auditBalances() сама обёрнута в try/catch и НИКОГДА не бросает — .catch здесь
 // лишь страхует от отказа самого вызова, чтобы не уронить интервал/процесс.
@@ -102,8 +117,8 @@ function scheduleBalanceAuditCron() {
   const msUntil = next.getTime() - now.getTime()
 
   setTimeout(async () => {
-    await auditBalances().catch(console.error)
-    setInterval(() => auditBalances().catch(console.error), 24 * 60 * 60 * 1000)
+    await runForAllClubs('balance-audit', auditBalances).catch(console.error)
+    setInterval(() => runForAllClubs('balance-audit', auditBalances).catch(console.error), 24 * 60 * 60 * 1000)
   }, msUntil)
 
   console.log(`🧾 Balance-audit cron scheduled (05:00 MSK), next run in ${Math.round(msUntil / 60000)} min`)
