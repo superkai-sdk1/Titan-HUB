@@ -2,12 +2,13 @@ import type { AppEnv } from '../../types.js'
 import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
-import { appSettings, eveningTypes, eq } from '@titan/database'
+import { appSettings, eveningTypes, integrations, eq } from '@titan/database'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
 import { getCurrentShift } from '../shifts/shifts.service.js'
 import { Redis } from 'ioredis'
 import { updatesChannel } from '../../lib/realtime.js'
 import { createBackup, listBackups, lastBackup, restoreNamed, restoreFromUpload, rcloneConfigured } from '../../lib/backup.js'
+import { encryptSecret, decryptSecret, maskSecret } from '../../lib/secrets.js'
 
 export const systemRouter = new Hono<AppEnv>()
 
@@ -170,4 +171,84 @@ systemRouter.post('/restore-upload', requireAuth, requireRole('owner'), async (c
   } catch (e: any) {
     return c.json({ error: e?.message ?? 'Не удалось восстановить из файла' }, 500)
   }
+})
+
+// ─── Секреты интеграций заведения (токены ботов, AI, Platega) ────────────────
+//
+// Зашифрованное пер-клубное хранилище (таблица integrations в БД клуба).
+// БЕЗОПАСНОСТЬ: только owner; plaintext НИКОГДА не отдаётся наружу (только маска);
+// ключи строго из белого списка (анти-инъекция, защита от записи произвольных key).
+
+// Белый список допустимых ключей + человекочитаемые подписи для UI.
+// Любой key вне списка → 400 (никаких записей произвольных ключей в таблицу).
+const INTEGRATION_KEYS: Record<string, string> = {
+  admin_bot_token: 'Токен админ-бота Telegram',
+  wallet_bot_token: 'Токен бота-кошелька Telegram',
+  ai_api_key: 'API-ключ TITAN AI',
+  platega_merchant_id: 'Platega: Merchant ID',
+  platega_secret: 'Platega: секретный ключ',
+}
+
+const isAllowedKey = (key: string): boolean =>
+  Object.prototype.hasOwnProperty.call(INTEGRATION_KEYS, key)
+
+// Список всех ключей белого списка с признаком configured и маской.
+// НИКОГДА не возвращает сам секрет — только maskSecret(decrypt(value_enc)).
+systemRouter.get('/integrations', requireAuth, requireRole('owner'), async (c) => {
+  const db = c.var.db
+  const rows = await db.select().from(integrations)
+  // Карта key → расшифрованная маска (только для настроенных ключей).
+  const byKey = new Map<string, string>()
+  for (const r of rows) {
+    if (!isAllowedKey(r.key)) continue // мусорные/устаревшие ключи в список не попадают
+    try {
+      byKey.set(r.key, maskSecret(decryptSecret(r.valueEnc)))
+    } catch {
+      // Шифртекст не расшифровался (сменили мастер-ключ/порча) — считаем «настроено»,
+      // но маску показать не можем. Plaintext всё равно наружу не уходит.
+      byKey.set(r.key, '••••')
+    }
+  }
+  const items = Object.entries(INTEGRATION_KEYS).map(([key, label]) => {
+    const masked = byKey.get(key) ?? null
+    return { key, label, configured: masked !== null, masked }
+  })
+  return c.json({ items })
+})
+
+// Установить/обновить секрет. Пустое значение клиент НЕ шлёт (это «не менять»);
+// min(1) на бэке гарантирует, что мы не затрём секрет пустой строкой.
+systemRouter.patch(
+  '/integrations/:key',
+  requireAuth,
+  requireRole('owner'),
+  zValidator('json', z.object({ value: z.string().min(1).max(500) })),
+  async (c) => {
+    const db = c.var.db
+    const key = c.req.param('key')
+    if (!isAllowedKey(key)) return c.json({ error: 'Unknown integration key' }, 400)
+    const { value } = c.req.valid('json')
+    const user = c.get('user')
+
+    const valueEnc = encryptSecret(value)
+    await db
+      .insert(integrations)
+      .values({ key, valueEnc, updatedBy: user.sub })
+      .onConflictDoUpdate({
+        target: integrations.key,
+        set: { valueEnc, updatedAt: new Date(), updatedBy: user.sub },
+      })
+
+    // Маску считаем из исходного plaintext (не из БД) — экономим расшифровку.
+    return c.json({ ok: true, key, configured: true, masked: maskSecret(value) })
+  },
+)
+
+// Явно удалить секрет (отключить интеграцию).
+systemRouter.delete('/integrations/:key', requireAuth, requireRole('owner'), async (c) => {
+  const db = c.var.db
+  const key = c.req.param('key')
+  if (!isAllowedKey(key)) return c.json({ error: 'Unknown integration key' }, 400)
+  await db.delete(integrations).where(eq(integrations.key, key))
+  return c.json({ ok: true, key, configured: false })
 })

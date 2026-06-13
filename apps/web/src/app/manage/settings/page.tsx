@@ -1,5 +1,6 @@
 'use client'
 import React, { useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { Icon } from '@/components/Icon'
@@ -7,6 +8,7 @@ import { PageHeader, SaveButton, ToggleRow, INP, SEL, LBL } from '@/components/m
 import { TimeInput24 } from '@/components/TimeInput24'
 import { StateView } from '@/components/StateView'
 import { useToast } from '@/components/Toast'
+import { IntegrationsTab } from './IntegrationsTab'
 
 function SectionCard({ title, icon, color, children }: { title: string; icon: string; color: string; children: React.ReactNode }) {
   return (
@@ -22,7 +24,7 @@ function SectionCard({ title, icon, color, children }: { title: string; icon: st
   )
 }
 
-function Field({ label, icon, children }: { label: string; icon?: string; children: React.ReactNode }) {
+function Field({ label, icon, hint, children }: { label: string; icon?: string; hint?: string; children: React.ReactNode }) {
   return (
     <div>
       <label style={{ ...LBL, display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -30,6 +32,7 @@ function Field({ label, icon, children }: { label: string; icon?: string; childr
         {label}
       </label>
       {children}
+      {hint && <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: '6px 0 0', lineHeight: 1.45 }}>{hint}</p>}
     </div>
   )
 }
@@ -39,6 +42,7 @@ interface FormData {
   venue_address: string
   hours_open: string
   hours_close: string
+  business_day_start_hour: string
   default_payment: string
   receipt_footer: string
   auto_close_shift: boolean
@@ -46,16 +50,43 @@ interface FormData {
   low_stock_threshold: string
 }
 
+type Tab = 'venue' | 'behavior' | 'integrations'
+
+const TABS: { key: Tab; label: string; icon: string }[] = [
+  { key: 'venue',        label: 'Заведение',  icon: 'store' },
+  { key: 'behavior',     label: 'Поведение',  icon: 'tune' },
+  { key: 'integrations', label: 'Интеграции', icon: 'extension' },
+]
+
+function isTab(v: string | null): v is Tab {
+  return v === 'venue' || v === 'behavior' || v === 'integrations'
+}
+
 export default function SettingsPage() {
+  const router = useRouter()
   const qc = useQueryClient()
   const { show } = useToast()
   const [saved, setSaved] = useState(false)
+  const [tab, setTab] = useState<Tab>('venue')
   const [form, setForm] = useState<FormData>({
     venue_name: '', venue_address: '', hours_open: '', hours_close: '',
+    business_day_start_hour: '9',
     default_payment: 'cash', receipt_footer: '',
     auto_close_shift: false, telegram_notifications: false,
     low_stock_threshold: '5',
   })
+
+  // Вкладка в URL (?tab=) — без next/navigation hooks, чтобы не требовать Suspense.
+  useEffect(() => {
+    const t = new URLSearchParams(window.location.search).get('tab')
+    if (isTab(t)) setTab(t)
+  }, [])
+  function changeTab(t: Tab) {
+    setTab(t)
+    const url = new URL(window.location.href)
+    url.searchParams.set('tab', t)
+    window.history.replaceState(null, '', url.toString())
+  }
 
   const { data, isLoading } = useQuery<{ settings: Record<string, string> }>({
     queryKey: ['settings'],
@@ -70,6 +101,7 @@ export default function SettingsPage() {
       venue_address: s.venue_address ?? '',
       hours_open: s.hours_open ?? '',
       hours_close: s.hours_close ?? '',
+      business_day_start_hour: s.business_day_start_hour ?? '9',
       default_payment: s.default_payment ?? 'cash',
       receipt_footer: s.receipt_footer ?? '',
       auto_close_shift: s.auto_close_shift === 'true',
@@ -84,6 +116,7 @@ export default function SettingsPage() {
       venue_address: form.venue_address,
       hours_open: form.hours_open,
       hours_close: form.hours_close,
+      business_day_start_hour: form.business_day_start_hour,
       default_payment: form.default_payment,
       receipt_footer: form.receipt_footer,
       auto_close_shift: String(form.auto_close_shift),
@@ -102,79 +135,117 @@ export default function SettingsPage() {
     setForm(f => ({ ...f, [key]: value }))
   }
 
+  // Подсказка для «Бизнес-дня» — отражает текущий выбранный час.
+  const bdHint = `Граница суток для смен и отчётов (сейчас ${String(form.business_day_start_hour).padStart(2, '0')}:00)`
+
   return (
     <div style={{ minHeight: '100dvh', display: 'flex', flexDirection: 'column' }}>
-      <PageHeader title="Настройки" subtitle="Параметры заведения и системы" />
+      <PageHeader title="Настройки" subtitle="Параметры заведения и системы" onBack={() => router.push('/manage')} />
 
-      <div style={{ padding: '20px 16px var(--bottom-nav-clear, 24px)', display: 'flex', flexDirection: 'column', gap: 16, maxWidth: 'var(--content-narrow)', margin: '0 auto', width: '100%' }}>
-        {isLoading && !data ? (
-          <StateView state="loading" />
-        ) : (
-          <>
-            {/* Venue */}
-            <SectionCard title="Заведение" icon="store" color="#8B5CF6">
-              <Field label="Название" icon="label">
-                <input style={INP} value={form.venue_name} onChange={e => set('venue_name', e.target.value)} placeholder="Titan HUB" />
-              </Field>
-              <Field label="Адрес" icon="location_on">
-                <input style={INP} value={form.venue_address} onChange={e => set('venue_address', e.target.value)} placeholder="ул. Примерная, 1" />
-              </Field>
-              <Field label="Часы работы" icon="schedule">
-                <div style={{ display: 'flex', gap: 10 }}>
-                  <div style={{ flex: 1 }}>
-                    <label style={{ ...LBL, color: 'rgba(204,195,216,0.5)' }}>Открытие</label>
-                    <TimeInput24 value={form.hours_open} onChange={v => set('hours_open', v)} />
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <label style={{ ...LBL, color: 'rgba(204,195,216,0.5)' }}>Закрытие</label>
-                    <TimeInput24 value={form.hours_close} onChange={v => set('hours_close', v)} />
-                  </div>
-                </div>
-              </Field>
-            </SectionCard>
+      <div style={{ padding: '16px 16px var(--bottom-nav-clear, 24px)', display: 'flex', flexDirection: 'column', gap: 16, maxWidth: 'var(--content-narrow)', margin: '0 auto', width: '100%', boxSizing: 'border-box' }}>
+        {/* Переключатель вкладок (segmented) */}
+        <div style={{ display: 'flex', gap: 4, padding: 4, borderRadius: 14, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)' }}>
+          {TABS.map(t => {
+            const active = tab === t.key
+            return (
+              <button key={t.key} onClick={() => changeTab(t.key)} style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '10px 8px', borderRadius: 11, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 700, transition: 'all 0.15s', background: active ? 'var(--primary-violet)' : 'transparent', color: active ? '#fff' : 'var(--on-surface-variant)' }}>
+                <Icon name={t.icon} size={17} color={active ? '#fff' : 'var(--on-surface-variant)'} />
+                {t.label}
+              </button>
+            )
+          })}
+        </div>
 
-            {/* POS */}
-            <SectionCard title="POS-терминал" icon="point_of_sale" color="#4cd7f6">
-              <Field label="Оплата по умолчанию" icon="payments">
-                <select style={SEL} value={form.default_payment} onChange={e => set('default_payment', e.target.value)}>
-                  <option value="cash">Наличные</option>
-                  <option value="card">Перевод</option>
-                  <option value="transfer">СБП</option>
-                </select>
-              </Field>
-              <Field label="Подпись в чеке" icon="receipt_long">
-                <textarea
-                  style={{ ...INP, minHeight: 72, resize: 'vertical' as const, fontFamily: 'inherit', lineHeight: 1.5 }}
-                  value={form.receipt_footer}
-                  onChange={e => set('receipt_footer', e.target.value)}
-                  placeholder="Текст внизу чека..."
-                />
-              </Field>
-              <ToggleRow
-                label="Автозакрытие смены"
-                subtitle="Закрывать смену по расписанию"
-                value={form.auto_close_shift}
-                onChange={v => set('auto_close_shift', v)}
-              />
-            </SectionCard>
+        {/* Вкладки «Заведение» и «Поведение» работают на одном GET/PATCH /system/settings */}
+        {tab !== 'integrations' && (
+          isLoading && !data ? (
+            <StateView state="loading" />
+          ) : (
+            <>
+              {tab === 'venue' && (
+                <>
+                  <SectionCard title="Заведение" icon="store" color="#8B5CF6">
+                    <Field label="Название" icon="label">
+                      <input style={INP} value={form.venue_name} onChange={e => set('venue_name', e.target.value)} placeholder="Titan HUB" />
+                    </Field>
+                    <Field label="Адрес" icon="location_on">
+                      <input style={INP} value={form.venue_address} onChange={e => set('venue_address', e.target.value)} placeholder="ул. Примерная, 1" />
+                    </Field>
+                    <Field label="Часы работы" icon="schedule">
+                      <div style={{ display: 'flex', gap: 10 }}>
+                        <div style={{ flex: 1 }}>
+                          <label style={{ ...LBL, color: 'rgba(204,195,216,0.5)' }}>Открытие</label>
+                          <TimeInput24 value={form.hours_open} onChange={v => set('hours_open', v)} />
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <label style={{ ...LBL, color: 'rgba(204,195,216,0.5)' }}>Закрытие</label>
+                          <TimeInput24 value={form.hours_close} onChange={v => set('hours_close', v)} />
+                        </div>
+                      </div>
+                    </Field>
+                    <Field label="Бизнес-день" icon="today" hint={bdHint}>
+                      <select style={SEL} value={form.business_day_start_hour} onChange={e => set('business_day_start_hour', e.target.value)}>
+                        {Array.from({ length: 24 }, (_, h) => (
+                          <option key={h} value={String(h)}>{String(h).padStart(2, '0')}:00</option>
+                        ))}
+                      </select>
+                    </Field>
+                  </SectionCard>
 
-            {/* Notifications */}
-            <SectionCard title="Уведомления" icon="notifications" color="#10B981">
-              <ToggleRow
-                label="Telegram-уведомления"
-                subtitle="Получать оповещения в Telegram"
-                value={form.telegram_notifications}
-                onChange={v => set('telegram_notifications', v)}
-              />
-              <Field label="Порог низкого остатка (шт.)" icon="inventory_2">
-                <input type="number" style={INP} value={form.low_stock_threshold} min={0} onChange={e => set('low_stock_threshold', e.target.value)} placeholder="5" />
-              </Field>
-            </SectionCard>
+                  <SectionCard title="POS-терминал" icon="point_of_sale" color="#4cd7f6">
+                    <Field label="Оплата по умолчанию" icon="payments">
+                      <select style={SEL} value={form.default_payment} onChange={e => set('default_payment', e.target.value)}>
+                        <option value="cash">Наличные</option>
+                        <option value="card">Перевод</option>
+                        <option value="transfer">СБП</option>
+                      </select>
+                    </Field>
+                    <Field label="Подпись в чеке" icon="receipt_long">
+                      <textarea
+                        style={{ ...INP, minHeight: 72, resize: 'vertical' as const, fontFamily: 'inherit', lineHeight: 1.5 }}
+                        value={form.receipt_footer}
+                        onChange={e => set('receipt_footer', e.target.value)}
+                        placeholder="Текст внизу чека..."
+                      />
+                    </Field>
+                  </SectionCard>
 
-            {/* Save */}
-            <SaveButton onClick={() => save.mutate()} isPending={save.isPending} isSaved={saved} label="Сохранить изменения" />
-          </>
+                  <SaveButton onClick={() => save.mutate()} isPending={save.isPending} isSaved={saved} label="Сохранить изменения" />
+                </>
+              )}
+
+              {tab === 'behavior' && (
+                <>
+                  <SectionCard title="Смены" icon="tune" color="#8B5CF6">
+                    <ToggleRow
+                      label="Автозакрытие смены"
+                      subtitle="Закрывать смену по расписанию"
+                      value={form.auto_close_shift}
+                      onChange={v => set('auto_close_shift', v)}
+                    />
+                  </SectionCard>
+
+                  <SectionCard title="Уведомления" icon="notifications" color="#10B981">
+                    <ToggleRow
+                      label="Telegram-уведомления"
+                      subtitle="Получать оповещения в Telegram"
+                      value={form.telegram_notifications}
+                      onChange={v => set('telegram_notifications', v)}
+                    />
+                    <Field label="Порог низкого остатка (шт.)" icon="inventory_2">
+                      <input type="number" style={INP} value={form.low_stock_threshold} min={0} onChange={e => set('low_stock_threshold', e.target.value)} placeholder="5" />
+                    </Field>
+                  </SectionCard>
+
+                  <SaveButton onClick={() => save.mutate()} isPending={save.isPending} isSaved={saved} label="Сохранить изменения" />
+                </>
+              )}
+            </>
+          )
         )}
+
+        {/* Вкладка «Интеграции» — собственный API /system/integrations */}
+        {tab === 'integrations' && <IntegrationsTab />}
       </div>
     </div>
   )
