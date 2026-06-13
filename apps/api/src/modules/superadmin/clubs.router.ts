@@ -28,6 +28,10 @@ import {
   desc,
   sql as csql,
 } from '../../../../../packages/database/dist/control/index.js'
+// БД клуба (профиль заведения + владелец) — через основной пакет @titan/database.
+import { getClubDb, profiles, appSettings, and, inArray, isNull } from '@titan/database'
+import { hashPassword, hashPin } from '@titan/auth'
+import { buildClubConnString } from '../../lib/clubResolver.js'
 import { provisionClub } from './provisioning.js'
 // Тип контекста суперадмина: родитель монтирует роутер с requireSuperadmin,
 // который кладёт payload в c.var.superadmin (см. superadmin-token.ts).
@@ -300,6 +304,97 @@ superadminClubsRouter.post(
     }
   },
 )
+
+// ─── Профиль заведения (в БД клуба: app_settings) ──────────────────────────────
+// Суперадмин настраивает базовый профиль клуба прямо при онбординге. Ключи —
+// тот же whitelist, что и вкладка «Заведение» приложения клуба.
+const PROFILE_KEYS = ['venue_name', 'venue_address', 'business_day_start_hour'] as const
+
+const ProfileSchema = z.object({
+  venue_name: z.string().max(200).optional(),
+  venue_address: z.string().max(500).optional(),
+  // Час начала бизнес-дня 0..23.
+  business_day_start_hour: z.string().regex(/^([0-9]|1[0-9]|2[0-3])$/).optional(),
+})
+
+// GET /clubs/:id/profile — профиль заведения + список владельцев (есть ли вход).
+superadminClubsRouter.get('/clubs/:id/profile', async (c) => {
+  const dbc = getControlDb()
+  const id = c.req.param('id')
+  const [club] = await dbc.select().from(clubs).where(eq(clubs.id, id)).limit(1)
+  if (!club) return c.json({ error: 'Клуб не найден' }, 404)
+
+  const clubDb = getClubDb(buildClubConnString(club.dbName))
+  const rows = await clubDb.select().from(appSettings).where(inArray(appSettings.key, [...PROFILE_KEYS]))
+  const s = Object.fromEntries(rows.map((r) => [r.key, r.value]))
+  const owners = await clubDb
+    .select({ id: profiles.id, nickname: profiles.nickname })
+    .from(profiles)
+    .where(and(eq(profiles.role, 'owner'), isNull(profiles.deletedAt)))
+
+  return c.json({
+    profile: {
+      venue_name: s['venue_name'] ?? '',
+      venue_address: s['venue_address'] ?? '',
+      business_day_start_hour: s['business_day_start_hour'] ?? '9',
+    },
+    owners,
+  })
+})
+
+// PATCH /clubs/:id/profile — сохранить профиль заведения (upsert в app_settings клуба).
+superadminClubsRouter.patch('/clubs/:id/profile', zValidator('json', ProfileSchema), async (c) => {
+  const dbc = getControlDb()
+  const id = c.req.param('id')
+  const body = c.req.valid('json')
+  const [club] = await dbc.select().from(clubs).where(eq(clubs.id, id)).limit(1)
+  if (!club) return c.json({ error: 'Клуб не найден' }, 404)
+
+  const clubDb = getClubDb(buildClubConnString(club.dbName))
+  for (const [key, value] of Object.entries(body)) {
+    if (value == null) continue
+    const [ex] = await clubDb.select().from(appSettings).where(eq(appSettings.key, key))
+    if (ex) await clubDb.update(appSettings).set({ value, updatedAt: new Date() }).where(eq(appSettings.key, key))
+    else await clubDb.insert(appSettings).values({ key, value })
+  }
+  return c.json({ ok: true })
+})
+
+// ─── Первый владелец заведения (создаётся суперадмином при онбординге) ──────────
+const CreateOwnerSchema = z.object({
+  nickname: z.string().min(2).max(64),
+  password: z.string().min(4).max(128),
+  pin: z.string().length(4).regex(/^\d{4}$/).optional(),
+})
+
+// POST /clubs/:id/owner — создать владельца (профиль role='owner') в БД клуба.
+// После провижининга у клуба нет пользователей — этот эндпоинт даёт первый вход.
+superadminClubsRouter.post('/clubs/:id/owner', zValidator('json', CreateOwnerSchema), async (c) => {
+  const dbc = getControlDb()
+  const id = c.req.param('id')
+  const { nickname, password, pin } = c.req.valid('json')
+  const [club] = await dbc.select().from(clubs).where(eq(clubs.id, id)).limit(1)
+  if (!club) return c.json({ error: 'Клуб не найден' }, 404)
+
+  const clubDb = getClubDb(buildClubConnString(club.dbName))
+  try {
+    const [created] = await clubDb
+      .insert(profiles)
+      .values({
+        nickname,
+        passwordHash: await hashPassword(password),
+        pin: pin ? await hashPin(pin) : undefined,
+        role: 'owner',
+      })
+      .returning({ id: profiles.id, nickname: profiles.nickname, role: profiles.role })
+    return c.json({ owner: created }, 201)
+  } catch (err: any) {
+    if (err?.code === '23505') {
+      return c.json({ error: 'Пользователь с таким никнеймом уже существует' }, 409)
+    }
+    throw err
+  }
+})
 
 // DELETE /clubs/:id — МЯГКОЕ удаление: помечаем status='deleted'.
 // app-БД club_<slug> НЕ дропаем здесь — это деструктивно и необратимо.

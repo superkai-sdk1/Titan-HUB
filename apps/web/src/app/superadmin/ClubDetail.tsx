@@ -25,26 +25,56 @@ import {
   fmtDate,
 } from './ui'
 
-// Человекочитаемые названия модулей (fallback — сам ключ).
+// Человекочитаемые названия модулей (ключи совпадают с DEFAULT_ENABLED/DISABLED
+// из provisioning.ts). Fallback — сам ключ.
 const MODULE_LABELS: Record<string, string> = {
   pos: 'Касса (POS)',
   menu: 'Меню',
-  inventory: 'Склад',
   pricing: 'Тарифы и зоны',
-  loyalty: 'Лояльность',
-  customers: 'Клиенты',
-  balances: 'Депозиты и долги',
+  spaces: 'Зоны и столы',
+  inventory: 'Склад',
+  supplies: 'Поставки',
+  clients: 'Клиенты',
+  customers: 'Заказчики',
+  discounts: 'Скидки',
+  certificates: 'Сертификаты',
+  staff: 'Сотрудники',
   shifts: 'Смены',
   salary: 'Зарплата',
-  analytics: 'Аналитика',
+  cashops: 'Касса и инкассация',
   expenses: 'Расходы',
-  ai: 'TITAN AI',
+  refunds: 'Возвраты',
+  analytics: 'Аналитика',
   events: 'Мероприятия',
-  returns: 'Возвраты',
+  notifications: 'Уведомления',
+  ai: 'TITAN AI',
+  platega: 'Оплата СБП (Platega)',
+  // Инфраструктурные — в тогглах не показываем.
+  system: 'Система',
+  upload: 'Загрузка файлов',
+  auth: 'Авторизация',
 }
+
+// Группы модулей (каталоги) для аккуратного вида вместо плоского списка.
+const MODULE_GROUPS: { title: string; keys: string[] }[] = [
+  { title: 'Продажи и POS', keys: ['pos', 'menu', 'pricing', 'spaces'] },
+  { title: 'Склад', keys: ['inventory', 'supplies'] },
+  { title: 'Клиенты и лояльность', keys: ['clients', 'customers', 'discounts', 'certificates'] },
+  { title: 'Персонал и смены', keys: ['staff', 'shifts', 'salary'] },
+  { title: 'Финансы', keys: ['cashops', 'expenses', 'refunds', 'analytics'] },
+  { title: 'Дополнительно', keys: ['events', 'notifications', 'ai', 'platega'] },
+]
+
+// Инфраструктурные модули — скрываем из тогглов (выключать нельзя/незачем).
+const HIDDEN_MODULES = new Set(['system', 'upload', 'auth'])
 
 function moduleLabel(key: string): string {
   return MODULE_LABELS[key] ?? key
+}
+
+interface ClubProfileResp {
+  profile: { venue_name: string; venue_address: string; business_day_start_hour: string }
+  owners: { id: string; nickname: string }[]
 }
 
 export function ClubDetail({
@@ -57,6 +87,7 @@ export function ClubDetail({
   onDeleted: () => void
 }) {
   const [data, setData] = useState<ClubDetailResponse | null>(null)
+  const [profile, setProfile] = useState<ClubProfileResp | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
@@ -64,8 +95,13 @@ export function ClubDetail({
     setLoading(true)
     setError('')
     try {
-      const res = await saApi.get<ClubDetailResponse>(`/clubs/${clubId}`)
+      const [res, prof] = await Promise.all([
+        saApi.get<ClubDetailResponse>(`/clubs/${clubId}`),
+        // Профиль/владельцы — вторично: не валим экран клуба, если не загрузилось.
+        saApi.get<ClubProfileResp>(`/clubs/${clubId}/profile`).catch(() => null),
+      ])
       setData(res)
+      setProfile(prof)
     } catch (e) {
       setError(e instanceof SaApiError ? e.message : 'Не удалось загрузить клуб')
     } finally {
@@ -106,16 +142,22 @@ export function ClubDetail({
         </div>
       </div>
 
-      {/* Модули */}
+      {/* Профиль заведения */}
+      <Section title="Профиль заведения">
+        <VenueProfileForm clubId={clubId} profile={profile?.profile ?? null} onSaved={load} />
+      </Section>
+
+      {/* Владелец заведения (вход в клуб) */}
+      <Section title="Владелец">
+        <OwnerSection clubId={clubId} owners={profile?.owners ?? []} onChanged={load} />
+      </Section>
+
+      {/* Модули — по каталогам */}
       <Section title="Модули">
         {modules.length === 0 ? (
           <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.4)', margin: 0 }}>Модули не настроены</p>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {modules.map((m) => (
-              <ModuleRow key={m.moduleKey} clubId={clubId} module={m} onChanged={onChanged} />
-            ))}
-          </div>
+          <GroupedModules clubId={clubId} modules={modules} onChanged={onChanged} />
         )}
       </Section>
 
@@ -189,6 +231,205 @@ function ModuleRow({ clubId, module, onChanged }: { clubId: string; module: Club
         {err && <p style={{ fontSize: 11, color: '#FB7185', margin: '2px 0 0' }}>{err}</p>}
       </div>
       <Toggle value={enabled} onChange={toggle} ariaLabel={`Модуль ${moduleLabel(module.moduleKey)}`} />
+    </div>
+  )
+}
+
+// ─── Модули по каталогам ───────────────────────────────────────────────────────
+
+function GroupedModules({ clubId, modules, onChanged }: { clubId: string; modules: ClubModule[]; onChanged: () => void }) {
+  const byKey = new Map(modules.map((m) => [m.moduleKey, m]))
+  const used = new Set<string>()
+  const groups = MODULE_GROUPS.map((g) => ({
+    title: g.title,
+    items: g.keys
+      .map((k) => byKey.get(k))
+      .filter((m): m is ClubModule => {
+        if (m) { used.add(m.moduleKey); return true }
+        return false
+      }),
+  })).filter((g) => g.items.length > 0)
+
+  // Прочие модули из БД, не попавшие в группы и не инфраструктурные.
+  const others = modules.filter((m) => !used.has(m.moduleKey) && !HIDDEN_MODULES.has(m.moduleKey))
+  if (others.length) groups.push({ title: 'Прочее', items: others })
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+      {groups.map((g) => (
+        <div key={g.title}>
+          <p style={{ fontSize: 11, fontWeight: 700, color: 'rgba(167,139,250,0.75)', letterSpacing: '0.05em', textTransform: 'uppercase', margin: '0 0 8px' }}>{g.title}</p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {g.items.map((m) => (
+              <ModuleRow key={m.moduleKey} clubId={clubId} module={m} onChanged={onChanged} />
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+// ─── Профиль заведения ─────────────────────────────────────────────────────────
+
+function VenueProfileForm({
+  clubId,
+  profile,
+  onSaved,
+}: {
+  clubId: string
+  profile: ClubProfileResp['profile'] | null
+  onSaved: () => void
+}) {
+  const [name, setName] = useState(profile?.venue_name ?? '')
+  const [address, setAddress] = useState(profile?.venue_address ?? '')
+  const [bizHour, setBizHour] = useState(profile?.business_day_start_hour ?? '9')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const [saved, setSaved] = useState(false)
+
+  useEffect(() => {
+    if (profile) {
+      setName(profile.venue_name)
+      setAddress(profile.venue_address)
+      setBizHour(profile.business_day_start_hour || '9')
+    }
+  }, [profile])
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault()
+    setLoading(true)
+    setError('')
+    setSaved(false)
+    try {
+      await saApi.patch(`/clubs/${clubId}/profile`, {
+        venue_name: name.trim(),
+        venue_address: address.trim(),
+        business_day_start_hour: String(parseInt(bizHour, 10) || 9),
+      })
+      setSaved(true)
+      onSaved()
+      setTimeout(() => setSaved(false), 2000)
+    } catch (e) {
+      setError(e instanceof SaApiError ? e.message : 'Не удалось сохранить профиль')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <SaField label="Название заведения">
+        <SaInput value={name} onChange={(e) => setName(e.target.value)} placeholder="Например: Titan Club" />
+      </SaField>
+      <SaField label="Адрес">
+        <SaInput value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Город, улица, дом" />
+      </SaField>
+      <SaField label="Начало бизнес-дня (час)" hint="Граница операционных суток для смен и отчётов (по умолчанию 9 = 09:00).">
+        <select value={bizHour} onChange={(e) => setBizHour(e.target.value)} style={saSelectStyle}>
+          {Array.from({ length: 24 }, (_, h) => (
+            <option key={h} value={String(h)} style={{ background: '#1d1a24' }}>
+              {String(h).padStart(2, '0')}:00
+            </option>
+          ))}
+        </select>
+      </SaField>
+      {error && <SaErrorBanner message={error} />}
+      <SaPrimaryButton
+        type="submit"
+        loading={loading}
+        icon={saved ? 'check_circle' : 'store'}
+        style={saved ? { background: '#34D399' } : undefined}
+      >
+        {loading ? 'Сохранение…' : saved ? 'Сохранено!' : 'Сохранить профиль'}
+      </SaPrimaryButton>
+    </form>
+  )
+}
+
+// ─── Владелец заведения (первый вход) ───────────────────────────────────────────
+
+function OwnerSection({
+  clubId,
+  owners,
+  onChanged,
+}: {
+  clubId: string
+  owners: { id: string; nickname: string }[]
+  onChanged: () => void
+}) {
+  const [nickname, setNickname] = useState('')
+  const [password, setPassword] = useState('')
+  const [pin, setPin] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const [created, setCreated] = useState('')
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault()
+    setError('')
+    if (nickname.trim().length < 2) { setError('Имя — минимум 2 символа'); return }
+    if (password.length < 4) { setError('Пароль — минимум 4 символа'); return }
+    if (pin && !/^\d{4}$/.test(pin)) { setError('PIN — ровно 4 цифры'); return }
+    setLoading(true)
+    setCreated('')
+    try {
+      await saApi.post(`/clubs/${clubId}/owner`, {
+        nickname: nickname.trim(),
+        password,
+        ...(pin ? { pin } : {}),
+      })
+      setCreated(nickname.trim())
+      setNickname('')
+      setPassword('')
+      setPin('')
+      onChanged()
+    } catch (e) {
+      setError(e instanceof SaApiError ? e.message : 'Не удалось создать владельца')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      {owners.length > 0 ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {owners.map((o) => (
+            <div key={o.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 12, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
+              <Icon name="person" size={18} color="#A78BFA" />
+              <span style={{ fontSize: 14, fontWeight: 600, color: 'rgba(255,255,255,0.9)' }}>{o.nickname}</span>
+              <SaBadge tone="ok">владелец</SaBadge>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p style={{ fontSize: 13, color: 'rgba(251,191,36,0.9)', margin: 0 }}>
+          ⚠️ У заведения ещё нет владельца — без него никто не сможет войти. Создайте первого:
+        </p>
+      )}
+
+      {created && (
+        <div style={{ padding: '10px 14px', borderRadius: 12, background: 'rgba(52,211,153,0.1)', border: '1px solid rgba(52,211,153,0.25)', color: '#34D399', fontSize: 13 }}>
+          ✅ Владелец «{created}» создан. Передайте ему логин и пароль для входа.
+        </div>
+      )}
+
+      <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <SaField label={owners.length > 0 ? 'Добавить ещё владельца — имя (логин)' : 'Имя владельца (логин)'}>
+          <SaInput value={nickname} onChange={(e) => setNickname(e.target.value)} placeholder="Например: Иван" autoComplete="off" />
+        </SaField>
+        <SaField label="Пароль" hint="Минимум 4 символа. Владелец войдёт по имени и паролю.">
+          <SaInput type="text" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Пароль для входа" autoComplete="off" />
+        </SaField>
+        <SaField label="PIN (необязательно)" hint="4 цифры для быстрого входа на кассе.">
+          <SaInput value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 4))} inputMode="numeric" placeholder="1234" autoComplete="off" />
+        </SaField>
+        {error && <SaErrorBanner message={error} />}
+        <SaPrimaryButton type="submit" loading={loading} icon="person_add">
+          {loading ? 'Создание…' : 'Создать владельца'}
+        </SaPrimaryButton>
+      </form>
     </div>
   )
 }

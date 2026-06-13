@@ -10,6 +10,107 @@ import { accrueBonusLot, getBonusExpiryDays } from '../../lib/bonusLots.js'
 import { round2, computeRental, computeTotals } from '../../lib/money.js'
 import { publishEvent } from '../../lib/realtime.js'
 import { getClubIntegration } from '../../lib/secrets.js'
+// Control-БД (продление подписки клуба по платежу платформы) — относительный путь
+// к dist, как в clubResolver/superadmin (закрытый exports-map @titan/database).
+import {
+  getControlDb,
+  clubs as ctrlClubs,
+  subscriptions as ctrlSubs,
+  subscriptionPayments as ctrlPayments,
+  controlAudit as ctrlAudit,
+  eq as ceq,
+  desc as cdesc,
+  sql as csql,
+} from '../../../../../packages/database/dist/control/index.js'
+
+// Период подписки → SQL-интервал (для продления paid_until из вебхука платформы).
+const SUB_PERIOD_INTERVAL: Record<string, string> = {
+  '1m': '1 month',
+  '3m': '3 months',
+  '6m': '6 months',
+  '12m': '12 months',
+}
+
+// Продление подписки клуба по подтверждённому платежу платформы (payload
+// `sub:<clubId>:<period>`). Идемпотентно по plategaInvoiceId (Platega может
+// прислать вебхук повторно). НЕ бросает наружу — логирует.
+async function handleSubscriptionPayment(
+  payload: string,
+  transactionId: string,
+  amount: number | undefined,
+): Promise<void> {
+  const [, clubId, period] = payload.split(':')
+  const interval = SUB_PERIOD_INTERVAL[period ?? '']
+  if (!clubId || !interval) {
+    console.error('[platega] подписочный payload некорректен:', payload)
+    return
+  }
+  const control = getControlDb()
+  await control.transaction(async (tx) => {
+    // Идемпотентность: этот платёж уже учтён?
+    const [dup] = await tx
+      .select({ id: ctrlPayments.id })
+      .from(ctrlPayments)
+      .where(ceq(ctrlPayments.plategaInvoiceId, transactionId))
+      .limit(1)
+    if (dup) return
+
+    const [club] = await tx.select({ id: ctrlClubs.id }).from(ctrlClubs).where(ceq(ctrlClubs.id, clubId)).limit(1)
+    if (!club) {
+      console.error('[platega] подписка: клуб не найден', clubId)
+      return
+    }
+
+    const [current] = await tx
+      .select()
+      .from(ctrlSubs)
+      .where(ceq(ctrlSubs.clubId, clubId))
+      .orderBy(cdesc(ctrlSubs.createdAt))
+      .limit(1)
+
+    // Продление от max(paid_until, now()) — не «съедаем» остаток при досрочной оплате.
+    const newPaidUntil = csql`GREATEST(COALESCE(${current?.paidUntil ?? null}, now()), now()) + interval '${csql.raw(interval)}'`
+
+    if (current) {
+      await tx
+        .update(ctrlSubs)
+        .set({
+          period,
+          status: 'active',
+          paidUntil: newPaidUntil,
+          startedAt: current.startedAt ?? csql`now()`,
+          ...(amount != null ? { amount: String(amount) } : {}),
+        })
+        .where(ceq(ctrlSubs.id, current.id))
+    } else {
+      await tx.insert(ctrlSubs).values({
+        clubId,
+        period,
+        status: 'active',
+        startedAt: csql`now()`,
+        paidUntil: csql`now() + interval '${csql.raw(interval)}'`,
+        ...(amount != null ? { amount: String(amount) } : {}),
+      })
+    }
+
+    await tx.insert(ctrlPayments).values({
+      clubId,
+      amount: amount != null ? String(amount) : null,
+      period,
+      method: 'platega',
+      plategaInvoiceId: transactionId,
+      status: 'paid',
+      paidAt: csql`now()`,
+    })
+    await tx.insert(ctrlAudit).values({
+      actor: 'platega-webhook',
+      action: 'subscription_renewed',
+      targetClub: clubId,
+      payload: { transactionId, period, amount },
+    })
+  })
+  console.log(`[platega] подписка клуба ${clubId} продлена (+${interval}) по tx ${transactionId}`)
+}
 
 // Сумма по позициям — общий computeTotals из lib/money.js (один источник правды).
 
@@ -118,6 +219,13 @@ plategaRouter.post('/webhook', async (c) => {
   const verifiedAmount = verified?.amount != null && !Number.isNaN(verified.amount)
     ? verified.amount
     : reportedAmount
+
+  // Подписочный платёж платформы (payload `sub:<clubId>:<period>`): продлеваем
+  // подписку клуба в control-plane, чек НЕ трогаем. Платёж уже подтверждён выше.
+  if (checkId.startsWith('sub:')) {
+    await handleSubscriptionPayment(checkId, transactionId, verifiedAmount)
+    return c.json({ ok: true })
+  }
 
   const db = c.var.db
   let didClose = false
