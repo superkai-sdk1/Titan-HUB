@@ -2,10 +2,8 @@
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { Icon } from '@/components/Icon'
+import { useClubContext } from '@/components/ClubGate'
 import { NAV_PRIMARY, isNavActive, type NavItem as NavItemType } from '@/lib/nav'
-
-const LEFT_ITEMS = NAV_PRIMARY.slice(0, 2)
-const RIGHT_ITEMS = NAV_PRIMARY.slice(2)
 
 function NavItem({ href, icon, label, short, pathname }: NavItemType & { pathname: string }) {
   const active = isNavActive(href, pathname)
@@ -68,6 +66,14 @@ function NavItem({ href, icon, label, short, pathname }: NavItemType & { pathnam
 export function BottomNav() {
   const pathname = usePathname()
   const router = useRouter()
+  const { moduleEnabled } = useClubContext()
+
+  // Скрываем пункты выключенных у клуба модулей (fail-open). Слоты считаем после
+  // фильтра, чтобы «остров» не разъезжался при выключенном модуле.
+  const visible = NAV_PRIMARY.filter((i) => !i.module || moduleEnabled(i.module))
+  const LEFT_ITEMS = visible.slice(0, 2)
+  const RIGHT_ITEMS = visible.slice(2)
+  const aiEnabled = moduleEnabled('ai')
 
   if (pathname === '/login') return null
   if (pathname.startsWith('/tablet')) return null
@@ -76,11 +82,13 @@ export function BottomNav() {
   // глобальная навигация лишняя и перекрывала бы футер. /pos (список) — оставляем.
   if (pathname.startsWith('/pos/')) return null
 
-  // На экране Аналитики центральная кнопка превращается в вызов TITAN AI.
+  // На экране Аналитики центральная кнопка превращается в вызов TITAN AI (если
+  // модуль ai включён; иначе — обычное «новый чек»).
   const onDashboard = pathname === '/dashboard' || pathname.startsWith('/dashboard/')
+  const fabAi = onDashboard && aiEnabled
 
   function handleFAB() {
-    if (onDashboard) { router.push('/ai'); return }
+    if (fabAi) { router.push('/ai'); return }
     const onPOS = pathname === '/pos' || pathname.startsWith('/pos/')
     if (onPOS) {
       window.dispatchEvent(new CustomEvent('titan:new-check'))
@@ -125,7 +133,7 @@ export function BottomNav() {
         {/* CENTER FAB */}
         <button
           onClick={handleFAB}
-          aria-label={onDashboard ? 'TITAN AI' : 'Новый чек'}
+          aria-label={fabAi ? 'TITAN AI' : 'Новый чек'}
           style={{
             width: 52,
             height: 52,
@@ -152,7 +160,7 @@ export function BottomNav() {
             e.currentTarget.style.boxShadow = '0 4px 20px rgba(139,92,246,0.5), 0 0 0 3px rgba(29,26,36,0.8)'
           }}
         >
-          <Icon name={onDashboard ? 'titan_ai' : 'add'} size={onDashboard ? 24 : 26} color="#fff" />
+          <Icon name={fabAi ? 'titan_ai' : 'add'} size={fabAi ? 24 : 26} color="#fff" />
         </button>
 
         {/* RIGHT tabs */}

@@ -4,6 +4,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import { useState } from 'react'
 import { useCurrentShift } from '@/hooks/useShift'
 import { Icon } from '@/components/Icon'
+import { useClubContext } from '@/components/ClubGate'
 import { NAV_PRIMARY, NAV_SHIFTS, isNavActive } from '@/lib/nav'
 
 const NAV_ITEMS = NAV_PRIMARY
@@ -18,7 +19,12 @@ export function Sidebar() {
   const pathname = usePathname()
   const router = useRouter()
   const { data: shift } = useCurrentShift()
+  const { moduleEnabled } = useClubContext()
   const [collapsed, setCollapsed] = useState(getInitialCollapsed)
+  // Скрываем пункты выключенных у клуба модулей (fail-open: на осн. домене и при
+  // неизвестном статусе moduleEnabled=true). AI-кнопку — по модулю 'ai'.
+  const navItems = NAV_ITEMS.filter((i) => !i.module || moduleEnabled(i.module))
+  const aiEnabled = moduleEnabled('ai')
 
   function handleCloseShift() {
     router.push('/pos?close=1')
@@ -115,7 +121,7 @@ export function Sidebar() {
 
         {/* Nav items */}
         <nav style={{ flex: 1, overflowY: 'auto', padding: collapsed ? '8px 10px' : '8px 12px' }}>
-          {NAV_ITEMS.map(({ href, icon, label }) => {
+          {navItems.map(({ href, icon, label }) => {
             const active = isNavActive(href, pathname)
             return (
               <Link
@@ -149,8 +155,8 @@ export function Sidebar() {
 
         {/* Bottom section */}
         <div style={{ borderTop: '1px solid rgba(255,255,255,0.05)', padding: collapsed ? '12px 10px 24px' : '12px 12px 24px' }}>
-          {/* TITAN AI — отдельная фирменная кнопка ассистента */}
-          {(() => {
+          {/* TITAN AI — отдельная фирменная кнопка ассистента (скрыта, если модуль выкл) */}
+          {aiEnabled && (() => {
             const aiActive = isNavActive('/ai', pathname)
             return (
               <Link

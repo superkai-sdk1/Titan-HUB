@@ -7,11 +7,14 @@ export interface NavItem {
   label: string
   /** Короткая подпись для нижней панели (узкие слоты). По умолчанию = label. */
   short?: string
+  /** Ключ модуля (club_modules): пункт скрывается, если модуль выключен у клуба.
+   *  Отсутствие = всегда показывать (основные модули / одно-клубный режим). */
+  module?: string
 }
 
 export const NAV_PRIMARY: NavItem[] = [
   { href: '/pos',       icon: 'point_of_sale', label: 'Касса' },
-  { href: '/events',    icon: 'event',         label: 'События' },
+  { href: '/events',    icon: 'event',         label: 'События', module: 'events' },
   { href: '/dashboard', icon: 'bar_chart',     label: 'Аналитика', short: 'Отчёты' },
   { href: '/manage',    icon: 'settings',      label: 'Управление', short: 'Меню' },
 ]
