@@ -28,8 +28,8 @@ import {
   desc,
   sql as csql,
 } from '../../../../../packages/database/dist/control/index.js'
-// БД клуба (профиль заведения + владелец) — через основной пакет @titan/database.
-import { getClubDb, profiles, appSettings, and, inArray, isNull } from '@titan/database'
+// БД клуба (профиль заведения + владелец + статистика) — основной пакет @titan/database.
+import { getClubDb, profiles, appSettings, checks, shifts, and, inArray, isNull, count, sql as dsql } from '@titan/database'
 import { hashPassword, hashPin } from '@titan/auth'
 import { buildClubConnString } from '../../lib/clubResolver.js'
 import { provisionClub } from './provisioning.js'
@@ -79,6 +79,71 @@ function platformPlatega(): { merchantId?: string; secret?: string } {
 }
 
 export const superadminClubsRouter = new Hono<SuperadminEnv>()
+
+// Границы периода по МСК (timestamptz): начало текущего дня/месяца.
+const MSK_DAY = dsql`(date_trunc('day', now() AT TIME ZONE 'Europe/Moscow') AT TIME ZONE 'Europe/Moscow')`
+const MSK_MONTH = dsql`(date_trunc('month', now() AT TIME ZONE 'Europe/Moscow') AT TIME ZONE 'Europe/Moscow')`
+
+// GET /overview — сводка платформы для дашборда суперадмина (control-plane).
+superadminClubsRouter.get('/overview', async (c) => {
+  const db = getControlDb()
+  // Клубы + их самая свежая подписка (LATERAL по created_at), как в GET /clubs.
+  const rows = await db
+    .select({
+      status: clubs.status,
+      subStatus: subscriptions.status,
+      subPaidUntil: subscriptions.paidUntil,
+    })
+    .from(clubs)
+    .leftJoin(
+      subscriptions,
+      csql`${subscriptions.id} = (SELECT s.id FROM subscriptions s WHERE s.club_id = ${clubs.id} ORDER BY s.created_at DESC LIMIT 1)`,
+    )
+
+  const now = Date.now()
+  const DAY = 86_400_000
+  let active = 0, suspended = 0, deleted = 0, expiringSoon = 0, overdue = 0, trial = 0
+  for (const r of rows) {
+    if (r.status === 'suspended') suspended++
+    else if (r.status === 'deleted') deleted++
+    else if (r.status === 'active') active++
+    if (r.status !== 'active') continue
+    if (r.subStatus === 'trial') trial++
+    const paid = r.subPaidUntil ? new Date(r.subPaidUntil).getTime() : null
+    if (paid == null) continue
+    if (paid > now && paid - now <= 7 * DAY) expiringSoon++
+    else if (paid <= now) overdue++
+  }
+
+  // Доход от подписок за текущий месяц (subscription_payments, method=manual|platega).
+  const [rev] = await db
+    .select({ sum: csql<string>`coalesce(sum(${subscriptionPayments.amount}::numeric), 0)` })
+    .from(subscriptionPayments)
+    .where(csql`${subscriptionPayments.paidAt} >= ${MSK_MONTH}`)
+
+  // Последние платежи (для ленты на дашборде).
+  const recentPayments = await db
+    .select({
+      clubId: subscriptionPayments.clubId,
+      amount: subscriptionPayments.amount,
+      period: subscriptionPayments.period,
+      method: subscriptionPayments.method,
+      paidAt: subscriptionPayments.paidAt,
+      clubName: clubs.name,
+      clubSlug: clubs.slug,
+    })
+    .from(subscriptionPayments)
+    .leftJoin(clubs, eq(clubs.id, subscriptionPayments.clubId))
+    .orderBy(desc(subscriptionPayments.paidAt))
+    .limit(8)
+
+  return c.json({
+    clubs: { total: rows.length, active, suspended, deleted, trial },
+    subscriptions: { expiringSoon, overdue },
+    revenueMonth: parseFloat(rev?.sum ?? '0') || 0,
+    recentPayments,
+  })
+})
 
 // GET /clubs — список клубов с краткой подпиской/статусом.
 superadminClubsRouter.get('/clubs', async (c) => {
@@ -133,6 +198,46 @@ superadminClubsRouter.get('/clubs/:id', async (c) => {
     .limit(1)
 
   return c.json({ club, modules, subscription: subscription ?? null })
+})
+
+// GET /clubs/:id/overview — операционная статистика клуба (из его app-БД) для
+// вкладки «Обзор». FAIL-SOFT: при недоступности БД клуба отдаём 502, страница
+// покажет заглушку.
+superadminClubsRouter.get('/clubs/:id/overview', async (c) => {
+  const dbc = getControlDb()
+  const id = c.req.param('id')
+  const [club] = await dbc.select().from(clubs).where(eq(clubs.id, id)).limit(1)
+  if (!club) return c.json({ error: 'Клуб не найден' }, 404)
+
+  const clubDb = getClubDb(buildClubConnString(club.dbName))
+  try {
+    const [today] = await clubDb
+      .select({ checks: count(), revenue: dsql<string>`coalesce(sum(${checks.totalAmount}::numeric), 0)` })
+      .from(checks)
+      .where(and(eq(checks.status, 'closed'), dsql`${checks.createdAt} >= ${MSK_DAY}`))
+    const [month] = await clubDb
+      .select({ checks: count(), revenue: dsql<string>`coalesce(sum(${checks.totalAmount}::numeric), 0)` })
+      .from(checks)
+      .where(and(eq(checks.status, 'closed'), dsql`${checks.createdAt} >= ${MSK_MONTH}`))
+    const [openChecks] = await clubDb.select({ n: count() }).from(checks).where(eq(checks.status, 'open'))
+    const [clients] = await clubDb.select({ n: count() }).from(profiles).where(and(eq(profiles.role, 'client'), isNull(profiles.deletedAt)))
+    const [staff] = await clubDb.select({ n: count() }).from(profiles).where(and(inArray(profiles.role, ['owner', 'staff']), isNull(profiles.deletedAt)))
+    const [openShift] = await clubDb.select({ n: count() }).from(shifts).where(eq(shifts.status, 'open'))
+    const [last] = await clubDb.select({ at: dsql<string | null>`max(${checks.createdAt})` }).from(checks)
+
+    return c.json({
+      today: { checks: today?.checks ?? 0, revenue: parseFloat(today?.revenue ?? '0') || 0 },
+      month: { checks: month?.checks ?? 0, revenue: parseFloat(month?.revenue ?? '0') || 0 },
+      openChecks: openChecks?.n ?? 0,
+      clients: clients?.n ?? 0,
+      staff: staff?.n ?? 0,
+      shiftOpen: (openShift?.n ?? 0) > 0,
+      lastActivity: last?.at ?? null,
+    })
+  } catch (e) {
+    console.error('[superadmin] club overview failed', e)
+    return c.json({ error: 'Не удалось получить статистику клуба' }, 502)
+  }
 })
 
 // POST /clubs — провижининг нового клуба (создаёт app-БД + запись в control).

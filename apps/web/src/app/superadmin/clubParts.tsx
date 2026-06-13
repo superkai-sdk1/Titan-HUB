@@ -1,15 +1,18 @@
 'use client'
-// ─── Детали клуба: модули (тогглы), подписка, удаление ─────────────────────────
+// ─── Переиспользуемые формы/блоки клуба (извлечены из старого ClubDetail) ──────
+//
+// Эти компоненты используются и на странице клуба (clubs/[id]), и в мастере
+// создания (new). Логика/стили перенесены verbatim из ClubDetail.tsx.
 import { useEffect, useState } from 'react'
 import { Icon } from '@/components/Icon'
 import { Toggle, ConfirmDialog } from '@/components/manage/DesignSystem'
 import { saApi, SaApiError } from '@/lib/superadminApi'
 import type {
-  ClubDetailResponse,
   ClubModule,
   ModulePatchResult,
   SubscriptionResult,
   SubPeriod,
+  ClubProfileResponse,
 } from './types'
 import { SUB_PERIODS } from './types'
 import {
@@ -20,14 +23,14 @@ import {
   SaButton,
   SaErrorBanner,
   SaBadge,
-  SaSpinner,
-  subStatusView,
-  fmtDate,
 } from './ui'
+
+// Алиас на канонический тип (ClubDetail исторически объявлял локальный).
+export type ClubProfileResp = ClubProfileResponse
 
 // Человекочитаемые названия модулей (ключи совпадают с DEFAULT_ENABLED/DISABLED
 // из provisioning.ts). Fallback — сам ключ.
-const MODULE_LABELS: Record<string, string> = {
+export const MODULE_LABELS: Record<string, string> = {
   pos: 'Касса (POS)',
   menu: 'Меню',
   pricing: 'Тарифы и зоны',
@@ -56,7 +59,7 @@ const MODULE_LABELS: Record<string, string> = {
 }
 
 // Группы модулей (каталоги) для аккуратного вида вместо плоского списка.
-const MODULE_GROUPS: { title: string; keys: string[] }[] = [
+export const MODULE_GROUPS: { title: string; keys: string[] }[] = [
   { title: 'Продажи и POS', keys: ['pos', 'menu', 'pricing', 'spaces'] },
   { title: 'Склад', keys: ['inventory', 'supplies'] },
   { title: 'Клиенты и лояльность', keys: ['clients', 'customers', 'discounts', 'certificates'] },
@@ -66,123 +69,10 @@ const MODULE_GROUPS: { title: string; keys: string[] }[] = [
 ]
 
 // Инфраструктурные модули — скрываем из тогглов (выключать нельзя/незачем).
-const HIDDEN_MODULES = new Set(['system', 'upload', 'auth'])
+export const HIDDEN_MODULES = new Set(['system', 'upload', 'auth'])
 
-function moduleLabel(key: string): string {
+export function moduleLabel(key: string): string {
   return MODULE_LABELS[key] ?? key
-}
-
-interface ClubProfileResp {
-  profile: { venue_name: string; venue_address: string; business_day_start_hour: string }
-  owners: { id: string; nickname: string }[]
-}
-
-export function ClubDetail({
-  clubId,
-  onChanged,
-  onDeleted,
-}: {
-  clubId: string
-  onChanged: () => void
-  onDeleted: () => void
-}) {
-  const [data, setData] = useState<ClubDetailResponse | null>(null)
-  const [profile, setProfile] = useState<ClubProfileResp | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
-
-  async function load() {
-    setLoading(true)
-    setError('')
-    try {
-      const [res, prof] = await Promise.all([
-        saApi.get<ClubDetailResponse>(`/clubs/${clubId}`),
-        // Профиль/владельцы — вторично: не валим экран клуба, если не загрузилось.
-        saApi.get<ClubProfileResp>(`/clubs/${clubId}/profile`).catch(() => null),
-      ])
-      setData(res)
-      setProfile(prof)
-    } catch (e) {
-      setError(e instanceof SaApiError ? e.message : 'Не удалось загрузить клуб')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  useEffect(() => {
-    load()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clubId])
-
-  if (loading && !data) return <SaSpinner label="Загрузка клуба…" />
-  if (error && !data)
-    return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 14, padding: '8px 0' }}>
-        <SaErrorBanner message={error} />
-        <SaButton onClick={load}>Повторить</SaButton>
-      </div>
-    )
-  if (!data) return null
-
-  const { club, modules, subscription } = data
-  const sv = subStatusView(subscription?.status ?? club.subStatus)
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 22 }}>
-      {/* Шапка клуба */}
-      <div>
-        <h3 style={{ fontSize: 18, fontWeight: 800, margin: '0 0 6px', color: 'rgba(255,255,255,0.95)' }}>{club.name}</h3>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
-          <SaBadge tone={sv.tone}>{sv.label}</SaBadge>
-          <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)', fontFamily: "'JetBrains Mono',monospace" }}>{club.slug}</span>
-        </div>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, marginTop: 12 }}>
-          <MetaItem icon="link" label="Поддомен" value={club.subdomain ?? '—'} />
-          <MetaItem icon="schedule" label="Оплачено до" value={fmtDate(subscription?.paidUntil ?? club.subPaidUntil)} />
-        </div>
-      </div>
-
-      {/* Профиль заведения */}
-      <Section title="Профиль заведения">
-        <VenueProfileForm clubId={clubId} profile={profile?.profile ?? null} onSaved={load} />
-      </Section>
-
-      {/* Владелец заведения (вход в клуб) */}
-      <Section title="Владелец">
-        <OwnerSection clubId={clubId} owners={profile?.owners ?? []} onChanged={load} />
-      </Section>
-
-      {/* Модули — по каталогам */}
-      <Section title="Модули">
-        {modules.length === 0 ? (
-          <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.4)', margin: 0 }}>Модули не настроены</p>
-        ) : (
-          <GroupedModules clubId={clubId} modules={modules} onChanged={onChanged} />
-        )}
-      </Section>
-
-      {/* Подписка */}
-      <Section title="Подписка">
-        <SubscriptionForm
-          clubId={clubId}
-          onSaved={() => {
-            load()
-            onChanged()
-          }}
-        />
-      </Section>
-
-      {/* Платёжная ссылка Platega */}
-      <Section title="Ссылка на оплату (Platega)">
-        <PaymentLinkForm clubId={clubId} />
-      </Section>
-
-      {/* Удаление */}
-      <Section title="Опасная зона">
-        <DeleteClub clubName={club.name} clubId={clubId} onDeleted={onDeleted} />
-      </Section>
-    </div>
-  )
 }
 
 // ─── Строка модуля (оптимистичный тоггл с откатом при ошибке) ──────────────────
@@ -237,7 +127,7 @@ function ModuleRow({ clubId, module, onChanged }: { clubId: string; module: Club
 
 // ─── Модули по каталогам ───────────────────────────────────────────────────────
 
-function GroupedModules({ clubId, modules, onChanged }: { clubId: string; modules: ClubModule[]; onChanged: () => void }) {
+export function GroupedModules({ clubId, modules, onChanged }: { clubId: string; modules: ClubModule[]; onChanged: () => void }) {
   const byKey = new Map(modules.map((m) => [m.moduleKey, m]))
   const used = new Set<string>()
   const groups = MODULE_GROUPS.map((g) => ({
@@ -272,7 +162,7 @@ function GroupedModules({ clubId, modules, onChanged }: { clubId: string; module
 
 // ─── Профиль заведения ─────────────────────────────────────────────────────────
 
-function VenueProfileForm({
+export function VenueProfileForm({
   clubId,
   profile,
   onSaved,
@@ -349,7 +239,7 @@ function VenueProfileForm({
 
 // ─── Владелец заведения (первый вход) ───────────────────────────────────────────
 
-function OwnerSection({
+export function OwnerSection({
   clubId,
   owners,
   onChanged,
@@ -436,7 +326,7 @@ function OwnerSection({
 
 // ─── Форма подписки ────────────────────────────────────────────────────────────
 
-function SubscriptionForm({ clubId, onSaved }: { clubId: string; onSaved: () => void }) {
+export function SubscriptionForm({ clubId, onSaved }: { clubId: string; onSaved: () => void }) {
   const [period, setPeriod] = useState<SubPeriod>('1m')
   const [amount, setAmount] = useState('')
   const [loading, setLoading] = useState(false)
@@ -501,7 +391,7 @@ function SubscriptionForm({ clubId, onSaved }: { clubId: string; onSaved: () => 
 
 const PAID_PERIODS = SUB_PERIODS.filter((p) => p.value !== 'trial_7d')
 
-function PaymentLinkForm({ clubId }: { clubId: string }) {
+export function PaymentLinkForm({ clubId }: { clubId: string }) {
   const [period, setPeriod] = useState<Exclude<SubPeriod, 'trial_7d'>>('1m')
   const [amount, setAmount] = useState('')
   const [loading, setLoading] = useState(false)
@@ -579,7 +469,7 @@ function PaymentLinkForm({ clubId }: { clubId: string }) {
 
 // ─── Удаление клуба ────────────────────────────────────────────────────────────
 
-function DeleteClub({ clubId, clubName, onDeleted }: { clubId: string; clubName: string; onDeleted: () => void }) {
+export function DeleteClub({ clubId, clubName, onDeleted }: { clubId: string; clubName: string; onDeleted: () => void }) {
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -624,7 +514,7 @@ function DeleteClub({ clubId, clubName, onDeleted }: { clubId: string; clubName:
 
 // ─── Мелкие вспомогательные элементы ───────────────────────────────────────────
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+export function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div>
       <p
@@ -645,7 +535,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   )
 }
 
-function MetaItem({ icon, label, value }: { icon: string; label: string; value: string }) {
+export function MetaItem({ icon, label, value }: { icon: string; label: string; value: string }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
       <Icon name={icon} size={16} color="rgba(167,139,250,0.7)" />

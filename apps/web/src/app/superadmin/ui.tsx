@@ -327,6 +327,136 @@ export function subscriptionExpiryView(
   return { tone: 'danger', label: `Просрочена ${over} дн. назад` }
 }
 
+// ── Карточка-метрика (дашборд) ──────────────────────────────────────────────────
+
+export function SaStatCard({
+  icon,
+  label,
+  value,
+  hint,
+  tone = 'neutral',
+  onClick,
+}: {
+  icon: string
+  label: string
+  value: React.ReactNode
+  hint?: string
+  tone?: 'ok' | 'warn' | 'danger' | 'violet' | 'neutral'
+  onClick?: () => void
+}) {
+  const accent =
+    tone === 'ok' ? '#34D399'
+    : tone === 'warn' ? '#FBBF24'
+    : tone === 'danger' ? '#FB7185'
+    : tone === 'violet' ? '#A78BFA'
+    : 'rgba(255,255,255,0.6)'
+  return (
+    <div
+      onClick={onClick}
+      className="glass-l2"
+      style={{
+        borderRadius: 18,
+        padding: '16px 18px',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 10,
+        cursor: onClick ? 'pointer' : 'default',
+        transition: 'border-color 0.2s, transform 0.15s',
+      }}
+      onMouseEnter={onClick ? (e) => { e.currentTarget.style.borderColor = 'rgba(139,92,246,0.4)' } : undefined}
+      onMouseLeave={onClick ? (e) => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)' } : undefined}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <div style={{ width: 34, height: 34, borderRadius: 10, background: `${accent}1f`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+          <Icon name={icon} size={18} color={accent} />
+        </div>
+        <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', fontWeight: 600 }}>{label}</span>
+      </div>
+      <div style={{ fontSize: 26, fontWeight: 800, color: 'rgba(255,255,255,0.95)', letterSpacing: '-0.02em', lineHeight: 1 }}>{value}</div>
+      {hint && <div style={{ fontSize: 11.5, color: 'rgba(255,255,255,0.4)' }}>{hint}</div>}
+    </div>
+  )
+}
+
+// ── Вкладки (segmented, для страницы клуба) ──────────────────────────────────────
+
+export function SaTabs<T extends string>({
+  tabs,
+  active,
+  onChange,
+}: {
+  tabs: { key: T; label: string; icon?: string }[]
+  active: T
+  onChange: (key: T) => void
+}) {
+  return (
+    <div style={{ display: 'flex', gap: 4, padding: 4, borderRadius: 14, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)', overflowX: 'auto' }}>
+      {tabs.map((t) => {
+        const on = active === t.key
+        return (
+          <button
+            key={t.key}
+            onClick={() => onChange(t.key)}
+            style={{
+              flex: '1 0 auto',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 7,
+              padding: '10px 14px',
+              borderRadius: 11,
+              border: 'none',
+              cursor: 'pointer',
+              fontSize: 13,
+              fontWeight: 700,
+              whiteSpace: 'nowrap',
+              transition: 'all 0.15s',
+              background: on ? 'linear-gradient(135deg, #8B5CF6, #6366f1)' : 'transparent',
+              color: on ? '#fff' : 'rgba(255,255,255,0.55)',
+            }}
+          >
+            {t.icon && <Icon name={t.icon} size={16} color={on ? '#fff' : 'rgba(255,255,255,0.55)'} />}
+            {t.label}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+// ── Шапка страницы с кнопкой «назад» ─────────────────────────────────────────────
+
+export function SaPageHeader({
+  title,
+  subtitle,
+  onBack,
+  right,
+}: {
+  title: React.ReactNode
+  subtitle?: React.ReactNode
+  onBack?: () => void
+  right?: React.ReactNode
+}) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 18 }}>
+      {onBack && (
+        <button
+          onClick={onBack}
+          aria-label="Назад"
+          style={{ width: 38, height: 38, borderRadius: 11, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.04)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'rgba(255,255,255,0.7)', flexShrink: 0 }}
+        >
+          <Icon name="chevron_left" size={20} />
+        </button>
+      )}
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <h1 style={{ fontSize: 20, fontWeight: 800, margin: 0, letterSpacing: '-0.01em', color: 'rgba(255,255,255,0.95)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title}</h1>
+        {subtitle && <div style={{ fontSize: 12.5, color: 'rgba(255,255,255,0.45)', marginTop: 2 }}>{subtitle}</div>}
+      </div>
+      {right}
+    </div>
+  )
+}
+
 // ── Формат даты ────────────────────────────────────────────────────────────────
 
 export function fmtDate(s: string | null | undefined): string {

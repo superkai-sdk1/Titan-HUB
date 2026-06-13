@@ -19,4 +19,6 @@ superadminRouter.route('/auth', superadminAuthRouter)
 // (список/создание), и /clubs/* (конкретный клуб/модули/подписка).
 superadminRouter.use('/clubs', requireSuperadmin)
 superadminRouter.use('/clubs/*', requireSuperadmin)
+// Сводка платформы для дашборда — тоже строго под requireSuperadmin.
+superadminRouter.use('/overview', requireSuperadmin)
 superadminRouter.route('/', superadminClubsRouter)

@@ -100,6 +100,40 @@ export interface DeleteClubResult {
   club: ClubListItem
 }
 
+// ── Сводки (дашборд) ──────────────────────────────────────────────────────────
+
+export interface RecentPayment {
+  clubId: string
+  amount: string | null
+  period: string | null
+  method: string
+  paidAt: string | null
+  clubName: string | null
+  clubSlug: string | null
+}
+
+export interface PlatformOverview {
+  clubs: { total: number; active: number; suspended: number; deleted: number; trial: number }
+  subscriptions: { expiringSoon: number; overdue: number }
+  revenueMonth: number
+  recentPayments: RecentPayment[]
+}
+
+export interface ClubOverview {
+  today: { checks: number; revenue: number }
+  month: { checks: number; revenue: number }
+  openChecks: number
+  clients: number
+  staff: number
+  shiftOpen: boolean
+  lastActivity: string | null
+}
+
+export interface ClubProfileResponse {
+  profile: { venue_name: string; venue_address: string; business_day_start_hour: string }
+  owners: { id: string; nickname: string }[]
+}
+
 // Периоды подписки (контракт POST /clubs/:id/subscription).
 export type SubPeriod = '1m' | '3m' | '6m' | '12m' | 'trial_7d'
 
