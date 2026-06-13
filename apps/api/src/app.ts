@@ -10,6 +10,7 @@ import { tenantContext } from './middleware/tenant.js'
 import { requireActiveSubscription } from './middleware/subscription.js'
 import { requireModule } from './middleware/module.js'
 import { clubRouter } from './modules/club/club.router.js'
+import { internalRouter } from './modules/internal/internal.router.js'
 
 import { authRouter } from './modules/auth/auth.router.js'
 import { posRouter } from './modules/pos/pos.router.js'
@@ -119,6 +120,10 @@ app.get('/api/health/ready', async (c) => {
 // Публичный контекст клуба (подписка/модули) — ДО энфорсмента подписки, чтобы
 // заблокированный клуб мог прочитать свой статус и показать экран продления.
 app.route('/api/club', clubRouter)
+
+// Внутренний контур (бот-менеджер): конфиги ботов клубов. Защищён общим секретом,
+// не гейтится подпиской (allowlist). Не для браузера.
+app.route('/api/internal', internalRouter)
 
 // Энфорсмент подписки на клуб-поддомене (грейс→блок). На основном домене (club=null)
 // и для allowlist (/api/club, /api/health, /api/superadmin) — пропуск.

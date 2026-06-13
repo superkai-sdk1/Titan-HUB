@@ -18,6 +18,7 @@ function isAllowlisted(path: string): boolean {
     path === '/api/health' ||
     path.startsWith('/api/health/') ||
     path.startsWith('/api/club') ||
+    path.startsWith('/api/internal') ||
     path.startsWith('/api/superadmin')
   )
 }
