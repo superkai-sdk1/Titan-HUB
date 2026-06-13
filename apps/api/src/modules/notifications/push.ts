@@ -2,10 +2,13 @@ import webpush from 'web-push'
 import { Redis } from 'ioredis'
 import {
   db, notifications, userNotificationSettings, pushSubscriptions, profiles,
-  eq, and, inArray, isNull, desc, gt, sql,
+  eq, and, inArray, isNull, desc, gt, sql, type Database,
 } from '@titan/database'
 
 const NOTIF_CHANNEL = 'titan:staff-notifications'
+
+// Переходный режим: пер-клубный db передаётся параметром, дефолт — модульный синглтон.
+type DbLike = Database
 
 // ── Deep-link: единая карта «тип+meta → экран приложения» ──────────────────────
 // Используется и для in-app перехода (meta.url хранится в записи), и для PWA-push.
@@ -137,9 +140,9 @@ async function sendWallet(tgId: string, text: string): Promise<void> {
   }
 }
 
-export async function notifyClient(profileId: string, text: string): Promise<void> {
+export async function notifyClient(profileId: string, text: string, database: DbLike = db): Promise<void> {
   try {
-    const [p] = await db
+    const [p] = await database
       .select({ tgId: profiles.tgId, on: profiles.walletNotifyEnabled })
       .from(profiles)
       .where(eq(profiles.id, profileId))
@@ -176,6 +179,7 @@ function isTypeEnabledForUser(
 async function sendToSubscription(
   sub: { id: string; endpoint: string; p256dh: string; auth: string },
   payload: string,
+  database: DbLike = db,
 ): Promise<void> {
   if (!pushEnabled) return
   try {
@@ -187,7 +191,7 @@ async function sendToSubscription(
     const status = err?.statusCode
     if (status === 404 || status === 410) {
       // Подписка протухла — чистим, чтобы не слать впустую.
-      await db.delete(pushSubscriptions).where(eq(pushSubscriptions.id, sub.id)).catch(() => {})
+      await database.delete(pushSubscriptions).where(eq(pushSubscriptions.id, sub.id)).catch(() => {})
     } else {
       console.warn('[push] sendNotification error:', status, err?.body ?? err?.message ?? err)
     }
@@ -215,13 +219,14 @@ function buildPushPayload(opts: {
 async function sendWebPushToUser(
   userId: string,
   payload: string,
+  database: DbLike = db,
 ): Promise<void> {
   if (!pushEnabled) return
-  const subs = await db
+  const subs = await database
     .select()
     .from(pushSubscriptions)
     .where(eq(pushSubscriptions.userId, userId))
-  await Promise.all(subs.map((s) => sendToSubscription(s, payload)))
+  await Promise.all(subs.map((s) => sendToSubscription(s, payload, database)))
 }
 
 /**
@@ -239,7 +244,7 @@ export async function notify(opts: {
   body: string
   meta?: Record<string, unknown>
   userId?: string | null
-}): Promise<void> {
+}, database: DbLike = db): Promise<void> {
   const targetUserId = opts.userId ?? null
   try {
     // 0) Обогащаем meta: deep-link url + ключ группировки «по объекту».
@@ -254,7 +259,7 @@ export async function notify(opts: {
     let row
     if (gk) {
       baseMeta['groupKey'] = gk
-      const [existing] = await db
+      const [existing] = await database
         .select()
         .from(notifications)
         .where(and(
@@ -267,7 +272,7 @@ export async function notify(opts: {
       if (existing) {
         const prevCount = Number((existing.meta as Record<string, unknown> | null)?.['count'] ?? 1)
         const mergedMeta = { ...baseMeta, count: prevCount + 1 }
-        ;[row] = await db
+        ;[row] = await database
           .update(notifications)
           .set({ title: opts.title, body: opts.body, meta: mergedMeta, isRead: false, createdAt: new Date() })
           .where(eq(notifications.id, existing.id))
@@ -275,7 +280,7 @@ export async function notify(opts: {
       }
     }
     if (!row) {
-      ;[row] = await db
+      ;[row] = await database
         .insert(notifications)
         .values({
           type: opts.type,
@@ -320,8 +325,8 @@ export async function notify(opts: {
     if (opts.type === 'test') {
       if (targetUserId) {
         const payload = buildPushPayload(opts)
-        if (pushEnabled) await sendWebPushToUser(targetUserId, payload)
-        const [p] = await db.select({ tgId: profiles.tgId }).from(profiles).where(eq(profiles.id, targetUserId))
+        if (pushEnabled) await sendWebPushToUser(targetUserId, payload, database)
+        const [p] = await database.select({ tgId: profiles.tgId }).from(profiles).where(eq(profiles.id, targetUserId))
         if (p?.tgId) await sendTelegram(p.tgId, tgText)
       }
       return
@@ -332,7 +337,7 @@ export async function notify(opts: {
     if (targetUserId) {
       recipientIds = [targetUserId]
     } else {
-      const staff = await db
+      const staff = await database
         .select({ id: profiles.id })
         .from(profiles)
         .where(and(inArray(profiles.role, ['owner', 'staff']), isNull(profiles.deletedAt)))
@@ -341,12 +346,12 @@ export async function notify(opts: {
     if (!recipientIds.length) return
 
     // Настройки типов + tgId получателей одним проходом.
-    const settingsRows = await db
+    const settingsRows = await database
       .select()
       .from(userNotificationSettings)
       .where(inArray(userNotificationSettings.userId, recipientIds))
     const settingsByUser = new Map(settingsRows.map((s) => [s.userId, s]))
-    const profRows = await db
+    const profRows = await database
       .select({ id: profiles.id, tgId: profiles.tgId })
       .from(profiles)
       .where(inArray(profiles.id, recipientIds))
@@ -356,7 +361,7 @@ export async function notify(opts: {
     if (pushEnabled) {
       const payload = buildPushPayload(opts)
       const enabledIds = recipientIds.filter((uid) => isTypeEnabledForUser(opts.type, settingsByUser.get(uid)))
-      await Promise.all(enabledIds.map((uid) => sendWebPushToUser(uid, payload)))
+      await Promise.all(enabledIds.map((uid) => sendWebPushToUser(uid, payload, database)))
     }
 
     // Telegram — по настройке telegram + наличию привязки.

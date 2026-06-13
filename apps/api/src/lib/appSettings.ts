@@ -1,13 +1,20 @@
-import { db, appSettings, eq } from '@titan/database'
+import { db, appSettings, eq, type Database } from '@titan/database'
+
+// Пер-клубный db (Фаза 1): сервис принимает БД арендатора. Параметр опционален и
+// по умолчанию = синглтон — это переходный режим: немигрированные вызывающие
+// работают как раньше (на основном домене синглтон === c.var.db, поведение
+// идентично). Перед включением клуб-поддоменов параметр станет обязательным
+// (компилятор поймает забытых вызывающих = защита от cross-tenant утечки).
+type DbLike = Database
 
 /**
  * Числовая настройка из app_settings с дефолтом. Используется для настраиваемых
  * порогов (крупный чек / крупный возврат и т.п.). Никогда не бросает — при любой
  * ошибке/отсутствии возвращает дефолт.
  */
-export async function getNumericSetting(key: string, fallback: number): Promise<number> {
+export async function getNumericSetting(key: string, fallback: number, database: DbLike = db): Promise<number> {
   try {
-    const [row] = await db.select({ value: appSettings.value }).from(appSettings).where(eq(appSettings.key, key))
+    const [row] = await database.select({ value: appSettings.value }).from(appSettings).where(eq(appSettings.key, key))
     const n = parseFloat(String(row?.value ?? ''))
     return Number.isFinite(n) && n >= 0 ? n : fallback
   } catch {
@@ -16,9 +23,9 @@ export async function getNumericSetting(key: string, fallback: number): Promise<
 }
 
 // Булева настройка из app_settings ('1'/'true' → true). При ошибке → дефолт.
-export async function getBoolSetting(key: string, fallback = false): Promise<boolean> {
+export async function getBoolSetting(key: string, fallback = false, database: DbLike = db): Promise<boolean> {
   try {
-    const [row] = await db.select({ value: appSettings.value }).from(appSettings).where(eq(appSettings.key, key))
+    const [row] = await database.select({ value: appSettings.value }).from(appSettings).where(eq(appSettings.key, key))
     if (row?.value == null) return fallback
     const v = String(row.value).trim().toLowerCase()
     return v === '1' || v === 'true' || v === 'on' || v === 'yes'

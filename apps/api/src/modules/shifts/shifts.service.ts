@@ -1,8 +1,11 @@
-import { db, shifts, checks, checkPayments, cashOperations, refunds, profiles, eq, and, isNull, sql, desc, sum } from '@titan/database'
+import { db, shifts, checks, checkPayments, cashOperations, refunds, profiles, eq, and, isNull, sql, desc, sum, type Database } from '@titan/database'
 import { notify } from '../notifications/push.js'
 
-export async function getCurrentShift() {
-  const [shift] = await db
+// Переходный режим: пер-клубный db передаётся параметром, дефолт — модульный синглтон.
+type DbLike = Database
+
+export async function getCurrentShift(database: DbLike = db) {
+  const [shift] = await database
     .select()
     .from(shifts)
     .where(eq(shifts.status, 'open'))
@@ -17,13 +20,13 @@ export async function openShift(data: {
   eveningType: string
   note?: string
   adjustmentReason?: string
-}) {
-  const existing = await getCurrentShift()
+}, database: DbLike = db) {
+  const existing = await getCurrentShift(database)
   if (existing) throw new Error('Shift already open')
 
   // Касса сводится непрерывно: ожидаемый старт = cashEnd прошлой смены.
   // Если прошлой смены нет — расхождения быть не может (старт = факт).
-  const lastCashEnd = await getLastShiftCashEnd()
+  const lastCashEnd = await getLastShiftCashEnd(database)
   const hadPriorShift = lastCashEnd !== null
   const expectedStart = lastCashEnd ?? data.cashStart
   const counted = data.cashStart
@@ -37,7 +40,7 @@ export async function openShift(data: {
 
   let shift
   try {
-    shift = await db.transaction(async (tx) => {
+    shift = await database.transaction(async (tx) => {
       const [created] = await tx
         .insert(shifts)
         .values({
@@ -76,18 +79,18 @@ export async function openShift(data: {
     type: 'shift_open',
     title: 'Смена открыта',
     body: `Касса на старте: ${expectedStart} ₽`,
-  }).catch(() => {})
+  }, database).catch(() => {})
 
   return shift
 }
 
-export async function closeShift(shiftId: string, closedBy: string, cashEnd: number, adjustmentReason?: string) {
+export async function closeShift(shiftId: string, closedBy: string, cashEnd: number, adjustmentReason?: string, database: DbLike = db) {
   const counted = cashEnd
   // Всё в ОДНОЙ транзакции с блокировкой строки смены (FOR UPDATE): повторно
   // проверяем статус и отсутствие открытых чеков и считаем остаток ПОД блокировкой —
   // иначе параллельная оплата чека (в т.ч. webhook Platega) могла закрыть смену с
   // «потерянным» чеком и заниженным cashEnd, либо смену закрывали дважды.
-  const { updated, diff } = await db.transaction(async (tx) => {
+  const { updated, diff } = await database.transaction(async (tx) => {
     const [shift] = await tx.select().from(shifts).where(eq(shifts.id, shiftId)).for('update')
     if (!shift) throw new Error('Shift not found')
     if (shift.status !== 'open') throw new Error('Shift already closed')
@@ -127,25 +130,25 @@ export async function closeShift(shiftId: string, closedBy: string, cashEnd: num
     type: 'shift_close',
     title: 'Смена закрыта',
     body: `Касса: ${counted} ₽`,
-  }).catch(() => {})
+  }, database).catch(() => {})
   if (diff !== 0) {
     void notify({
       type: 'cash_discrepancy',
       title: 'Расхождение в кассе',
       body: `${diff > 0 ? 'Излишек (внесение)' : 'Недостача (изъятие)'}: ${Math.abs(diff)} ₽`,
-    }).catch(() => {})
+    }, database).catch(() => {})
   }
 
   return updated
 }
 
-export async function getBirthdaysToday() {
+export async function getBirthdaysToday(database: DbLike = db) {
   // Дата по Москве (UTC+3). birthday — свободный text: сравниваем MM-DD через
   // substring (без ::date), чтобы битая строка не уронила запрос.
   const msk = new Date(Date.now() + 3 * 3600 * 1000)
   const mm = String(msk.getUTCMonth() + 1).padStart(2, '0')
   const dd = String(msk.getUTCDate()).padStart(2, '0')
-  const rows = await db.select({
+  const rows = await database.select({
     id: profiles.id,
     nickname: profiles.nickname,
     birthday: profiles.birthday,
@@ -224,8 +227,8 @@ export async function getShiftCashBalance(shiftId: string, exec: any = db) {
   return { expected, cashStart, cashPayments, deposits, withdrawals, salaries, cashRefundTotal }
 }
 
-export async function getShiftAnalytics(shiftId: string) {
-  const shiftChecks = await db
+export async function getShiftAnalytics(shiftId: string, database: DbLike = db) {
+  const shiftChecks = await database
     .select()
     .from(checks)
     .where(and(eq(checks.shiftId, shiftId), eq(checks.status, 'closed')))
@@ -233,7 +236,7 @@ export async function getShiftAnalytics(shiftId: string) {
   const totalRevenue = shiftChecks.reduce((s, c) => s + parseFloat(c.totalAmount), 0)
   const checksCount = shiftChecks.length
 
-  const payments = await db
+  const payments = await database
     .select({ method: checkPayments.method, total: sum(checkPayments.amount) })
     .from(checkPayments)
     .innerJoin(checks, eq(checks.id, checkPayments.checkId))
@@ -243,8 +246,8 @@ export async function getShiftAnalytics(shiftId: string) {
   return { totalRevenue, checksCount, avgCheck: checksCount ? totalRevenue / checksCount : 0, payments }
 }
 
-export async function getLastShiftCashEnd(): Promise<number | null> {
-  const [row] = await db
+export async function getLastShiftCashEnd(database: DbLike = db): Promise<number | null> {
+  const [row] = await database
     .select({ cashEnd: shifts.cashEnd })
     .from(shifts)
     .where(eq(shifts.status, 'closed'))
@@ -254,9 +257,9 @@ export async function getLastShiftCashEnd(): Promise<number | null> {
   return parseFloat(String(row.cashEnd)) || null
 }
 
-export async function getShiftHistory(page = 1, limit = 20) {
+export async function getShiftHistory(page = 1, limit = 20, database: DbLike = db) {
   const offset = (page - 1) * limit
-  const rows = await db
+  const rows = await database
     .select({
       shift: shifts,
       openedByNickname: profiles.nickname,
