@@ -10,19 +10,20 @@ import { randomInt } from 'crypto'
 import type { AppEnv } from '../../types.js'
 import { notify, NOTIFICATION_TYPES } from './push.js'
 import { round2, computeRental } from '../../lib/money.js'
-
-const NOTIF_CHANNEL = 'titan:staff-notifications'
+import { notifChannel } from '../../lib/realtime.js'
 
 // Сохранена ради совместимости вызовов в этом роутере: делегирует в notify(),
 // который пишет в БД, публикует в SSE и шлёт web push персоналу. Возвращает
 // «псевдо-строку» уведомления для ответа клиенту (id здесь не используется в UI).
+// clubId прокидывается в notify → публикация в notifChannel(clubId) (изоляция
+// канала по клубу; на основном домене → 'default').
 async function publishStaffNotification(payload: {
   type: string
   title: string
   body: string
   meta?: Record<string, unknown>
-}, database: Database) {
-  await notify({ ...payload }, database)
+}, database: Database, clubId?: string | null) {
+  await notify({ ...payload }, database, clubId)
   return {
     type: payload.type,
     title: payload.title,
@@ -37,14 +38,17 @@ notificationsRouter.use('*', requireAuth)
 
 // ── SSE-стрим для staff/owner ────────────────────────────────────────────
 notificationsRouter.get('/stream', requireRole('owner', 'staff'), async (c) => {
+  // Канал уведомлений персонала — пер-клубный: суффикс по c.var.club?.id (на
+  // основном домене → 'default'). Тот же канал, что использует notify() при publish.
+  const channel = notifChannel(c.var.club?.id)
   return streamSSE(c, async (stream) => {
     const redis = new Redis(process.env['REDIS_URL'] ?? 'redis://redis:6379')
     let closed = false
 
-    await redis.subscribe(NOTIF_CHANNEL).catch(() => {})
+    await redis.subscribe(channel).catch(() => {})
 
-    redis.on('message', async (channel, message) => {
-      if (closed || channel !== NOTIF_CHANNEL) return
+    redis.on('message', async (ch, message) => {
+      if (closed || ch !== channel) return
       try {
         await stream.writeSSE({ data: message })
       } catch {}
@@ -58,7 +62,7 @@ notificationsRouter.get('/stream', requireRole('owner', 'staff'), async (c) => {
     stream.onAbort(() => {
       closed = true
       clearInterval(hb)
-      redis.unsubscribe(NOTIF_CHANNEL).catch(() => {})
+      redis.unsubscribe(channel).catch(() => {})
       redis.disconnect()
     })
 
@@ -101,7 +105,7 @@ notificationsRouter.post(
       title: `Вызов: ${spaceName}`,
       body: body.message ?? 'Гость запросил помощь',
       meta: { spaceId: resolvedSpaceId, fromTabletId: user.sub },
-    }, db)
+    }, db, c.var.club?.id)
 
     return c.json({ ok: true, notification }, 201)
   },
@@ -142,7 +146,7 @@ notificationsRouter.post(
       title: spaceName ? `Запрос счёта: ${spaceName}` : 'Запрос счёта',
       body: `Сумма: ${grandTotal.toLocaleString('ru')} ₽${rentalNote}`,
       meta: { checkId, spaceId: check.spaceId, fromTabletId: user.sub },
-    }, db)
+    }, db, c.var.club?.id)
 
     return c.json({ ok: true, notification }, 201)
   },
@@ -309,7 +313,7 @@ notificationsRouter.post('/push/test', async (c) => {
     title: 'Titan HUB',
     body: 'Тестовое уведомление 🔔',
     userId: user.sub,
-  }, db).catch(() => {})
+  }, db, c.var.club?.id).catch(() => {})
   return c.json({ ok: true })
 })
 

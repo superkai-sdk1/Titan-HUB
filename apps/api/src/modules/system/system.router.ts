@@ -6,13 +6,14 @@ import { appSettings, eveningTypes, eq } from '@titan/database'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
 import { getCurrentShift } from '../shifts/shifts.service.js'
 import { Redis } from 'ioredis'
+import { updatesChannel } from '../../lib/realtime.js'
 import { createBackup, listBackups, lastBackup, restoreNamed, restoreFromUpload, rcloneConfigured } from '../../lib/backup.js'
 
 export const systemRouter = new Hono<AppEnv>()
 
 systemRouter.get('/info', requireAuth, async (c) => {
   const db = c.var.db
-  const shift = await getCurrentShift()
+  const shift = await getCurrentShift(db)
 
   // Название вечера открытой смены: shift.eveningType — это ключ справочника
   // evening_types; резолвим в человекочитаемый label ('none' → «Без вечера»).
@@ -75,9 +76,11 @@ systemRouter.get('/update', requireAuth, requireRole('owner', 'staff'), async (c
     return writer.write(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`))
   }
 
-  // Subscribe to Redis channel
+  // Subscribe to Redis channel (пер-клубный: суффикс по c.var.club?.id, на
+  // основном домене → 'default'; sub и pub используют один канал).
+  const channel = updatesChannel(c.var.club?.id)
   const subscriber = new Redis(process.env['REDIS_URL'] ?? 'redis://redis:6379')
-  await subscriber.subscribe('titan:updates')
+  await subscriber.subscribe(channel)
 
   subscriber.on('message', (_channel: string, message: string) => {
     try {
@@ -96,7 +99,7 @@ systemRouter.get('/update', requireAuth, requireRole('owner', 'staff'), async (c
 
   c.req.raw.signal.addEventListener('abort', () => {
     clearInterval(interval)
-    subscriber.unsubscribe('titan:updates').catch(() => {})
+    subscriber.unsubscribe(channel).catch(() => {})
     subscriber.disconnect()
     writer.close().catch(() => {})
   })

@@ -4,8 +4,7 @@ import {
   db, notifications, userNotificationSettings, pushSubscriptions, profiles,
   eq, and, inArray, isNull, desc, gt, sql, type Database,
 } from '@titan/database'
-
-const NOTIF_CHANNEL = 'titan:staff-notifications'
+import { notifChannel } from '../../lib/realtime.js'
 
 // Переходный режим: пер-клубный db передаётся параметром, дефолт — модульный синглтон.
 type DbLike = Database
@@ -140,7 +139,10 @@ async function sendWallet(tgId: string, text: string): Promise<void> {
   }
 }
 
-export async function notifyClient(profileId: string, text: string, database: DbLike = db): Promise<void> {
+// clubId — опциональный (для единообразия API; notifyClient шлёт лично клиенту
+// через Wallet-бот и в Redis-канал персонала не публикует, поэтому здесь не
+// используется). Не передан → поведение как прежде.
+export async function notifyClient(profileId: string, text: string, database: DbLike, _clubId?: string | null): Promise<void> {
   try {
     const [p] = await database
       .select({ tgId: profiles.tgId, on: profiles.walletNotifyEnabled })
@@ -179,7 +181,7 @@ function isTypeEnabledForUser(
 async function sendToSubscription(
   sub: { id: string; endpoint: string; p256dh: string; auth: string },
   payload: string,
-  database: DbLike = db,
+  database: DbLike,
 ): Promise<void> {
   if (!pushEnabled) return
   try {
@@ -219,7 +221,7 @@ function buildPushPayload(opts: {
 async function sendWebPushToUser(
   userId: string,
   payload: string,
-  database: DbLike = db,
+  database: DbLike,
 ): Promise<void> {
   if (!pushEnabled) return
   const subs = await database
@@ -244,7 +246,7 @@ export async function notify(opts: {
   body: string
   meta?: Record<string, unknown>
   userId?: string | null
-}, database: DbLike = db): Promise<void> {
+}, database: DbLike, clubId?: string | null): Promise<void> {
   const targetUserId = opts.userId ?? null
   try {
     // 0) Обогащаем meta: deep-link url + ключ группировки «по объекту».
@@ -299,8 +301,10 @@ export async function notify(opts: {
       const redis = getNotifRedis()
       try {
         await redis.connect()
+        // Канал — пер-клубный: суффикс по clubId (на основном домене/без clubId
+        // → 'default'). SSE-подписчик в notifications.router использует тот же канал.
         await redis.publish(
-          NOTIF_CHANNEL,
+          notifChannel(clubId),
           JSON.stringify({
             id: row.id,
             type: row.type,

@@ -136,7 +136,7 @@ suppliesRouter.post('/', requireRole('owner', 'staff'), zValidator('json', Suppl
     title: 'Приход на склад',
     body: supBody,
     meta: { supplyId: supply.id },
-  }).catch(() => {})
+  }, db, c.var.club?.id).catch(() => {})
 
   return c.json({ supply }, 201)
 })
@@ -228,7 +228,7 @@ suppliesRouter.post('/:id/apply', requireRole('owner', 'staff'), zValidator('jso
   })
   if (res === 'not_found') return c.json({ error: 'Not found' }, 404)
   if (res === 'not_draft') return c.json({ error: 'Приёмка уже проведена' }, 409)
-  void notify({ type: 'supply_received', title: 'Приход на склад', body: `${body.items.length} поз. · ${totalCost.toLocaleString('ru')} ₽`, meta: { supplyId: id } }).catch(() => {})
+  void notify({ type: 'supply_received', title: 'Приход на склад', body: `${body.items.length} поз. · ${totalCost.toLocaleString('ru')} ₽`, meta: { supplyId: id } }, db, c.var.club?.id).catch(() => {})
   return c.json({ supply: { id }, posted: true })
 })
 

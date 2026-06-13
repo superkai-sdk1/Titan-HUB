@@ -4,7 +4,7 @@ import { notify } from '../notifications/push.js'
 // Переходный режим: пер-клубный db передаётся параметром, дефолт — модульный синглтон.
 type DbLike = Database
 
-export async function getCurrentShift(database: DbLike = db) {
+export async function getCurrentShift(database: DbLike) {
   const [shift] = await database
     .select()
     .from(shifts)
@@ -20,7 +20,7 @@ export async function openShift(data: {
   eveningType: string
   note?: string
   adjustmentReason?: string
-}, database: DbLike = db) {
+}, database: DbLike) {
   const existing = await getCurrentShift(database)
   if (existing) throw new Error('Shift already open')
 
@@ -84,7 +84,7 @@ export async function openShift(data: {
   return shift
 }
 
-export async function closeShift(shiftId: string, closedBy: string, cashEnd: number, adjustmentReason?: string, database: DbLike = db) {
+export async function closeShift(shiftId: string, closedBy: string, cashEnd: number, adjustmentReason: string | undefined, database: DbLike) {
   const counted = cashEnd
   // Всё в ОДНОЙ транзакции с блокировкой строки смены (FOR UPDATE): повторно
   // проверяем статус и отсутствие открытых чеков и считаем остаток ПОД блокировкой —
@@ -142,7 +142,7 @@ export async function closeShift(shiftId: string, closedBy: string, cashEnd: num
   return updated
 }
 
-export async function getBirthdaysToday(database: DbLike = db) {
+export async function getBirthdaysToday(database: DbLike) {
   // Дата по Москве (UTC+3). birthday — свободный text: сравниваем MM-DD через
   // substring (без ::date), чтобы битая строка не уронила запрос.
   const msk = new Date(Date.now() + 3 * 3600 * 1000)
@@ -164,7 +164,7 @@ export async function getBirthdaysToday(database: DbLike = db) {
 
 // exec — db или активная транзакция (tx). Позволяет считать остаток ВНУТРИ
 // транзакции закрытия смены (под блокировкой строки), без отдельного соединения.
-export async function getShiftCashBalance(shiftId: string, exec: any = db) {
+export async function getShiftCashBalance(shiftId: string, exec: any) {
   const [shift] = await exec.select().from(shifts).where(eq(shifts.id, shiftId))
   if (!shift) return { expected: 0, cashStart: 0 }
 
@@ -227,7 +227,7 @@ export async function getShiftCashBalance(shiftId: string, exec: any = db) {
   return { expected, cashStart, cashPayments, deposits, withdrawals, salaries, cashRefundTotal }
 }
 
-export async function getShiftAnalytics(shiftId: string, database: DbLike = db) {
+export async function getShiftAnalytics(shiftId: string, database: DbLike) {
   const shiftChecks = await database
     .select()
     .from(checks)
@@ -246,7 +246,7 @@ export async function getShiftAnalytics(shiftId: string, database: DbLike = db) 
   return { totalRevenue, checksCount, avgCheck: checksCount ? totalRevenue / checksCount : 0, payments }
 }
 
-export async function getLastShiftCashEnd(database: DbLike = db): Promise<number | null> {
+export async function getLastShiftCashEnd(database: DbLike): Promise<number | null> {
   const [row] = await database
     .select({ cashEnd: shifts.cashEnd })
     .from(shifts)
@@ -257,7 +257,7 @@ export async function getLastShiftCashEnd(database: DbLike = db): Promise<number
   return parseFloat(String(row.cashEnd)) || null
 }
 
-export async function getShiftHistory(page = 1, limit = 20, database: DbLike = db) {
+export async function getShiftHistory(page = 1, limit = 20, database: DbLike) {
   const offset = (page - 1) * limit
   const rows = await database
     .select({

@@ -245,7 +245,7 @@ refundsRouter.post('/', requireRole('owner', 'staff'), zValidator('json', Refund
 
     // Уведомление вне денежной транзакции (fire-and-forget, не блокирует ответ).
     const refundAmt = parseFloat(String(refund?.totalAmount ?? 0)) || 0
-    const largeRefund = await getNumericSetting(LARGE_REFUND_KEY, DEFAULT_LARGE_REFUND)
+    const largeRefund = await getNumericSetting(LARGE_REFUND_KEY, DEFAULT_LARGE_REFUND, db)
     const isLargeRefund = refundAmt >= largeRefund
     const refundReason = ({ return: 'возврат', exchange: 'обмен', discount: 'скидка', damage: 'брак' } as Record<string, string>)[body.reason] ?? body.reason
     void notify({
@@ -253,7 +253,7 @@ refundsRouter.post('/', requireRole('owner', 'staff'), zValidator('json', Refund
       title: isLargeRefund ? 'Крупный возврат' : 'Возврат',
       body: `${refundAmt.toLocaleString('ru')} ₽ · причина: ${refundReason}`,
       meta: { checkId: body.checkId },
-    }).catch(() => {})
+    }, db, c.var.club?.id).catch(() => {})
 
     return c.json({ refund }, 201)
   } catch (err: any) {

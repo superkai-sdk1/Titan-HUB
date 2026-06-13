@@ -1,6 +1,5 @@
 import type { AppEnv } from '../../types.js'
 import { Hono } from 'hono'
-import { Redis } from 'ioredis'
 import { timingSafeEqual } from 'node:crypto'
 import {
   checks, checkItems, checkItemModifiers, checkDiscounts, spaces,
@@ -9,16 +8,10 @@ import {
 } from '@titan/database'
 import { accrueBonusLot, getBonusExpiryDays } from '../../lib/bonusLots.js'
 import { round2, computeRental, computeTotals } from '../../lib/money.js'
+import { publishEvent } from '../../lib/realtime.js'
 
 // Сумма по позициям — общий computeTotals из lib/money.js (один источник правды).
 
-
-function publishEvent(event: string, data: unknown) {
-  const redis = new Redis(process.env['REDIS_URL'] ?? 'redis://redis:6379')
-  redis.publish('titan:updates', JSON.stringify({ event, data, ts: Date.now() }))
-    .finally(() => redis.disconnect())
-    .catch(() => {})
-}
 
 // Сравнение строк за постоянное время (защита от timing-атак).
 function safeEqual(a: string | undefined | null, b: string | undefined | null): boolean {
@@ -258,8 +251,8 @@ plategaRouter.post('/webhook', async (c) => {
   }
 
   if (didClose) {
-    publishEvent('platega:confirmed', { transactionId, checkId })
-    publishEvent('check:closed', { checkId })
+    publishEvent(c.var.club?.id, 'platega:confirmed', { transactionId, checkId })
+    publishEvent(c.var.club?.id, 'check:closed', { checkId })
   }
   return c.json({ ok: true })
 })

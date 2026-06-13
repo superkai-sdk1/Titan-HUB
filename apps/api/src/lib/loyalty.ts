@@ -13,7 +13,7 @@ export const RESIDENT_VISIT_THRESHOLD = 10
 export const STARTER_TIER = 'newbie'
 
 // Число посещений = различные бизнес-дни с закрытым чеком + ручные корректировки.
-export async function countVisits(profileId: string, database: DbLike = db): Promise<number> {
+export async function countVisits(profileId: string, database: DbLike): Promise<number> {
   const res: any = await database.execute(sql`
     SELECT count(distinct date_trunc('day', (created_at AT TIME ZONE 'Europe/Moscow') - interval '9 hours'))::int AS n
     FROM checks
@@ -33,7 +33,7 @@ export interface VisitProgress {
   remaining: number
   isResident: boolean
 }
-export async function visitProgress(profileId: string, database: DbLike = db): Promise<VisitProgress> {
+export async function visitProgress(profileId: string, database: DbLike): Promise<VisitProgress> {
   const [p] = await database.select({ tier: profiles.clientTier }).from(profiles).where(eq(profiles.id, profileId))
   const tier = p?.tier ?? STARTER_TIER
   const visits = await countVisits(profileId, database)
@@ -50,7 +50,7 @@ export async function visitProgress(profileId: string, database: DbLike = db): P
 // Авто-повышение Новичок→Резидент при достижении порога. Вызывать после оплаты
 // чека и после ручной корректировки посещений. Возвращает { promoted } — true,
 // если статус только что сменился (для уведомления).
-export async function maybePromoteToResident(profileId: string, database: DbLike = db): Promise<{ promoted: boolean }> {
+export async function maybePromoteToResident(profileId: string, database: DbLike): Promise<{ promoted: boolean }> {
   const [p] = await database.select({ tier: profiles.clientTier }).from(profiles).where(eq(profiles.id, profileId))
   if (!p || p.tier !== STARTER_TIER) return { promoted: false }
   const visits = await countVisits(profileId, database)

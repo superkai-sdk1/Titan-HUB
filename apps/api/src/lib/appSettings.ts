@@ -5,14 +5,16 @@ import { db, appSettings, eq, type Database } from '@titan/database'
 // работают как раньше (на основном домене синглтон === c.var.db, поведение
 // идентично). Перед включением клуб-поддоменов параметр станет обязательным
 // (компилятор поймает забытых вызывающих = защита от cross-tenant утечки).
-type DbLike = Database
+// Допускаем и корневой db, и транзакцию (tx): настройки читаются и вне, и внутри
+// денежной транзакции (напр. applyStaffComp в /pay). Чтение в tx корректно.
+type DbLike = Database | Parameters<Parameters<Database['transaction']>[0]>[0]
 
 /**
  * Числовая настройка из app_settings с дефолтом. Используется для настраиваемых
  * порогов (крупный чек / крупный возврат и т.п.). Никогда не бросает — при любой
  * ошибке/отсутствии возвращает дефолт.
  */
-export async function getNumericSetting(key: string, fallback: number, database: DbLike = db): Promise<number> {
+export async function getNumericSetting(key: string, fallback: number, database: DbLike): Promise<number> {
   try {
     const [row] = await database.select({ value: appSettings.value }).from(appSettings).where(eq(appSettings.key, key))
     const n = parseFloat(String(row?.value ?? ''))
@@ -23,7 +25,7 @@ export async function getNumericSetting(key: string, fallback: number, database:
 }
 
 // Булева настройка из app_settings ('1'/'true' → true). При ошибке → дефолт.
-export async function getBoolSetting(key: string, fallback = false, database: DbLike = db): Promise<boolean> {
+export async function getBoolSetting(key: string, fallback = false, database: DbLike): Promise<boolean> {
   try {
     const [row] = await database.select({ value: appSettings.value }).from(appSettings).where(eq(appSettings.key, key))
     if (row?.value == null) return fallback

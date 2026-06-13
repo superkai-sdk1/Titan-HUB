@@ -17,15 +17,9 @@ import { maybePromoteToResident } from '../../lib/loyalty.js'
 import { accrueBonusLot, spendBonusLots, getBonusExpiryDays } from '../../lib/bonusLots.js'
 import { getNumericSetting, LARGE_CHECK_KEY, DEFAULT_LARGE_CHECK, getBoolSetting, STAFF_DISCOUNT_KEY, STAFF_MAX_DISCOUNT_KEY, DEFAULT_STAFF_MAX_DISCOUNT } from '../../lib/appSettings.js'
 import { round2, computeRental, computeTotals } from '../../lib/money.js'
+import { publishEvent, updatesChannel } from '../../lib/realtime.js'
 import { Redis } from 'ioredis'
 import { streamSSE } from 'hono/streaming'
-
-function publishEvent(event: string, data: unknown) {
-  const redis = new Redis(process.env['REDIS_URL'] ?? 'redis://redis:6379')
-  redis.publish('titan:updates', JSON.stringify({ event, data, ts: Date.now() }))
-    .finally(() => redis.disconnect())
-    .catch(() => {})
-}
 
 // Единый расчёт суммы чека: позиции + модификаторы − скидки.
 // Скидки пересчитываются от ТЕКУЩИХ позиций (не доверяем сохранённому amount),
@@ -338,7 +332,7 @@ async function applyStaffComp(exec: DbOrTx, checkId: string) {
   const [check] = await exec.select({ playerId: checks.playerId, staffCompId: checks.staffCompId }).from(checks).where(eq(checks.id, checkId))
   if (!check) return
   let target: string | null = null
-  if (check.playerId && await getBoolSetting(STAFF_DISCOUNT_KEY, false)) {
+  if (check.playerId && await getBoolSetting(STAFF_DISCOUNT_KEY, false, exec)) {
     const [p] = await exec.select({ role: profiles.role }).from(profiles).where(eq(profiles.id, check.playerId))
     if (p && (p.role === 'owner' || p.role === 'staff')) target = check.playerId
   }
@@ -600,7 +594,7 @@ posRouter.post('/checks', requireRole('owner', 'staff'), zValidator('json', Open
       .where(eq(events.id, body.linkedEventId))
   }
 
-  publishEvent('check:created', { checkId: check!.id, shiftId: shift.id })
+  publishEvent(c.var.club?.id, 'check:created', { checkId: check!.id, shiftId: shift.id })
 
   // Уведомления (fire-and-forget, после операции)
   {
@@ -691,10 +685,13 @@ posRouter.get('/checks/:id/events', requireRole('owner', 'staff', 'tablet'), asy
     const [chk] = await db.select({ spaceId: checks.spaceId }).from(checks).where(eq(checks.id, checkId))
     if (!me?.spaceId || chk?.spaceId !== me.spaceId) return c.json({ error: 'Forbidden' }, 403)
   }
+  // Канал — пер-клубный (база-на-клуб): подписка и публикация используют один
+  // суффикс по c.var.club?.id (на основном домене → 'default').
+  const channel = updatesChannel(c.var.club?.id)
   return streamSSE(c, async (stream) => {
     const redis = new Redis(process.env['REDIS_URL'] ?? 'redis://redis:6379')
     let closed = false
-    await redis.subscribe('titan:updates').catch(() => {})
+    await redis.subscribe(channel).catch(() => {})
     redis.on('message', async (_ch, msg) => {
       if (closed) return
       try {
@@ -703,7 +700,7 @@ posRouter.get('/checks/:id/events', requireRole('owner', 'staff', 'tablet'), asy
       } catch { /* ignore malformed */ }
     })
     const hb = setInterval(() => { if (!closed) stream.writeSSE({ event: 'ping', data: '1' }).catch(() => {}) }, 25_000)
-    stream.onAbort(() => { closed = true; clearInterval(hb); redis.unsubscribe('titan:updates').catch(() => {}); redis.disconnect() })
+    stream.onAbort(() => { closed = true; clearInterval(hb); redis.unsubscribe(channel).catch(() => {}); redis.disconnect() })
     await new Promise<void>((resolve) => { const t = setInterval(() => { if (closed) { clearInterval(t); resolve() } }, 1000) })
   })
 })
@@ -735,7 +732,7 @@ posRouter.patch('/checks/:id', requireRole('owner', 'staff'), zValidator('json',
   if ((prev && updated.playerId !== prev.playerId) || (prev && updated.spaceId !== prev.spaceId)) {
     await recalcCheckTotal(checkId, db)
   }
-  publishEvent('check:updated', { checkId })
+  publishEvent(c.var.club?.id, 'check:updated', { checkId })
   const data = await getCheckWithItems(checkId, db)
   return c.json({ check: data })
 })
@@ -779,7 +776,7 @@ posRouter.delete('/checks/:id', requireRole('owner', 'staff'), async (c) => {
   })
   if (!check) return c.json({ error: 'Not found or already closed' }, 400)
 
-  publishEvent('check:deleted', { checkId: check.id })
+  publishEvent(c.var.club?.id, 'check:deleted', { checkId: check.id })
   return c.json({ ok: true })
 })
 
@@ -803,7 +800,7 @@ posRouter.post('/checks/:id/items', requireRole('owner', 'staff', 'tablet'), zVa
     if (!checkItem) return c.json({ error: 'Failed to add item' }, 500)
 
     await recalcCheckTotal(checkId, db)
-    publishEvent('check:updated', { checkId })
+    publishEvent(c.var.club?.id, 'check:updated', { checkId })
 
     if (lowStock) {
       const ls: { name: string; newQty: number } = lowStock
@@ -884,7 +881,7 @@ posRouter.post('/checks/:id/orders', requireRole('owner', 'staff', 'tablet'), zV
     meta: { checkId, spaceId: check.spaceId, orderId: order!.id },
   }, db).catch(() => {})
 
-  publishEvent('order:created', { checkId, orderId: order!.id })
+  publishEvent(c.var.club?.id, 'order:created', { checkId, orderId: order!.id })
   return c.json({ order }, 201)
 })
 
@@ -920,8 +917,8 @@ posRouter.post('/orders/:orderId/confirm', requireRole('owner', 'staff'), async 
   }
 
   await recalcCheckTotal(order.checkId, db)
-  publishEvent('check:updated', { checkId: order.checkId })
-  publishEvent('order:resolved', { checkId: order.checkId, orderId, status: 'confirmed' })
+  publishEvent(c.var.club?.id, 'check:updated', { checkId: order.checkId })
+  publishEvent(c.var.club?.id, 'order:resolved', { checkId: order.checkId, orderId, status: 'confirmed' })
   for (const ls of lowStocks) {
     void notify({ type: 'low_stock', title: 'Низкий остаток', body: `${ls.name}: осталось ${ls.newQty}`, meta: {} }, db).catch(() => {})
   }
@@ -941,7 +938,7 @@ posRouter.post('/orders/:orderId/reject', requireRole('owner', 'staff'), async (
   await db.update(pendingOrders)
     .set({ status: 'rejected', resolvedBy: user.sub, resolvedAt: new Date() })
     .where(and(eq(pendingOrders.id, orderId), eq(pendingOrders.status, 'pending')))
-  publishEvent('order:resolved', { checkId: order.checkId, orderId, status: 'rejected' })
+  publishEvent(c.var.club?.id, 'order:resolved', { checkId: order.checkId, orderId, status: 'rejected' })
   return c.json({ ok: true })
 })
 
@@ -956,7 +953,7 @@ posRouter.post('/orders/:orderId/cancel', requireRole('owner', 'staff', 'tablet'
   await db.update(pendingOrders)
     .set({ status: 'cancelled', resolvedAt: new Date() })
     .where(and(eq(pendingOrders.id, orderId), eq(pendingOrders.status, 'pending')))
-  publishEvent('order:resolved', { checkId: order.checkId, orderId, status: 'cancelled' })
+  publishEvent(c.var.club?.id, 'order:resolved', { checkId: order.checkId, orderId, status: 'cancelled' })
   return c.json({ ok: true })
 })
 
@@ -1005,7 +1002,7 @@ posRouter.post('/checks/:id/chat', requireRole('owner', 'staff', 'tablet'), zVal
     text: body.text,
   }).returning()
 
-  publishEvent('chat:message', { checkId, messageId: msg!.id, sender: from })
+  publishEvent(c.var.club?.id, 'chat:message', { checkId, messageId: msg!.id, sender: from })
 
   if (from === 'guest') {
     let spaceName = ''
@@ -1035,7 +1032,7 @@ posRouter.post('/checks/:id/chat/read', requireRole('owner', 'staff', 'tablet'),
   await db.update(chatMessages)
     .set({ readAt: new Date() })
     .where(and(eq(chatMessages.checkId, checkId), eq(chatMessages.sender, other), isNull(chatMessages.readAt)))
-  publishEvent('chat:read', { checkId })
+  publishEvent(c.var.club?.id, 'chat:read', { checkId })
   return c.json({ ok: true })
 })
 
@@ -1092,7 +1089,7 @@ posRouter.patch('/checks/:id/items/:itemId', requireRole('owner', 'staff', 'tabl
   await recalcCheckTotal(checkId, db)
   // Realtime: уведомляем планшет клиента (и кассу), что состав чека изменился —
   // иначе изменение/удаление позиции персоналом не отражалось бы на планшете.
-  publishEvent('check:updated', { checkId })
+  publishEvent(c.var.club?.id, 'check:updated', { checkId })
   const data = await getCheckWithItems(checkId, db)
   return c.json({ check: data })
 })
@@ -1127,7 +1124,7 @@ posRouter.delete('/checks/:id/items/:itemId', requireRole('owner', 'staff', 'tab
   }
   await recalcCheckTotal(checkId, db)
   // Realtime: удаление позиции персоналом должно сразу отражаться на планшете клиента.
-  publishEvent('check:updated', { checkId })
+  publishEvent(c.var.club?.id, 'check:updated', { checkId })
   const data = await getCheckWithItems(checkId, db)
   return c.json({ check: data })
 })
@@ -1207,7 +1204,7 @@ posRouter.post('/checks/:id/discount', requireRole('owner', 'staff'), zValidator
   })
 
   await recalcCheckTotal(checkId, db)
-  publishEvent('check:updated', { checkId })
+  publishEvent(c.var.club?.id, 'check:updated', { checkId })
   const data = await getCheckWithItems(checkId, db)
   return c.json({ check: data })
 })
@@ -1236,7 +1233,7 @@ posRouter.delete('/checks/:id/discount/:discountRowId', requireRole('owner', 'st
   }
 
   await recalcCheckTotal(checkId, db)
-  publishEvent('check:updated', { checkId })
+  publishEvent(c.var.club?.id, 'check:updated', { checkId })
   const data = await getCheckWithItems(checkId, db)
   return c.json({ check: data })
 })
@@ -1252,7 +1249,7 @@ posRouter.post('/checks/:id/discount/:discountId/restore', requireRole('owner', 
   const next = (check.excludedDiscountIds ?? []).filter(id => id !== discountId)
   await db.update(checks).set({ excludedDiscountIds: next }).where(eq(checks.id, checkId))
   await recalcCheckTotal(checkId, db)
-  publishEvent('check:updated', { checkId })
+  publishEvent(c.var.club?.id, 'check:updated', { checkId })
   const data = await getCheckWithItems(checkId, db)
   return c.json({ check: data })
 })
@@ -1293,8 +1290,8 @@ posRouter.post('/checks/:id/comp', requireRole('owner', 'staff'), zValidator('js
     console.error('POST /checks/:id/comp error:', err)
     return c.json({ error: 'Internal error' }, 500)
   }
-  publishEvent('check:paid', { checkId })
-  publishEvent('check:closed', { checkId })
+  publishEvent(c.var.club?.id, 'check:paid', { checkId })
+  publishEvent(c.var.club?.id, 'check:closed', { checkId })
   const data = await getCheckWithItems(checkId, db)
   return c.json({ check: data })
 })
@@ -1677,8 +1674,8 @@ posRouter.post('/checks/:id/pay', requireRole('owner', 'staff'), zValidator('jso
 
     const closedCheck = closed?.closedCheck
 
-    publishEvent('check:paid', { checkId })
-    publishEvent('check:closed', { checkId })
+    publishEvent(c.var.club?.id, 'check:paid', { checkId })
+    publishEvent(c.var.club?.id, 'check:closed', { checkId })
 
     // Уведомления вне денежной транзакции (fire-and-forget, не блокируют ответ).
     const paidTotal = parseFloat(String(closedCheck?.totalAmount ?? 0)) || 0

@@ -180,7 +180,7 @@ export async function auditBalances(): Promise<void> {
         mismatches: mismatches.slice(0, 10),
         overLimit: overLimit.slice(0, 10),
       },
-    })
+    }, db)
   } catch (e) {
     // Кран не должен ронять процесс/планировщик — логируем и выходим.
     console.error('[balance-audit] проход не выполнен', e)
