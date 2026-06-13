@@ -2,7 +2,7 @@ import type { AppEnv } from '../../types.js'
 import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
-import { db, profiles, eq, and, isNull, desc } from '@titan/database'
+import { profiles, eq, and, isNull, desc } from '@titan/database'
 // @ts-ignore
 import { passkeys } from '@titan/database'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
@@ -44,6 +44,7 @@ export const staffRouter = new Hono<AppEnv>()
 staffRouter.use('*', requireAuth, requireRole('owner'))
 
 staffRouter.get('/', async (c) => {
+  const db = c.var.db
   const rows = await db
     .select({
       id: profiles.id,
@@ -66,6 +67,7 @@ staffRouter.get('/', async (c) => {
 })
 
 staffRouter.get('/:id', async (c) => {
+  const db = c.var.db
   const [profile] = await db
     .select({
       id: profiles.id,
@@ -85,6 +87,7 @@ staffRouter.get('/:id', async (c) => {
 // Подписанный диплинк + QR для привязки Telegram сотрудника через АДМИН-бота.
 // Формат токена совпадает с wallet-привязкой (HMAC JWT_SECRET), бот его проверяет.
 staffRouter.post('/:id/telegram-link', async (c) => {
+  const db = c.var.db
   const [profile] = await db.select().from(profiles).where(and(eq(profiles.id, c.req.param('id')), isNull(profiles.deletedAt)))
   if (!profile) return c.json({ error: 'Not found' }, 404)
   const jwtSecret = process.env['JWT_SECRET']
@@ -104,6 +107,7 @@ staffRouter.post('/:id/telegram-link', async (c) => {
 })
 
 staffRouter.post('/', zValidator('json', CreateStaffSchema), async (c) => {
+  const db = c.var.db
   const data = c.req.valid('json')
   const hashedPassword = await hashPassword(data.password)
 
@@ -135,6 +139,7 @@ staffRouter.post('/', zValidator('json', CreateStaffSchema), async (c) => {
 })
 
 staffRouter.patch('/:id', zValidator('json', UpdateStaffSchema), async (c) => {
+  const db = c.var.db
   const { password, ...rest } = c.req.valid('json')
   const setData: Record<string, unknown> = { ...rest }
   if (password) {
@@ -166,6 +171,7 @@ staffRouter.patch('/:id', zValidator('json', UpdateStaffSchema), async (c) => {
 })
 
 staffRouter.delete('/:id', async (c) => {
+  const db = c.var.db
   const user = c.get('user')
   if (user.sub === c.req.param('id')) {
     return c.json({ error: 'Cannot delete yourself' }, 400)
@@ -184,6 +190,7 @@ staffRouter.delete('/:id', async (c) => {
 })
 
 staffRouter.post('/:id/reset-pin', zValidator('json', z.object({ pin: z.string().length(4).regex(/^\d{4}$/) })), async (c) => {
+  const db = c.var.db
   const { pin } = c.req.valid('json')
   const hashedPin = await hashPin(pin)
   await db
@@ -196,6 +203,7 @@ staffRouter.post('/:id/reset-pin', zValidator('json', z.object({ pin: z.string()
 
 // GET /staff/:id/passkeys — list passkeys for a staff member (owner only)
 staffRouter.get('/:id/passkeys', async (c) => {
+  const db = c.var.db
   const rows = await db
     .select({
       id: passkeys.id,
@@ -210,6 +218,7 @@ staffRouter.get('/:id/passkeys', async (c) => {
 
 // DELETE /staff/:id/passkeys/:passkeyId — delete a passkey (owner only)
 staffRouter.delete('/:id/passkeys/:passkeyId', async (c) => {
+  const db = c.var.db
   await db
     .delete(passkeys)
     .where(and(eq(passkeys.id, c.req.param('passkeyId')), eq(passkeys.userId, c.req.param('id'))))

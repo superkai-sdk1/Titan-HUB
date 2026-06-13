@@ -2,7 +2,7 @@ import type { AppEnv } from '../../types.js'
 import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
-import { db, certificates, eq, desc } from '@titan/database'
+import { certificates, eq, desc } from '@titan/database'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
 import { randomInt } from 'crypto'
 
@@ -21,6 +21,7 @@ export const certificatesRouter = new Hono<AppEnv>()
 certificatesRouter.use('*', requireAuth)
 
 certificatesRouter.get('/', requireRole('owner', 'staff'), async (c) => {
+  const db = c.var.db
   const rows = await db.select().from(certificates).orderBy(desc(certificates.createdAt))
   // Нормализуем под фронт: amount(=nominal), числа, производный статус.
   const out = rows.map(r => ({
@@ -35,6 +36,7 @@ certificatesRouter.get('/', requireRole('owner', 'staff'), async (c) => {
 })
 
 certificatesRouter.post('/', requireRole('owner', 'staff'), zValidator('json', CertSchema), async (c) => {
+  const db = c.var.db
   const user = c.get('user')
   const { nominal } = c.req.valid('json')
   const code = generateCode()
@@ -50,6 +52,7 @@ certificatesRouter.post('/', requireRole('owner', 'staff'), zValidator('json', C
 // validate используется на кассе персоналом — оставляем staff-доступ, но
 // закрываем от клиентов/планшетов (иначе можно перебирать коды/балансы).
 certificatesRouter.get('/validate/:code', requireRole('owner', 'staff'), async (c) => {
+  const db = c.var.db
   const [cert] = await db.select().from(certificates).where(eq(certificates.code, c.req.param('code')))
   if (!cert) return c.json({ error: 'Not found' }, 404)
   if (cert.isUsed) return c.json({ error: 'Already used' }, 400)
@@ -61,12 +64,14 @@ certificatesRouter.get('/validate/:code', requireRole('owner', 'staff'), async (
 })
 
 certificatesRouter.get('/:id', requireRole('owner', 'staff'), async (c) => {
+  const db = c.var.db
   const [cert] = await db.select().from(certificates).where(eq(certificates.id, c.req.param('id')))
   if (!cert) return c.json({ error: 'Not found' }, 404)
   return c.json({ certificate: cert })
 })
 
 certificatesRouter.put('/:id/deactivate', requireRole('owner'), async (c) => {
+  const db = c.var.db
   const [cert] = await db.update(certificates).set({ isUsed: true }).where(eq(certificates.id, c.req.param('id'))).returning()
   if (!cert) return c.json({ error: 'Not found' }, 404)
   return c.json({ certificate: cert })

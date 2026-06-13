@@ -2,7 +2,7 @@ import type { AppEnv } from '../../types.js'
 import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
-import { db, cashOperations, shifts, checkPayments, checks, profiles, eq, and, desc, sum, sql } from '@titan/database'
+import { cashOperations, shifts, checkPayments, checks, profiles, eq, and, desc, sum, sql } from '@titan/database'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
 import { getCurrentShift, getShiftCashBalance } from '../shifts/shifts.service.js'
 
@@ -12,7 +12,8 @@ cashopsRouter.use('*', requireAuth, requireRole('owner', 'staff'))
 
 // GET /cashops — list operations for current shift + balance summary
 cashopsRouter.get('/', async (c) => {
-  const shift = await getCurrentShift()
+  const db = c.var.db
+  const shift = await getCurrentShift(db)
   const operations = await db.select({
     id: cashOperations.id,
     type: cashOperations.type,
@@ -31,7 +32,7 @@ cashopsRouter.get('/', async (c) => {
   // Раньше здесь НЕ вычитались наличные возвраты — из-за чего «В кассе сейчас» в
   // инкассации расходилось с суммой при закрытии смены.
   const balance = shift
-    ? await getShiftCashBalance(shift.id)
+    ? await getShiftCashBalance(shift.id, db)
     : { cashStart: 0, cashPayments: 0, deposits: 0, withdrawals: 0, salaries: 0, expected: 0 }
 
   return c.json({ operations, balance })
@@ -44,9 +45,10 @@ cashopsRouter.post('/', requireRole('owner', 'staff'), zValidator('json', z.obje
   description: z.string().optional(),
   idempotencyKey: z.string().max(80).optional(),
 })), async (c) => {
+  const db = c.var.db
   const user = c.get('user')
   const { type, amount, description, idempotencyKey } = c.req.valid('json')
-  const shift = await getCurrentShift()
+  const shift = await getCurrentShift(db)
   // Операции с кассой пишутся только в открытую смену — иначе они не попадут
   // в сверку (shiftId=null) и «потеряются» из ожидаемого остатка.
   if (!shift) return c.json({ error: 'Нет открытой смены' }, 400)

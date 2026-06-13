@@ -2,7 +2,7 @@ import type { AppEnv } from '../../types.js'
 import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
-import { db, discounts, clientDiscountRules, eq, desc } from '@titan/database'
+import { discounts, clientDiscountRules, eq, desc } from '@titan/database'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
 
 export const discountsRouter = new Hono<AppEnv>()
@@ -11,6 +11,7 @@ discountsRouter.use('*', requireAuth)
 
 // GET /api/discounts — только персонал/владелец (видны привязки clientId).
 discountsRouter.get('/', requireRole('owner', 'staff'), async (c) => {
+  const db = c.var.db
   const clientId = c.req.query('clientId')
   const where = clientId ? eq(discounts.clientId, clientId) : undefined
   const rows = await db.select().from(discounts).where(where).orderBy(desc(discounts.createdAt))
@@ -36,6 +37,7 @@ discountsRouter.post(
     { message: 'Процентная скидка не может превышать 100%', path: ['value'] },
   )),
   async (c) => {
+    const db = c.var.db
     const body = c.req.valid('json')
     const [row] = await db.insert(discounts).values({
       name: body.name,
@@ -70,6 +72,7 @@ const RU_TIER_LABEL: Record<string, string> = {
 
 // GET /api/discounts/tier-rules — список правил (активные и нет) с привязанной скидкой.
 discountsRouter.get('/tier-rules', requireRole('owner', 'staff'), async (c) => {
+  const db = c.var.db
   const rows = await db
     .select({
       id: clientDiscountRules.id,
@@ -110,6 +113,7 @@ discountsRouter.post(
     isActive: z.boolean().optional().default(true),
   })),
   async (c) => {
+    const db = c.var.db
     const body = c.req.valid('json')
 
     // Привязываемая скидка должна существовать (discountId — FK).
@@ -140,6 +144,7 @@ discountsRouter.patch(
     isActive: z.boolean().optional(),
   })),
   async (c) => {
+    const db = c.var.db
     const id = c.req.param('id')
     const body = c.req.valid('json')
 
@@ -162,6 +167,7 @@ discountsRouter.patch(
 
 // DELETE /api/discounts/tier-rules/:id — удалить правило.
 discountsRouter.delete('/tier-rules/:id', requireRole('owner', 'staff'), async (c) => {
+  const db = c.var.db
   const id = c.req.param('id')
   await db.delete(clientDiscountRules).where(eq(clientDiscountRules.id, id))
   return c.json({ ok: true })
@@ -188,6 +194,7 @@ discountsRouter.patch(
     { message: 'Процентная скидка не может превышать 100%', path: ['value'] },
   )),
   async (c) => {
+    const db = c.var.db
     const id = c.req.param('id')
     const body = c.req.valid('json')
 
@@ -222,6 +229,7 @@ discountsRouter.patch(
 
 // DELETE /api/discounts/:id
 discountsRouter.delete('/:id', requireRole('owner', 'staff'), async (c) => {
+  const db = c.var.db
   const id = c.req.param('id')
   await db.delete(discounts).where(eq(discounts.id, id))
   return c.json({ ok: true })

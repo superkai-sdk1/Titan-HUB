@@ -2,10 +2,15 @@ import type { AppEnv } from '../../types.js'
 import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
+import type { Database } from '@titan/database'
 import {
-  db, events, eventHourlyRates, eventParticipants, checks, checkItems, checkPayments, inventory, customers, expenses, profiles,
+  events, eventHourlyRates, eventParticipants, checks, checkItems, checkPayments, inventory, customers, expenses, profiles,
   eq, and, gte, lte, desc, sql, or, ne, isNull, inArray,
 } from '@titan/database'
+
+// Хелперы вызываются и вне транзакции (db = c.var.db), и внутри db.transaction
+// (tx). Поверхность query-builder совпадает — принимаем оба.
+type DbOrTx = Database | Parameters<Parameters<Database['transaction']>[0]>[0]
 import { requireAuth, requireRole } from '../../middleware/auth.js'
 import { getCurrentShift } from '../shifts/shifts.service.js'
 import { notify } from '../notifications/push.js'
@@ -84,7 +89,7 @@ const EventSchema = z.object({
 
 // Базовая сумма события для чека. «Фикс» (amount) → ручная/фикс сумма; «Почасовая»
 // (hourly) → цена тарифа event_hourly_rates по plannedHours (за весь период).
-async function computeEventBase(ev: {
+async function computeEventBase(database: DbOrTx, ev: {
   billingMode: string
   manualAmount: string | null; fixedAmount: string | null
   plannedHours: number | null
@@ -92,7 +97,7 @@ async function computeEventBase(ev: {
   if (ev.billingMode === 'hourly') {
     const h = ev.plannedHours ?? 0
     if (!h) return 0
-    const [rate] = await db.select().from(eventHourlyRates).where(eq(eventHourlyRates.hours, h)).limit(1)
+    const [rate] = await database.select().from(eventHourlyRates).where(eq(eventHourlyRates.hours, h)).limit(1)
     return rate ? (parseFloat(String(rate.price)) || 0) : 0
   }
   if (ev.manualAmount != null) return parseFloat(ev.manualAmount) || 0
@@ -105,6 +110,7 @@ eventsRouter.use('*', requireAuth)
 
 // ── Утилита: проверка пересечения событий по пространству ────────────────
 async function findOverlappingEvent(
+  database: DbOrTx,
   body: Partial<z.infer<typeof EventSchema>>,
   excludeEventId?: string,
 ) {
@@ -123,11 +129,12 @@ async function findOverlappingEvent(
   ]
   if (excludeEventId) conditions.push(ne(events.id, excludeEventId))
 
-  const rows = await db.select().from(events).where(and(...(conditions as [any, ...any[]]))).limit(1)
+  const rows = await database.select().from(events).where(and(...(conditions as [any, ...any[]]))).limit(1)
   return rows[0] ?? null
 }
 
 eventsRouter.get('/', async (c) => {
+  const db = c.var.db
   const from = c.req.query('from')
   const to = c.req.query('to')
   const spaceId = c.req.query('spaceId')
@@ -148,6 +155,7 @@ eventsRouter.get('/', async (c) => {
 
 // ── GET /events/active-for-space/:spaceId — для планшета ─────────────────
 eventsRouter.get('/active-for-space/:spaceId', async (c) => {
+  const db = c.var.db
   const spaceId = c.req.param('spaceId')
   const today = new Date().toISOString().split('T')[0]
   const [event] = await db
@@ -163,11 +171,12 @@ eventsRouter.get('/active-for-space/:spaceId', async (c) => {
 })
 
 eventsRouter.post('/', requireRole('owner', 'staff'), zValidator('json', EventSchema), async (c) => {
+  const db = c.var.db
   const user = c.get('user')
   const body = c.req.valid('json')
 
   // Защита от пересекающихся событий по одному пространству
-  const overlap = await findOverlappingEvent(body)
+  const overlap = await findOverlappingEvent(db, body)
   if (overlap) {
     return c.json({
       error: 'На это время уже запланировано другое мероприятие в этом пространстве',
@@ -230,18 +239,20 @@ eventsRouter.post('/', requireRole('owner', 'staff'), zValidator('json', EventSc
     title: 'Мероприятие',
     body: event!.title ?? `${event!.date} ${event!.startTime}`.trim(),
     meta: { eventId: event!.id },
-  }).catch(() => {})
+  }, db).catch(() => {})
 
   return c.json({ event }, 201)
 })
 
 eventsRouter.get('/:id', async (c) => {
+  const db = c.var.db
   const [event] = await db.select().from(events).where(eq(events.id, c.req.param('id')))
   if (!event) return c.json({ error: 'Not found' }, 404)
   return c.json({ event })
 })
 
 eventsRouter.patch('/:id', requireRole('owner', 'staff'), zValidator('json', EventSchema.partial()), async (c) => {
+  const db = c.var.db
   const user = c.get('user')
   const eventId = c.req.param('id')
   const body = c.req.valid('json')
@@ -259,7 +270,7 @@ eventsRouter.patch('/:id', requireRole('owner', 'staff'), zValidator('json', Eve
         startTime: body.startTime ?? current.startTime,
         endTime: body.endTime ?? current.endTime ?? undefined,
       }
-      const overlap = await findOverlappingEvent(merged, eventId)
+      const overlap = await findOverlappingEvent(db, merged, eventId)
       if (overlap) {
         return c.json({
           error: 'На это время уже запланировано другое мероприятие в этом пространстве',
@@ -302,17 +313,17 @@ eventsRouter.patch('/:id', requireRole('owner', 'staff'), zValidator('json', Eve
     const becomingActive = body.status === 'active' && prev.status !== 'active'
     if (becomingActive && isMinicap) {
       // Миникап: открываем по индивидуальному чеку каждому участнику (игроки + судья).
-      const shift = await getCurrentShift()
+      const shift = await getCurrentShift(db)
       if (!shift) throw new Error('NO_SHIFT')
       const parts = await tx.select().from(eventParticipants).where(eq(eventParticipants.eventId, eventId))
       for (const p of parts) { if (!p.checkId) await openParticipantCheck(tx, merged, p, shift.id, user.sub) }
       update.attendeesCount = parts.filter((p: any) => p.role === 'player').length
     } else if (becomingActive && !prev.checkId) {
-      const shift = await getCurrentShift()
+      const shift = await getCurrentShift(db)
       if (!shift) throw new Error('NO_SHIFT')
       // База события (фикс-сумма или цена почасового тарифа по plannedHours) кладётся
       // в eventBaseAmount чека для ОБОИХ режимов — без отдельной аренды зоны.
-      const base = await computeEventBase(merged as any)
+      const base = await computeEventBase(tx, merged as any)
       const [chk] = await tx.insert(checks).values({
         staffId: (merged.responsibleStaffId as string) ?? user.sub,
         shiftId: shift.id,
@@ -337,7 +348,7 @@ eventsRouter.patch('/:id', requireRole('owner', 'staff'), zValidator('json', Eve
         || body.billingMode !== undefined || body.paymentType !== undefined || body.plannedHours !== undefined
       if (amountTouched) {
         await tx.update(checks)
-          .set({ eventBaseAmount: String(await computeEventBase(merged as any)) })
+          .set({ eventBaseAmount: String(await computeEventBase(tx, merged as any)) })
           .where(and(eq(checks.id, checkId), eq(checks.status, 'open')))
       }
     }
@@ -391,19 +402,21 @@ eventsRouter.patch('/:id', requireRole('owner', 'staff'), zValidator('json', Eve
       title: 'Мероприятие завершено',
       body: event.title ?? `${event.date} ${event.startTime}`.trim(),
       meta: { eventId: event.id },
-    }).catch(() => {})
+    }, db).catch(() => {})
   }
 
   return c.json({ event })
 })
 
 eventsRouter.delete('/:id', requireRole('owner'), async (c) => {
+  const db = c.var.db
   await db.update(events).set({ status: 'cancelled' }).where(eq(events.id, c.req.param('id')))
   return c.json({ ok: true })
 })
 
 // ── Участники миникапа ──────────────────────────────────────────────────
 eventsRouter.get('/:id/participants', requireRole('owner', 'staff'), async (c) => {
+  const db = c.var.db
   const eventId = c.req.param('id')
   const rows = await db
     .select({
@@ -429,6 +442,7 @@ eventsRouter.get('/:id/participants', requireRole('owner', 'staff'), async (c) =
 
 const AddParticipantSchema = z.object({ profileId: z.string().uuid(), role: z.enum(['player', 'judge']).default('player') })
 eventsRouter.post('/:id/participants', requireRole('owner', 'staff'), zValidator('json', AddParticipantSchema), async (c) => {
+  const db = c.var.db
   const user = c.get('user')
   const eventId = c.req.param('id')
   const { profileId, role } = c.req.valid('json')
@@ -441,7 +455,7 @@ eventsRouter.post('/:id/participants', requireRole('owner', 'staff'), zValidator
   if (!p) return c.json({ error: 'Этот игрок уже в составе' }, 409)
   // Миникап уже идёт — сразу открываем чек новому участнику.
   if (ev.status === 'active') {
-    const shift = await getCurrentShift()
+    const shift = await getCurrentShift(db)
     if (shift) { try { await openParticipantCheck(db, ev, p, shift.id, user.sub) } catch { /* non-fatal */ } }
   }
   return c.json({ participant: p }, 201)
@@ -449,6 +463,7 @@ eventsRouter.post('/:id/participants', requireRole('owner', 'staff'), zValidator
 
 const PatchParticipantSchema = z.object({ prepaid: z.boolean() })
 eventsRouter.patch('/:id/participants/:pid', requireRole('owner', 'staff'), zValidator('json', PatchParticipantSchema), async (c) => {
+  const db = c.var.db
   const eventId = c.req.param('id')
   const pid = c.req.param('pid')
   const { prepaid } = c.req.valid('json')
@@ -465,6 +480,7 @@ eventsRouter.patch('/:id/participants/:pid', requireRole('owner', 'staff'), zVal
 })
 
 eventsRouter.delete('/:id/participants/:pid', requireRole('owner', 'staff'), async (c) => {
+  const db = c.var.db
   const eventId = c.req.param('id')
   const pid = c.req.param('pid')
   const [p] = await db.select().from(eventParticipants).where(and(eq(eventParticipants.id, pid), eq(eventParticipants.eventId, eventId)))
@@ -480,6 +496,7 @@ eventsRouter.delete('/:id/participants/:pid', requireRole('owner', 'staff'), asy
 
 // ── Аналитика по событию ───────────────────────────────────────────────
 eventsRouter.get('/:id/analytics', requireRole('owner', 'staff'), async (c) => {
+  const db = c.var.db
   const eventId = c.req.param('id')
   const [event] = await db.select().from(events).where(eq(events.id, eventId))
   if (!event) return c.json({ error: 'Not found' }, 404)

@@ -2,7 +2,7 @@ import type { AppEnv } from '../../types.js'
 import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
-import { db, expenses, salaryPayments, checks, checkItems, inventory, profiles, eq, and, gte, lte, lt, desc, sql, isNotNull } from '@titan/database'
+import { expenses, salaryPayments, checks, checkItems, inventory, profiles, eq, and, gte, lte, lt, desc, sql, isNotNull } from '@titan/database'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
 
 // Бизнес-день (09:00→06:00): окно [dateStr 09:00 МСК, +24ч), как в analytics.
@@ -48,6 +48,7 @@ export const expensesRouter = new Hono<AppEnv>()
 expensesRouter.use('*', requireAuth)
 
 expensesRouter.get('/', requireRole('owner', 'staff'), async (c) => {
+  const db = c.var.db
   const from = c.req.query('from')
   const to = c.req.query('to')
 
@@ -71,6 +72,7 @@ expensesRouter.get('/', requireRole('owner', 'staff'), async (c) => {
 // как в дашборде) и staffTotal (ЗП + себестоимость списаний — полные затраты на людей).
 // ВАЖНО: маршрут объявлен ДО '/:id', иначе '/summary' попал бы в param-роут.
 expensesRouter.get('/summary', requireRole('owner', 'staff'), async (c) => {
+  const db = c.var.db
   const from = c.req.query('from') || bizDayStr(30)
   const to = c.req.query('to') || bizDayStr(0)
   const { start } = bizBounds(from)
@@ -160,6 +162,7 @@ expensesRouter.get('/summary', requireRole('owner', 'staff'), async (c) => {
 // Создание расхода — список позиций (каждая: название/категория/цена/кол-во/сумма).
 // Сохраняем по строке на позицию (amount = сумма позиции), как делает аналитика.
 expensesRouter.post('/', requireRole('owner', 'staff'), zValidator('json', CreateExpensesSchema), async (c) => {
+  const db = c.var.db
   const user = c.get('user')
   const body = c.req.valid('json')
   const rows = body.items.map((it, i) => ({
@@ -179,6 +182,7 @@ expensesRouter.post('/', requireRole('owner', 'staff'), zValidator('json', Creat
 
 // Подбор позиций по названию + последняя цена (для аналитики и быстрого повтора).
 expensesRouter.get('/catalog', requireRole('owner', 'staff'), async (c) => {
+  const db = c.var.db
   const q = (c.req.query('q') ?? '').trim().toLowerCase()
   const res: any = await db.execute(sql`
     SELECT DISTINCT ON (lower(description)) description AS name, unit_price, category
@@ -193,12 +197,14 @@ expensesRouter.get('/catalog', requireRole('owner', 'staff'), async (c) => {
 })
 
 expensesRouter.get('/:id', async (c) => {
+  const db = c.var.db
   const [expense] = await db.select().from(expenses).where(eq(expenses.id, c.req.param('id')))
   if (!expense) return c.json({ error: 'Not found' }, 404)
   return c.json({ expense })
 })
 
 expensesRouter.patch('/:id', requireRole('owner', 'staff'), zValidator('json', ExpenseSchema.partial()), async (c) => {
+  const db = c.var.db
   const body = c.req.valid('json')
   const update: Record<string, any> = { ...body }
   if (body.amount !== undefined) update.amount = String(body.amount)
@@ -210,6 +216,7 @@ expensesRouter.patch('/:id', requireRole('owner', 'staff'), zValidator('json', E
 })
 
 expensesRouter.delete('/:id', requireRole('owner'), async (c) => {
+  const db = c.var.db
   await db.delete(expenses).where(eq(expenses.id, c.req.param('id')))
   return c.json({ ok: true })
 })

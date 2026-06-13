@@ -30,15 +30,17 @@ export const shiftsRouter = new Hono<AppEnv>()
 shiftsRouter.use('*', requireAuth)
 
 shiftsRouter.get('/current', async (c) => {
-  const shift = await getCurrentShift()
+  const db = c.var.db
+  const shift = await getCurrentShift(db)
   return c.json({ shift })
 })
 
 shiftsRouter.post('/open', requireRole('owner', 'staff'), zValidator('json', OpenShiftSchema), async (c) => {
+  const db = c.var.db
   const user = c.get('user')
   const body = c.req.valid('json')
   try {
-    const shift = await openShift({ openedBy: user.sub, ...body })
+    const shift = await openShift({ openedBy: user.sub, ...body }, db)
     return c.json({ shift }, 201)
   } catch (e: any) {
     return c.json({ error: e.message }, 400)
@@ -46,13 +48,14 @@ shiftsRouter.post('/open', requireRole('owner', 'staff'), zValidator('json', Ope
 })
 
 shiftsRouter.post('/close', requireRole('owner', 'staff'), zValidator('json', CloseShiftSchema), async (c) => {
+  const db = c.var.db
   const user = c.get('user')
   const { cashEnd, adjustmentReason } = c.req.valid('json')
-  const current = await getCurrentShift()
+  const current = await getCurrentShift(db)
   if (!current) return c.json({ error: 'No open shift' }, 400)
   try {
-    const shift = await closeShift(current.id, user.sub, cashEnd, adjustmentReason)
-    const analytics = await getShiftAnalytics(current.id)
+    const shift = await closeShift(current.id, user.sub, cashEnd, adjustmentReason, db)
+    const analytics = await getShiftAnalytics(current.id, db)
     return c.json({ shift, analytics })
   } catch (e: any) {
     return c.json({ error: e.message }, 400)
@@ -60,29 +63,34 @@ shiftsRouter.post('/close', requireRole('owner', 'staff'), zValidator('json', Cl
 })
 
 shiftsRouter.get('/birthdays-today', requireRole('owner', 'staff'), async (c) => {
-  const people = await getBirthdaysToday()
+  const db = c.var.db
+  const people = await getBirthdaysToday(db)
   return c.json({ birthdays: people })
 })
 
 shiftsRouter.get('/cash-balance', requireRole('owner', 'staff'), async (c) => {
-  const shift = await getCurrentShift()
+  const db = c.var.db
+  const shift = await getCurrentShift(db)
   if (!shift) return c.json({ expected: 0, cashStart: 0 })
-  const balance = await getShiftCashBalance(shift.id)
+  const balance = await getShiftCashBalance(shift.id, db)
   return c.json(balance)
 })
 
 shiftsRouter.get('/last-cash-end', requireRole('owner', 'staff'), async (c) => {
-  const cashEnd = await getLastShiftCashEnd()
+  const db = c.var.db
+  const cashEnd = await getLastShiftCashEnd(db)
   return c.json({ cashEnd })
 })
 
 shiftsRouter.get('/history', requireRole('owner', 'staff'), async (c) => {
+  const db = c.var.db
   const page = Number(c.req.query('page') ?? 1)
-  const rows = await getShiftHistory(page)
+  const rows = await getShiftHistory(page, 20, db)
   return c.json({ shifts: rows })
 })
 
 shiftsRouter.get('/:id/analytics', requireRole('owner', 'staff'), async (c) => {
-  const analytics = await getShiftAnalytics(c.req.param('id'))
+  const db = c.var.db
+  const analytics = await getShiftAnalytics(c.req.param('id'), db)
   return c.json({ analytics })
 })

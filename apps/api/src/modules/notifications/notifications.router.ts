@@ -2,7 +2,8 @@ import { Hono } from 'hono'
 import { streamSSE } from 'hono/streaming'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
-import { db, notifications, userNotificationSettings, pushSubscriptions, tgLinkRequests, profiles, spaces, checks, eq, and, or, isNull, desc, sql, inArray } from '@titan/database'
+import { notifications, userNotificationSettings, pushSubscriptions, tgLinkRequests, profiles, spaces, checks, eq, and, or, isNull, desc, sql, inArray } from '@titan/database'
+import type { Database } from '@titan/database'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
 import { Redis } from 'ioredis'
 import { randomInt } from 'crypto'
@@ -20,8 +21,8 @@ async function publishStaffNotification(payload: {
   title: string
   body: string
   meta?: Record<string, unknown>
-}) {
-  await notify({ ...payload })
+}, database: Database) {
+  await notify({ ...payload }, database)
   return {
     type: payload.type,
     title: payload.title,
@@ -79,6 +80,7 @@ notificationsRouter.post(
     message: z.string().max(200).optional(),
   })),
   async (c) => {
+    const db = c.var.db
     const user = c.get('user')
     const body = c.req.valid('json')
 
@@ -99,7 +101,7 @@ notificationsRouter.post(
       title: `Вызов: ${spaceName}`,
       body: body.message ?? 'Гость запросил помощь',
       meta: { spaceId: resolvedSpaceId, fromTabletId: user.sub },
-    })
+    }, db)
 
     return c.json({ ok: true, notification }, 201)
   },
@@ -113,6 +115,7 @@ notificationsRouter.post(
     checkId: z.string().uuid(),
   })),
   async (c) => {
+    const db = c.var.db
     const user = c.get('user')
     const { checkId } = c.req.valid('json')
 
@@ -139,13 +142,14 @@ notificationsRouter.post(
       title: spaceName ? `Запрос счёта: ${spaceName}` : 'Запрос счёта',
       body: `Сумма: ${grandTotal.toLocaleString('ru')} ₽${rentalNote}`,
       meta: { checkId, spaceId: check.spaceId, fromTabletId: user.sub },
-    })
+    }, db)
 
     return c.json({ ok: true, notification }, 201)
   },
 )
 
 notificationsRouter.get('/', async (c) => {
+  const db = c.var.db
   const user = c.get('user')
   // Owner/staff видят свои персональные уведомления + broadcast'ы персонала
   // (userId IS NULL — вызов официанта / запрос счёта). Клиенты — только свои,
@@ -164,6 +168,7 @@ notificationsRouter.get('/', async (c) => {
 })
 
 notificationsRouter.put('/:id/read', async (c) => {
+  const db = c.var.db
   const user = c.get('user')
   const isStaff = user.role === 'owner' || user.role === 'staff'
   // Персонал может отметить прочитанным как свой row, так и общий broadcast
@@ -188,6 +193,7 @@ notificationsRouter.put('/read-by-check', zValidator('json', z.object({
   spaceId: z.string().uuid().optional(),
   types: z.array(z.string()).optional(),
 })), async (c) => {
+  const db = c.var.db
   const user = c.get('user')
   const isStaff = user.role === 'owner' || user.role === 'staff'
   if (!isStaff) return c.json({ ok: true })
@@ -207,6 +213,7 @@ notificationsRouter.put('/read-by-check', zValidator('json', z.object({
 })
 
 notificationsRouter.put('/read-all', async (c) => {
+  const db = c.var.db
   const user = c.get('user')
   const isStaff = user.role === 'owner' || user.role === 'staff'
   const where = isStaff
@@ -217,6 +224,7 @@ notificationsRouter.put('/read-all', async (c) => {
 })
 
 notificationsRouter.get('/settings', async (c) => {
+  const db = c.var.db
   const user = c.get('user')
   const [settings] = await db.select().from(userNotificationSettings).where(eq(userNotificationSettings.userId, user.sub))
   const [prof] = await db.select({ tgId: profiles.tgId }).from(profiles).where(eq(profiles.id, user.sub))
@@ -226,6 +234,7 @@ notificationsRouter.get('/settings', async (c) => {
 notificationsRouter.put('/settings', zValidator('json', z.object({
   types: z.record(z.object({ enabled: z.boolean(), channel: z.string().optional(), telegram: z.boolean().optional() })),
 })), async (c) => {
+  const db = c.var.db
   const user = c.get('user')
   const { types } = c.req.valid('json')
   const [existing] = await db.select().from(userNotificationSettings).where(eq(userNotificationSettings.userId, user.sub))
@@ -256,6 +265,7 @@ notificationsRouter.post(
     userAgent: z.string().optional(),
   })),
   async (c) => {
+    const db = c.var.db
     const user = c.get('user')
     const { endpoint, keys, userAgent } = c.req.valid('json')
     await db
@@ -280,6 +290,7 @@ notificationsRouter.post(
   '/push/unsubscribe',
   zValidator('json', z.object({ endpoint: z.string() })),
   async (c) => {
+    const db = c.var.db
     const user = c.get('user')
     const { endpoint } = c.req.valid('json')
     await db
@@ -291,17 +302,19 @@ notificationsRouter.post(
 
 // ── Тестовое push-уведомление самому себе ─────────────────────────────────
 notificationsRouter.post('/push/test', async (c) => {
+  const db = c.var.db
   const user = c.get('user')
   void notify({
     type: 'test',
     title: 'Titan HUB',
     body: 'Тестовое уведомление 🔔',
     userId: user.sub,
-  }).catch(() => {})
+  }, db).catch(() => {})
   return c.json({ ok: true })
 })
 
 notificationsRouter.post('/tg-link', async (c) => {
+  const db = c.var.db
   const user = c.get('user')
   // Generate a 6-digit code stored as tgId pending (crypto-random)
   const code = String(randomInt(100000, 1000000))
