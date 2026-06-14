@@ -37,7 +37,7 @@ export async function runPollsForDb(database: Database = db): Promise<void> {
       changed = true
       // Запоминаем как «последний опрос» чата (для @tvari).
       if (r.pollId) {
-        await recordPollPosted(database, cfg.chatId, r.pollId, r.messageId ?? 0, cfg.threadId).catch((e) =>
+        await recordPollPosted(database, cfg.chatId, r.pollId, r.messageId ?? 0, cfg.threadId, cfg.options).catch((e) =>
           console.error('[polls] recordPollPosted', e),
         )
       }

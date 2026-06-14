@@ -18,10 +18,15 @@ interface LastPoll {
   messageId: number
   postedAt: string
   threadId: number | null
+  options?: string[] // варианты опроса (чтобы по тексту найти «Думаю»/«Нет»)
+}
+interface Vote {
+  o: number[] // индексы выбранных вариантов
+  at: string
 }
 interface PollState {
   lastByChat: Record<string, LastPoll> // chatId → последний опрос
-  votersByPoll: Record<string, Record<string, string>> // pollId → { tgId: votedAtISO }
+  votersByPoll: Record<string, Record<string, Vote>> // pollId → { tgId: голос }
 }
 
 async function read(db: Database): Promise<PollState> {
@@ -50,23 +55,32 @@ export async function recordPollPosted(
   pollId: string,
   messageId: number,
   threadId: number | null,
+  options?: string[],
 ): Promise<void> {
   const s = await read(db)
-  s.lastByChat[String(chatId)] = { pollId, messageId, postedAt: new Date().toISOString(), threadId: threadId ?? null }
+  s.lastByChat[String(chatId)] = {
+    pollId,
+    messageId,
+    postedAt: new Date().toISOString(),
+    threadId: threadId ?? null,
+    options: options ?? [],
+  }
   if (!s.votersByPoll[pollId]) s.votersByPoll[pollId] = {}
   const keep = new Set(Object.values(s.lastByChat).map((l) => l.pollId))
   for (const pid of Object.keys(s.votersByPoll)) if (!keep.has(pid)) delete s.votersByPoll[pid]
   await write(db, s)
 }
 
-// Зафиксировать/снять голос (option_ids пустой = отозвал голос).
+// Зафиксировать/снять голос (option_ids пустой = отозвал голос). Храним индексы
+// выбранных вариантов — чтобы @tvari/@supertvari различали «Думаю»/«Нет».
 export async function recordVote(db: Database, pollId: string, tgId: string, optionIds: unknown): Promise<void> {
   const s = await read(db)
   if (!s.votersByPoll[pollId]) s.votersByPoll[pollId] = {}
-  if (Array.isArray(optionIds) && optionIds.length === 0) {
-    delete s.votersByPoll[pollId]![tgId]
+  const ids = Array.isArray(optionIds) ? optionIds.filter((n): n is number => typeof n === 'number') : []
+  if (ids.length === 0) {
+    delete s.votersByPoll[pollId]![tgId] // отозвал голос
   } else {
-    s.votersByPoll[pollId]![tgId] = new Date().toISOString()
+    s.votersByPoll[pollId]![tgId] = { o: ids, at: new Date().toISOString() }
   }
   await write(db, s)
 }
@@ -76,7 +90,14 @@ export async function lastPollForChat(db: Database, chatId: string | number): Pr
   return s.lastByChat[String(chatId)] ?? null
 }
 
-export async function votersOfPoll(db: Database, pollId: string): Promise<Set<string>> {
+// tgId → индексы выбранных вариантов (для фильтра по «Думаю»/«Нет»). Совместимо
+// со старым форматом (значение-строка → пустой список вариантов).
+export async function voteMapOfPoll(db: Database, pollId: string): Promise<Record<string, number[]>> {
   const s = await read(db)
-  return new Set(Object.keys(s.votersByPoll[pollId] ?? {}))
+  const raw = s.votersByPoll[pollId] ?? {}
+  const out: Record<string, number[]> = {}
+  for (const [tgId, v] of Object.entries(raw)) {
+    out[tgId] = v && typeof v === 'object' && Array.isArray((v as Vote).o) ? (v as Vote).o : []
+  }
+  return out
 }

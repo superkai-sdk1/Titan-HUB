@@ -346,7 +346,7 @@ systemRouter.post(
     if (!token) return c.json({ error: 'Не задан токен бота опросов' }, 400)
     const r = await postPollConfig(token, cfg)
     if (!r.ok) return c.json({ error: r.error ?? 'Не удалось отправить опрос' }, 502)
-    if (r.pollId) await recordPollPosted(db, cfg.chatId, r.pollId, r.messageId ?? 0, cfg.threadId).catch(() => {})
+    if (r.pollId) await recordPollPosted(db, cfg.chatId, r.pollId, r.messageId ?? 0, cfg.threadId, cfg.options).catch(() => {})
     return c.json({ ok: true, messageId: r.messageId })
   },
 )

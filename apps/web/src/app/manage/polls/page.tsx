@@ -336,10 +336,11 @@ export default function PollsPage() {
               <p style={{ fontSize: 12, fontWeight: 600, margin: '0 0 6px', color: 'var(--on-surface)' }}>Команды бота в чате (для админов):</p>
               <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: 0, lineHeight: 1.6 }}>
                 <b style={{ color: 'var(--on-surface)' }}>@all</b> — отметить всех известных участников чата.<br />
-                <b style={{ color: 'var(--on-surface)' }}>@tvari</b> — отметить тех, кто не проголосовал в последнем опросе.
+                <b style={{ color: 'var(--on-surface)' }}>@tvari</b> — не проголосовавшие <b>+ выбравшие «Думаю»</b> в последнем опросе.<br />
+                <b style={{ color: 'var(--on-surface)' }}>@supertvari</b> — выбравшие <b>«Нет»</b> в последнем опросе.
               </p>
               <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: '6px 0 0', lineHeight: 1.4 }}>
-                Работают, когда сбор включён и бот — админ чата. Отмечаются только «увиденные» ботом участники.
+                Работают, когда сбор включён и бот — админ чата. Считаются по последнему опросу В ЭТОЙ группе, в реальном времени. Не чаще раза в 10 минут на пользователя. Отмечаются только «увиденные» ботом участники.
               </p>
             </div>
           </div>
