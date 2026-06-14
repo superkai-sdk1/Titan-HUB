@@ -15,6 +15,7 @@ import { getCurrentShift } from '../shifts/shifts.service.js'
 import { notify, notifyClient } from '../notifications/push.js'
 import { maybePromoteToResident } from '../../lib/loyalty.js'
 import { profileNameCondition, profileTagCondition } from '../../lib/searchVariants.js'
+import { getPrecheckCandidates } from '../../lib/prechecks.js'
 import { accrueBonusLot, spendBonusLots, getBonusExpiryDays } from '../../lib/bonusLots.js'
 import { getNumericSetting, LARGE_CHECK_KEY, DEFAULT_LARGE_CHECK, getBoolSetting, STAFF_DISCOUNT_KEY, STAFF_MAX_DISCOUNT_KEY, DEFAULT_STAFF_MAX_DISCOUNT } from '../../lib/appSettings.js'
 import { round2, computeRental, computeTotals } from '../../lib/money.js'
@@ -548,6 +549,13 @@ posRouter.get('/checks', requireRole('owner', 'staff', 'tablet'), async (c) => {
     return { ...ch, itemCount: count, guestName, guestPhotoUrl, spaceName, spaceHourlyRate, hasRental: !!ch.spaceId }
   })
   return c.json({ checks: enriched })
+})
+
+// ПРЕДЧЕКИ: виртуальные карточки для отметившихся «Да»/«Опоздаю» в опросе вечера.
+posRouter.get('/prechecks', requireRole('owner', 'staff', 'tablet'), async (c) => {
+  // Планшету предчеки не нужны, но роль допускаем (вернёт по смене/данным клуба).
+  const prechecks = await getPrecheckCandidates(c.var.db)
+  return c.json({ prechecks })
 })
 
 posRouter.post('/checks', requireRole('owner', 'staff'), zValidator('json', OpenCheckSchema), async (c) => {

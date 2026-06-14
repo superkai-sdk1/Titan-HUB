@@ -1,6 +1,7 @@
 'use client'
 import { useState, useEffect, useRef, useCallback, Suspense } from 'react'
 import { Icon } from '@/components/Icon'
+import { TaiLogo } from '@/components/TaiLogo'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api, ApiError } from '@/lib/api'
@@ -30,6 +31,18 @@ interface CheckCard {
   spaceHourlyRate?: string | null
   eventBaseAmount?: string | null
   spaceId?: string | null
+}
+
+// Предчек — виртуальная карточка отметившегося в опросе игрока (до открытия чека).
+interface Precheck {
+  playerId: string
+  nickname: string
+  photoUrl: string | null
+  clientTier: string
+  vote: string
+  tariffItemId: string | null
+  tariffName: string | null
+  tariffPrice: string | null
 }
 
 interface PlayerResult {
@@ -191,6 +204,14 @@ function PosPageInner() {
     enabled: !!shift,
   })
 
+  // Предчеки (виртуальные карточки отметившихся в опросе вечера).
+  const { data: prechecksData } = useQuery({
+    queryKey: ['prechecks'],
+    queryFn: () => api.get<{ prechecks: Precheck[] }>('/pos/prechecks'),
+    refetchInterval: 20000,
+    enabled: !!shift,
+  })
+
   const { show: showToast } = useToast()
 
   const createCheck = useMutation({
@@ -223,6 +244,35 @@ function PosPageInner() {
     },
     onError: (e) => showToast(e instanceof ApiError ? String((e.data as Record<string, unknown>)?.error ?? 'Не удалось создать чек') : 'Ошибка сети', 'error'),
   })
+
+  // Предчек → открытый чек (долгое нажатие). Без навигации: касса остаётся в сетке.
+  const openPrecheck = useMutation({
+    mutationFn: async (pc: Precheck) => {
+      const res = await api.post<{ check: { id: string } }>('/pos/checks', { playerId: pc.playerId })
+      if (pc.tariffItemId) {
+        await api.post(`/pos/checks/${res.check.id}/items`, { itemId: pc.tariffItemId, quantity: 1 }).catch(() => {})
+      }
+      return res
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['checks'] })
+      qc.invalidateQueries({ queryKey: ['prechecks'] })
+      showToast('Чек открыт', 'success')
+    },
+    onError: (e) => showToast(e instanceof ApiError ? String((e.data as Record<string, unknown>)?.error ?? 'Не удалось открыть чек') : 'Ошибка сети', 'error'),
+  })
+  const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [holdingId, setHoldingId] = useState<string | null>(null)
+  function startHold(pc: Precheck) {
+    if (openPrecheck.isPending) return
+    setHoldingId(pc.playerId)
+    if (holdTimer.current) clearTimeout(holdTimer.current)
+    holdTimer.current = setTimeout(() => { holdTimer.current = null; setHoldingId(null); openPrecheck.mutate(pc) }, 600)
+  }
+  function cancelHold() {
+    if (holdTimer.current) { clearTimeout(holdTimer.current); holdTimer.current = null }
+    setHoldingId(null)
+  }
 
   const createClient = useMutation({
     // POST /clients возвращает { client: {...} } — раньше читали .profile.id (undefined),
@@ -381,6 +431,7 @@ function PosPageInner() {
   }, [shift])
 
   const checks = checksData?.checks ?? []
+  const prechecks = prechecksData?.prechecks ?? []
 
   // «Пульс» карточки чека: непрочитанное обращение гостя (чат / вызов / заказ /
   // запрос счёта). staff_call привязан к пространству (без checkId), остальные — к чеку.
@@ -663,6 +714,64 @@ function PosPageInner() {
               </button>
             )
           })}
+
+          {/* Предчеки — отметившиеся «Да»/«Опоздаю» в опросе вечера. Полупрозрачные,
+              с переливающимся ИИ-фоном; долгое нажатие → открытый чек по тарифу. */}
+          {prechecks.map((pc) => {
+            const holding = holdingId === pc.playerId
+            const price = parseFloat(String(pc.tariffPrice ?? 0)) || 0
+            return (
+              <div
+                key={`pre-${pc.playerId}`}
+                className="pos-check-card"
+                onPointerDown={() => startHold(pc)}
+                onPointerUp={cancelHold}
+                onPointerLeave={cancelHold}
+                onPointerCancel={cancelHold}
+                onContextMenu={(e) => e.preventDefault()}
+                style={{
+                  borderRadius: 16, textAlign: 'left', cursor: 'pointer', position: 'relative', overflow: 'hidden',
+                  border: '1px solid rgba(160,125,255,0.35)', opacity: holding ? 0.96 : 0.8,
+                  display: 'flex', flexDirection: 'column',
+                  transform: holding ? 'scale(0.97)' : 'scale(1)', transition: 'transform .15s, opacity .15s',
+                  background: 'linear-gradient(120deg, rgba(130,88,242,0.13), rgba(76,215,246,0.07), rgba(160,125,255,0.15), rgba(130,88,242,0.13))',
+                  backgroundSize: '300% 300%', animation: 'tai-precheck-bg 6s ease infinite',
+                  WebkitTapHighlightColor: 'transparent', userSelect: 'none',
+                }}
+              >
+                <div className="card-top" style={{ display: 'flex', alignItems: 'center' }}>
+                  <div className="card-avatar" style={{
+                    borderRadius: '50%', flexShrink: 0, overflow: 'hidden', border: '1px solid rgba(160,125,255,0.4)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, color: '#A78BFA',
+                    background: pc.photoUrl ? 'rgba(255,255,255,0.05)' : 'linear-gradient(135deg, rgba(130,88,242,0.35), rgba(76,215,246,0.3))',
+                  }}>
+                    {pc.photoUrl
+                      ? /* eslint-disable-next-line @next/next/no-img-element */ <img src={pc.photoUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      : getInitials(pc.nickname)}
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <p className="card-name" style={{ fontWeight: 600, color: 'var(--on-surface)', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pc.nickname}</p>
+                    <p className="card-space" style={{ color: '#A78BFA', margin: 0 }}>{pc.vote === 'опоздаю' ? 'Опоздает' : 'Придёт'} · предчек</p>
+                  </div>
+                  <TaiLogo size={28} thinking float={false} />
+                </div>
+
+                <p className="card-amount" style={{ fontWeight: 900, fontVariantNumeric: 'tabular-nums', color: 'var(--on-surface)', lineHeight: 1 }}>
+                  {price.toLocaleString('ru')} ₽
+                </p>
+
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
+                  <span className="card-items" style={{ padding: '2px 8px', borderRadius: 999, background: 'rgba(160,125,255,0.16)', fontSize: 11, color: '#A78BFA', whiteSpace: 'nowrap' }}>{pc.tariffName ?? 'Тариф'}</span>
+                  <span style={{ fontSize: 11, color: 'var(--on-surface-variant)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Удерживайте, чтобы открыть</span>
+                </div>
+
+                {holding && <div style={{ position: 'absolute', bottom: 0, left: 0, height: 3, background: 'linear-gradient(90deg,#A07DFF,#4cd7f6)', animation: 'tai-hold 0.6s linear forwards' }} />}
+              </div>
+            )
+          })}
+          {prechecks.length > 0 && (
+            <style>{`@keyframes tai-precheck-bg{0%{background-position:0% 50%}50%{background-position:100% 50%}100%{background-position:0% 50%}}@keyframes tai-hold{from{width:0}to{width:100%}}`}</style>
+          )}
 
           {/* New check slot */}
           {shift && !isLoading && (

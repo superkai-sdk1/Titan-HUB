@@ -85,6 +85,36 @@ export async function recordVote(db: Database, pollId: string, tgId: string, opt
   await write(db, s)
 }
 
+// Для ПРЕДЧЕКОВ: кто проголосовал за нужные варианты (напр. «Да»/«Опоздаю») в
+// опросах, опубликованных не раньше sinceMs (сегодняшний вечер) — по ЛЮБОМУ чату.
+// Возвращает tgId → выбранная метка (приоритет у первой из labels, т.е. «да»).
+export async function votersForToday(
+  db: Database, sinceMs: number, labels: string[],
+): Promise<Map<string, string>> {
+  const s = await read(db)
+  const want = labels.map((l) => l.trim().toLowerCase())
+  const priority = (lbl: string) => want.indexOf(lbl) // меньше = важнее
+  const out = new Map<string, string>()
+  for (const lp of Object.values(s.lastByChat)) {
+    if (!lp?.postedAt || Date.parse(lp.postedAt) < sinceMs) continue
+    const opts = (lp.options ?? []).map((o) => String(o).trim().toLowerCase())
+    const idxToLabel = new Map<number, string>()
+    opts.forEach((o, i) => { if (want.includes(o)) idxToLabel.set(i, o) })
+    if (idxToLabel.size === 0) continue
+    const votes = s.votersByPoll[lp.pollId] ?? {}
+    for (const [tgId, v] of Object.entries(votes)) {
+      const ids = v && typeof v === 'object' && Array.isArray((v as Vote).o) ? (v as Vote).o : []
+      for (const id of ids) {
+        const lbl = idxToLabel.get(id)
+        if (!lbl) continue
+        const prev = out.get(tgId)
+        if (!prev || priority(lbl) < priority(prev)) out.set(tgId, lbl)
+      }
+    }
+  }
+  return out
+}
+
 export async function lastPollForChat(db: Database, chatId: string | number): Promise<LastPoll | null> {
   const s = await read(db)
   return s.lastByChat[String(chatId)] ?? null
