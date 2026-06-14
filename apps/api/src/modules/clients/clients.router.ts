@@ -17,7 +17,10 @@ import { notify, notifyClient } from '../notifications/push.js'
 import { visitProgress, maybePromoteToResident } from '../../lib/loyalty.js'
 import { listRoster } from '../../lib/roster.js'
 import { readAliases, aliasesForProfile, addAlias, removeAlias, resolveProfileIdByAlias } from '../../lib/tgAliases.js'
+import { playerDetail as gomafiaPlayer } from '../../lib/gomafia.js'
 import { createHmac } from 'node:crypto'
+
+const GM_TAG_RE = /^gomafia:\d+$/
 
 const CreateClientSchema = z.object({
   nickname: z.string().min(2),
@@ -415,6 +418,62 @@ clientsRouter.delete(
     return c.json({ ok: true })
   },
 )
+
+// ─── Сопоставление клиента с игроком GoMafia ───────────────────────────────────
+// Связь хранится тегом searchTags «gomafia:<id>» (без миграции). Один профиль
+// GoMafia не может быть привязан к двум клиентам (проверка по тегу → 409). При
+// привязке дозаполняем имя/фото из карточки GoMafia, НЕ затирая ручные значения.
+clientsRouter.post(
+  '/:id/gomafia-link',
+  requireRole('owner', 'staff'),
+  zValidator('json', z.object({ gomafiaId: z.string().regex(/^\d+$/) })),
+  async (c) => {
+    const db = c.var.db
+    const id = c.req.param('id')
+    const { gomafiaId } = c.req.valid('json')
+    const tag = `gomafia:${gomafiaId}`
+
+    const [me] = await db
+      .select({ searchTags: profiles.searchTags, fullName: profiles.fullName, photoUrl: profiles.photoUrl })
+      .from(profiles).where(eq(profiles.id, id)).limit(1)
+    if (!me) return c.json({ error: 'Not found' }, 404)
+
+    // Занят ли этот игрок GoMafia другим клиентом?
+    const [other] = await db
+      .select({ id: profiles.id, nickname: profiles.nickname })
+      .from(profiles)
+      .where(and(sql`${profiles.searchTags} @> ARRAY[${tag}]::text[]`, isNull(profiles.deletedAt)))
+      .limit(1)
+    if (other && other.id !== id) {
+      return c.json({ error: `Этот игрок GoMafia уже сопоставлен с «${other.nickname}»` }, 409)
+    }
+
+    // Карточка GoMafia — для дозаполнения имени/фото (необязательно).
+    const player = await gomafiaPlayer(gomafiaId).catch(() => null)
+
+    const tags = (me.searchTags ?? []).filter((t) => !GM_TAG_RE.test(t))
+    tags.push(tag)
+    const patch: Record<string, unknown> = { searchTags: tags }
+    if (!me.fullName && player?.fullName) patch['fullName'] = player.fullName
+    if (!me.photoUrl && player?.avatar) patch['photoUrl'] = player.avatar
+
+    const [updated] = await db.update(profiles).set(patch).where(eq(profiles.id, id)).returning()
+    const { pin, passwordHash, ...safe } = updated
+    return c.json({ ok: true, client: safe, gomafia: player })
+  },
+)
+
+// Отвязать клиента от GoMafia (убираем тег gomafia:*; имя/фото не трогаем).
+clientsRouter.delete('/:id/gomafia-link', requireRole('owner', 'staff'), async (c) => {
+  const db = c.var.db
+  const id = c.req.param('id')
+  const [me] = await db.select({ searchTags: profiles.searchTags }).from(profiles).where(eq(profiles.id, id)).limit(1)
+  if (!me) return c.json({ error: 'Not found' }, 404)
+  const tags = (me.searchTags ?? []).filter((t) => !GM_TAG_RE.test(t))
+  const [updated] = await db.update(profiles).set({ searchTags: tags }).where(eq(profiles.id, id)).returning()
+  const { pin, passwordHash, ...safe } = updated
+  return c.json({ ok: true, client: safe })
+})
 
 clientsRouter.delete('/:id', requireRole('owner'), async (c) => {
   const db = c.var.db

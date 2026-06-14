@@ -11,6 +11,12 @@ import { useToast } from '@/components/Toast'
 import { Icon } from '@/components/Icon'
 import { telLink, openContact } from '@/lib/contact'
 
+const GM_TAG_RE = /^gomafia:\d+$/
+const gomafiaIdOf = (c: any): string | null => {
+  const t = (Array.isArray(c?.searchTags) ? c.searchTags : []).find((x: string) => GM_TAG_RE.test(x))
+  return t ? t.split(':')[1] : null
+}
+
 const TIER_COLORS: Record<string, string> = {
   newbie: '#22D3EE', guest: 'rgba(204,195,216,0.6)', resident: '#8B5CF6', student: '#3B82F6',
   bronze: '#cd7f32', silver: '#94A3B8', gold: '#F59E0B', platinum: '#E2E8F0',
@@ -100,6 +106,11 @@ export default function ClientsPage() {
   const [gmResults, setGmResults] = useState<any[]>([])
   const [gmLoading, setGmLoading] = useState(false)
   const [gmOpen, setGmOpen] = useState(false)
+  // Сопоставление существующего клиента с GoMafia (модалка из карточки клиента).
+  const [gmMatchOpen, setGmMatchOpen] = useState(false)
+  const [gmMatchQuery, setGmMatchQuery] = useState('')
+  const [gmMatchResults, setGmMatchResults] = useState<any[]>([])
+  const [gmMatchLoading, setGmMatchLoading] = useState(false)
   const [editForm, setEditForm] = useState<any>(null)
   const [showTiers, setShowTiers] = useState(false)
   const [newTier, setNewTier] = useState({ label: '', color: '#8B5CF6' })
@@ -204,6 +215,43 @@ export default function ClientsPage() {
       if (full) setForm(prev => ({ ...prev, fullName: full }))
     } catch { /* имя необязательно */ }
   }
+
+  // Сопоставление существующего клиента с GoMafia: дебаунс-поиск (клуб → все).
+  useEffect(() => {
+    if (!gmMatchOpen) return
+    const q = gmMatchQuery.trim()
+    if (q.length < 2) { setGmMatchResults([]); setGmMatchLoading(false); return }
+    setGmMatchLoading(true)
+    const t = setTimeout(async () => {
+      try {
+        const r = await api.get<{ players: any[] }>(`/gomafia/search?q=${encodeURIComponent(q)}`)
+        setGmMatchResults(Array.isArray(r.players) ? r.players : [])
+      } catch { setGmMatchResults([]) }
+      finally { setGmMatchLoading(false) }
+    }, 350)
+    return () => clearTimeout(t)
+  }, [gmMatchQuery, gmMatchOpen])
+
+  const gomafiaLinkMut = useMutation({
+    mutationFn: (gomafiaId: string) => api.post<{ client: any; gomafia: any }>(`/clients/${selected.id}/gomafia-link`, { gomafiaId }),
+    onSuccess: (res) => {
+      qc.invalidateQueries({ queryKey: ['clients'] })
+      if (res?.client) setSelected(res.client)
+      setGmMatchOpen(false); setGmMatchQuery(''); setGmMatchResults([])
+      show('Клиент сопоставлен с GoMafia', 'success')
+    },
+    onError: (e: any) => show(e?.message || 'Не удалось сопоставить', 'error'),
+  })
+  const gomafiaUnlinkMut = useMutation({
+    mutationFn: () => api.delete<{ client: any }>(`/clients/${selected.id}/gomafia-link`),
+    onSuccess: (res: any) => {
+      qc.invalidateQueries({ queryKey: ['clients'] })
+      if (res?.client) setSelected(res.client)
+      show('Привязка GoMafia снята', 'success')
+    },
+    onError: () => show('Не удалось отвязать', 'error'),
+  })
+
   const update = useMutation({
     mutationFn: ({ id, ...b }: any) => api.patch(`/clients/${id}`, b),
     onSuccess: (res: any, vars: any) => {
@@ -310,6 +358,7 @@ export default function ClientsPage() {
     setTab('info')
     setTgQr(null)
     setTgRosterOpen(false); setTgRosterSearch(''); setTgUnlinkTarget(null)
+    setGmMatchOpen(false); setGmMatchQuery(''); setGmMatchResults([])
     setAdjModal(null); setAdjAmount(''); setAdjComment('')
   }
 
@@ -324,14 +373,18 @@ export default function ClientsPage() {
       birthday: selected.birthday ? String(selected.birthday).slice(0, 10) : '',
       clientTier: selected.clientTier ?? 'guest',
     })
-    setTagsInput(tags.join(', '))
+    // Тег gomafia:* управляется отдельным блоком — в поле «Теги» его не показываем.
+    setTagsInput(tags.filter(t => !GM_TAG_RE.test(t)).join(', '))
     setTgQr(null)
     setMode('edit')
   }
 
   function saveEdit() {
     if (!selected) return
-    const searchTags = tagsInput.split(',').map(t => t.trim()).filter(Boolean)
+    // Сохраняем привязку GoMafia (тег gomafia:*) — поле «Теги» её не затирает.
+    const manual = tagsInput.split(',').map(t => t.trim()).filter(Boolean).filter(t => !GM_TAG_RE.test(t))
+    const gm = (Array.isArray(selected.searchTags) ? selected.searchTags : []).filter((t: string) => GM_TAG_RE.test(t))
+    const searchTags = [...manual, ...gm]
     update.mutate({
       id: selected.id,
       nickname: editForm.nickname,
@@ -597,6 +650,31 @@ export default function ClientsPage() {
                   </p>
                 </div>
 
+                {/* GoMafia — сопоставление с профилем игрока */}
+                <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 16 }}>
+                  <p style={{ ...LBL, marginBottom: 10 }}>GoMafia</p>
+                  {(() => {
+                    const gid = gomafiaIdOf(selected)
+                    return gid ? (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 12, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
+                        <Icon name="sports_esports" size={20} color="#a78bfa" style={{ flexShrink: 0 }} />
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--on-surface)' }}>Профиль #{gid}</span>
+                          <a href={`https://gomafia.pro/stats/${gid}`} target="_blank" rel="noreferrer" style={{ display: 'block', fontSize: 12, color: '#a78bfa', textDecoration: 'none' }}>Открыть на GoMafia ↗</a>
+                        </div>
+                        <IconButton icon="link_off" variant="danger" ariaLabel="Отвязать GoMafia" disabled={gomafiaUnlinkMut.isPending} onClick={() => gomafiaUnlinkMut.mutate()} />
+                      </div>
+                    ) : (
+                      <Button variant="secondary" fullWidth icon="search" onClick={() => { setGmMatchOpen(true); setGmMatchQuery(''); setGmMatchResults([]) }}>
+                        Сопоставить с GoMafia
+                      </Button>
+                    )
+                  })()}
+                  <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', lineHeight: 1.5, margin: '10px 0 0' }}>
+                    Свяжите клиента с игроком на gomafia.pro. Сначала показываются игроки вашего клуба, затем все игроки сайта.
+                  </p>
+                </div>
+
                 <Button fullWidth size="lg" loading={update.isPending} disabled={!editForm.nickname?.trim()} onClick={saveEdit}>Сохранить</Button>
                 <Button variant="ghost" fullWidth onClick={() => setMode('view')}>Отмена</Button>
               </div>
@@ -851,6 +929,50 @@ export default function ClientsPage() {
             </div>
           )
         })()}
+      </Sheet>
+
+      {/* Сопоставление клиента с игроком GoMafia (клуб → все игроки) */}
+      <Sheet open={gmMatchOpen} onClose={() => { setGmMatchOpen(false); setGmMatchQuery('') }} title="Сопоставить с GoMafia">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div style={{ position: 'relative' }}>
+            <Icon name="search" size={18} color="var(--on-surface-variant)" style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }} />
+            <input value={gmMatchQuery} onChange={e => setGmMatchQuery(e.target.value)} autoFocus placeholder="Ник игрока на GoMafia…" style={{ ...INP, paddingLeft: 42, borderRadius: 12 }} />
+          </div>
+
+          {gmMatchQuery.trim().length < 2 ? (
+            <p style={{ fontSize: 13, color: 'var(--on-surface-variant)', textAlign: 'center', padding: '16px 8px', margin: 0, lineHeight: 1.5 }}>
+              Введите ник игрока. Сначала показываются игроки вашего клуба, затем все игроки сайта.
+            </p>
+          ) : gmMatchLoading ? (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '32px 0', color: 'var(--on-surface-variant)' }}>
+              <Icon name="progress_activity" size={26} style={{ animation: 'spin 1s linear infinite' }} />
+              <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+            </div>
+          ) : gmMatchResults.length === 0 ? (
+            <p style={{ fontSize: 13, color: 'var(--on-surface-variant)', textAlign: 'center', padding: '16px 8px', margin: 0 }}>Игроки не найдены</p>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {gmMatchResults.map((p: any) => (
+                <div key={p.gomafiaId}
+                  onClick={() => { if (selected && !gomafiaLinkMut.isPending) gomafiaLinkMut.mutate(String(p.gomafiaId)) }}
+                  style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', borderRadius: 12, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', cursor: gomafiaLinkMut.isPending ? 'default' : 'pointer', opacity: gomafiaLinkMut.isPending ? 0.6 : 1 }}>
+                  {p.avatar
+                    ? <img src={p.avatar} alt="" width={36} height={36} style={{ width: 36, height: 36, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
+                    : <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Icon name="person" size={18} color="var(--on-surface-variant)" /></div>}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--on-surface)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.login}</span>
+                      {p.inClub && <span style={{ fontSize: 9, fontWeight: 800, padding: '1px 6px', borderRadius: 5, background: 'rgba(139,92,246,0.2)', color: '#a78bfa', textTransform: 'uppercase', letterSpacing: '0.05em', flexShrink: 0 }}>клуб</span>}
+                    </div>
+                    <p style={{ margin: '2px 0 0', fontSize: 11, color: 'var(--on-surface-variant)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {p.clubTitle ? p.clubTitle : 'Без клуба'}{p.elo != null ? ` · ELO ${Math.round(p.elo)}` : ''} · #{p.gomafiaId}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </Sheet>
 
       {/* Модалка детали чека */}
