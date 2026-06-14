@@ -357,14 +357,14 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
   // Клиенты в чеке: плательщик (playerId) + доп. люди (guestNames). Шторка добавления.
   const [showClient, setShowClient] = useState(false)
   const [clientQuery, setClientQuery] = useState('')
-  const [clientResults, setClientResults] = useState<{ id: string; nickname: string; clientTier: string }[]>([])
+  const [clientResults, setClientResults] = useState<{ id: string; nickname: string; clientTier: string; photoUrl?: string | null }[]>([])
   const [clientSearching, setClientSearching] = useState(false)
   const [guestNameInput, setGuestNameInput] = useState('')
   const clientTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   // Тарифный шаг (как на кассе): после выбора плательщика предлагаем выбрать тариф.
   const [tariffStep, setTariffStep] = useState(false)
   // asGuest=true → добавляем доп. участника (имя в guestNames на подтверждении).
-  const [pendingPlayer, setPendingPlayer] = useState<{ id?: string; nickname: string; clientTier: string; asGuest?: boolean } | null>(null)
+  const [pendingPlayer, setPendingPlayer] = useState<{ id?: string; nickname: string; clientTier: string; asGuest?: boolean; photoUrl?: string | null } | null>(null)
   const [selectedTariffId, setSelectedTariffId] = useState<string | null>(null)
 
   const check = checkData
@@ -508,7 +508,9 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
   const { data: playerData } = useQuery({
     queryKey: ['player', check?.playerId],
     queryFn: () => api.get<{ player: PlayerProfile }>(`/pos/players/${check!.playerId}`).then(r => r.player),
-    enabled: !!check?.playerId && showPayment,
+    // Грузим всегда при наличии плательщика (а не только на оплате) — нужно для
+    // аватара в шапке открытого чека.
+    enabled: !!check?.playerId,
   })
   const player = playerData ?? null
 
@@ -755,7 +757,7 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
     setClientSearching(true)
     clientTimerRef.current = setTimeout(async () => {
       try {
-        const res = await api.get<{ players: { id: string; nickname: string; clientTier: string }[] }>(`/pos/players/search?q=${encodeURIComponent(q)}`)
+        const res = await api.get<{ players: { id: string; nickname: string; clientTier: string; photoUrl?: string | null }[] }>(`/pos/players/search?q=${encodeURIComponent(q)}`)
         setClientResults(res.players)
       } catch { setClientResults([]) }
       finally { setClientSearching(false) }
@@ -1640,7 +1642,9 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
                 {clientResults.filter(r => r.id !== check?.playerId).map(r => (
                   <button key={r.id} type="button" onClick={() => pickClient(r)}
                     style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.08)', background: 'rgba(255,255,255,0.04)', color: 'var(--on-surface)', fontSize: 14, fontWeight: 600, cursor: 'pointer', textAlign: 'left' }}>
-                    <Icon name="person" size={16} color="#38BDF8" />
+                    {r.photoUrl
+                      ? /* eslint-disable-next-line @next/next/no-img-element */ <img src={r.photoUrl} alt="" width={24} height={24} style={{ width: 24, height: 24, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
+                      : <Icon name="person" size={16} color="#38BDF8" />}
                     <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.nickname}</span>
                   </button>
                 ))}
@@ -1684,8 +1688,10 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
                 </div>
 
                 <div className="glass-l2" style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', borderRadius: 14, marginBottom: 18, border: '1px solid rgba(56,189,248,0.25)' }}>
-                  <div style={{ width: 40, height: 40, borderRadius: '50%', flexShrink: 0, background: 'linear-gradient(135deg, rgba(56,189,248,0.35), rgba(76,215,246,0.35))', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 700, color: '#38BDF8' }}>
-                    {getInitials(pendingPlayer.nickname)}
+                  <div style={{ width: 40, height: 40, borderRadius: '50%', flexShrink: 0, overflow: 'hidden', background: pendingPlayer.photoUrl ? 'rgba(255,255,255,0.05)' : 'linear-gradient(135deg, rgba(56,189,248,0.35), rgba(76,215,246,0.35))', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 700, color: '#38BDF8' }}>
+                    {pendingPlayer.photoUrl
+                      ? /* eslint-disable-next-line @next/next/no-img-element */ <img src={pendingPlayer.photoUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      : getInitials(pendingPlayer.nickname)}
                   </div>
                   <div style={{ flex: 1 }}>
                     <p style={{ fontSize: 14, fontWeight: 700, margin: 0, color: 'var(--on-surface)' }}>{pendingPlayer.nickname}</p>
@@ -1821,8 +1827,10 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
 
                 {player && (
                   <div className="glass-l2" style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', borderRadius: 14, marginBottom: 16, border: '1px solid rgba(139,92,246,0.2)' }}>
-                    <div style={{ width: 36, height: 36, borderRadius: '50%', flexShrink: 0, background: 'linear-gradient(135deg, rgba(139,92,246,0.35), rgba(76,215,246,0.35))', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, color: '#A78BFA' }}>
-                      {getInitials(player.nickname)}
+                    <div style={{ width: 36, height: 36, borderRadius: '50%', flexShrink: 0, overflow: 'hidden', background: player.photoUrl ? 'rgba(255,255,255,0.05)' : 'linear-gradient(135deg, rgba(139,92,246,0.35), rgba(76,215,246,0.35))', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, color: '#A78BFA' }}>
+                      {player.photoUrl
+                        ? /* eslint-disable-next-line @next/next/no-img-element */ <img src={player.photoUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        : getInitials(player.nickname)}
                     </div>
                     <span style={{ flex: 1, fontWeight: 700, fontSize: 14, color: 'var(--on-surface)' }}>{player.nickname}</span>
                     {playerDebt > 0 ? (
@@ -1914,8 +1922,10 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
 
                 {player && (
                   <div className="glass-l2" style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', borderRadius: 14, marginBottom: 20, border: '1px solid rgba(245,158,11,0.2)' }}>
-                    <div style={{ width: 36, height: 36, borderRadius: '50%', flexShrink: 0, background: 'linear-gradient(135deg, rgba(139,92,246,0.35), rgba(76,215,246,0.35))', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, color: '#A78BFA' }}>
-                      {getInitials(player.nickname)}
+                    <div style={{ width: 36, height: 36, borderRadius: '50%', flexShrink: 0, overflow: 'hidden', background: player.photoUrl ? 'rgba(255,255,255,0.05)' : 'linear-gradient(135deg, rgba(139,92,246,0.35), rgba(76,215,246,0.35))', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, color: '#A78BFA' }}>
+                      {player.photoUrl
+                        ? /* eslint-disable-next-line @next/next/no-img-element */ <img src={player.photoUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        : getInitials(player.nickname)}
                     </div>
                     <span style={{ flex: 1, fontWeight: 700, fontSize: 14, color: 'var(--on-surface)' }}>{player.nickname}</span>
                     <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--pay-bonus)' }}>★ {playerBonus.toLocaleString('ru')} бонусов</span>
@@ -1980,8 +1990,10 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
                 </div>
                 {player && (
                   <div className="glass-l2" style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', borderRadius: 14, marginBottom: 20, border: '1px solid rgba(6,182,212,0.2)' }}>
-                    <div style={{ width: 36, height: 36, borderRadius: '50%', flexShrink: 0, background: 'linear-gradient(135deg, rgba(139,92,246,0.35), rgba(76,215,246,0.35))', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, color: '#A78BFA' }}>
-                      {getInitials(player.nickname)}
+                    <div style={{ width: 36, height: 36, borderRadius: '50%', flexShrink: 0, overflow: 'hidden', background: player.photoUrl ? 'rgba(255,255,255,0.05)' : 'linear-gradient(135deg, rgba(139,92,246,0.35), rgba(76,215,246,0.35))', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, color: '#A78BFA' }}>
+                      {player.photoUrl
+                        ? /* eslint-disable-next-line @next/next/no-img-element */ <img src={player.photoUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        : getInitials(player.nickname)}
                     </div>
                     <span style={{ flex: 1, fontWeight: 700, fontSize: 14, color: 'var(--on-surface)' }}>{player.nickname}</span>
                     <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--pay-deposit)' }}>{availableDeposit.toLocaleString('ru')} ₽</span>

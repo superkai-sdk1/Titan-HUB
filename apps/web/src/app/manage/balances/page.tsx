@@ -23,6 +23,8 @@ type OpMode = null | 'deposit_add' | 'deposit_sub' | 'debt_repay' | 'debt_lend'
 function parseNum(v: unknown) { return parseFloat(String(v ?? 0)) || 0 }
 function fmt(n: number) { return n.toLocaleString('ru', { maximumFractionDigits: 0 }) }
 function initials(s?: string | null) { return (s ?? '?').slice(0, 2).toUpperCase() }
+// Эффективное фото: ручное → Telegram → GoMafia.
+const avatarUrl = (c: any): string | null => c?.photoUrl || c?.tgPhotoUrl || c?.gomafiaPhotoUrl || null
 function isTab(v: string | null): v is Tab { return v === 'all' || v === 'deposits' || v === 'debts' }
 function colorOf(balance: number) { return balance > 0 ? CYAN : balance < 0 ? RED : 'var(--on-surface-variant)' }
 
@@ -182,9 +184,11 @@ export default function BalancesPage() {
               return (
                 <div key={c.id} className="glass-l2" onClick={() => openDetail(c)}
                   style={{ position: 'relative', overflow: 'hidden', borderRadius: 14, padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 14, cursor: 'pointer' }}>
-                  <div style={{ width: 46, height: 46, borderRadius: '50%', flexShrink: 0, background: `${col}22`, border: `2px solid ${col}55`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 800, color: col }}>
-                    {initials(c.nickname)}
-                  </div>
+                  {avatarUrl(c)
+                    ? /* eslint-disable-next-line @next/next/no-img-element */ <img src={avatarUrl(c)!} alt="" width={46} height={46} style={{ width: 46, height: 46, borderRadius: '50%', flexShrink: 0, objectFit: 'cover', border: `2px solid ${col}55` }} />
+                    : <div style={{ width: 46, height: 46, borderRadius: '50%', flexShrink: 0, background: `${col}22`, border: `2px solid ${col}55`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 800, color: col }}>
+                        {initials(c.nickname)}
+                      </div>}
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <p style={{ fontSize: 14, fontWeight: 700, margin: 0 }}>{c.nickname}</p>
                     <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: '3px 0 0' }}>{c.fullName || c.phone || 'Без контакта'}</p>
@@ -211,7 +215,9 @@ export default function BalancesPage() {
               return (
                 <button key={c.id} type="button" onClick={() => pickClient(c)}
                   style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.08)', background: 'rgba(255,255,255,0.04)', color: 'var(--on-surface)', cursor: 'pointer', textAlign: 'left' }}>
-                  <div style={{ width: 34, height: 34, borderRadius: '50%', flexShrink: 0, background: `${col}22`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, color: col }}>{initials(c.nickname)}</div>
+                  {avatarUrl(c)
+                    ? /* eslint-disable-next-line @next/next/no-img-element */ <img src={avatarUrl(c)!} alt="" width={34} height={34} style={{ width: 34, height: 34, borderRadius: '50%', flexShrink: 0, objectFit: 'cover' }} />
+                    : <div style={{ width: 34, height: 34, borderRadius: '50%', flexShrink: 0, background: `${col}22`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, color: col }}>{initials(c.nickname)}</div>}
                   <div style={{ minWidth: 0 }}>
                     <p style={{ fontSize: 14, fontWeight: 600, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.nickname}</p>
                     <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: 0 }}>Баланс: {formatMoney(cb)}</p>
@@ -231,9 +237,11 @@ export default function BalancesPage() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
               {/* Инфо о клиенте */}
               <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-                <div style={{ width: 56, height: 56, borderRadius: '50%', flexShrink: 0, background: `${col}22`, border: `2px solid ${col}55`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, fontWeight: 800, color: col }}>
-                  {initials(selected.nickname)}
-                </div>
+                {avatarUrl(selected)
+                  ? /* eslint-disable-next-line @next/next/no-img-element */ <img src={avatarUrl(selected)!} alt="" width={56} height={56} style={{ width: 56, height: 56, borderRadius: '50%', flexShrink: 0, objectFit: 'cover', border: `2px solid ${col}55` }} />
+                  : <div style={{ width: 56, height: 56, borderRadius: '50%', flexShrink: 0, background: `${col}22`, border: `2px solid ${col}55`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, fontWeight: 800, color: col }}>
+                      {initials(selected.nickname)}
+                    </div>}
                 <div style={{ minWidth: 0 }}>
                   <h2 style={{ fontSize: 18, fontWeight: 800, margin: 0 }}>{selected.nickname}</h2>
                   {selected.fullName ? <p style={{ fontSize: 13, color: 'var(--on-surface-variant)', margin: '2px 0 0' }}>{selected.fullName}</p> : null}

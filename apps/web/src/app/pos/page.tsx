@@ -304,7 +304,7 @@ function PosPageInner() {
 
   const { data: birthdaysData } = useQuery({
     queryKey: ['shifts', 'birthdays-today'],
-    queryFn: () => api.get<{ birthdays: { id: string; nickname: string; birthday: string | null }[] }>('/shifts/birthdays-today'),
+    queryFn: () => api.get<{ birthdays: { id: string; nickname: string; birthday: string | null; photoUrl?: string | null }[] }>('/shifts/birthdays-today'),
     enabled: !!shift && !birthdaysShown,
   })
 
@@ -1393,8 +1393,10 @@ function PosPageInner() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 24 }}>
               {birthdaysData.birthdays.map(person => (
                 <div key={person.id} className="glass-l2" style={{ padding: '10px 14px', borderRadius: 12, display: 'flex', alignItems: 'center', gap: 10, textAlign: 'left' }}>
-                  <div style={{ width: 32, height: 32, borderRadius: '50%', background: 'rgba(139,92,246,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, color: '#A78BFA', flexShrink: 0 }}>
-                    {getInitials(person.nickname)}
+                  <div style={{ width: 32, height: 32, borderRadius: '50%', overflow: 'hidden', background: 'rgba(139,92,246,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, color: '#A78BFA', flexShrink: 0 }}>
+                    {person.photoUrl
+                      ? /* eslint-disable-next-line @next/next/no-img-element */ <img src={person.photoUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      : getInitials(person.nickname)}
                   </div>
                   <span style={{ fontWeight: 700, fontSize: 14, color: 'var(--on-surface)' }}>{person.nickname}</span>
                 </div>

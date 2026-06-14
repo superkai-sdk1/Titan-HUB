@@ -152,6 +152,7 @@ export async function getBirthdaysToday(database: DbLike) {
     id: profiles.id,
     nickname: profiles.nickname,
     birthday: profiles.birthday,
+    photoUrl: sql<string | null>`coalesce(${profiles.photoUrl}, ${profiles.tgPhotoUrl}, ${profiles.gomafiaPhotoUrl})`,
   }).from(profiles)
     .where(and(
       eq(profiles.role, 'client'),
