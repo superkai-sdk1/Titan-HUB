@@ -618,125 +618,132 @@ export default function ClientsPage() {
                   <h2 style={{ fontSize: 18, fontWeight: 800, margin: 0 }}>Редактирование</h2>
                 </div>
 
-                {/* Фото клиента — приоритет: загруженное → Telegram → GoMafia */}
-                <div>
-                  <label style={LBL}>Фото</label>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                {/* Аватар по центру — клик заменяет фото */}
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, marginBottom: 2 }}>
+                  <label style={{ position: 'relative', width: 96, height: 96, flexShrink: 0, cursor: photoUploading ? 'default' : 'pointer' }}>
                     {avatarOf(selected)
-                      ? /* eslint-disable-next-line @next/next/no-img-element */ <img src={avatarOf(selected)!} alt="" width={60} height={60} style={{ width: 60, height: 60, borderRadius: '50%', objectFit: 'cover', flexShrink: 0, border: `2px solid ${tierColor}55` }} />
-                      : <div style={{ width: 60, height: 60, borderRadius: '50%', flexShrink: 0, background: `${tierColor}22`, border: `2px solid ${tierColor}55`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, fontWeight: 800, color: tierColor }}>{(selected.nickname ?? '?').slice(0, 2).toUpperCase()}</div>}
-                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 6 }}>
-                      <label style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '10px 14px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(255,255,255,0.05)', color: 'var(--on-surface)', fontSize: 13, fontWeight: 600, cursor: photoUploading ? 'default' : 'pointer', opacity: photoUploading ? 0.6 : 1 }}>
-                        <Icon name="upload_file" size={16} />
-                        {photoUploading ? 'Загрузка…' : (selected.photoUrl ? 'Заменить фото' : 'Загрузить фото')}
-                        <input type="file" accept="image/*" style={{ display: 'none' }} disabled={photoUploading}
-                          onChange={e => { const f = e.target.files?.[0]; if (f) uploadClientPhoto(f); e.target.value = '' }} />
-                      </label>
-                      {selected.photoUrl && (
-                        <button type="button" onClick={removeClientPhoto}
-                          style={{ alignSelf: 'flex-start', fontSize: 12, fontWeight: 600, color: 'var(--danger)', background: 'none', border: 'none', cursor: 'pointer', padding: '2px 0' }}>
-                          Удалить загруженное
-                        </button>
+                      ? /* eslint-disable-next-line @next/next/no-img-element */ <img src={avatarOf(selected)!} alt="" width={96} height={96} style={{ width: 96, height: 96, borderRadius: '50%', objectFit: 'cover', border: `2px solid ${colorOf(editForm.clientTier)}66` }} />
+                      : <div style={{ width: 96, height: 96, borderRadius: '50%', background: `${colorOf(editForm.clientTier)}22`, border: `2px solid ${colorOf(editForm.clientTier)}66`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 30, fontWeight: 800, color: colorOf(editForm.clientTier) }}>{(editForm.nickname || selected.nickname || '?').slice(0, 2).toUpperCase()}</div>}
+                    <span style={{ position: 'absolute', right: 2, bottom: 2, width: 30, height: 30, borderRadius: '50%', background: '#8B5CF6', border: '2px solid #1d1828', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <Icon name="edit" size={15} color="#fff" />
+                    </span>
+                    <input type="file" accept="image/*" style={{ display: 'none' }} disabled={photoUploading}
+                      onChange={e => { const f = e.target.files?.[0]; if (f) uploadClientPhoto(f); e.target.value = '' }} />
+                  </label>
+                  <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: 0 }}>{photoUploading ? 'Загрузка…' : 'Нажмите, чтобы заменить фото'}</p>
+                  {selected.photoUrl && (
+                    <button type="button" onClick={removeClientPhoto} style={{ fontSize: 12, fontWeight: 600, color: 'var(--danger)', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
+                      Удалить загруженное
+                    </button>
+                  )}
+                </div>
+
+                {/* Никнейм + Имя */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <div><label style={LBL}>Никнейм</label><input value={editForm.nickname} onChange={e => setEditForm((p: any) => ({ ...p, nickname: e.target.value }))} style={INP} /></div>
+                  <div><label style={LBL}>Имя</label><input value={editForm.fullName} onChange={e => setEditForm((p: any) => ({ ...p, fullName: e.target.value }))} style={INP} placeholder="Реальное имя" /></div>
+                </div>
+                {/* Теги */}
+                <div><label style={LBL}>Теги (через запятую)</label><input value={tagsInput} onChange={e => setTagsInput(e.target.value)} style={INP} placeholder="VIP, друг, постоянный" /></div>
+                {/* Телефон + День рождения */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <div><label style={LBL}>Телефон</label><input type="tel" value={editForm.phone} onChange={e => setEditForm((p: any) => ({ ...p, phone: e.target.value }))} style={INP} /></div>
+                  <div><label style={LBL}>День рождения</label><input type="date" value={editForm.birthday} onChange={e => setEditForm((p: any) => ({ ...p, birthday: e.target.value }))} style={INP} /></div>
+                </div>
+                {/* Статус — кнопки */}
+                <div>
+                  <label style={LBL}>Статус</label>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                    {tierList.map(t => (
+                      <Chip key={t.key} active={editForm.clientTier === t.key} activeColor={t.color}
+                        onClick={() => setEditForm((p: any) => ({ ...p, clientTier: t.key }))}>
+                        {t.label}
+                      </Chip>
+                    ))}
+                  </div>
+                </div>
+
+                {/* ─── Интеграции ─────────────────────────────────────────── */}
+                <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 16, display: 'flex', flexDirection: 'column', gap: 18 }}>
+                  <h3 style={{ fontSize: 14, fontWeight: 800, margin: 0, color: 'var(--on-surface)' }}>Интеграции</h3>
+
+                  {/* GoMafia */}
+                  <div>
+                    <p style={{ ...LBL, marginBottom: 10 }}>GoMafia</p>
+                    {(() => {
+                      const gid = gomafiaIdOf(selected)
+                      return gid ? (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 12, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
+                          <Icon name="sports_esports" size={20} color="#a78bfa" style={{ flexShrink: 0 }} />
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--on-surface)' }}>Профиль #{gid}</span>
+                            <a href={`https://gomafia.pro/stats/${gid}`} target="_blank" rel="noreferrer" style={{ display: 'block', fontSize: 12, color: '#a78bfa', textDecoration: 'none' }}>Открыть на GoMafia ↗</a>
+                          </div>
+                          <IconButton icon="link_off" variant="danger" ariaLabel="Отвязать GoMafia" disabled={gomafiaUnlinkMut.isPending} onClick={() => gomafiaUnlinkMut.mutate()} />
+                        </div>
+                      ) : (
+                        <Button variant="secondary" fullWidth icon="search" onClick={() => { setGmMatchOpen(true); setGmMatchQuery(''); setGmMatchResults([]) }}>
+                          Сопоставить с GoMafia
+                        </Button>
+                      )
+                    })()}
+                  </div>
+
+                  {/* Telegram */}
+                  <div>
+                    <p style={{ ...LBL, marginBottom: 10 }}>Telegram</p>
+                    {tgAccountsQ.isLoading ? (
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px 0', color: 'var(--on-surface-variant)' }}>
+                        <Icon name="progress_activity" size={22} style={{ animation: 'spin 1s linear infinite' }} />
+                        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+                      </div>
+                    ) : tgAccounts.length === 0 ? (
+                      <p style={{ fontSize: 13, color: 'var(--on-surface-variant)', margin: '0 0 4px' }}>Нет привязанных аккаунтов</p>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        {tgAccounts.map((acc) => (
+                          <div key={acc.tgId}
+                            style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 12, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
+                            <Icon name="telegram" size={20} color="#229ED9" style={{ flexShrink: 0 }} />
+                            <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                              <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--on-surface)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                {acc.username ? `@${acc.username}` : `id ${acc.tgId}`}
+                              </span>
+                              {acc.primary && (
+                                <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 6, background: 'rgba(34,158,217,0.16)', color: '#229ED9', textTransform: 'uppercase', letterSpacing: '0.05em' }}>основной</span>
+                              )}
+                            </div>
+                            <IconButton icon="link_off" ariaLabel="Отвязать" variant="danger"
+                              disabled={tgUnlinkMut.isPending}
+                              onClick={() => setTgUnlinkTarget(acc)} />
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 10 }}>
+                      {/* «Сопоставить из чата» — только для резидентов (они в ростере чата) */}
+                      {editForm.clientTier === 'resident' && (
+                        <Button variant="secondary" fullWidth icon="forum" onClick={() => setTgRosterOpen(true)}>
+                          Сопоставить из чата
+                        </Button>
+                      )}
+                      {tgQr ? (
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, padding: 12, borderRadius: 14, background: 'rgba(255,255,255,0.04)' }}>
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={tgQr.qrDataUrl} alt="QR для привязки Telegram" width={180} height={180} style={{ borderRadius: 12, background: '#fff', padding: 6 }} />
+                          <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', textAlign: 'center', margin: 0 }}>Отсканируйте QR в Telegram, чтобы привязать аккаунт</p>
+                          <a href={tgQr.deepLink} target="_blank" rel="noreferrer" style={{ fontSize: 13, fontWeight: 700, color: '#229ED9', textDecoration: 'none' }}>Открыть в Telegram</a>
+                        </div>
+                      ) : (
+                        <Button variant="ghost" fullWidth icon="link"
+                          loading={telegramLinkMut.isPending}
+                          onClick={() => telegramLinkMut.mutate(selected.id)}>
+                          Получить ссылку для саморегистрации
+                        </Button>
                       )}
                     </div>
                   </div>
-                  <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: '8px 0 0', lineHeight: 1.45 }}>
-                    Приоритет: загруженное сотрудником → Telegram → GoMafia.
-                    {!selected.photoUrl && (selected.tgPhotoUrl || selected.gomafiaPhotoUrl) ? ` Сейчас показывается фото из ${selected.tgPhotoUrl ? 'Telegram' : 'GoMafia'}.` : ''}
-                  </p>
-                </div>
-
-                <div><label style={LBL}>Никнейм</label><input value={editForm.nickname} onChange={e => setEditForm((p: any) => ({ ...p, nickname: e.target.value }))} style={INP} /></div>
-                <div><label style={LBL}>Имя</label><input value={editForm.fullName} onChange={e => setEditForm((p: any) => ({ ...p, fullName: e.target.value }))} style={INP} placeholder="Реальное имя" /></div>
-                <div><label style={LBL}>Теги (через запятую)</label><input value={tagsInput} onChange={e => setTagsInput(e.target.value)} style={INP} placeholder="VIP, друг, постоянный" /></div>
-                <div><label style={LBL}>Телефон</label><input type="tel" value={editForm.phone} onChange={e => setEditForm((p: any) => ({ ...p, phone: e.target.value }))} style={INP} /></div>
-                <div><label style={LBL}>День рождения</label><input type="date" value={editForm.birthday} onChange={e => setEditForm((p: any) => ({ ...p, birthday: e.target.value }))} style={INP} /></div>
-                <div><label style={LBL}>Статус</label><select value={editForm.clientTier} onChange={e => setEditForm((p: any) => ({ ...p, clientTier: e.target.value }))} style={{ ...INP, background: 'rgba(29,26,36,0.8)', cursor: 'pointer' } as React.CSSProperties}>{tierList.map(t => <option key={t.key} value={t.key}>{t.label}</option>)}</select></div>
-
-                {/* Telegram-аккаунты профиля (один человек может иметь несколько TG) */}
-                <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 16 }}>
-                  <p style={{ ...LBL, marginBottom: 10 }}>Telegram-аккаунты</p>
-
-                  {/* Список привязанных аккаунтов */}
-                  {tgAccountsQ.isLoading ? (
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px 0', color: 'var(--on-surface-variant)' }}>
-                      <Icon name="progress_activity" size={22} style={{ animation: 'spin 1s linear infinite' }} />
-                      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-                    </div>
-                  ) : tgAccounts.length === 0 ? (
-                    <p style={{ fontSize: 13, color: 'var(--on-surface-variant)', margin: '0 0 4px' }}>Нет привязанных аккаунтов</p>
-                  ) : (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                      {tgAccounts.map((acc) => (
-                        <div key={acc.tgId}
-                          style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 12, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
-                          <Icon name="telegram" size={20} color="#229ED9" style={{ flexShrink: 0 }} />
-                          <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                            <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--on-surface)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                              {acc.username ? `@${acc.username}` : `id ${acc.tgId}`}
-                            </span>
-                            {acc.primary && (
-                              <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 6, background: 'rgba(34,158,217,0.16)', color: '#229ED9', textTransform: 'uppercase', letterSpacing: '0.05em' }}>основной</span>
-                            )}
-                          </div>
-                          <IconButton icon="link_off" ariaLabel="Отвязать" variant="danger"
-                            disabled={tgUnlinkMut.isPending}
-                            onClick={() => setTgUnlinkTarget(acc)} />
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  {/* Сопоставление из ростера бота + привязка по ссылке/QR */}
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 10 }}>
-                    <Button variant="secondary" fullWidth icon="forum" onClick={() => setTgRosterOpen(true)}>
-                      Сопоставить из чата
-                    </Button>
-                    {tgQr ? (
-                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, padding: 12, borderRadius: 14, background: 'rgba(255,255,255,0.04)' }}>
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={tgQr.qrDataUrl} alt="QR для привязки Telegram" width={180} height={180} style={{ borderRadius: 12, background: '#fff', padding: 6 }} />
-                        <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', textAlign: 'center', margin: 0 }}>Отсканируйте QR в Telegram, чтобы привязать аккаунт</p>
-                        <a href={tgQr.deepLink} target="_blank" rel="noreferrer" style={{ fontSize: 13, fontWeight: 700, color: '#229ED9', textDecoration: 'none' }}>Открыть в Telegram</a>
-                      </div>
-                    ) : (
-                      <Button variant="ghost" fullWidth icon="link"
-                        loading={telegramLinkMut.isPending}
-                        onClick={() => telegramLinkMut.mutate(selected.id)}>
-                        Получить ссылку для самопривязки
-                      </Button>
-                    )}
-                  </div>
-
-                  {/* Подсказка */}
-                  <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', lineHeight: 1.5, margin: '10px 0 0' }}>
-                    Один человек может иметь несколько Telegram-аккаунтов — все они будут узнаваться как этот профиль (в боте и интерфейсе). Список участников пополняет бот опросов; включите сбор в разделе Опросы.
-                  </p>
-                </div>
-
-                {/* GoMafia — сопоставление с профилем игрока */}
-                <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 16 }}>
-                  <p style={{ ...LBL, marginBottom: 10 }}>GoMafia</p>
-                  {(() => {
-                    const gid = gomafiaIdOf(selected)
-                    return gid ? (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 12, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
-                        <Icon name="sports_esports" size={20} color="#a78bfa" style={{ flexShrink: 0 }} />
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--on-surface)' }}>Профиль #{gid}</span>
-                          <a href={`https://gomafia.pro/stats/${gid}`} target="_blank" rel="noreferrer" style={{ display: 'block', fontSize: 12, color: '#a78bfa', textDecoration: 'none' }}>Открыть на GoMafia ↗</a>
-                        </div>
-                        <IconButton icon="link_off" variant="danger" ariaLabel="Отвязать GoMafia" disabled={gomafiaUnlinkMut.isPending} onClick={() => gomafiaUnlinkMut.mutate()} />
-                      </div>
-                    ) : (
-                      <Button variant="secondary" fullWidth icon="search" onClick={() => { setGmMatchOpen(true); setGmMatchQuery(''); setGmMatchResults([]) }}>
-                        Сопоставить с GoMafia
-                      </Button>
-                    )
-                  })()}
-                  <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', lineHeight: 1.5, margin: '10px 0 0' }}>
-                    Свяжите клиента с игроком на gomafia.pro. Сначала показываются игроки вашего клуба, затем все игроки сайта.
-                  </p>
                 </div>
 
                 <Button fullWidth size="lg" loading={update.isPending} disabled={!editForm.nickname?.trim()} onClick={saveEdit}>Сохранить</Button>
