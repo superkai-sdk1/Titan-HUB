@@ -106,12 +106,9 @@ export default function PollsPage() {
   // Тест: id опроса, который сейчас отправляется.
   const [testingId, setTestingId] = useState<string | null>(null)
 
-  // Управление токеном бота.
-  const [tokenSheetOpen, setTokenSheetOpen] = useState(false)
-  const [tokenValue, setTokenValue] = useState('')
-  const [tokenSaving, setTokenSaving] = useState(false)
-  const [tokenDeleting, setTokenDeleting] = useState(false)
-  const [confirmTokenDelete, setConfirmTokenDelete] = useState(false)
+  // Редактирование группы/топика опроса вынесено за модалку — чтобы не сбить
+  // случайно (опрос уйдёт не туда). Токен бота настраивается в разделе «Интеграции».
+  const [groupEditId, setGroupEditId] = useState<string | null>(null)
 
   // ── Загрузка ───────────────────────────────────────────────────────────────
   async function load() {
@@ -214,38 +211,6 @@ export default function PollsPage() {
     }
   }
 
-  // ── Токен бота ───────────────────────────────────────────────────────────────
-  async function saveToken() {
-    const v = tokenValue.trim()
-    if (!v) return
-    setTokenSaving(true)
-    try {
-      await api.patch('/system/integrations/poll_bot_token', { value: v })
-      show('Токен сохранён', 'success')
-      setTokenSheetOpen(false)
-      setTokenValue('')
-      await load()
-    } catch (e) {
-      show(e instanceof ApiError ? e.message : 'Не удалось сохранить токен', 'error')
-    } finally {
-      setTokenSaving(false)
-    }
-  }
-
-  async function deleteToken() {
-    setTokenDeleting(true)
-    try {
-      await api.delete('/system/integrations/poll_bot_token')
-      show('Токен удалён', 'success')
-      setConfirmTokenDelete(false)
-      await load()
-    } catch (e) {
-      show(e instanceof ApiError ? e.message : 'Не удалось удалить токен', 'error')
-    } finally {
-      setTokenDeleting(false)
-    }
-  }
-
   // ── Загрузка / ошибка ─────────────────────────────────────────────────────────
   if (loading) {
     return (
@@ -272,7 +237,7 @@ export default function PollsPage() {
     )
   }
 
-  const tokenTrimmed = tokenValue.trim()
+  const groupCfg = configs.find(c => c.id === groupEditId) ?? null
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100dvh' }}>
@@ -284,65 +249,35 @@ export default function PollsPage() {
         display: 'flex', flexDirection: 'column', gap: 24,
       }}>
 
-        {/* ─── Бот опросов ──────────────────────────────────────────────── */}
-        <SectionGroup title="Бот опросов">
-          <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 14 }}>
-            <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: 0, lineHeight: 1.5 }}>
-              Бот должен быть <b>администратором</b> в группах, иначе опросы не отправятся.
-            </p>
-
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <div style={{
-                width: 36, height: 36, borderRadius: 11, flexShrink: 0,
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                background: tokenConfigured ? 'rgba(52,211,153,0.12)' : 'rgba(255,255,255,0.05)',
-                border: `1px solid ${tokenConfigured ? 'rgba(52,211,153,0.28)' : 'rgba(255,255,255,0.1)'}`,
-              }}>
-                <Icon name="campaign" size={18} color={tokenConfigured ? 'var(--success)' : 'var(--on-surface-variant)'} />
-              </div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <p style={{ fontSize: 14, fontWeight: 600, margin: 0, color: 'var(--on-surface)' }}>Токен бота</p>
-                <p style={{
-                  fontSize: 12, margin: '3px 0 0',
-                  color: tokenConfigured ? 'var(--success)' : 'var(--on-surface-variant)',
-                  fontFamily: tokenConfigured ? "'JetBrains Mono',monospace" : undefined,
-                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                }}>
-                  {tokenConfigured ? `Подключено • ${tokenMasked ?? '••••'}` : 'Не настроен'}
-                </p>
-              </div>
-            </div>
-
+        {/* ─── Статус бота опросов (токен — в разделе «Интеграции») ──────── */}
+        <div
+          className="glass-l2"
+          style={{
+            borderRadius: 16, padding: 14, display: 'flex', alignItems: 'center', gap: 12,
+            ...(tokenConfigured ? {} : { background: 'rgba(251,191,36,0.1)', border: '1px solid rgba(251,191,36,0.25)' }),
+          }}
+        >
+          <Icon
+            name={tokenConfigured ? 'campaign' : 'warning'}
+            size={20}
+            color={tokenConfigured ? 'var(--success)' : 'var(--warning)'}
+            style={{ flexShrink: 0 }}
+          />
+          <div style={{ flex: 1, minWidth: 0 }}>
             {tokenConfigured ? (
-              <div style={{ display: 'flex', gap: 8 }}>
-                <Button variant="secondary" size="sm" icon="edit" fullWidth
-                  onClick={() => { setTokenValue(''); setTokenSheetOpen(true) }}>
-                  Заменить
-                </Button>
-                <Button variant="danger" size="sm" icon="delete" ariaLabel="Удалить токен"
-                  onClick={() => setConfirmTokenDelete(true)}>
-                  Удалить
-                </Button>
-              </div>
+              <p style={{ fontSize: 13, margin: 0, color: 'var(--on-surface)', lineHeight: 1.5 }}>
+                Бот опросов подключён{tokenMasked ? <> • <span style={{ fontFamily: "'JetBrains Mono',monospace" }}>{tokenMasked}</span></> : ''}. Бот должен быть <b>админом</b> в группах. Токен — в разделе «Интеграции».
+              </p>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                <input
-                  type="password"
-                  autoComplete="new-password"
-                  style={INP}
-                  value={tokenValue}
-                  onChange={e => setTokenValue(e.target.value)}
-                  placeholder="Токен бота (от @BotFather)"
-                  onKeyDown={e => { if (e.key === 'Enter' && tokenTrimmed && !tokenSaving) saveToken() }}
-                />
-                <Button variant="primary" icon="check_circle" fullWidth
-                  loading={tokenSaving} disabled={!tokenTrimmed} onClick={saveToken}>
-                  Сохранить токен
-                </Button>
-              </div>
+              <p style={{ fontSize: 13, margin: 0, color: 'var(--on-surface)', lineHeight: 1.5 }}>
+                Токен бота опросов не настроен — задайте его в <b>Настройки → Интеграции</b>, иначе опросы не отправятся. Бот также должен быть админом в группах.
+              </p>
             )}
           </div>
-        </SectionGroup>
+          <Button variant="secondary" size="sm" icon="settings" onClick={() => router.push('/manage/settings?tab=integrations')}>
+            Интеграции
+          </Button>
+        </div>
 
         {/* ─── Список опросов ────────────────────────────────────────────── */}
         {configs.map(c => {
@@ -368,22 +303,27 @@ export default function PollsPage() {
                     onClick={() => setDeletingId(c.id)} style={{ marginBottom: 1 }} />
                 </div>
 
-                {/* ID группы */}
-                <FormField label="ID группы">
-                  <input style={INP} value={c.chatId}
-                    onChange={e => patchConfig(c.id, { chatId: e.target.value })}
-                    placeholder="-100…" inputMode="numeric" />
-                </FormField>
-
-                {/* Топик */}
-                <FormField label="Топик (message_thread_id)" hint="Опционально. Пусто — отправка в общий чат группы.">
-                  <input style={INP} type="number" value={c.threadId ?? ''}
-                    onChange={e => {
-                      const raw = e.target.value.trim()
-                      patchConfig(c.id, { threadId: raw === '' ? null : Number(raw) })
-                    }}
-                    placeholder="Напр. 127961" />
-                </FormField>
+                {/* Куда постить (группа + топик) — за модалкой, чтобы не сбить случайно */}
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px',
+                  borderRadius: 12, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)',
+                }}>
+                  <Icon name="forum" size={18} color="var(--on-surface-variant)" style={{ flexShrink: 0 }} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <p style={{ ...LBL, margin: 0 }}>Куда постить</p>
+                    <p style={{
+                      fontSize: 13, margin: '2px 0 0',
+                      color: c.chatId ? 'var(--on-surface)' : 'var(--warning)',
+                      fontFamily: c.chatId ? "'JetBrains Mono',monospace" : undefined,
+                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                    }}>
+                      {c.chatId ? `${c.chatId}${c.threadId ? ` · топик ${c.threadId}` : ''}` : 'Группа не указана'}
+                    </p>
+                  </div>
+                  <Button variant="secondary" size="sm" icon="edit" onClick={() => setGroupEditId(c.id)}>
+                    Изменить
+                  </Button>
+                </div>
 
                 {/* Подзаголовки */}
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
@@ -485,35 +425,40 @@ export default function PollsPage() {
         <SaveButton onClick={onSave} isPending={saving} isSaved={saved} />
       </div>
 
-      {/* ─── Sheet: замена токена ─────────────────────────────────────────── */}
-      <Sheet open={tokenSheetOpen} onClose={() => setTokenSheetOpen(false)} title="Заменить токен" desktopSize="sm">
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <div style={{
-            display: 'flex', gap: 10, padding: 14, borderRadius: 12,
-            background: 'rgba(251,191,36,0.1)', border: '1px solid rgba(251,191,36,0.25)',
-          }}>
-            <Icon name="warning" size={18} color="var(--warning)" style={{ flexShrink: 0, marginTop: 1 }} />
-            <p style={{ fontSize: 13, margin: 0, color: 'var(--on-surface)', lineHeight: 1.5 }}>
-              Текущий токен будет заменён. Старое значение восстановить нельзя — вставьте новый токен полностью.
-            </p>
-          </div>
-          <div>
-            <label style={LBL}>Новый токен</label>
-            <input type="password" autoComplete="new-password" autoFocus style={INP}
-              value={tokenValue} onChange={e => setTokenValue(e.target.value)}
-              placeholder="Вставьте токен бота"
-              onKeyDown={e => { if (e.key === 'Enter' && tokenTrimmed && !tokenSaving) saveToken() }} />
-          </div>
-          <div style={{ display: 'flex', gap: 10 }}>
-            <Button variant="secondary" fullWidth onClick={() => setTokenSheetOpen(false)} disabled={tokenSaving}>
-              Отмена
+      {/* ─── Sheet: группа и топик опроса (анти-случайность) ──────────────── */}
+      <Sheet open={groupEditId !== null} onClose={() => setGroupEditId(null)} title="Группа и топик" desktopSize="sm">
+        {groupCfg && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <div style={{
+              display: 'flex', gap: 10, padding: 14, borderRadius: 12,
+              background: 'rgba(251,191,36,0.1)', border: '1px solid rgba(251,191,36,0.25)',
+            }}>
+              <Icon name="warning" size={18} color="var(--warning)" style={{ flexShrink: 0, marginTop: 1 }} />
+              <p style={{ fontSize: 13, margin: 0, color: 'var(--on-surface)', lineHeight: 1.5 }}>
+                Меняйте осторожно: неверный ID группы или топик отправят опрос не туда (или с ошибкой). Изменение применится после «Сохранить».
+              </p>
+            </div>
+
+            <FormField label="ID группы" hint="Например, -1001281350483 (из ссылки на группу).">
+              <input style={INP} value={groupCfg.chatId}
+                onChange={e => patchConfig(groupCfg.id, { chatId: e.target.value })}
+                placeholder="-100…" inputMode="numeric" />
+            </FormField>
+
+            <FormField label="Топик (message_thread_id)" hint="Опционально. Пусто — отправка в общий чат группы.">
+              <input style={INP} type="number" value={groupCfg.threadId ?? ''}
+                onChange={e => {
+                  const raw = e.target.value.trim()
+                  patchConfig(groupCfg.id, { threadId: raw === '' ? null : Number(raw) })
+                }}
+                placeholder="Напр. 127961" />
+            </FormField>
+
+            <Button variant="primary" fullWidth icon="check_circle" onClick={() => setGroupEditId(null)}>
+              Готово
             </Button>
-            <Button variant="primary" fullWidth icon="check_circle" loading={tokenSaving}
-              disabled={!tokenTrimmed} onClick={saveToken}>
-              Сохранить
-            </Button>
           </div>
-        </div>
+        )}
       </Sheet>
 
       {/* ─── Подтверждение удаления опроса ─────────────────────────────────── */}
@@ -525,18 +470,6 @@ export default function PollsPage() {
         message="Опрос будет удалён из списка. Изменение вступит в силу после сохранения."
         confirmLabel="Удалить"
         danger
-      />
-
-      {/* ─── Подтверждение удаления токена ─────────────────────────────────── */}
-      <ConfirmDialog
-        open={confirmTokenDelete}
-        onClose={() => setConfirmTokenDelete(false)}
-        onConfirm={deleteToken}
-        title="Удалить токен бота?"
-        message="Опросы перестанут отправляться, пока вы не настроите токен заново."
-        confirmLabel="Удалить"
-        danger
-        loading={tokenDeleting}
       />
     </div>
   )
