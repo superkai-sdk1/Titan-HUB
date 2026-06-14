@@ -64,6 +64,7 @@ interface SpaceResult {
 interface TariffOption {
   id: string
   name: string
+  key?: string | null
   price: string | number
   color?: string | null
   isActive?: boolean
@@ -332,12 +333,12 @@ function PosPageInner() {
   const allTariffs: TariffOption[] = Array.isArray(tariffsData) ? tariffsData : (tariffsData?.tariffs ?? [])
   const tariffItems = allTariffs.filter(t => t.isActive !== false)
 
-  // Предвыбор тарифа по тиру клиента (матч tariff.name ↔ метка тира)
+  // Предвыбор тарифа по СТАТУСУ клиента (тариф = статус, матч по key; фолбэк по имени).
   useEffect(() => {
     if (newCheckStep !== 'tariff' || !tariffsData || !selectedPlayer) return
-    const expectedName = TIER_TO_TARIFF_NAME[selectedPlayer.clientTier]
-    if (!expectedName) { setSelectedTariffId(null); return }
-    const match = tariffItems.find(t => t.name.toLowerCase() === expectedName.toLowerCase())
+    const byKey = tariffItems.find(t => t.key && t.key === selectedPlayer.clientTier)
+    const fallbackName = TIER_TO_TARIFF_NAME[selectedPlayer.clientTier]
+    const match = byKey ?? (fallbackName ? tariffItems.find(t => t.name.toLowerCase() === fallbackName.toLowerCase()) : undefined)
     setSelectedTariffId(match?.id ?? null)
   }, [newCheckStep, tariffsData, selectedPlayer]) // eslint-disable-line react-hooks/exhaustive-deps
 

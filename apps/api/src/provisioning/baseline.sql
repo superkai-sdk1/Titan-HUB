@@ -915,6 +915,8 @@ CREATE TABLE public.supply_items (
 CREATE TABLE public.tariffs (
     id uuid DEFAULT gen_random_uuid() NOT NULL,
     name text NOT NULL,
+    key text,
+    is_system boolean DEFAULT false NOT NULL,
     price numeric(10,2) DEFAULT 0 NOT NULL,
     color text DEFAULT '#8B5CF6'::text NOT NULL,
     sort_order integer DEFAULT 0 NOT NULL,
@@ -923,6 +925,7 @@ CREATE TABLE public.tariffs (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL
 );
+CREATE UNIQUE INDEX IF NOT EXISTS tariffs_key_unique ON public.tariffs (key) WHERE key IS NOT NULL;
 
 
 --

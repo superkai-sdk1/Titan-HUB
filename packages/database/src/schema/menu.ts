@@ -67,6 +67,10 @@ export const modifiers = pgTable('modifiers', {
 export const tariffs = pgTable('tariffs', {
   id: uuid('id').primaryKey().defaultRandom(),
   name: text('name').notNull(),
+  // Тариф = СТАТУС клиента. key — слаг статуса (resident/student/newbie/guest),
+  // на него ссылается profiles.client_tier. isSystem — базовые 4 (не удаляются).
+  key: text('key'),
+  isSystem: boolean('is_system').notNull().default(false),
   price: numeric('price', { precision: 10, scale: 2 }).notNull().default('0'),
   color: text('color').notNull().default('#8B5CF6'),
   sortOrder: integer('sort_order').notNull().default(0),

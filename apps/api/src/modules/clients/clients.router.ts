@@ -3,9 +3,10 @@ import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import {
-  profiles, transactions, bonusHistory, clientTiers, clientDiscountRules,
+  profiles, transactions, bonusHistory, clientTiers, clientDiscountRules, tariffs,
   eq, and, isNull, isNotNull, ilike, or, desc, asc, sql, count, inArray,
 } from '@titan/database'
+import { ensureSystemStatuses } from '../../lib/statusTariffs.js'
 
 // Роли, видимые в разделе «Клиенты». Сотрудники/владельцы — тоже клиенты (имеют
 // депозит/бонусы/тариф в том же профиле). Исключаем только планшеты.
@@ -175,9 +176,17 @@ function slugifyTierKey(label: string): string {
   return base || `tier_${Date.now().toString(36)}`
 }
 
+// Статусы клиента = тарифы (единая сущность). Источник — таблица tariffs (key,
+// name→label, color, sort_order = иерархия, price). Гарантируем 4 базовых статуса.
 clientsRouter.get('/tiers', async (c) => {
   const db = c.var.db
-  const tiers = await db.select().from(clientTiers).orderBy(asc(clientTiers.sortOrder), asc(clientTiers.key))
+  await ensureSystemStatuses(db).catch(() => {})
+  const rows = await db.select().from(tariffs)
+    .where(and(isNotNull(tariffs.key), eq(tariffs.isActive, true)))
+    .orderBy(asc(tariffs.sortOrder))
+  const tiers = rows.map((r) => ({
+    key: r.key, label: r.name, color: r.color, sortOrder: r.sortOrder, isSystem: r.isSystem, price: r.price,
+  }))
   return c.json({ tiers })
 })
 

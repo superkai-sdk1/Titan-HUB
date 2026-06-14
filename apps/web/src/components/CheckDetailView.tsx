@@ -95,6 +95,7 @@ interface PlayerProfile {
 interface TariffOption {
   id: string
   name: string
+  key?: string | null
   price: string | number
   color?: string | null
   isActive?: boolean
@@ -765,12 +766,12 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
     return () => { if (clientTimerRef.current) clearTimeout(clientTimerRef.current) }
   }, [clientQuery, showClient])
 
-  // Предвыбор тарифа по тиру клиента (как на кассе) при входе в тарифный шаг.
+  // Предвыбор тарифа по СТАТУСУ клиента (тариф = статус, по key; фолбэк по имени).
   useEffect(() => {
     if (!tariffStep || !pendingPlayer) return
+    const byKey = tariffItems.find(i => i.key && i.key === pendingPlayer.clientTier)
     const expected = TIER_TO_TARIFF_NAME[pendingPlayer.clientTier]
-    if (!expected) { setSelectedTariffId(null); return }
-    const match = tariffItems.find(i => i.name.toLowerCase() === expected.toLowerCase())
+    const match = byKey ?? (expected ? tariffItems.find(i => i.name.toLowerCase() === expected.toLowerCase()) : undefined)
     setSelectedTariffId(match?.id ?? null)
   }, [tariffStep, pendingPlayer, tariffsData]) // eslint-disable-line react-hooks/exhaustive-deps
 

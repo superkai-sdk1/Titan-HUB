@@ -7,6 +7,7 @@ import {
   eq, asc, sql, like,
 } from '@titan/database'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
+import { ensureSystemStatuses } from '../../lib/statusTariffs.js'
 
 export const pricingRouter = new Hono<AppEnv>()
 pricingRouter.use('*', requireAuth)
@@ -34,6 +35,8 @@ const UpdateTariffSchema = z.object({
 
 pricingRouter.get('/tariffs', async (c) => {
   const db = c.var.db
+  // Тариф = статус клиента: гарантируем 4 базовых статуса (с backing-позицией).
+  await ensureSystemStatuses(db).catch(() => {})
   const rows = await db.select().from(tariffs).orderBy(asc(tariffs.sortOrder), asc(tariffs.name))
   return c.json({ tariffs: rows })
 })
@@ -130,6 +133,9 @@ pricingRouter.patch('/tariffs/:id', requireRole('owner'), zValidator('json', Upd
 pricingRouter.delete('/tariffs/:id', requireRole('owner'), async (c) => {
   const db = c.var.db
   const id = c.req.param('id')
+  // Базовый статус (resident/student/newbie/guest) удалять нельзя.
+  const [target] = await db.select({ isSystem: tariffs.isSystem }).from(tariffs).where(eq(tariffs.id, id)).limit(1)
+  if (target?.isSystem) return c.json({ error: 'Базовый статус нельзя удалить' }, 400)
   // Мягкое удаление: тариф и его backing-позиция остаются ради исторических чеков,
   // лишь помечаются неактивными (исчезают из меню/кассы и списка тарифов).
   const ok = await db.transaction(async (tx) => {

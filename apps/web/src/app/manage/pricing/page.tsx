@@ -12,6 +12,8 @@ import { Icon } from '@/components/Icon'
 interface Tariff {
   id: string
   name: string
+  key?: string | null
+  isSystem?: boolean
   price: string | number
   color: string | null
   sortOrder?: number
@@ -341,24 +343,30 @@ export default function PricingPage() {
 
       <div style={{ padding: '16px', maxWidth: 'var(--content-narrow)', margin: '0 auto', width: '100%' }}>
         {/* ─── ТАРИФЫ ─── */}
-        {tab === 'tariffs' && (
+        {tab === 'tariffs' && (() => {
+          // Тариф = СТАТУС клиента. Показываем статусы (key) в иерархии:
+          // Резидент → Студент → Новичок → Гость. У каждого своя сумма за вечер.
+          const statuses = tariffs.filter(t => t.key)
+          return (
           <>
-            <TabBar count={tariffs.length} label="тарифов" action={isOwner ? { label: 'Добавить', onClick: () => openTariff() } : undefined} />
+            <TabBar count={statuses.length} label="статусов" />
+            <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: '0 0 10px', lineHeight: 1.5 }}>
+              Статус клиента и тариф — одно и то же. У каждого статуса своя сумма за игровой вечер. Иерархия: Резидент → Студент → Новичок → Гость.
+            </p>
             {tariffsLoading ? <StateView state="loading" />
-              : tariffs.length === 0 ? <StateView state="empty" icon="confirmation_number" title="Нет тарифов" description={isOwner ? 'Добавьте первый тариф' : 'Тарифы не настроены'} />
+              : statuses.length === 0 ? <StateView state="empty" icon="confirmation_number" title="Нет статусов" />
               : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                  {tariffs.map(t => {
+                  {statuses.map(t => {
                     const color = t.color ?? '#8B5CF6'
                     const price = parseFloat(String(t.price ?? 0)) || 0
                     return (
                       <Card
                         key={t.id}
                         accent={color}
-                        icon="confirmation_number"
+                        icon="workspace_premium"
                         title={t.name}
-                        subtitle={t.isActive ? undefined : 'Отключён'}
-                        dim={!t.isActive}
+                        subtitle="Сумма за игровой вечер"
                         onClick={isOwner ? () => openTariff(t) : undefined}
                         right={<span style={{ ...PRICE_CSS, color }}>{price.toLocaleString('ru')} ₽</span>}
                       />
@@ -367,7 +375,8 @@ export default function PricingPage() {
                 </div>
               )}
           </>
-        )}
+          )
+        })()}
 
         {/* ─── ТИПЫ ВЕЧЕРОВ ─── */}
         {tab === 'evenings' && (
@@ -456,14 +465,14 @@ export default function PricingPage() {
       </div>
 
       {/* ─── Sheet: тариф ─── */}
-      <Sheet open={showTariffForm} onClose={() => setShowTariffForm(false)} title={tariffForm.id ? 'Редактировать тариф' : 'Новый тариф'}>
+      <Sheet open={showTariffForm} onClose={() => setShowTariffForm(false)} title={tariffForm.id ? 'Редактировать статус' : 'Новый статус'}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <div>
-            <label style={LBL}>Название *</label>
-            <input value={tariffForm.name} onChange={e => setTariffForm(p => ({ ...p, name: e.target.value }))} style={INP} placeholder="Гость, Резидент, Студент…" />
+            <label style={LBL}>Название статуса *</label>
+            <input value={tariffForm.name} onChange={e => setTariffForm(p => ({ ...p, name: e.target.value }))} style={INP} placeholder="Резидент, Студент, Новичок, Гость" />
           </div>
           <div>
-            <label style={LBL}>Цена (₽)</label>
+            <label style={LBL}>Сумма за вечер (₽)</label>
             <input type="number" value={tariffForm.price} onChange={e => setTariffForm(p => ({ ...p, price: e.target.value }))} style={INP} />
           </div>
           <div>
@@ -479,8 +488,8 @@ export default function PricingPage() {
           >
             Сохранить
           </Button>
-          {tariffForm.id && isOwner && (
-            <Button fullWidth variant="danger" icon="delete" onClick={() => setConfirmDelTariff(tariffForm.id!)}>Удалить тариф</Button>
+          {tariffForm.id && isOwner && !tariffs.find(t => t.id === tariffForm.id)?.isSystem && (
+            <Button fullWidth variant="danger" icon="delete" onClick={() => setConfirmDelTariff(tariffForm.id!)}>Удалить статус</Button>
           )}
         </div>
       </Sheet>

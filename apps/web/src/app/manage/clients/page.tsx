@@ -10,6 +10,7 @@ import { StateView } from '@/components/StateView'
 import { useToast } from '@/components/Toast'
 import { Icon } from '@/components/Icon'
 import { telLink, openContact } from '@/lib/contact'
+import { useRouter } from 'next/navigation'
 
 const GM_TAG_RE = /^gomafia:\d+$/
 const gomafiaIdOf = (c: any): string | null => {
@@ -90,6 +91,7 @@ type TgAccount = { tgId: string; username: string | null; primary: boolean }
 export default function ClientsPage() {
   const qc = useQueryClient()
   const { show } = useToast()
+  const router = useRouter()
   const [confirmBlock, setConfirmBlock] = useState(false)
   const [confirmPurge, setConfirmPurge] = useState(false)
   // Разделы: Все / Резиденты / Студенты / Новички / Гости / Архив (заблокированные).
@@ -117,8 +119,6 @@ export default function ClientsPage() {
   // Загрузка фото клиента сотрудником (главный приоритет).
   const [photoUploading, setPhotoUploading] = useState(false)
   const [editForm, setEditForm] = useState<any>(null)
-  const [showTiers, setShowTiers] = useState(false)
-  const [newTier, setNewTier] = useState({ label: '', color: '#8B5CF6' })
   const [tagsInput, setTagsInput] = useState('')
   const [tgQr, setTgQr] = useState<{ deepLink: string; qrDataUrl: string } | null>(null)
   // Модалка «Участники чата» — сопоставление клиента с TG из ростера бота.
@@ -187,9 +187,6 @@ export default function ClientsPage() {
   const tierList: TierRow[] = tiersData?.tiers ?? Object.keys(TIER_LABELS).map((k, i) => ({ key: k, label: TIER_LABELS[k], color: TIER_COLORS[k] ?? '#8B5CF6', sortOrder: i, isSystem: ['newbie', 'guest', 'resident', 'student'].includes(k) }))
   const labelOf = (k: string) => tierList.find(t => t.key === k)?.label ?? TIER_LABELS[k] ?? k
   const colorOf = (k: string) => tierList.find(t => t.key === k)?.color ?? TIER_COLORS[k] ?? '#8B5CF6'
-
-  const createTier = useMutation({ mutationFn: (b: { label: string; color: string }) => api.post('/clients/tiers', b), onSuccess: () => { qc.invalidateQueries({ queryKey: ['client-tiers'] }); setNewTier({ label: '', color: '#8B5CF6' }) }, onError: () => show('Не удалось создать статус', 'error') })
-  const deleteTier = useMutation({ mutationFn: (key: string) => api.delete(`/clients/tiers/${key}`), onSuccess: (res: any) => { qc.invalidateQueries({ queryKey: ['client-tiers'] }); qc.invalidateQueries({ queryKey: ['clients'] }); if (res?.reassigned > 0) show(`Статус удалён, ${res.reassigned} клиент(ов) переведены в «Гость»`, 'success') }, onError: () => show('Не удалось удалить статус', 'error') })
 
   const resetCreateForm = () => { setForm({ nickname: '', fullName: '', phone: '', birthday: '', clientTier: 'newbie', password: '', photoUrl: '', gomafiaId: '' }); setGmQuery(''); setGmResults([]); setGmOpen(false) }
   const create = useMutation({ mutationFn: (b: any) => api.post('/clients', b), onSuccess: () => { qc.invalidateQueries({ queryKey: ['clients'] }); setShowCreate(false); resetCreateForm() }, onError: () => show('Не удалось создать клиента', 'error') })
@@ -465,7 +462,7 @@ export default function ClientsPage() {
                 {label}
               </button>
             ))}
-            <button onClick={() => setShowTiers(true)} style={{ flexShrink: 0, marginLeft: 'auto', fontSize: 12, fontWeight: 700, padding: '5px 11px', borderRadius: 999, border: '1px solid rgba(139,92,246,0.3)', background: 'rgba(139,92,246,0.1)', color: '#a78bfa', whiteSpace: 'nowrap', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            <button onClick={() => router.push('/manage/pricing?tab=tariffs')} style={{ flexShrink: 0, marginLeft: 'auto', fontSize: 12, fontWeight: 700, padding: '5px 11px', borderRadius: 999, border: '1px solid rgba(139,92,246,0.3)', background: 'rgba(139,92,246,0.1)', color: '#a78bfa', whiteSpace: 'nowrap', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
               <Icon name="sell" size={13} /> Статусы
             </button>
           </div>
@@ -905,41 +902,6 @@ export default function ClientsPage() {
             </div>
           )
         })()}
-      </Sheet>
-
-      {/* Управление статусами */}
-      <Sheet open={showTiers} onClose={() => setShowTiers(false)} title="Статусы клиентов">
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: 0 }}>Создавайте и удаляйте статусы клиентов. Системные статусы удалить нельзя.</p>
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {tierList.map(t => (
-              <div key={t.key} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 12, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
-                <span style={{ width: 16, height: 16, borderRadius: '50%', background: t.color, flexShrink: 0, border: '1px solid rgba(255,255,255,0.2)' }} />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <p style={{ fontSize: 14, fontWeight: 700, margin: 0, color: 'var(--on-surface)' }}>{t.label}</p>
-                  <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: '1px 0 0', fontFamily: "'JetBrains Mono',monospace" }}>{t.key}</p>
-                </div>
-                {t.isSystem ? (
-                  <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--on-surface-variant)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>систем.</span>
-                ) : (
-                  <IconButton icon="delete" ariaLabel="Удалить статус" variant="ghost" onClick={() => deleteTier.mutate(t.key)} />
-                )}
-              </div>
-            ))}
-          </div>
-
-          <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <p style={{ ...LBL, margin: 0 }}>Новый статус</p>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
-              <div style={{ flex: 1 }}><label style={LBL}>Название</label><input value={newTier.label} onChange={e => setNewTier(p => ({ ...p, label: e.target.value }))} style={INP} placeholder="напр. VIP" /></div>
-              <div><label style={LBL}>Цвет</label><input type="color" value={newTier.color.startsWith('#') ? newTier.color : '#8B5CF6'} onChange={e => setNewTier(p => ({ ...p, color: e.target.value }))} style={{ ...INP, padding: 4, width: 52, height: 44, cursor: 'pointer' } as React.CSSProperties} /></div>
-            </div>
-            <button onClick={() => createTier.mutate(newTier)} disabled={createTier.isPending || !newTier.label.trim()} style={{ width: '100%', padding: '12px 0', borderRadius: 12, border: 'none', background: 'linear-gradient(135deg, #8B5CF6, #4cd7f6)', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', opacity: (createTier.isPending || !newTier.label.trim()) ? 0.6 : 1 }}>
-              {createTier.isPending ? 'Создаём…' : 'Создать статус'}
-            </button>
-          </div>
-        </div>
       </Sheet>
 
       {/* Участники чата — сопоставление с TG из ростера бота */}
