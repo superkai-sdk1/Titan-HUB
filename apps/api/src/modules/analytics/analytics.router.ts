@@ -921,6 +921,7 @@ analyticsRouter.get('/staff', zValidator('query', dateRangeQuerySchema), async (
     staffId: checks.staffCompId,
     nickname: profiles.nickname,
     clientTier: profiles.clientTier,
+    photoUrl: sql<string | null>`coalesce(${profiles.photoUrl}, ${profiles.tgPhotoUrl}, ${profiles.gomafiaPhotoUrl})`,
     checksCount: sql<number>`count(distinct ${checks.id})`,
     retail: sql<number>`sum(${checkItems.quantity}::numeric * ${checkItems.priceAtTime})`,
     cost: sql<number>`sum(${checkItems.quantity}::numeric * coalesce(${inventory.costPrice}, 0)::numeric)`,
@@ -930,10 +931,10 @@ analyticsRouter.get('/staff', zValidator('query', dateRangeQuerySchema), async (
     .leftJoin(inventory, eq(inventory.id, checkItems.itemId))
     .leftJoin(profiles, eq(profiles.id, checks.staffCompId))
     .where(and(eq(checks.status, 'closed'), isNotNull(checks.staffCompId), gte(checks.createdAt, pStart), lt(checks.createdAt, pEnd)))
-    .groupBy(checks.staffCompId, profiles.nickname, profiles.clientTier)
+    .groupBy(checks.staffCompId, profiles.nickname, profiles.clientTier, profiles.photoUrl, profiles.tgPhotoUrl, profiles.gomafiaPhotoUrl)
     .orderBy(desc(sql`sum(${checkItems.quantity}::numeric * coalesce(${inventory.costPrice}, 0)::numeric)`))
 
-  const staff = rows.map((r: any) => ({ staffId: r.staffId, nickname: r.nickname ?? '—', clientTier: r.clientTier, checksCount: r.checksCount ?? 0, retail: parseNum(r.retail), cost: parseNum(r.cost) }))
+  const staff = rows.map((r: any) => ({ staffId: r.staffId, nickname: r.nickname ?? '—', clientTier: r.clientTier, photoUrl: r.photoUrl ?? null, checksCount: r.checksCount ?? 0, retail: parseNum(r.retail), cost: parseNum(r.cost) }))
   const totals = staff.reduce((a, s) => ({ retail: a.retail + s.retail, cost: a.cost + s.cost, checks: a.checks + (s.checksCount || 0) }), { retail: 0, cost: 0, checks: 0 })
 
   // Отдельные транзакции (каждый comp-чек) — кликабельны в UI → состав чека.

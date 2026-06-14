@@ -2,7 +2,7 @@ import type { AppEnv } from '../../types.js'
 import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
-import { expenses, salaryPayments, checks, checkItems, inventory, profiles, eq, and, gte, lte, lt, desc, sql, isNotNull } from '@titan/database'
+import { expenses, salaryPayments, checks, checkItems, inventory, profiles, eq, and, gte, lte, lt, desc, sql, isNotNull, inArray } from '@titan/database'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
 import { getBusinessDayStartHour } from '../../lib/appSettings.js'
 
@@ -148,6 +148,16 @@ expensesRouter.get('/summary', requireRole('owner', 'staff'), async (c) => {
   const byStaff = Array.from(merged.values())
     .map(s => ({ ...s, total: s.salary + s.compCost }))
     .sort((a, b) => b.total - a.total)
+
+  // Эффективное фото сотрудников (ручное → Telegram → GoMafia) одним запросом.
+  const staffIds = byStaff.map(s => s.staffId).filter(Boolean) as string[]
+  if (staffIds.length) {
+    const photoRows = await db
+      .select({ id: profiles.id, photoUrl: sql<string | null>`coalesce(${profiles.photoUrl}, ${profiles.tgPhotoUrl}, ${profiles.gomafiaPhotoUrl})` })
+      .from(profiles).where(inArray(profiles.id, staffIds))
+    const photoById = new Map(photoRows.map(p => [p.id, p.photoUrl]))
+    for (const s of byStaff) s.photoUrl = photoById.get(s.staffId) ?? null
+  }
 
   return c.json({
     period: { from, to },

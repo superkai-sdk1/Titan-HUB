@@ -1666,7 +1666,9 @@ function StaffTab({ staff, periodText, from, to }: { staff: any; periodText: str
         ) : rows.map((r: any, i: number) => (
           <div key={r.staffId ?? i} style={{ padding: '12px 18px', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
-              <div style={{ width: 30, height: 30, borderRadius: '50%', background: 'rgba(245,158,11,0.18)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, color: '#F59E0B', flexShrink: 0 }}>{(r.nickname ?? '??').slice(0, 2).toUpperCase()}</div>
+              {r.photoUrl
+                ? /* eslint-disable-next-line @next/next/no-img-element */ <img src={r.photoUrl} alt="" width={30} height={30} style={{ width: 30, height: 30, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
+                : <div style={{ width: 30, height: 30, borderRadius: '50%', background: 'rgba(245,158,11,0.18)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, color: '#F59E0B', flexShrink: 0 }}>{(r.nickname ?? '??').slice(0, 2).toUpperCase()}</div>}
               <div style={{ flex: 1, minWidth: 0 }}>
                 <p style={{ fontSize: 13, fontWeight: 600, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.nickname ?? '—'}</p>
                 <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: 0 }}>{r.checksCount ?? 0} списаний · товар {fmt(parseNum(r.retail))} ₽</p>

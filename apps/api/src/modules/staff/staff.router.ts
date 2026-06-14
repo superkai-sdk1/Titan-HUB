@@ -2,7 +2,7 @@ import type { AppEnv } from '../../types.js'
 import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
-import { profiles, eq, and, isNull, desc } from '@titan/database'
+import { profiles, eq, and, isNull, desc, sql } from '@titan/database'
 // @ts-ignore
 import { passkeys } from '@titan/database'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
@@ -54,6 +54,7 @@ staffRouter.get('/', async (c) => {
       permissions: profiles.permissions,
       tgId: profiles.tgId,
       tgUsername: profiles.tgUsername,
+      photoUrl: sql<string | null>`coalesce(${profiles.photoUrl}, ${profiles.tgPhotoUrl}, ${profiles.gomafiaPhotoUrl})`,
       createdAt: profiles.createdAt,
     })
     .from(profiles)

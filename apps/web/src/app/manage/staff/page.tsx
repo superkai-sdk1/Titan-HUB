@@ -19,6 +19,7 @@ interface StaffMember {
   permissions?: Record<string, boolean>
   tgId?: string | null
   tgUsername?: string | null
+  photoUrl?: string | null
 }
 
 interface PasskeyRecord {
@@ -328,14 +329,16 @@ function OwnerView({ myId }: { myId?: string }) {
           onClick={() => setShowProfile(true)}
           style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 16px', borderRadius: 16, cursor: 'pointer', border: '1px solid rgba(139,92,246,0.3)', marginBottom: 18 }}
         >
-          <div style={{
-            width: 48, height: 48, borderRadius: '50%', flexShrink: 0,
-            background: getAvatarColor(selfNickname),
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontWeight: 700, fontSize: 19, color: '#fff',
-          }}>
-            {selfNickname[0]?.toUpperCase()}
-          </div>
+          {self?.photoUrl
+            ? /* eslint-disable-next-line @next/next/no-img-element */ <img src={self.photoUrl} alt="" width={48} height={48} style={{ width: 48, height: 48, borderRadius: '50%', flexShrink: 0, objectFit: 'cover' }} />
+            : <div style={{
+                width: 48, height: 48, borderRadius: '50%', flexShrink: 0,
+                background: getAvatarColor(selfNickname),
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontWeight: 700, fontSize: 19, color: '#fff',
+              }}>
+                {selfNickname[0]?.toUpperCase()}
+              </div>}
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3 }}>
               <span style={{ fontWeight: 600, fontSize: 15, color: 'var(--on-surface)' }}>{selfNickname}</span>
@@ -363,14 +366,16 @@ function OwnerView({ myId }: { myId?: string }) {
                   onClick={() => openDetail(s)}
                   style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 16px', borderRadius: 16, cursor: 'pointer', border: '1px solid rgba(255,255,255,0.07)' }}
                 >
-                  <div style={{
-                    width: 44, height: 44, borderRadius: '50%', flexShrink: 0,
-                    background: getAvatarColor(s.nickname),
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontWeight: 700, fontSize: 18, color: '#fff',
-                  }}>
-                    {s.nickname[0]?.toUpperCase()}
-                  </div>
+                  {s.photoUrl
+                    ? /* eslint-disable-next-line @next/next/no-img-element */ <img src={s.photoUrl} alt="" width={44} height={44} style={{ width: 44, height: 44, borderRadius: '50%', flexShrink: 0, objectFit: 'cover' }} />
+                    : <div style={{
+                        width: 44, height: 44, borderRadius: '50%', flexShrink: 0,
+                        background: getAvatarColor(s.nickname),
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        fontWeight: 700, fontSize: 18, color: '#fff',
+                      }}>
+                        {s.nickname[0]?.toUpperCase()}
+                      </div>}
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontWeight: 600, fontSize: 15, color: 'var(--on-surface)', marginBottom: 3 }}>{s.nickname}</div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -399,14 +404,16 @@ function OwnerView({ myId }: { myId?: string }) {
             <div>
               {/* Avatar + role */}
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, marginBottom: 24 }}>
-                <div style={{
-                  width: 72, height: 72, borderRadius: '50%',
-                  background: getAvatarColor(selected.nickname),
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontWeight: 700, fontSize: 30, color: '#fff',
-                }}>
-                  {selected.nickname[0]?.toUpperCase()}
-                </div>
+                {selected.photoUrl
+                  ? /* eslint-disable-next-line @next/next/no-img-element */ <img src={selected.photoUrl} alt="" width={72} height={72} style={{ width: 72, height: 72, borderRadius: '50%', objectFit: 'cover' }} />
+                  : <div style={{
+                      width: 72, height: 72, borderRadius: '50%',
+                      background: getAvatarColor(selected.nickname),
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontWeight: 700, fontSize: 30, color: '#fff',
+                    }}>
+                      {selected.nickname[0]?.toUpperCase()}
+                    </div>}
                 <span style={{
                   fontSize: 12, fontWeight: 600, padding: '3px 12px', borderRadius: 999,
                   background: `${(ROLE_LABELS[selected.role]?.color ?? '#8B5CF6')}22`,

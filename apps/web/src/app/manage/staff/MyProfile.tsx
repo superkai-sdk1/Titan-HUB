@@ -19,6 +19,9 @@ interface MeProfile {
   tgId?: string | null
   tgUsername?: string | null
   permissions?: Record<string, boolean> | null
+  photoUrl?: string | null
+  tgPhotoUrl?: string | null
+  gomafiaPhotoUrl?: string | null
 }
 
 const AVATAR_COLORS = ['#8B5CF6', '#4cd7f6', '#10B981', '#F59E0B', '#F43F5E', '#3B82F6']
@@ -211,14 +214,16 @@ export function MyProfile() {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 22 }}>
       {/* ─── Шапка-карточка ─────────────────────────────────────────────── */}
       <div className="glass-l2" style={{ borderRadius: 18, padding: '18px 16px', display: 'flex', alignItems: 'center', gap: 14 }}>
-        <div style={{
-          width: 60, height: 60, borderRadius: '50%', flexShrink: 0,
-          background: getAvatarColor(nickname),
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          fontWeight: 700, fontSize: 24, color: '#fff',
-        }}>
-          {nickname[0]?.toUpperCase() ?? '?'}
-        </div>
+        {(me?.photoUrl || me?.tgPhotoUrl || me?.gomafiaPhotoUrl)
+          ? /* eslint-disable-next-line @next/next/no-img-element */ <img src={(me.photoUrl || me.tgPhotoUrl || me.gomafiaPhotoUrl)!} alt="" width={60} height={60} style={{ width: 60, height: 60, borderRadius: '50%', flexShrink: 0, objectFit: 'cover' }} />
+          : <div style={{
+              width: 60, height: 60, borderRadius: '50%', flexShrink: 0,
+              background: getAvatarColor(nickname),
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontWeight: 700, fontSize: 24, color: '#fff',
+            }}>
+              {nickname[0]?.toUpperCase() ?? '?'}
+            </div>}
         <div style={{ minWidth: 0 }}>
           <p style={{ fontSize: 17, fontWeight: 700, margin: 0, color: 'var(--on-surface)' }}>{nickname}</p>
           <span style={{

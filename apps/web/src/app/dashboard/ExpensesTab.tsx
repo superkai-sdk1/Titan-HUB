@@ -10,7 +10,7 @@ import { useToast } from '@/components/Toast'
 import { Icon } from '@/components/Icon'
 
 interface Expense { id: string; expenseDate: string; category: string; amount: number; description?: string; unitPrice?: string | number | null; quantity?: string | number | null }
-interface StaffRow { staffId: string; nickname: string; role: string | null; salary: number; salaryCash: number; salaryTransfer: number; salaryCount: number; compCost: number; compRetail: number; compChecks: number; total: number }
+interface StaffRow { staffId: string; nickname: string; role: string | null; salary: number; salaryCash: number; salaryTransfer: number; salaryCount: number; compCost: number; compRetail: number; compChecks: number; total: number; photoUrl?: string | null }
 interface Summary {
   period: { from: string; to: string }
   categories: { category: string; amount: number }[]
@@ -227,7 +227,9 @@ export function ExpensesTab({ from, to }: { from: string; to: string }) {
         ) : staffRows.map((s, i) => (
           <div key={s.staffId ?? i} style={{ padding: '12px 18px', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
-              <div style={{ width: 32, height: 32, borderRadius: '50%', background: 'rgba(139,92,246,0.18)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, color: '#8B5CF6', flexShrink: 0 }}>{(s.nickname ?? '??').slice(0, 2).toUpperCase()}</div>
+              {s.photoUrl
+                ? /* eslint-disable-next-line @next/next/no-img-element */ <img src={s.photoUrl} alt="" width={32} height={32} style={{ width: 32, height: 32, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
+                : <div style={{ width: 32, height: 32, borderRadius: '50%', background: 'rgba(139,92,246,0.18)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, color: '#8B5CF6', flexShrink: 0 }}>{(s.nickname ?? '??').slice(0, 2).toUpperCase()}</div>}
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                   <p style={{ fontSize: 13, fontWeight: 600, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.nickname ?? '—'}</p>
