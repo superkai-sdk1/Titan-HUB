@@ -1023,73 +1023,65 @@ function PosPageInner() {
                     Загрузка тарифов…
                   </div>
                 ) : (
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                    {tariffItems.map((item, idx) => {
-                      const price = parseFloat(String(item.price)) || 0
-                      const isSelected = selectedTariffId === item.id
-                      const pal = TARIFF_PALETTE[idx % TARIFF_PALETTE.length]
-                      return (
-                        <button
-                          key={item.id}
-                          onClick={() => setSelectedTariffId(isSelected ? null : item.id)}
-                          disabled={createCheck.isPending}
-                          className="glass-l2"
-                          style={{
-                            padding: '18px 14px', borderRadius: 16,
-                            border: isSelected ? `1px solid ${pal.selBorder}` : '1px solid rgba(255,255,255,0.08)',
-                            background: isSelected ? pal.selBg : 'transparent',
-                            boxShadow: isSelected ? `0 0 0 1px ${pal.selBorder}40` : 'none',
-                            cursor: 'pointer', textAlign: 'left',
-                            display: 'flex', flexDirection: 'column', alignItems: 'flex-start',
-                            gap: 10, transition: 'all 0.18s',
-                            opacity: createCheck.isPending ? 0.6 : 1,
-                          }}
-                        >
-                          <div style={{
-                            width: 36, height: 36, borderRadius: 10,
-                            background: isSelected ? `${pal.color}44` : pal.bg,
-                            display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            transition: 'background 0.18s',
-                          }}>
-                            <Icon name="confirmation_number" size={18} color={pal.color} />
-                          </div>
-                          <div>
-                            <p style={{ fontSize: 14, fontWeight: 700, margin: 0, color: isSelected ? '#fff' : 'var(--on-surface)' }}>{item.name}</p>
-                            <p style={{ fontSize: 16, fontWeight: 900, margin: '4px 0 0', color: pal.color, fontVariantNumeric: 'tabular-nums' }}>
-                              {price.toLocaleString('ru')} ₽
-                            </p>
-                          </div>
-                        </button>
-                      )
-                    })}
-
-                    {/* Без тарифа */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 8 }}>
+                    {/* Сетка: Резидент·Новичок·Студент (по 2 кол.) → Гость·Одна игра
+                        (по 3 кол.) → прочие тарифы → Без тарифа (на всю ширину). */}
                     {(() => {
-                      const noTariff = selectedTariffId === null
-                      return (
-                        <button
-                          onClick={() => setSelectedTariffId(null)}
-                          disabled={createCheck.isPending}
-                          style={{
-                            gridColumn: '1 / -1',
-                            padding: '14px 18px', borderRadius: 16,
-                            border: noTariff ? '1px solid rgba(255,255,255,0.2)' : '1px solid rgba(255,255,255,0.06)',
-                            background: noTariff ? 'rgba(255,255,255,0.06)' : 'transparent',
-                            cursor: 'pointer', textAlign: 'left',
-                            display: 'flex', alignItems: 'center', gap: 12,
-                            opacity: createCheck.isPending ? 0.6 : 1, transition: 'all 0.18s',
-                          }}
-                        >
-                          <div style={{ width: 36, height: 36, borderRadius: 10, background: 'rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                            <Icon name="block" size={18} color="var(--on-surface-variant)" />
-                          </div>
-                          <div>
-                            <span style={{ fontSize: 14, fontWeight: 600, color: noTariff ? 'var(--on-surface)' : 'var(--on-surface-variant)' }}>Без тарифа</span>
-                            <p style={{ fontSize: 11, color: 'rgba(204,195,216,0.4)', margin: '2px 0 0' }}>Открыть счёт без добавления позиции</p>
-                          </div>
-                        </button>
-                      )
+                      const byKey = (k: string) => tariffItems.find(t => t.key === k)
+                      const ordered: TariffOption[] = []
+                      for (const k of ['resident', 'newbie', 'student', 'guest']) { const t = byKey(k); if (t) ordered.push(t) }
+                      for (const t of tariffItems) { if (!ordered.includes(t)) ordered.push(t) }
+                      return ordered.map((item, idx) => {
+                        const price = parseFloat(String(item.price)) || 0
+                        const isSelected = selectedTariffId === item.id
+                        const color = item.color || TARIFF_PALETTE[idx % TARIFF_PALETTE.length].color
+                        const span = idx < 3 ? 2 : 3 // первые 3 — ряд по три; дальше — по два
+                        return (
+                          <button
+                            key={item.id}
+                            onClick={() => setSelectedTariffId(isSelected ? null : item.id)}
+                            disabled={createCheck.isPending}
+                            className="glass-l2"
+                            style={{
+                              gridColumn: `span ${span}`,
+                              padding: '14px 8px', borderRadius: 14,
+                              border: isSelected ? `1px solid ${color}` : '1px solid rgba(255,255,255,0.08)',
+                              background: isSelected ? `${color}22` : 'transparent',
+                              boxShadow: isSelected ? `0 0 0 1px ${color}55` : 'none',
+                              cursor: 'pointer', textAlign: 'center', minWidth: 0,
+                              display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3,
+                              transition: 'all 0.18s', opacity: createCheck.isPending ? 0.6 : 1,
+                            }}
+                          >
+                            <span style={{ fontSize: 13, fontWeight: 700, color: isSelected ? '#fff' : 'var(--on-surface)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '100%' }}>{item.name}</span>
+                            <span style={{ fontSize: 14, fontWeight: 900, color, fontVariantNumeric: 'tabular-nums' }}>{price.toLocaleString('ru')} ₽</span>
+                          </button>
+                        )
+                      })
                     })()}
+
+                    {/* Без тарифа — на всю ширину */}
+                    <button
+                      onClick={() => setSelectedTariffId(null)}
+                      disabled={createCheck.isPending}
+                      style={{
+                        gridColumn: '1 / -1',
+                        padding: '12px 16px', borderRadius: 14,
+                        border: selectedTariffId === null ? '1px solid rgba(255,255,255,0.2)' : '1px solid rgba(255,255,255,0.06)',
+                        background: selectedTariffId === null ? 'rgba(255,255,255,0.06)' : 'transparent',
+                        cursor: 'pointer', textAlign: 'left',
+                        display: 'flex', alignItems: 'center', gap: 12,
+                        opacity: createCheck.isPending ? 0.6 : 1, transition: 'all 0.18s',
+                      }}
+                    >
+                      <div style={{ width: 32, height: 32, borderRadius: 9, background: 'rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                        <Icon name="block" size={17} color="var(--on-surface-variant)" />
+                      </div>
+                      <div>
+                        <span style={{ fontSize: 14, fontWeight: 600, color: selectedTariffId === null ? 'var(--on-surface)' : 'var(--on-surface-variant)' }}>Без тарифа</span>
+                        <p style={{ fontSize: 11, color: 'rgba(204,195,216,0.4)', margin: '2px 0 0' }}>Открыть счёт без добавления позиции</p>
+                      </div>
+                    </button>
 
                     {/* Confirm button */}
                     <button

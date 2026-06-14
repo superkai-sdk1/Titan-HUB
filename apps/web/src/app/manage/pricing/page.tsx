@@ -344,29 +344,29 @@ export default function PricingPage() {
       <div style={{ padding: '16px', maxWidth: 'var(--content-narrow)', margin: '0 auto', width: '100%' }}>
         {/* ─── ТАРИФЫ ─── */}
         {tab === 'tariffs' && (() => {
-          // Тариф = СТАТУС клиента. Показываем статусы (key) в иерархии:
-          // Резидент → Студент → Новичок → Гость. У каждого своя сумма за вечер.
-          const statuses = tariffs.filter(t => t.key)
+          // Статусы клиента (key, иерархия Резидент→Студент→Новичок→Гость) +
+          // дополнительные тарифы без статуса (напр. «Одна игра»). Сумма за вечер/игру.
+          const list = tariffs.filter(t => t.isActive !== false)
           return (
           <>
-            <TabBar count={statuses.length} label="статусов" />
+            <TabBar count={list.length} label="тарифов" action={isOwner ? { label: 'Добавить', onClick: () => openTariff() } : undefined} />
             <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: '0 0 10px', lineHeight: 1.5 }}>
-              Статус клиента и тариф — одно и то же. У каждого статуса своя сумма за игровой вечер. Иерархия: Резидент → Студент → Новичок → Гость.
+              Статус клиента и тариф — одно и то же (Резидент → Студент → Новичок → Гость, у каждого своя сумма за вечер). Можно добавить и обычные тарифы без статуса — например «Одна игра».
             </p>
             {tariffsLoading ? <StateView state="loading" />
-              : statuses.length === 0 ? <StateView state="empty" icon="confirmation_number" title="Нет статусов" />
+              : list.length === 0 ? <StateView state="empty" icon="confirmation_number" title="Нет тарифов" />
               : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                  {statuses.map(t => {
+                  {list.map(t => {
                     const color = t.color ?? '#8B5CF6'
                     const price = parseFloat(String(t.price ?? 0)) || 0
                     return (
                       <Card
                         key={t.id}
                         accent={color}
-                        icon="workspace_premium"
+                        icon={t.key ? 'workspace_premium' : 'confirmation_number'}
                         title={t.name}
-                        subtitle="Сумма за игровой вечер"
+                        subtitle={t.key ? 'Статус клиента · сумма за вечер' : 'Тариф'}
                         onClick={isOwner ? () => openTariff(t) : undefined}
                         right={<span style={{ ...PRICE_CSS, color }}>{price.toLocaleString('ru')} ₽</span>}
                       />
