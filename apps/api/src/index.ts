@@ -3,6 +3,7 @@ import { closeDb, closeClubDbs, type Database } from '@titan/database'
 import { app } from './app.js'
 import { checkBirthdays } from './cron/birthdays.js'
 import { auditBalances } from './cron/balance-audit.js'
+import { runPollsForDb } from './cron/polls.js'
 import { getCronTargets } from './cron/targets.js'
 import { runMigrations } from './migrations/runner.js'
 import { getSharedRedis } from './lib/redis.js'
@@ -125,3 +126,15 @@ function scheduleBalanceAuditCron() {
 }
 
 scheduleBalanceAuditCron()
+
+// Регулярные опросы Telegram: тик КАЖДУЮ МИНУТУ по всем клубам. Постинг
+// идемпотентен (isPollDue: один раз в слот по lastPostedAt), поэтому частый тик
+// безопасен и устойчив к рестартам/дрейфу. Лёгкий: читает JSON-конфиг из app_settings.
+function schedulePollsCron() {
+  setInterval(() => {
+    runForAllClubs('polls', runPollsForDb).catch(console.error)
+  }, 60_000)
+  console.log('🗳️  Polls cron scheduled (тик раз в минуту, МСК)')
+}
+
+schedulePollsCron()

@@ -8,7 +8,8 @@ import { getCurrentShift } from '../shifts/shifts.service.js'
 import { Redis } from 'ioredis'
 import { updatesChannel } from '../../lib/realtime.js'
 import { createBackup, listBackups, lastBackup, restoreNamed, restoreFromUpload, rcloneConfigured } from '../../lib/backup.js'
-import { encryptSecret, decryptSecret, maskSecret } from '../../lib/secrets.js'
+import { encryptSecret, decryptSecret, maskSecret, getClubIntegration } from '../../lib/secrets.js'
+import { readPollConfigs, writePollConfigs, postPollConfig, type PollConfig } from '../../lib/polls.js'
 
 export const systemRouter = new Hono<AppEnv>()
 
@@ -187,6 +188,7 @@ const INTEGRATION_KEYS: Record<string, string> = {
   ai_api_key: 'API-ключ TITAN AI',
   platega_merchant_id: 'Platega: Merchant ID',
   platega_secret: 'Platega: секретный ключ',
+  poll_bot_token: 'Токен бота опросов Telegram',
 }
 
 const isAllowedKey = (key: string): boolean =>
@@ -252,3 +254,77 @@ systemRouter.delete('/integrations/:key', requireAuth, requireRole('owner'), asy
   await db.delete(integrations).where(eq(integrations.key, key))
   return c.json({ ok: true, key, configured: false })
 })
+
+// ─── Регулярные опросы Telegram (бот опросов) ───────────────────────────────────
+// Только owner. Токен бота — отдельная интеграция poll_bot_token (маска как у
+// прочих секретов). Конфиги опросов — JSON в app_settings (poll_configs).
+
+// GET /system/polls — конфиги + статус токена (маска, не plaintext).
+systemRouter.get('/polls', requireAuth, requireRole('owner'), async (c) => {
+  const db = c.var.db
+  const configs = await readPollConfigs(db)
+  let tokenMasked: string | null = null
+  try {
+    const t = await getClubIntegration(db, 'poll_bot_token')
+    if (t) tokenMasked = maskSecret(t)
+  } catch {
+    /* нет токена/ошибка расшифровки — оставляем null */
+  }
+  return c.json({ configs, tokenConfigured: tokenMasked !== null, tokenMasked })
+})
+
+const PollConfigSchema = z.object({
+  id: z.string().min(1).max(64),
+  kind: z.string().max(32),
+  enabled: z.boolean(),
+  chatId: z.string().min(1).max(64),
+  threadId: z.number().int().nullable(),
+  title: z.string().min(1).max(200),
+  subtitleDay: z.string().max(64),
+  subtitleTime: z.string().max(32),
+  options: z.array(z.string().min(1).max(100)).min(2).max(10),
+  weekdays: z.array(z.number().int().min(1).max(7)).max(7),
+  postTime: z.string().regex(/^([01]?\d|2[0-3]):[0-5]\d$/, 'время в формате HH:MM'),
+  lastPostedAt: z.string().nullable().optional(),
+})
+
+// PUT /system/polls — сохранить конфиги (целиком). lastPostedAt мерджим из текущих
+// (фронт его не ведёт), чтобы не сбросить идемпотентность постинга.
+systemRouter.put(
+  '/polls',
+  requireAuth,
+  requireRole('owner'),
+  zValidator('json', z.object({ configs: z.array(PollConfigSchema).max(20) })),
+  async (c) => {
+    const db = c.var.db
+    const { configs } = c.req.valid('json')
+    const existing = await readPollConfigs(db)
+    const lastById = new Map(existing.map((e) => [e.id, e.lastPostedAt]))
+    const merged: PollConfig[] = configs.map((cfg) => ({
+      ...cfg,
+      lastPostedAt: cfg.lastPostedAt ?? lastById.get(cfg.id) ?? null,
+    }))
+    await writePollConfigs(db, merged)
+    return c.json({ ok: true, configs: merged })
+  },
+)
+
+// POST /system/polls/test — отправить опрос немедленно (проверка настроек).
+systemRouter.post(
+  '/polls/test',
+  requireAuth,
+  requireRole('owner'),
+  zValidator('json', z.object({ id: z.string().min(1) })),
+  async (c) => {
+    const db = c.var.db
+    const { id } = c.req.valid('json')
+    const configs = await readPollConfigs(db)
+    const cfg = configs.find((x) => x.id === id)
+    if (!cfg) return c.json({ error: 'Опрос не найден' }, 404)
+    const token = await getClubIntegration(db, 'poll_bot_token')
+    if (!token) return c.json({ error: 'Не задан токен бота опросов' }, 400)
+    const r = await postPollConfig(token, cfg)
+    if (!r.ok) return c.json({ error: r.error ?? 'Не удалось отправить опрос' }, 502)
+    return c.json({ ok: true, messageId: r.messageId })
+  },
+)
