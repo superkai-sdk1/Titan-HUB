@@ -22,6 +22,7 @@ interface CheckCard {
   status: string
   note?: string
   guestName?: string
+  guestPhotoUrl?: string | null
   spaceName?: string
   hasRental?: boolean
   spaceStartAt?: string | null
@@ -259,7 +260,7 @@ function PosPageInner() {
   const createClient = useMutation({
     // POST /clients возвращает { client: {...} } — раньше читали .profile.id (undefined),
     // из-за чего открытие чека падало молча: клиент создавался, а чек не открывался.
-    mutationFn: (body: { nickname: string; clientTier: string; fullName?: string; photoUrl?: string; searchTags?: string[] }) =>
+    mutationFn: (body: { nickname: string; clientTier: string; fullName?: string; gomafiaPhotoUrl?: string; searchTags?: string[] }) =>
       api.post<{ client: { id: string } }>('/clients', body),
   })
 
@@ -624,13 +625,15 @@ function PosPageInner() {
                 {/* Top: avatar + info + badge */}
                 <div className="card-top" style={{ display: 'flex', alignItems: 'center' }}>
                   <div className="card-avatar" style={{
-                    borderRadius: '50%', flexShrink: 0,
-                    background: 'linear-gradient(135deg, rgba(139,92,246,0.3), rgba(76,215,246,0.3))',
+                    borderRadius: '50%', flexShrink: 0, overflow: 'hidden',
                     border: '1px solid rgba(139,92,246,0.3)',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                     fontWeight: 700, color: '#A78BFA',
+                    background: check.guestPhotoUrl ? 'rgba(255,255,255,0.05)' : 'linear-gradient(135deg, rgba(139,92,246,0.3), rgba(76,215,246,0.3))',
                   }}>
-                    {getInitials(cardName)}
+                    {check.guestPhotoUrl
+                      ? /* eslint-disable-next-line @next/next/no-img-element */ <img src={check.guestPhotoUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      : getInitials(cardName)}
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <p className="card-name" style={{ fontWeight: 600, color: 'var(--on-surface)', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -939,12 +942,14 @@ function PosPageInner() {
                         onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.07)'; e.currentTarget.style.background = '' }}
                       >
                         <div style={{
-                          width: 38, height: 38, borderRadius: '50%', flexShrink: 0,
-                          background: 'linear-gradient(135deg, rgba(139,92,246,0.35), rgba(76,215,246,0.35))',
+                          width: 38, height: 38, borderRadius: '50%', flexShrink: 0, overflow: 'hidden',
+                          background: player.photoUrl ? 'rgba(255,255,255,0.05)' : 'linear-gradient(135deg, rgba(139,92,246,0.35), rgba(76,215,246,0.35))',
                           display: 'flex', alignItems: 'center', justifyContent: 'center',
                           fontSize: 13, fontWeight: 700, color: '#A78BFA',
                         }}>
-                          {getInitials(player.nickname)}
+                          {player.photoUrl
+                            ? /* eslint-disable-next-line @next/next/no-img-element */ <img src={player.photoUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                            : getInitials(player.nickname)}
                         </div>
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <p style={{ fontSize: 14, fontWeight: 700, margin: 0, color: 'var(--on-surface)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -1043,12 +1048,14 @@ function PosPageInner() {
                 {/* Selected player display */}
                 <div className="glass-l2" style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', borderRadius: 14, marginBottom: 20, border: '1px solid rgba(139,92,246,0.25)' }}>
                   <div style={{
-                    width: 40, height: 40, borderRadius: '50%', flexShrink: 0,
-                    background: 'linear-gradient(135deg, rgba(139,92,246,0.35), rgba(76,215,246,0.35))',
+                    width: 40, height: 40, borderRadius: '50%', flexShrink: 0, overflow: 'hidden',
+                    background: selectedPlayer.photoUrl ? 'rgba(255,255,255,0.05)' : 'linear-gradient(135deg, rgba(139,92,246,0.35), rgba(76,215,246,0.35))',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                     fontSize: 14, fontWeight: 700, color: '#A78BFA',
                   }}>
-                    {getInitials(selectedPlayer.nickname)}
+                    {selectedPlayer.photoUrl
+                      ? /* eslint-disable-next-line @next/next/no-img-element */ <img src={selectedPlayer.photoUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      : getInitials(selectedPlayer.nickname)}
                   </div>
                   <div style={{ flex: 1 }}>
                     <p style={{ fontSize: 14, fontWeight: 700, margin: 0, color: 'var(--on-surface)' }}>{selectedPlayer.nickname}</p>
@@ -1263,12 +1270,12 @@ function PosPageInner() {
                   <button
                     onClick={async () => {
                       if (!newClientNick.trim()) return
-                      const body: { nickname: string; clientTier: string; fullName?: string; photoUrl?: string; searchTags?: string[] } = {
+                      const body: { nickname: string; clientTier: string; fullName?: string; gomafiaPhotoUrl?: string; searchTags?: string[] } = {
                         nickname: newClientNick.trim(), clientTier: newClientTier,
                       }
                       if (posGmPicked) {
                         body.searchTags = [`gomafia:${posGmPicked.gomafiaId}`]
-                        if (posGmPicked.photoUrl) body.photoUrl = posGmPicked.photoUrl
+                        if (posGmPicked.photoUrl) body.gomafiaPhotoUrl = posGmPicked.photoUrl
                         if (posGmPicked.fullName) body.fullName = posGmPicked.fullName
                       }
                       const clientRes = await createClient.mutateAsync(body)

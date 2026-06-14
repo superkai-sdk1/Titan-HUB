@@ -32,6 +32,7 @@ const CreateClientSchema = z.object({
   tgId: z.string().optional(),
   tgUsername: z.string().optional(),
   photoUrl: z.string().max(500).optional(),
+  gomafiaPhotoUrl: z.string().max(500).optional(),
   searchTags: z.array(z.string()).default([]),
 })
 
@@ -43,7 +44,8 @@ const UpdateClientSchema = z.object({
   phone: z.string().nullable().optional(),
   birthday: z.string().nullable().optional(),
   clientTier: z.string().min(1).optional(),
-  photoUrl: z.string().optional(),
+  // nullable: null очищает ручное фото (тогда показывается фото из TG/GoMafia).
+  photoUrl: z.string().nullable().optional(),
   searchTags: z.array(z.string()).optional(),
   isResident: z.boolean().optional(),
   tgId: z.string().nullable().optional(),
@@ -223,6 +225,7 @@ clientsRouter.post('/', requireRole('owner', 'staff'), zValidator('json', Create
     tgId: body.tgId,
     tgUsername: body.tgUsername,
     photoUrl: body.photoUrl ?? null,
+    gomafiaPhotoUrl: body.gomafiaPhotoUrl ?? null,
     searchTags: body.searchTags,
     passwordHash,
   }).returning()
@@ -448,14 +451,14 @@ clientsRouter.post(
       return c.json({ error: `Этот игрок GoMafia уже сопоставлен с «${other.nickname}»` }, 409)
     }
 
-    // Карточка GoMafia — для дозаполнения имени/фото (необязательно).
+    // Карточка GoMafia — имя для дозаполнения + аватар в СВОЙ слот (gomafia_photo_url).
+    // Ручное фото (photo_url) и фото Telegram имеют приоритет — их не трогаем.
     const player = await gomafiaPlayer(gomafiaId).catch(() => null)
 
     const tags = (me.searchTags ?? []).filter((t) => !GM_TAG_RE.test(t))
     tags.push(tag)
-    const patch: Record<string, unknown> = { searchTags: tags }
+    const patch: Record<string, unknown> = { searchTags: tags, gomafiaPhotoUrl: player?.avatar ?? null }
     if (!me.fullName && player?.fullName) patch['fullName'] = player.fullName
-    if (!me.photoUrl && player?.avatar) patch['photoUrl'] = player.avatar
 
     const [updated] = await db.update(profiles).set(patch).where(eq(profiles.id, id)).returning()
     const { pin, passwordHash, ...safe } = updated
@@ -470,7 +473,7 @@ clientsRouter.delete('/:id/gomafia-link', requireRole('owner', 'staff'), async (
   const [me] = await db.select({ searchTags: profiles.searchTags }).from(profiles).where(eq(profiles.id, id)).limit(1)
   if (!me) return c.json({ error: 'Not found' }, 404)
   const tags = (me.searchTags ?? []).filter((t) => !GM_TAG_RE.test(t))
-  const [updated] = await db.update(profiles).set({ searchTags: tags }).where(eq(profiles.id, id)).returning()
+  const [updated] = await db.update(profiles).set({ searchTags: tags, gomafiaPhotoUrl: null }).where(eq(profiles.id, id)).returning()
   const { pin, passwordHash, ...safe } = updated
   return c.json({ ok: true, client: safe })
 })

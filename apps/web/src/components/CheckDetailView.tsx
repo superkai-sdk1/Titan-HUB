@@ -990,13 +990,15 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 0 }}>
           <div style={{
-            width: 38, height: 38, borderRadius: '50%', flexShrink: 0,
-            background: 'linear-gradient(135deg, rgba(139,92,246,0.3), rgba(76,215,246,0.3))',
+            width: 38, height: 38, borderRadius: '50%', flexShrink: 0, overflow: 'hidden',
+            background: player?.photoUrl ? 'rgba(255,255,255,0.05)' : 'linear-gradient(135deg, rgba(139,92,246,0.3), rgba(76,215,246,0.3))',
             border: '1px solid rgba(139,92,246,0.35)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             fontSize: 13, fontWeight: 700, color: '#A78BFA',
           }}>
-            {getInitials(displayName)}
+            {player?.photoUrl
+              ? /* eslint-disable-next-line @next/next/no-img-element */ <img src={player.photoUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              : getInitials(displayName)}
           </div>
           <div style={{ minWidth: 0 }}>
             <p style={{ fontSize: 15, fontWeight: 800, margin: 0, color: 'var(--on-surface)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>

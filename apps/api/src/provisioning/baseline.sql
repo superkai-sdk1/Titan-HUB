@@ -712,6 +712,8 @@ CREATE TABLE public.profiles (
     phone text,
     birthday text,
     photo_url text,
+    tg_photo_url text,
+    gomafia_photo_url text,
     permissions jsonb DEFAULT '{}'::jsonb,
     linked_space_id uuid,
     search_tags text[] DEFAULT '{}'::text[],

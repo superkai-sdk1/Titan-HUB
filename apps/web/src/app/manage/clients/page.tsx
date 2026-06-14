@@ -16,6 +16,8 @@ const gomafiaIdOf = (c: any): string | null => {
   const t = (Array.isArray(c?.searchTags) ? c.searchTags : []).find((x: string) => GM_TAG_RE.test(x))
   return t ? t.split(':')[1] : null
 }
+// Эффективное фото клиента по приоритету: ручное → Telegram → GoMafia.
+const avatarOf = (c: any): string | null => c?.photoUrl || c?.tgPhotoUrl || c?.gomafiaPhotoUrl || null
 
 const TIER_COLORS: Record<string, string> = {
   newbie: '#22D3EE', guest: 'rgba(204,195,216,0.6)', resident: '#8B5CF6', student: '#3B82F6',
@@ -111,6 +113,8 @@ export default function ClientsPage() {
   const [gmMatchQuery, setGmMatchQuery] = useState('')
   const [gmMatchResults, setGmMatchResults] = useState<any[]>([])
   const [gmMatchLoading, setGmMatchLoading] = useState(false)
+  // Загрузка фото клиента сотрудником (главный приоритет).
+  const [photoUploading, setPhotoUploading] = useState(false)
   const [editForm, setEditForm] = useState<any>(null)
   const [showTiers, setShowTiers] = useState(false)
   const [newTier, setNewTier] = useState({ label: '', color: '#8B5CF6' })
@@ -251,6 +255,36 @@ export default function ClientsPage() {
     },
     onError: () => show('Не удалось отвязать', 'error'),
   })
+
+  // Загрузить ручное фото (главный приоритет): upload в хранилище → photoUrl клиента.
+  async function uploadClientPhoto(file: File) {
+    if (!selected) return
+    setPhotoUploading(true)
+    try {
+      const fd = new FormData()
+      fd.append('file', file)
+      const base = process.env.NEXT_PUBLIC_API_URL ?? '/api'
+      const token = useAuthStore.getState().token
+      const res = await fetch(`${base}/upload/image`, { method: 'POST', headers: token ? { Authorization: `Bearer ${token}` } : {}, body: fd })
+      if (!res.ok) { const e = await res.json().catch(() => null); throw new Error(e?.error || 'upload failed') }
+      const { url } = await res.json()
+      await api.patch(`/clients/${selected.id}`, { photoUrl: url })
+      setSelected((prev: any) => (prev ? { ...prev, photoUrl: url } : prev))
+      qc.invalidateQueries({ queryKey: ['clients'] })
+      show('Фото загружено', 'success')
+    } catch (e: any) {
+      show(e?.message === 'Файл больше 2 МБ' ? 'Файл больше 2 МБ' : 'Не удалось загрузить фото', 'error')
+    } finally { setPhotoUploading(false) }
+  }
+  async function removeClientPhoto() {
+    if (!selected) return
+    try {
+      await api.patch(`/clients/${selected.id}`, { photoUrl: null })
+      setSelected((prev: any) => (prev ? { ...prev, photoUrl: null } : prev))
+      qc.invalidateQueries({ queryKey: ['clients'] })
+      show('Ручное фото удалено', 'success')
+    } catch { show('Не удалось удалить фото', 'error') }
+  }
 
   const update = useMutation({
     mutationFn: ({ id, ...b }: any) => api.patch(`/clients/${id}`, b),
@@ -453,9 +487,11 @@ export default function ClientsPage() {
                   style={{ position: 'relative', overflow: 'hidden', borderRadius: 14, padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 14, cursor: 'pointer', transition: 'border-color 0.2s' }}
                   onMouseEnter={e => { e.currentTarget.style.borderColor = `${tierColor}55` }}
                   onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)' }}>
-                  <div style={{ width: 46, height: 46, borderRadius: '50%', flexShrink: 0, background: `${tierColor}22`, border: `2px solid ${tierColor}55`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 800, color: tierColor }}>
-                    {(c.nickname ?? '?').slice(0, 2).toUpperCase()}
-                  </div>
+                  {avatarOf(c)
+                    ? /* eslint-disable-next-line @next/next/no-img-element */ <img src={avatarOf(c)!} alt={c.nickname} width={46} height={46} style={{ width: 46, height: 46, borderRadius: '50%', flexShrink: 0, objectFit: 'cover', border: `2px solid ${tierColor}55` }} />
+                    : <div style={{ width: 46, height: 46, borderRadius: '50%', flexShrink: 0, background: `${tierColor}22`, border: `2px solid ${tierColor}55`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 800, color: tierColor }}>
+                        {(c.nickname ?? '?').slice(0, 2).toUpperCase()}
+                      </div>}
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' as const, marginBottom: 4 }}>
                       <p style={{ fontSize: 14, fontWeight: 700, margin: 0 }}>{c.nickname}</p>
@@ -556,7 +592,7 @@ export default function ClientsPage() {
             birthday: form.birthday || undefined,
             clientTier: form.clientTier,
             password: form.password || undefined,
-            photoUrl: form.photoUrl || undefined,
+            gomafiaPhotoUrl: form.photoUrl || undefined,
             searchTags: form.gomafiaId ? [`gomafia:${form.gomafiaId}`] : [],
           })} disabled={create.isPending || !form.nickname.trim()} style={{ width: '100%', padding: '14px 0', borderRadius: 14, border: 'none', background: 'linear-gradient(135deg, #8B5CF6, #4cd7f6)', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer', opacity: create.isPending || !form.nickname.trim() ? 0.6 : 1, marginTop: 4 }}>
             {create.isPending ? 'Создаём…' : 'Создать клиента'}
@@ -580,6 +616,34 @@ export default function ClientsPage() {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
                   <IconButton icon="arrow_back" ariaLabel="Назад" variant="ghost" onClick={() => setMode('view')} />
                   <h2 style={{ fontSize: 18, fontWeight: 800, margin: 0 }}>Редактирование</h2>
+                </div>
+
+                {/* Фото клиента — приоритет: загруженное → Telegram → GoMafia */}
+                <div>
+                  <label style={LBL}>Фото</label>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    {avatarOf(selected)
+                      ? /* eslint-disable-next-line @next/next/no-img-element */ <img src={avatarOf(selected)!} alt="" width={60} height={60} style={{ width: 60, height: 60, borderRadius: '50%', objectFit: 'cover', flexShrink: 0, border: `2px solid ${tierColor}55` }} />
+                      : <div style={{ width: 60, height: 60, borderRadius: '50%', flexShrink: 0, background: `${tierColor}22`, border: `2px solid ${tierColor}55`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, fontWeight: 800, color: tierColor }}>{(selected.nickname ?? '?').slice(0, 2).toUpperCase()}</div>}
+                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      <label style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '10px 14px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(255,255,255,0.05)', color: 'var(--on-surface)', fontSize: 13, fontWeight: 600, cursor: photoUploading ? 'default' : 'pointer', opacity: photoUploading ? 0.6 : 1 }}>
+                        <Icon name="upload_file" size={16} />
+                        {photoUploading ? 'Загрузка…' : (selected.photoUrl ? 'Заменить фото' : 'Загрузить фото')}
+                        <input type="file" accept="image/*" style={{ display: 'none' }} disabled={photoUploading}
+                          onChange={e => { const f = e.target.files?.[0]; if (f) uploadClientPhoto(f); e.target.value = '' }} />
+                      </label>
+                      {selected.photoUrl && (
+                        <button type="button" onClick={removeClientPhoto}
+                          style={{ alignSelf: 'flex-start', fontSize: 12, fontWeight: 600, color: 'var(--danger)', background: 'none', border: 'none', cursor: 'pointer', padding: '2px 0' }}>
+                          Удалить загруженное
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: '8px 0 0', lineHeight: 1.45 }}>
+                    Приоритет: загруженное сотрудником → Telegram → GoMafia.
+                    {!selected.photoUrl && (selected.tgPhotoUrl || selected.gomafiaPhotoUrl) ? ` Сейчас показывается фото из ${selected.tgPhotoUrl ? 'Telegram' : 'GoMafia'}.` : ''}
+                  </p>
                 </div>
 
                 <div><label style={LBL}>Никнейм</label><input value={editForm.nickname} onChange={e => setEditForm((p: any) => ({ ...p, nickname: e.target.value }))} style={INP} /></div>
@@ -686,9 +750,9 @@ export default function ClientsPage() {
             <div>
               {/* Шапка: фото / инициалы по центру */}
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, marginBottom: 18 }}>
-                {selected.photoUrl ? (
+                {avatarOf(selected) ? (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={selected.photoUrl} alt={selected.nickname} width={88} height={88} style={{ width: 88, height: 88, borderRadius: '50%', objectFit: 'cover', border: `2px solid ${tierColor}55` }} />
+                  <img src={avatarOf(selected)!} alt={selected.nickname} width={88} height={88} style={{ width: 88, height: 88, borderRadius: '50%', objectFit: 'cover', border: `2px solid ${tierColor}55` }} />
                 ) : (
                   <div style={{ width: 88, height: 88, borderRadius: '50%', background: `${tierColor}22`, border: `2px solid ${tierColor}55`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 30, fontWeight: 800, color: tierColor }}>
                     {(selected.nickname ?? '?').slice(0, 2).toUpperCase()}

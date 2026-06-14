@@ -42,7 +42,12 @@ export const profiles = pgTable('profiles', {
   tgUsername: text('tg_username'),
   phone: text('phone'),
   birthday: text('birthday'),
+  // Фото клиента по приоритету: photoUrl (загружено сотрудником, главный) →
+  // tgPhotoUrl (из Telegram) → gomafiaPhotoUrl (из GoMafia). Эффективное фото =
+  // первый непустой из этих трёх.
   photoUrl: text('photo_url'),
+  tgPhotoUrl: text('tg_photo_url'),
+  gomafiaPhotoUrl: text('gomafia_photo_url'),
   permissions: jsonb('permissions').$type<Record<string, boolean>>().default({}),
   linkedSpaceId: uuid('linked_space_id'),
   searchTags: text('search_tags').array().default([]),

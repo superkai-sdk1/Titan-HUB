@@ -402,7 +402,8 @@ posRouter.get('/players/search', requireRole('owner', 'staff'), async (c) => {
     clientTier: profiles.clientTier,
     balance: profiles.balance,
     bonusPoints: profiles.bonusPoints,
-    photoUrl: profiles.photoUrl,
+    // Эффективное фото: ручное → Telegram → GoMafia.
+    photoUrl: sql<string | null>`coalesce(${profiles.photoUrl}, ${profiles.tgPhotoUrl}, ${profiles.gomafiaPhotoUrl})`,
   }
   // Плательщиком может быть и сотрудник/владелец (у них тот же профиль с балансом/
   // тарифом и они есть в разделе «Клиенты»). Раньше фильтр role='client' исключал
@@ -447,7 +448,7 @@ posRouter.get('/players/:id', requireRole('owner', 'staff', 'tablet'), async (c)
     clientTier: profiles.clientTier,
     balance: profiles.balance,
     bonusPoints: profiles.bonusPoints,
-    photoUrl: profiles.photoUrl,
+    photoUrl: sql<string | null>`coalesce(${profiles.photoUrl}, ${profiles.tgPhotoUrl}, ${profiles.gomafiaPhotoUrl})`,
     linkedSpaceId: profiles.linkedSpaceId,
   }).from(profiles).where(eq(profiles.id, c.req.param('id')))
   if (!player) return c.json({ error: 'Not found' }, 404)
@@ -504,12 +505,17 @@ posRouter.get('/checks', requireRole('owner', 'staff', 'tablet'), async (c) => {
   // Ники привязанных игроков одной выборкой.
   const playerRows = playerIds.length
     ? await db
-        .select({ id: profiles.id, nickname: profiles.nickname })
+        .select({
+          id: profiles.id,
+          nickname: profiles.nickname,
+          photoUrl: sql<string | null>`coalesce(${profiles.photoUrl}, ${profiles.tgPhotoUrl}, ${profiles.gomafiaPhotoUrl})`,
+        })
         .from(profiles)
         .where(inArray(profiles.id, playerIds))
     : []
   const nicknameByPlayer = new Map<string, string | null>()
-  for (const p of playerRows) nicknameByPlayer.set(p.id, p.nickname ?? null)
+  const photoByPlayer = new Map<string, string | null>()
+  for (const p of playerRows) { nicknameByPlayer.set(p.id, p.nickname ?? null); photoByPlayer.set(p.id, p.photoUrl ?? null) }
 
   // Имя + ставка зон одной выборкой.
   const spaceRows = spaceIds.length
@@ -525,8 +531,10 @@ posRouter.get('/checks', requireRole('owner', 'staff', 'tablet'), async (c) => {
     const count = itemCountByCheck.get(ch.id) ?? 0
 
     let guestName: string | null = null
+    let guestPhotoUrl: string | null = null
     if (ch.playerId) {
       guestName = nicknameByPlayer.get(ch.playerId) ?? null
+      guestPhotoUrl = photoByPlayer.get(ch.playerId) ?? null
     } else if (ch.guestNames && ch.guestNames.length > 0) {
       guestName = ch.guestNames[0]
     }
@@ -540,7 +548,7 @@ posRouter.get('/checks', requireRole('owner', 'staff', 'tablet'), async (c) => {
       spaceHourlyRate = sp?.hourlyRate ?? null
     }
 
-    return { ...ch, itemCount: count, guestName, spaceName, spaceHourlyRate, hasRental: !!ch.spaceId }
+    return { ...ch, itemCount: count, guestName, guestPhotoUrl, spaceName, spaceHourlyRate, hasRental: !!ch.spaceId }
   })
   return c.json({ checks: enriched })
 })
