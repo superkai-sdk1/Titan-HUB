@@ -1102,7 +1102,9 @@ function SegmentMembersSheet({ seg, onClose, onPlayer }: { seg: { key: string; l
             const tier = p.clientTier ?? 'null'
             return (
               <button key={p.playerId ?? i} onClick={() => onPlayer(p)} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px', borderRadius: 10, background: 'rgba(255,255,255,0.03)', border: 'none', cursor: 'pointer', color: 'var(--on-surface)', textAlign: 'left' }}>
-                <div style={{ width: 30, height: 30, borderRadius: '50%', background: 'rgba(139,92,246,0.18)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, color: '#A78BFA', flexShrink: 0 }}>{(p.nickname ?? '??').slice(0, 2).toUpperCase()}</div>
+                {p.photoUrl
+                  ? /* eslint-disable-next-line @next/next/no-img-element */ <img src={p.photoUrl} alt="" width={30} height={30} style={{ width: 30, height: 30, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
+                  : <div style={{ width: 30, height: 30, borderRadius: '50%', background: 'rgba(139,92,246,0.18)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, color: '#A78BFA', flexShrink: 0 }}>{(p.nickname ?? '??').slice(0, 2).toUpperCase()}</div>}
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <p style={{ fontSize: 13, fontWeight: 600, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.nickname ?? 'Игрок'}</p>
                   <p style={{ fontSize: 11, color: TIER_COLORS[tier] ?? 'var(--on-surface-variant)', margin: 0 }}>{TIER_LABELS[tier] ?? tier}{p.visits ? ` · ${p.visits} визитов` : ''}</p>
@@ -1196,9 +1198,11 @@ function PlayersTab({ clients }: { clients: any }) {
               const tier = sp.clientTier ?? 'null'
               return (
                 <button key={sp.playerId ?? i} onClick={() => setOpenPlayer(sp)} style={{ width: '100%', textAlign: 'left', display: 'flex', alignItems: 'center', gap: 12, padding: '8px 10px', borderRadius: 10, background: 'rgba(255,255,255,0.03)', border: 'none', cursor: 'pointer', color: 'var(--on-surface)' }}>
-                  <div style={{ width: 30, height: 30, borderRadius: '50%', background: `rgba(139,92,246,${0.25 - i * 0.02})`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, color: '#A78BFA', flexShrink: 0 }}>
-                    {(sp.nickname ?? '??').slice(0, 2).toUpperCase()}
-                  </div>
+                  {sp.photoUrl
+                    ? /* eslint-disable-next-line @next/next/no-img-element */ <img src={sp.photoUrl} alt="" width={30} height={30} style={{ width: 30, height: 30, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
+                    : <div style={{ width: 30, height: 30, borderRadius: '50%', background: `rgba(139,92,246,${0.25 - i * 0.02})`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, color: '#A78BFA', flexShrink: 0 }}>
+                        {(sp.nickname ?? '??').slice(0, 2).toUpperCase()}
+                      </div>}
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <p style={{ fontSize: 13, fontWeight: 600, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sp.nickname ?? 'Гость'}</p>
                     <p style={{ fontSize: 11, color: TIER_COLORS[tier] ?? 'var(--on-surface-variant)', margin: 0 }}>{TIER_LABELS[tier] ?? tier} · {sp.visits ?? 0} визитов</p>

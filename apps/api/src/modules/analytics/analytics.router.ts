@@ -830,13 +830,14 @@ analyticsRouter.get('/clients', zValidator('query', dateRangeQuerySchema), async
       playerId: checks.playerId,
       nickname: profiles.nickname,
       clientTier: profiles.clientTier,
+      photoUrl: sql<string | null>`coalesce(${profiles.photoUrl}, ${profiles.tgPhotoUrl}, ${profiles.gomafiaPhotoUrl})`,
       total: sum(checks.totalAmount),
       visits: count(),
     })
     .from(checks)
     .leftJoin(profiles, eq(profiles.id, checks.playerId))
     .where(and(eq(checks.status, 'closed'), gte(checks.createdAt, pStart), lt(checks.createdAt, pEnd), isNotNull(checks.playerId)))
-    .groupBy(checks.playerId, profiles.nickname, profiles.clientTier)
+    .groupBy(checks.playerId, profiles.nickname, profiles.clientTier, profiles.photoUrl, profiles.tgPhotoUrl, profiles.gomafiaPhotoUrl)
     .orderBy(desc(sum(checks.totalAmount)))
     .limit(10)
 
@@ -873,10 +874,10 @@ analyticsRouter.get('/segment-members', zValidator('query', z.object({ segment: 
     const visited = await db.selectDistinct({ playerId: checks.playerId }).from(checks)
       .where(and(eq(checks.status, 'closed'), gte(checks.createdAt, d90), isNotNull(checks.playerId)))
     const visitedSet = new Set(visited.map((r: any) => r.playerId).filter(Boolean))
-    const rows = await db.select({ id: profiles.id, nickname: profiles.nickname, clientTier: profiles.clientTier })
+    const rows = await db.select({ id: profiles.id, nickname: profiles.nickname, clientTier: profiles.clientTier, photoUrl: sql<string | null>`coalesce(${profiles.photoUrl}, ${profiles.tgPhotoUrl}, ${profiles.gomafiaPhotoUrl})` })
       .from(profiles).where(and(eq(profiles.role, 'client'), isNull(profiles.deletedAt), gte(profiles.createdAt, d30)))
       .orderBy(desc(profiles.createdAt))
-    const players = rows.filter((r: any) => !visitedSet.has(r.id)).map((r: any) => ({ playerId: r.id, nickname: r.nickname, clientTier: r.clientTier, total: 0, visits: 0 }))
+    const players = rows.filter((r: any) => !visitedSet.has(r.id)).map((r: any) => ({ playerId: r.id, nickname: r.nickname, clientTier: r.clientTier, photoUrl: r.photoUrl, total: 0, visits: 0 }))
     return c.json({ players })
   }
 
@@ -885,16 +886,17 @@ analyticsRouter.get('/segment-members', zValidator('query', z.object({ segment: 
     playerId: checks.playerId,
     nickname: profiles.nickname,
     clientTier: profiles.clientTier,
+    photoUrl: sql<string | null>`coalesce(${profiles.photoUrl}, ${profiles.tgPhotoUrl}, ${profiles.gomafiaPhotoUrl})`,
     lastVisit: sql<string>`max(${checks.createdAt})::text`,
     total: sum(checks.totalAmount),
     visits: count(),
   }).from(checks).leftJoin(profiles, eq(profiles.id, checks.playerId))
     .where(and(eq(checks.status, 'closed'), gte(checks.createdAt, d90), isNotNull(checks.playerId)))
-    .groupBy(checks.playerId, profiles.nickname, profiles.clientTier)
+    .groupBy(checks.playerId, profiles.nickname, profiles.clientTier, profiles.photoUrl, profiles.tgPhotoUrl, profiles.gomafiaPhotoUrl)
   const cutoff = d14.getTime()
   const players = visits
     .filter((v: any) => (segment === 'active' ? new Date(v.lastVisit).getTime() > cutoff : new Date(v.lastVisit).getTime() <= cutoff))
-    .map((v: any) => ({ playerId: v.playerId, nickname: v.nickname, clientTier: v.clientTier, total: parseNum(v.total), visits: v.visits, lastVisit: v.lastVisit }))
+    .map((v: any) => ({ playerId: v.playerId, nickname: v.nickname, clientTier: v.clientTier, photoUrl: v.photoUrl, total: parseNum(v.total), visits: v.visits, lastVisit: v.lastVisit }))
     .sort((a: any, b: any) => b.total - a.total)
   return c.json({ players })
 })
