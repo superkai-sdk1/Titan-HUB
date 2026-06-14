@@ -1,6 +1,6 @@
 'use client'
-import React, { useState, useEffect, useRef } from 'react'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import React, { useState, useEffect, useRef, useMemo } from 'react'
+import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { useAuthStore } from '@/store/auth.store'
 import { formatDistanceToNow } from 'date-fns'
@@ -92,10 +92,11 @@ export default function ClientsPage() {
   const { show } = useToast()
   const [confirmBlock, setConfirmBlock] = useState(false)
   const [confirmPurge, setConfirmPurge] = useState(false)
-  // Разделы: Все / Резиденты / Гости / Студенты / Архив (заблокированные).
+  // Разделы: Все / Резиденты / Студенты / Новички / Гости / Архив (заблокированные).
   const [seg, setSeg] = useState<'all' | 'newbie' | 'resident' | 'guest' | 'student' | 'archive'>('all')
-  // Сортировка списка: по дате добавления (recent) или по нику А→Я (name).
-  const [sort, setSort] = useState<'recent' | 'name'>('recent')
+  // Сортировка списка. По умолчанию — по последним пробитым чекам.
+  type SortKey = 'last_check' | 'recent' | 'name' | 'balance' | 'bonus'
+  const [sort, setSort] = useState<SortKey>('last_check')
   const [search, setSearch] = useState('')
   const [dbSearch, setDbSearch] = useState('')
   const [showCreate, setShowCreate] = useState(false)
@@ -130,8 +131,8 @@ export default function ClientsPage() {
   const [adjAmount, setAdjAmount] = useState('')
   const [adjComment, setAdjComment] = useState('')
   const [checkModalId, setCheckModalId] = useState<string | null>(null)
-  const [page, setPage] = useState(1)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const sentinelRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
     if (timer.current) clearTimeout(timer.current)
@@ -139,37 +140,43 @@ export default function ClientsPage() {
     return () => { if (timer.current) clearTimeout(timer.current) }
   }, [search])
 
-  // Новый поиск, смена раздела или сортировки — сбрасываем пагинацию на первую страницу.
-  useEffect(() => { setPage(1) }, [dbSearch, seg, sort])
-
-  // Аккумулируем страницы: query key включает page, а накопленный список
-  // собираем через placeholderData (предыдущие страницы остаются в кэше по
-  // своим ключам). Грузим страницы 1..page и склеиваем.
-  // Доп. параметры запроса: раздел (архив/статус) и сортировка.
+  // Бесконечная подгрузка по скроллу (useInfiniteQuery). Доп. параметры запроса:
+  // раздел (архив/статус) и сортировка.
   const segParam = seg === 'archive' ? '&filter=archived' : seg !== 'all' ? `&tier=${seg}` : ''
-  const sortParam = sort === 'name' ? '&sort=name' : ''
-  const pageQueries = useQuery({
-    queryKey: ['clients', dbSearch, seg, sort, page],
-    queryFn: async () => {
-      const reqs = []
-      for (let p = 1; p <= page; p++) {
-        reqs.push(api.get<any>(`/clients?search=${encodeURIComponent(dbSearch)}&page=${p}${segParam}${sortParam}`))
-      }
-      const pages = await Promise.all(reqs)
-      const merged: any[] = []
-      const seen = new Set<string>()
-      for (const pg of pages) {
-        for (const cl of (pg?.clients ?? [])) {
-          if (!seen.has(cl.id)) { seen.add(cl.id); merged.push(cl) }
-        }
-      }
-      const last = pages[pages.length - 1]
-      return { clients: merged, total: last?.total ?? merged.length, limit: last?.limit ?? 30 }
+  const sortParam = `&sort=${sort}`
+  const {
+    data: infData, isLoading, fetchNextPage, hasNextPage, isFetchingNextPage,
+  } = useInfiniteQuery({
+    queryKey: ['clients', dbSearch, seg, sort],
+    initialPageParam: 1,
+    queryFn: ({ pageParam }) =>
+      api.get<any>(`/clients?search=${encodeURIComponent(dbSearch)}&page=${pageParam}${segParam}${sortParam}`),
+    getNextPageParam: (lastPage: any, allPages: any[]) => {
+      const loaded = allPages.reduce((n, p) => n + (p?.clients?.length ?? 0), 0)
+      return loaded < (lastPage?.total ?? 0) ? allPages.length + 1 : undefined
     },
     staleTime: 10000,
-    placeholderData: (prev) => prev,
   })
-  const { data, isLoading } = pageQueries
+  // Склейка страниц в один список (дедуп по id — на случай сдвигов пагинации).
+  const data = useMemo(() => {
+    const seen = new Set<string>()
+    const merged: any[] = []
+    for (const pg of (infData?.pages ?? [])) {
+      for (const cl of (pg?.clients ?? [])) if (!seen.has(cl.id)) { seen.add(cl.id); merged.push(cl) }
+    }
+    return { clients: merged, total: infData?.pages?.[0]?.total ?? merged.length }
+  }, [infData])
+
+  // Автоподгрузка: следим за «маяком» в конце списка.
+  useEffect(() => {
+    const el = sentinelRef.current
+    if (!el) return
+    const io = new IntersectionObserver((entries) => {
+      if (entries[0]?.isIntersecting && hasNextPage && !isFetchingNextPage) fetchNextPage()
+    }, { rootMargin: '400px' })
+    io.observe(el)
+    return () => io.disconnect()
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage])
   const { data: txData } = useQuery({ queryKey: ['clients', selected?.id, 'tx'], queryFn: () => api.get<any>(`/clients/${selected.id}/transactions`), enabled: !!selected?.id && tab === 'tx' })
   const { data: vpData } = useQuery({ queryKey: ['clients', selected?.id, 'visit'], queryFn: () => api.get<{ tier: string; visits: number; threshold: number; remaining: number; isResident: boolean }>(`/clients/${selected.id}/visit-progress`), enabled: !!selected?.id && tab === 'tx' })
   const { data: checkDetail } = useQuery({ queryKey: ['check-detail', checkModalId], queryFn: () => api.get<any>(`/analytics/checks/${checkModalId}`), enabled: !!checkModalId })
@@ -379,12 +386,6 @@ export default function ClientsPage() {
 
   const clients: any[] = data?.clients ?? []
   const total: number = data?.total ?? clients.length
-  // Есть ли ещё страницы: загружено меньше, чем всего в выборке.
-  const hasMore = clients.length < total
-  const isFetchingMore = pageQueries.isFetching && page > 1
-
-  // Tier distribution
-  const tierCounts = Object.fromEntries(tierList.map(t => [t.key, clients.filter(c => (c.clientTier ?? 'guest') === t.key).length]))
 
   function openDetail(c: any) {
     setSelected(c)
@@ -445,9 +446,9 @@ export default function ClientsPage() {
             <Icon name="search" size={18} color="var(--on-surface-variant)" style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }} />
             <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Поиск по нику или телефону…" style={{ ...INP, paddingLeft: 42, borderRadius: 12 }} />
           </div>
-          {/* Разделы */}
-          <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 2, marginBottom: 10 }}>
-            {([['all', 'Все', 'group'], ['newbie', 'Новички', 'fiber_new'], ['resident', 'Резиденты', 'workspace_premium'], ['guest', 'Гости', 'person'], ['student', 'Студенты', 'school'], ['archive', 'Архив', 'archive']] as [typeof seg, string, string][]).map(([key, label, icon]) => {
+          {/* Разделы (по иерархии): Все · Резиденты · Студенты · Новички · Гости · Архив */}
+          <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 2, marginBottom: 8 }}>
+            {([['all', 'Все', 'group'], ['resident', 'Резиденты', 'workspace_premium'], ['student', 'Студенты', 'school'], ['newbie', 'Новички', 'fiber_new'], ['guest', 'Гости', 'person'], ['archive', 'Архив', 'archive']] as [typeof seg, string, string][]).map(([key, label, icon]) => {
               const isArch = key === 'archive'
               return (
                 <Chip key={key} active={seg === key} onClick={() => setSeg(key)} icon={icon} activeColor={isArch ? '#64748B' : undefined}>
@@ -456,16 +457,15 @@ export default function ClientsPage() {
               )
             })}
           </div>
+          {/* Сортировка */}
           <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 2, alignItems: 'center' }}>
-            <button onClick={() => setSort(s => s === 'name' ? 'recent' : 'name')} style={{ flexShrink: 0, fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 8, border: '1px solid rgba(255,255,255,0.1)', background: sort === 'name' ? 'rgba(139,92,246,0.15)' : 'rgba(255,255,255,0.05)', color: sort === 'name' ? '#a78bfa' : 'var(--on-surface-variant)', whiteSpace: 'nowrap', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-              <Icon name={sort === 'name' ? 'sort_by_alpha' : 'schedule'} size={13} /> {sort === 'name' ? 'А–Я' : 'Новые'}
-            </button>
-            {seg === 'all' && tierList.filter(t => (tierCounts[t.key] ?? 0) > 0).map(t => (
-              <span key={t.key} style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 8, background: `${t.color}22`, color: t.color, whiteSpace: 'nowrap', fontFamily: "'JetBrains Mono',monospace" }}>
-                {t.label} {tierCounts[t.key]}
-              </span>
+            {([['last_check', 'Активные'], ['recent', 'Новые'], ['name', 'А–Я'], ['balance', 'Баланс'], ['bonus', 'Бонусы']] as [SortKey, string][]).map(([key, label]) => (
+              <button key={key} onClick={() => setSort(key)}
+                style={{ flexShrink: 0, fontSize: 12, fontWeight: 700, padding: '5px 11px', borderRadius: 999, border: '1px solid ' + (sort === key ? 'rgba(139,92,246,0.5)' : 'rgba(255,255,255,0.1)'), background: sort === key ? 'rgba(139,92,246,0.18)' : 'rgba(255,255,255,0.04)', color: sort === key ? '#a78bfa' : 'var(--on-surface-variant)', whiteSpace: 'nowrap', cursor: 'pointer' }}>
+                {label}
+              </button>
             ))}
-            <button onClick={() => setShowTiers(true)} style={{ flexShrink: 0, marginLeft: 'auto', fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 8, border: '1px solid rgba(139,92,246,0.3)', background: 'rgba(139,92,246,0.1)', color: '#a78bfa', whiteSpace: 'nowrap', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            <button onClick={() => setShowTiers(true)} style={{ flexShrink: 0, marginLeft: 'auto', fontSize: 12, fontWeight: 700, padding: '5px 11px', borderRadius: 999, border: '1px solid rgba(139,92,246,0.3)', background: 'rgba(139,92,246,0.1)', color: '#a78bfa', whiteSpace: 'nowrap', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
               <Icon name="sell" size={13} /> Статусы
             </button>
           </div>
@@ -508,19 +508,18 @@ export default function ClientsPage() {
                 </div>
               )
             })}
-            {hasMore && (
-              <button
-                onClick={() => setPage(p => p + 1)}
-                disabled={isFetchingMore}
-                style={{
-                  width: '100%', padding: '13px 0', marginTop: 4, borderRadius: 14,
-                  border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.04)',
-                  color: 'var(--on-surface)', fontSize: 13, fontWeight: 600,
-                  cursor: isFetchingMore ? 'default' : 'pointer', opacity: isFetchingMore ? 0.6 : 1,
-                }}
-              >
-                {isFetchingMore ? 'Загрузка…' : `Показать ещё (${clients.length} из ${total})`}
-              </button>
+            {/* Маяк бесконечной подгрузки + индикатор */}
+            <div ref={sentinelRef} style={{ height: 1 }} />
+            {isFetchingNextPage && (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '14px 0', color: 'var(--on-surface-variant)' }}>
+                <Icon name="progress_activity" size={22} style={{ animation: 'spin 1s linear infinite' }} />
+                <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+              </div>
+            )}
+            {!hasNextPage && clients.length > 0 && (
+              <p style={{ textAlign: 'center', fontSize: 11, color: 'var(--on-surface-variant)', padding: '12px 0 0', margin: 0 }}>
+                Все клиенты загружены · {total}
+              </p>
             )}
           </div>
         )}
@@ -919,7 +918,7 @@ export default function ClientsPage() {
                 <span style={{ width: 16, height: 16, borderRadius: '50%', background: t.color, flexShrink: 0, border: '1px solid rgba(255,255,255,0.2)' }} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <p style={{ fontSize: 14, fontWeight: 700, margin: 0, color: 'var(--on-surface)' }}>{t.label}</p>
-                  <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: '1px 0 0', fontFamily: "'JetBrains Mono',monospace" }}>{t.key} · {tierCounts[t.key] ?? 0} клиент(ов)</p>
+                  <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: '1px 0 0', fontFamily: "'JetBrains Mono',monospace" }}>{t.key}</p>
                 </div>
                 {t.isSystem ? (
                   <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--on-surface-variant)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>систем.</span>

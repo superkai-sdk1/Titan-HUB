@@ -131,14 +131,22 @@ clientsRouter.get('/', async (c) => {
       : undefined,
   )
 
-  // Сортировка: по алфавиту (ник, регистронезависимо) либо по дате добавления.
+  // Сортировка. По умолчанию (и 'last_check') — по дате последнего пробитого
+  // (закрытого) чека, активные сверху; затем имя/новизна/баланс/бонусы.
+  // last_check считаем коррелированным подзапросом (без join, чтобы не плодить строки).
   const sort = c.req.query('sort')
-  const orderExpr = sort === 'name' ? asc(sql`lower(${profiles.nickname})`) : desc(profiles.createdAt)
+  const lastCheckExpr = sql`(select max(c.created_at) from checks c where c.player_id = ${profiles.id} and c.status = 'closed')`
+  const orderExpr =
+    sort === 'name' ? asc(sql`lower(${profiles.nickname})`)
+    : sort === 'recent' ? desc(profiles.createdAt)
+    : sort === 'balance' ? desc(sql`${profiles.balance}::numeric`)
+    : sort === 'bonus' ? desc(sql`${profiles.bonusPoints}::numeric`)
+    : sql`${lastCheckExpr} desc nulls last` // default = last_check
   const clients = await db
     .select()
     .from(profiles)
     .where(where)
-    .orderBy(orderExpr)
+    .orderBy(orderExpr, desc(profiles.createdAt))
     .limit(limit)
     .offset(offset)
 
