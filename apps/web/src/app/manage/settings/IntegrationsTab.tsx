@@ -41,9 +41,22 @@ export function IntegrationsTab() {
   const [platSecret, setPlatSecret] = useState('')
   const [platDeleting, setPlatDeleting] = useState(false)
 
+  // GoMafia — логин владельца + (опц.) ссылка на клуб.
+  const [gmOpen, setGmOpen] = useState(false)
+  const [gmLogin, setGmLogin] = useState('')
+  const [gmPassword, setGmPassword] = useState('')
+  const [gmClubUrl, setGmClubUrl] = useState('')
+  const [gmNeedClub, setGmNeedClub] = useState(false)
+  const [gmDeleting, setGmDeleting] = useState(false)
+
   const { data, isLoading, error } = useQuery<{ items: IntegrationItem[] }>({
     queryKey: ['integrations'],
     queryFn: () => api.get('/system/integrations'),
+  })
+
+  const { data: gm } = useQuery<{ connected: boolean; source: string | null; clubId: string | null; clubTitle: string | null; loginMasked: string | null }>({
+    queryKey: ['gomafia-status'],
+    queryFn: () => api.get('/gomafia/status'),
   })
 
   const saveMut = useMutation({
@@ -105,6 +118,36 @@ export function IntegrationsTab() {
   }
   function openPlat() { setPlatOpen(true); setPlatMerchant(''); setPlatSecret('') }
   function closePlat() { setPlatOpen(false); setPlatMerchant(''); setPlatSecret('') }
+
+  // GoMafia: вход (логин/пароль + опц. ссылка на клуб); при неопределённом клубе
+  // оставляем модалку открытой и просим ссылку.
+  const gmConnectMut = useMutation({
+    mutationFn: (b: { login: string; password: string; clubUrl?: string }) => api.post<{ clubId: string | null; needClubUrl?: boolean }>('/gomafia/connect', b),
+    onSuccess: (res) => {
+      qc.invalidateQueries({ queryKey: ['gomafia-status'] })
+      if (res?.clubId) { show('GoMafia подключена', 'success'); closeGm() }
+      else { setGmNeedClub(true); show('Вход выполнен. Укажите ссылку на ваш клуб.', 'info') }
+    },
+    onError: (e: any) => show(e?.message || 'Не удалось подключить GoMafia', 'error'),
+  })
+  // Только задать/сменить клуб (без повторного ввода пароля).
+  const gmClubMut = useMutation({
+    mutationFn: (clubUrl: string) => api.post('/gomafia/club', { clubUrl }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['gomafia-status'] }); show('Клуб GoMafia сохранён', 'success'); closeGm() },
+    onError: (e: any) => show(e?.message || 'Не удалось задать клуб', 'error'),
+  })
+  const gmDisconnectMut = useMutation({
+    mutationFn: () => api.delete('/gomafia/disconnect'),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['gomafia-status'] }); show('GoMafia отключена', 'success'); setGmDeleting(false) },
+    onError: () => show('Не удалось отключить GoMafia', 'error'),
+  })
+  function openGm() { setGmOpen(true); setGmLogin(''); setGmPassword(''); setGmClubUrl(''); setGmNeedClub(false) }
+  function closeGm() { setGmOpen(false); setGmLogin(''); setGmPassword(''); setGmClubUrl(''); setGmNeedClub(false) }
+  function submitGm() {
+    const login = gmLogin.trim(), password = gmPassword.trim(), clubUrl = gmClubUrl.trim()
+    if (login && password) gmConnectMut.mutate({ login, password, clubUrl: clubUrl || undefined })
+    else if (clubUrl) gmClubMut.mutate(clubUrl)
+  }
 
   if (isLoading && !data) return <StateView state="loading" />
   if (error) return <StateView state="error" description="Не удалось загрузить интеграции" />
@@ -314,6 +357,119 @@ export function IntegrationsTab() {
         confirmLabel="Отключить"
         danger
         loading={platDeleteMut.isPending}
+      />
+
+      {/* GoMafia — подключение клуба (логин владельца) для подбора игроков */}
+      <div
+        className="glass-l2"
+        style={{ borderRadius: 16, padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div style={{
+            width: 36, height: 36, borderRadius: 11, flexShrink: 0,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            background: gm?.connected ? 'rgba(52,211,153,0.12)' : 'rgba(255,255,255,0.05)',
+            border: `1px solid ${gm?.connected ? 'rgba(52,211,153,0.28)' : 'rgba(255,255,255,0.1)'}`,
+          }}>
+            <Icon name={gm?.connected ? 'sports_esports' : 'sports_esports'} size={18} color={gm?.connected ? 'var(--success)' : 'var(--on-surface-variant)'} />
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <p style={{ fontSize: 14, fontWeight: 600, margin: 0, color: 'var(--on-surface)' }}>GoMafia.pro</p>
+            <p style={{
+              fontSize: 12, margin: '3px 0 0',
+              color: gm?.connected ? 'var(--success)' : 'var(--on-surface-variant)',
+              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+            }}>
+              {gm?.connected
+                ? `Подключено${gm.clubTitle ? ` • клуб «${gm.clubTitle}»` : gm.clubId ? ` • клуб #${gm.clubId}` : ' • клуб не указан'}${gm.source === 'project' ? ' • проектный аккаунт' : ''}`
+                : 'Не настроено'}
+            </p>
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', gap: 8 }}>
+          <Button variant="secondary" size="sm" icon={gm?.connected ? 'edit' : 'add'} onClick={openGm} fullWidth>
+            {gm?.connected ? (gm.clubId ? 'Изменить' : 'Указать клуб') : 'Подключить'}
+          </Button>
+          {gm?.connected && (
+            <Button variant="danger" size="sm" icon="delete" ariaLabel="Отключить GoMafia" onClick={() => setGmDeleting(true)}>
+              Удалить
+            </Button>
+          )}
+        </div>
+        <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: 0, lineHeight: 1.5 }}>
+          Вход владельца клуба на gomafia.pro — чтобы при создании клиента подбирать игроков из состава вашего клуба и со всего сайта (ник, имя, фото подставляются автоматически).
+        </p>
+      </div>
+
+      {/* Модалка GoMafia: логин + пароль + (опц.) ссылка на клуб */}
+      <Sheet open={gmOpen} onClose={closeGm} title={gm?.connected ? 'GoMafia' : 'Подключить GoMafia'} desktopSize="sm">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div style={{
+            display: 'flex', gap: 10, padding: 14, borderRadius: 12,
+            background: gmNeedClub ? 'rgba(251,191,36,0.12)' : 'rgba(255,255,255,0.03)',
+            border: `1px solid ${gmNeedClub ? 'rgba(251,191,36,0.3)' : 'rgba(255,255,255,0.08)'}`,
+          }}>
+            <Icon name={gmNeedClub ? 'warning' : 'info'} size={18} color={gmNeedClub ? 'var(--warning)' : 'var(--on-surface-variant)'} style={{ flexShrink: 0, marginTop: 1 }} />
+            <p style={{ fontSize: 13, margin: 0, color: 'var(--on-surface)', lineHeight: 1.5 }}>
+              {gmNeedClub
+                ? 'Вход выполнен, но клуб определить не удалось. Вставьте ссылку на ваш клуб (например, gomafia.pro/club/49).'
+                : <>Логин и пароль владельца на gomafia.pro. Хранятся в зашифрованном виде, используются только для определения вашего клуба. {gm?.connected && <>Чтобы только сменить клуб — заполните лишь ссылку на клуб.</>}</>}
+            </p>
+          </div>
+
+          {!gmNeedClub && (
+            <>
+              <div>
+                <label style={LBL}>Логин на GoMafia</label>
+                <input type="text" autoComplete="off" autoFocus style={INP} value={gmLogin}
+                  onChange={e => setGmLogin(e.target.value)}
+                  placeholder={gm?.loginMasked ? `Сейчас: ${gm.loginMasked}` : 'Ник или e-mail'} />
+              </div>
+              <div>
+                <label style={LBL}>Пароль</label>
+                <input type="password" autoComplete="new-password" style={INP} value={gmPassword}
+                  onChange={e => setGmPassword(e.target.value)}
+                  placeholder={gm?.connected ? 'Введите, чтобы переподключить' : 'Пароль на GoMafia'} />
+              </div>
+            </>
+          )}
+
+          <div>
+            <label style={LBL}>Ссылка на клуб {gmNeedClub ? '' : '(необязательно)'}</label>
+            <input type="text" autoComplete="off" autoFocus={gmNeedClub} style={INP} value={gmClubUrl}
+              onChange={e => setGmClubUrl(e.target.value)}
+              placeholder="gomafia.pro/club/49" />
+          </div>
+
+          <div style={{ display: 'flex', gap: 10 }}>
+            <Button variant="secondary" fullWidth onClick={closeGm} disabled={gmConnectMut.isPending || gmClubMut.isPending}>
+              Отмена
+            </Button>
+            <Button
+              variant="primary"
+              fullWidth
+              icon="check_circle"
+              loading={gmConnectMut.isPending || gmClubMut.isPending}
+              disabled={!(gmLogin.trim() && gmPassword.trim()) && !gmClubUrl.trim()}
+              onClick={submitGm}
+            >
+              {(gmLogin.trim() && gmPassword.trim()) ? 'Подключить' : 'Сохранить клуб'}
+            </Button>
+          </div>
+        </div>
+      </Sheet>
+
+      {/* Подтверждение отключения GoMafia */}
+      <ConfirmDialog
+        open={gmDeleting}
+        onClose={() => setGmDeleting(false)}
+        onConfirm={() => gmDisconnectMut.mutate()}
+        title="Отключить GoMafia?"
+        message="Логин, пароль и привязка клуба будут удалены. Подбор игроков из вашего клуба перестанет работать (поиск по всем игрокам останется доступен)."
+        confirmLabel="Отключить"
+        danger
+        loading={gmDisconnectMut.isPending}
       />
 
       {/* Модалка замены/настройки — с предупреждением и отдельным полем ввода */}

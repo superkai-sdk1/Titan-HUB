@@ -28,6 +28,7 @@ const CreateClientSchema = z.object({
   password: z.string().optional(),
   tgId: z.string().optional(),
   tgUsername: z.string().optional(),
+  photoUrl: z.string().max(500).optional(),
   searchTags: z.array(z.string()).default([]),
 })
 
@@ -218,6 +219,7 @@ clientsRouter.post('/', requireRole('owner', 'staff'), zValidator('json', Create
     clientTier: body.clientTier,
     tgId: body.tgId,
     tgUsername: body.tgUsername,
+    photoUrl: body.photoUrl ?? null,
     searchTags: body.searchTags,
     passwordHash,
   }).returning()

@@ -94,7 +94,12 @@ export default function ClientsPage() {
   const [selected, setSelected] = useState<any>(null)
   const [mode, setMode] = useState<'view' | 'edit'>('view')
   const [tab, setTab] = useState<'info' | 'tx'>('info')
-  const [form, setForm] = useState({ nickname: '', fullName: '', phone: '', birthday: '', clientTier: 'newbie', password: '' })
+  const [form, setForm] = useState({ nickname: '', fullName: '', phone: '', birthday: '', clientTier: 'newbie', password: '', photoUrl: '', gomafiaId: '' })
+  // Подбор игрока с GoMafia (для нового клиента).
+  const [gmQuery, setGmQuery] = useState('')
+  const [gmResults, setGmResults] = useState<any[]>([])
+  const [gmLoading, setGmLoading] = useState(false)
+  const [gmOpen, setGmOpen] = useState(false)
   const [editForm, setEditForm] = useState<any>(null)
   const [showTiers, setShowTiers] = useState(false)
   const [newTier, setNewTier] = useState({ label: '', color: '#8B5CF6' })
@@ -164,7 +169,41 @@ export default function ClientsPage() {
   const createTier = useMutation({ mutationFn: (b: { label: string; color: string }) => api.post('/clients/tiers', b), onSuccess: () => { qc.invalidateQueries({ queryKey: ['client-tiers'] }); setNewTier({ label: '', color: '#8B5CF6' }) }, onError: () => show('Не удалось создать статус', 'error') })
   const deleteTier = useMutation({ mutationFn: (key: string) => api.delete(`/clients/tiers/${key}`), onSuccess: (res: any) => { qc.invalidateQueries({ queryKey: ['client-tiers'] }); qc.invalidateQueries({ queryKey: ['clients'] }); if (res?.reassigned > 0) show(`Статус удалён, ${res.reassigned} клиент(ов) переведены в «Гость»`, 'success') }, onError: () => show('Не удалось удалить статус', 'error') })
 
-  const create = useMutation({ mutationFn: (b: any) => api.post('/clients', b), onSuccess: () => { qc.invalidateQueries({ queryKey: ['clients'] }); setShowCreate(false); setForm({ nickname: '', fullName: '', phone: '', birthday: '', clientTier: 'newbie', password: '' }) }, onError: () => show('Не удалось создать клиента', 'error') })
+  const resetCreateForm = () => { setForm({ nickname: '', fullName: '', phone: '', birthday: '', clientTier: 'newbie', password: '', photoUrl: '', gomafiaId: '' }); setGmQuery(''); setGmResults([]); setGmOpen(false) }
+  const create = useMutation({ mutationFn: (b: any) => api.post('/clients', b), onSuccess: () => { qc.invalidateQueries({ queryKey: ['clients'] }); setShowCreate(false); resetCreateForm() }, onError: () => show('Не удалось создать клиента', 'error') })
+
+  // Подбор GoMafia: дебаунс-поиск по нику (состав клуба + все игроки сайта).
+  useEffect(() => {
+    const q = gmQuery.trim()
+    if (q.length < 2) { setGmResults([]); setGmLoading(false); return }
+    setGmLoading(true)
+    const t = setTimeout(async () => {
+      try {
+        const r = await api.get<{ players: any[] }>(`/gomafia/search?q=${encodeURIComponent(q)}`)
+        setGmResults(Array.isArray(r.players) ? r.players : [])
+      } catch { setGmResults([]) }
+      finally { setGmLoading(false) }
+    }, 350)
+    return () => clearTimeout(t)
+  }, [gmQuery])
+
+  // Выбор игрока: тянем полную карточку (имя/фамилия) и заполняем форму.
+  async function pickGomafia(p: any) {
+    setGmOpen(false)
+    setGmQuery('')
+    setGmResults([])
+    setForm(prev => ({
+      ...prev,
+      nickname: p.login || prev.nickname,
+      photoUrl: p.avatar || '',
+      gomafiaId: String(p.gomafiaId),
+    }))
+    try {
+      const r = await api.get<{ player: any }>(`/gomafia/player/${p.gomafiaId}`)
+      const full = r.player?.fullName
+      if (full) setForm(prev => ({ ...prev, fullName: full }))
+    } catch { /* имя необязательно */ }
+  }
   const update = useMutation({
     mutationFn: ({ id, ...b }: any) => api.patch(`/clients/${id}`, b),
     onSuccess: (res: any, vars: any) => {
@@ -401,11 +440,72 @@ export default function ClientsPage() {
       {/* Create sheet */}
       <Sheet open={showCreate} onClose={() => setShowCreate(false)} title="Новый клиент">
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+
+          {/* Подбор игрока с GoMafia */}
+          <div style={{ border: '1px solid rgba(139,92,246,0.25)', background: 'rgba(139,92,246,0.06)', borderRadius: 12, padding: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+              <Icon name="search" size={16} color="#a78bfa" />
+              <span style={{ fontSize: 12, fontWeight: 700, color: '#a78bfa' }}>Подбор с GoMafia</span>
+            </div>
+
+            {form.gomafiaId ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                {form.photoUrl
+                  ? <img src={form.photoUrl} alt="" width={40} height={40} style={{ width: 40, height: 40, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
+                  : <div style={{ width: 40, height: 40, borderRadius: '50%', background: 'rgba(139,92,246,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Icon name="person" size={20} color="#a78bfa" /></div>}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: 'var(--on-surface)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{form.nickname}</p>
+                  <p style={{ margin: '2px 0 0', fontSize: 11, color: 'var(--on-surface-variant)' }}>GoMafia #{form.gomafiaId}{form.fullName ? ` · ${form.fullName}` : ''}</p>
+                </div>
+                <IconButton icon="close" variant="ghost" ariaLabel="Отвязать от GoMafia" onClick={() => setForm(p => ({ ...p, photoUrl: '', gomafiaId: '' }))} />
+              </div>
+            ) : (
+              <>
+                <input value={gmQuery} onChange={e => { setGmQuery(e.target.value); setGmOpen(true) }} placeholder="Ник игрока на GoMafia…" style={{ ...INP, borderRadius: 10 }} />
+                {gmOpen && gmQuery.trim().length >= 2 && (
+                  <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 260, overflowY: 'auto' }}>
+                    {gmLoading && <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: '4px 2px' }}>Поиск…</p>}
+                    {!gmLoading && gmResults.length === 0 && <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: '4px 2px' }}>Игроки не найдены</p>}
+                    {gmResults.map(p => (
+                      <button key={p.gomafiaId} type="button" onClick={() => pickGomafia(p)}
+                        style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', borderRadius: 10, border: '1px solid rgba(255,255,255,0.08)', background: 'rgba(255,255,255,0.03)', cursor: 'pointer', textAlign: 'left', width: '100%' }}>
+                        {p.avatar
+                          ? <img src={p.avatar} alt="" width={34} height={34} style={{ width: 34, height: 34, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
+                          : <div style={{ width: 34, height: 34, borderRadius: '50%', background: 'rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Icon name="person" size={18} color="var(--on-surface-variant)" /></div>}
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--on-surface)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.login}</span>
+                            {p.inClub && <span style={{ fontSize: 9, fontWeight: 800, padding: '1px 6px', borderRadius: 5, background: 'rgba(139,92,246,0.2)', color: '#a78bfa', textTransform: 'uppercase', letterSpacing: '0.05em', flexShrink: 0 }}>клуб</span>}
+                          </div>
+                          <p style={{ margin: '1px 0 0', fontSize: 11, color: 'var(--on-surface-variant)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {p.clubTitle ? p.clubTitle : 'Без клуба'}{p.elo != null ? ` · ELO ${Math.round(p.elo)}` : ''}
+                          </p>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: '8px 2px 0', lineHeight: 1.4 }}>
+                  Найдите игрока — ник, имя и фото подставятся автоматически. Сначала показываются игроки вашего клуба.
+                </p>
+              </>
+            )}
+          </div>
+
           {([['Никнейм *', 'nickname', 'text'], ['Имя', 'fullName', 'text'], ['Телефон', 'phone', 'tel'], ['День рождения', 'birthday', 'date'], ['Пароль', 'password', 'password']] as [string, string, string][]).map(([lbl, key, type]) => (
             <div key={key}><label style={LBL}>{lbl}</label><input type={type} value={(form as any)[key]} onChange={e => setForm(p => ({ ...p, [key]: e.target.value }))} style={INP} placeholder={key === 'fullName' ? 'Реальное имя' : undefined} /></div>
           ))}
           <div><label style={LBL}>Статус</label><select value={form.clientTier} onChange={e => setForm(p => ({ ...p, clientTier: e.target.value }))} style={{ ...INP, background: 'rgba(29,26,36,0.8)', cursor: 'pointer' } as React.CSSProperties}>{tierList.map(t => <option key={t.key} value={t.key}>{t.label}</option>)}</select></div>
-          <button onClick={() => create.mutate(form)} disabled={create.isPending || !form.nickname.trim()} style={{ width: '100%', padding: '14px 0', borderRadius: 14, border: 'none', background: 'linear-gradient(135deg, #8B5CF6, #4cd7f6)', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer', opacity: create.isPending || !form.nickname.trim() ? 0.6 : 1, marginTop: 4 }}>
+          <button onClick={() => create.mutate({
+            nickname: form.nickname,
+            fullName: form.fullName || null,
+            phone: form.phone || undefined,
+            birthday: form.birthday || undefined,
+            clientTier: form.clientTier,
+            password: form.password || undefined,
+            photoUrl: form.photoUrl || undefined,
+            searchTags: form.gomafiaId ? [`gomafia:${form.gomafiaId}`] : [],
+          })} disabled={create.isPending || !form.nickname.trim()} style={{ width: '100%', padding: '14px 0', borderRadius: 14, border: 'none', background: 'linear-gradient(135deg, #8B5CF6, #4cd7f6)', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer', opacity: create.isPending || !form.nickname.trim() ? 0.6 : 1, marginTop: 4 }}>
             {create.isPending ? 'Создаём…' : 'Создать клиента'}
           </button>
         </div>
