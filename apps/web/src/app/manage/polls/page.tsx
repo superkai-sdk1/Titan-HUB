@@ -11,7 +11,7 @@ import { useRouter } from 'next/navigation'
 import { api, ApiError } from '@/lib/api'
 import { Icon } from '@/components/Icon'
 import {
-  PageHeader, SectionGroup, FormField, INP, LBL, Toggle, Button, IconButton,
+  PageHeader, SectionGroup, FormField, INP, SEL, LBL, Toggle, Button, IconButton,
   Chip, ConfirmDialog, SaveButton, Sheet,
 } from '@/components/manage/DesignSystem'
 import { useToast } from '@/components/Toast'
@@ -38,6 +38,15 @@ interface PollsResponse {
   configs: PollConfig[]
   tokenConfigured: boolean
   tokenMasked: string | null
+  commandsAdminOnly: boolean
+}
+
+// Группа/топик, «увиденные» ботом (для выбора вместо ручного ввода ID).
+interface ChatItem {
+  id: string
+  title: string | null
+  type: string | null
+  topics: { threadId: string; name: string | null }[]
 }
 
 // ─── Константы ──────────────────────────────────────────────────────────────
@@ -104,6 +113,14 @@ export default function PollsPage() {
   const [collectTokenConfigured, setCollectTokenConfigured] = useState(false)
   const [collectBusy, setCollectBusy] = useState(false)
 
+  // Команды-отметки: только админы (по умолчанию) или любой участник.
+  const [commandsAdminOnly, setCommandsAdminOnly] = useState(true)
+  const [commandsBusy, setCommandsBusy] = useState(false)
+
+  // Группы/топики, «увиденные» ботом — для выбора в модалке «Куда постить».
+  const [chats, setChats] = useState<ChatItem[]>([])
+  const [chatsBusy, setChatsBusy] = useState(false)
+
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
 
@@ -126,12 +143,15 @@ export default function PollsPage() {
       setConfigs(res.configs.length > 0 ? res.configs : buildDefaults())
       setTokenConfigured(res.tokenConfigured)
       setTokenMasked(res.tokenMasked)
+      setCommandsAdminOnly(res.commandsAdminOnly !== false)
       // Состояние сбора участников — отдельная подписка; ошибку не роняем на весь экран.
       try {
         const c = await api.get<{ enabled: boolean; tokenConfigured: boolean }>('/system/polls/collect')
         setCollectEnabled(c.enabled)
         setCollectTokenConfigured(c.tokenConfigured)
       } catch { /* статус сбора недоступен — оставляем дефолты */ }
+      // Список «увиденных» групп/топиков — для выбора в модалке (не критичен).
+      loadChats()
     } catch (e) {
       setLoadError(e instanceof ApiError ? e.message : 'Не удалось загрузить опросы')
     } finally {
@@ -244,6 +264,33 @@ export default function PollsPage() {
     }
   }
 
+  // ── Кто может слать команды-отметки (только админ / любой участник) ───────────
+  async function toggleCommandsAdminOnly(next: boolean) {
+    if (commandsBusy) return
+    setCommandsBusy(true)
+    const prev = commandsAdminOnly
+    setCommandsAdminOnly(next) // оптимистично
+    try {
+      await api.post('/system/polls/commands', { adminOnly: next })
+      show(next ? 'Команды — только для админов' : 'Команды доступны всем участникам', 'success')
+    } catch (e) {
+      setCommandsAdminOnly(prev)
+      show(e instanceof ApiError ? e.message : 'Не удалось сохранить настройку', 'error')
+    } finally {
+      setCommandsBusy(false)
+    }
+  }
+
+  // ── Подтянуть «увиденные» ботом группы/топики ────────────────────────────────
+  async function loadChats() {
+    setChatsBusy(true)
+    try {
+      const res = await api.get<{ chats: ChatItem[] }>('/system/polls/chats')
+      setChats(Array.isArray(res.chats) ? res.chats : [])
+    } catch { /* список недоступен — выбор скрыт, ручной ввод остаётся */ }
+    finally { setChatsBusy(false) }
+  }
+
   // ── Загрузка / ошибка ─────────────────────────────────────────────────────────
   if (loading) {
     return (
@@ -333,15 +380,28 @@ export default function PollsPage() {
               Бот собирает тех, кто голосует в опросах и пишет в чат (бот должен быть админом). Полный список участников Telegram не отдаёт — список пополняется по мере активности. Сопоставление — в карточке клиента, кнопка «Сопоставить из чата».
             </p>
             <div style={{ padding: '10px 12px', borderRadius: 12, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
-              <p style={{ fontSize: 12, fontWeight: 600, margin: '0 0 6px', color: 'var(--on-surface)' }}>Команды бота в чате (для админов):</p>
+              <p style={{ fontSize: 12, fontWeight: 600, margin: '0 0 6px', color: 'var(--on-surface)' }}>Команды бота в чате:</p>
               <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: 0, lineHeight: 1.6 }}>
                 <b style={{ color: 'var(--on-surface)' }}>@all</b> — отметить всех известных участников чата.<br />
                 <b style={{ color: 'var(--on-surface)' }}>@tvari</b> — не проголосовавшие <b>+ выбравшие «Думаю»</b> в последнем опросе.<br />
                 <b style={{ color: 'var(--on-surface)' }}>@supertvari</b> — выбравшие <b>«Нет»</b> в последнем опросе.
               </p>
               <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: '6px 0 0', lineHeight: 1.4 }}>
-                Работают, когда сбор включён и бот — админ чата. Считаются по последнему опросу В ЭТОЙ группе, в реальном времени. Не чаще раза в 10 минут на пользователя. Отмечаются только «увиденные» ботом участники.
+                Работают, когда сбор включён и бот — админ чата. Считаются по последнему опросу В ЭТОЙ группе, в реальном времени. Каждую команду один человек может отправлять не чаще раза в 10 минут. Отмечаются только «увиденные» ботом участники.
               </p>
+
+              {/* Кто может слать команды */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginTop: 12, paddingTop: 12, borderTop: '1px solid rgba(255,255,255,0.07)' }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <p style={{ fontSize: 13, fontWeight: 500, margin: 0, color: 'var(--on-surface)' }}>Только администраторы чата</p>
+                  <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: '2px 0 0', lineHeight: 1.4 }}>
+                    {commandsAdminOnly
+                      ? 'Команды доступны только админам группы.'
+                      : 'Команды может отправлять любой участник чата.'}
+                  </p>
+                </div>
+                <Toggle value={commandsAdminOnly} onChange={v => { if (!commandsBusy) toggleCommandsAdminOnly(v) }} ariaLabel="Команды только для админов" />
+              </div>
             </div>
           </div>
         </SectionGroup>
@@ -506,8 +566,13 @@ export default function PollsPage() {
       </div>
 
       {/* ─── Sheet: группа и топик опроса (анти-случайность) ──────────────── */}
-      <Sheet open={groupEditId !== null} onClose={() => setGroupEditId(null)} title="Группа и топик" desktopSize="sm">
-        {groupCfg && (
+      <Sheet open={groupEditId !== null} onClose={() => setGroupEditId(null)} title="Куда постить" desktopSize="sm">
+        {groupCfg && (() => {
+          // Группы из «увиденных» ботом (личку отфильтровал бэк). Текущая группа,
+          // если бот её видел, — для списка топиков.
+          const curChat = chats.find(ch => ch.id === groupCfg.chatId) ?? null
+          const knownSelected = curChat !== null
+          return (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             <div style={{
               display: 'flex', gap: 10, padding: 14, borderRadius: 12,
@@ -519,13 +584,74 @@ export default function PollsPage() {
               </p>
             </div>
 
-            <FormField label="ID группы" hint="Например, -1001281350483 (из ссылки на группу).">
+            {/* Выбор из «увиденных» ботом групп/топиков */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: 14, borderRadius: 12, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                <p style={{ ...LBL, margin: 0 }}>Выбрать из чатов бота</p>
+                <IconButton icon="refresh" variant="ghost" ariaLabel="Обновить список чатов"
+                  disabled={chatsBusy} onClick={loadChats} />
+              </div>
+
+              {chats.length === 0 ? (
+                <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: 0, lineHeight: 1.5 }}>
+                  Бот пока не видел групп. Включите «Сбор участников», добавьте бота админом в группу и напишите туда сообщение — затем нажмите обновить. Telegram не отдаёт список групп заранее.
+                </p>
+              ) : (
+                <>
+                  <FormField label="Группа">
+                    <select
+                      style={SEL}
+                      value={knownSelected ? groupCfg.chatId : ''}
+                      onChange={e => {
+                        const v = e.target.value
+                        if (v) patchConfig(groupCfg.id, { chatId: v, threadId: null })
+                      }}
+                    >
+                      <option value="">{knownSelected ? '— выбрать группу —' : '— не из списка (вручную ниже) —'}</option>
+                      {chats.map(ch => (
+                        <option key={ch.id} value={ch.id}>
+                          {(ch.title || 'Без названия')} · {ch.id}
+                        </option>
+                      ))}
+                    </select>
+                  </FormField>
+
+                  {curChat && curChat.topics.length > 0 && (
+                    <FormField label="Топик">
+                      <select
+                        style={SEL}
+                        value={groupCfg.threadId != null ? String(groupCfg.threadId) : ''}
+                        onChange={e => {
+                          const raw = e.target.value
+                          patchConfig(groupCfg.id, { threadId: raw === '' ? null : Number(raw) })
+                        }}
+                      >
+                        <option value="">Общий чат (без топика)</option>
+                        {curChat.topics.map(t => (
+                          <option key={t.threadId} value={t.threadId}>
+                            {t.name || `Топик ${t.threadId}`}
+                          </option>
+                        ))}
+                      </select>
+                    </FormField>
+                  )}
+                  {curChat && curChat.topics.length === 0 && (
+                    <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: 0, lineHeight: 1.4 }}>
+                      Топиков у этой группы бот не видел. Если группа — форум, напишите в нужном топике, чтобы бот его запомнил, либо укажите ID вручную ниже.
+                    </p>
+                  )}
+                </>
+              )}
+            </div>
+
+            {/* Ручной ввод (всегда доступен как запасной вариант) */}
+            <FormField label="ID группы — вручную" hint="Например, -1001281350483 (из ссылки на группу).">
               <input style={INP} value={groupCfg.chatId}
                 onChange={e => patchConfig(groupCfg.id, { chatId: e.target.value })}
                 placeholder="-100…" inputMode="numeric" />
             </FormField>
 
-            <FormField label="Топик (message_thread_id)" hint="Опционально. Пусто — отправка в общий чат группы.">
+            <FormField label="Топик (message_thread_id) — вручную" hint="Опционально. Пусто — отправка в общий чат группы.">
               <input style={INP} type="number" value={groupCfg.threadId ?? ''}
                 onChange={e => {
                   const raw = e.target.value.trim()
@@ -538,7 +664,8 @@ export default function PollsPage() {
               Готово
             </Button>
           </div>
-        )}
+          )
+        })()}
       </Sheet>
 
       {/* ─── Подтверждение удаления опроса ─────────────────────────────────── */}

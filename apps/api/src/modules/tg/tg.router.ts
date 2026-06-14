@@ -11,6 +11,8 @@ import { tgWebhookSecretValid } from '../../lib/tgWebhook.js'
 import { upsertRosterUser, listRosterForChat, listRoster } from '../../lib/roster.js'
 import { recordVote, lastPollForChat, voteMapOfPoll } from '../../lib/pollState.js'
 import { getClubIntegration } from '../../lib/secrets.js'
+import { getBoolSetting } from '../../lib/appSettings.js'
+import { recordChat, recordTopic } from '../../lib/tgChats.js'
 import { isTelegramChatAdmin, sendTelegramMessage } from '../../lib/telegram.js'
 import type { Database } from '@titan/database'
 
@@ -48,8 +50,8 @@ async function handleMentionCommand(db: Database, msg: any, cmd: 'all' | 'tvari'
   const token = await getClubIntegration(db, 'poll_bot_token').catch(() => null)
   if (!token) return
 
-  // Кулдаун (по чату+пользователю). Отказы-предупреждения троттлим, чтобы не спамить.
-  const key = `${chatId}:${fromId}`
+  // Кулдаун — ОТДЕЛЬНЫЙ на каждую команду (chatId+userId+cmd). Отказы троттлим.
+  const key = `${chatId}:${fromId}:${cmd}`
   const now = Date.now()
   const since = now - (lastCmdRun.get(key) ?? 0)
   if (since < CMD_COOLDOWN_MS) {
@@ -61,7 +63,9 @@ async function handleMentionCommand(db: Database, msg: any, cmd: 'all' | 'tvari'
     return
   }
 
-  if (!(await isTelegramChatAdmin(token, chatId, fromId))) {
+  // Кто может: только админ чата (по умолчанию) или любой участник — настройка клуба.
+  const adminOnly = await getBoolSetting('poll_commands_admin_only', true, db)
+  if (adminOnly && !(await isTelegramChatAdmin(token, chatId, fromId))) {
     await sendTelegramMessage(token, chatId, 'Команда доступна только администраторам чата.', { messageThreadId: threadId })
     return // отказ кулдаун не тратит
   }
@@ -175,12 +179,20 @@ tgRouter.post('/poll-webhook/:clubId', async (c) => {
       if (Array.isArray(msg.new_chat_members)) {
         for (const u of msg.new_chat_members) await upsertRosterUser(db, u, msg.chat?.id ?? null)
       }
+      // Копим группы/топики бота для выбора в интерфейсе (вместо ввода ID).
+      await recordChat(db, msg.chat)
+      if (msg.message_thread_id != null || msg.is_topic_message) {
+        await recordTopic(db, msg.chat?.id, msg.message_thread_id, msg.forum_topic_created?.name ?? msg.reply_to_message?.forum_topic_created?.name ?? null)
+      }
       // Команды чата: @all / @tvari (только админ; реагируем на свежие сообщения).
       const cmd = parseMentionCommand(msg.text)
       if (cmd) await handleMentionCommand(db, msg, cmd)
     }
     const cm = update['chat_member'] ?? update['my_chat_member']
-    if (cm?.new_chat_member?.user) await upsertRosterUser(db, cm.new_chat_member.user, cm.chat?.id ?? null)
+    if (cm) {
+      await recordChat(db, cm.chat)
+      if (cm.new_chat_member?.user) await upsertRosterUser(db, cm.new_chat_member.user, cm.chat?.id ?? null)
+    }
 
     const pa = update['poll_answer']
     if (pa?.user) {

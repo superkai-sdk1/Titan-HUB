@@ -14,6 +14,8 @@ import { recordPollPosted } from '../../lib/pollState.js'
 import { setTelegramWebhook, deleteTelegramWebhook, getTelegramWebhookInfo, getChatAdministrators } from '../../lib/telegram.js'
 import { tgWebhookSecret, tgWebhookUrl } from '../../lib/tgWebhook.js'
 import { upsertRosterUser } from '../../lib/roster.js'
+import { listChats } from '../../lib/tgChats.js'
+import { getBoolSetting } from '../../lib/appSettings.js'
 // Control-БД: резолв clubId на основном домене (c.var.club=null → ищем по db_name).
 import { getControlDb, clubs as ctrlClubs, eq as ceq } from '../../../../../packages/database/dist/control/index.js'
 
@@ -290,7 +292,34 @@ systemRouter.get('/polls', requireAuth, requireRole('owner'), async (c) => {
   } catch {
     /* нет токена/ошибка расшифровки — оставляем null */
   }
-  return c.json({ configs, tokenConfigured: tokenMasked !== null, tokenMasked })
+  const commandsAdminOnly = await getBoolSetting('poll_commands_admin_only', true, db)
+  return c.json({ configs, tokenConfigured: tokenMasked !== null, tokenMasked, commandsAdminOnly })
+})
+
+// POST /system/polls/commands — кто может слать команды-отметки (@all/@tvari/…):
+// только админы чата (по умолчанию) или любой участник.
+systemRouter.post(
+  '/polls/commands',
+  requireAuth,
+  requireRole('owner'),
+  zValidator('json', z.object({ adminOnly: z.boolean() })),
+  async (c) => {
+    const db = c.var.db
+    const { adminOnly } = c.req.valid('json')
+    const value = adminOnly ? '1' : '0'
+    const key = 'poll_commands_admin_only'
+    const [existing] = await db.select().from(appSettings).where(eq(appSettings.key, key))
+    if (existing) await db.update(appSettings).set({ value, updatedAt: new Date() }).where(eq(appSettings.key, key))
+    else await db.insert(appSettings).values({ key, value })
+    return c.json({ ok: true, commandsAdminOnly: adminOnly })
+  },
+)
+
+// GET /system/polls/chats — группы/топики, «увиденные» ботом (для выбора в UI
+// вместо ручного ввода ID). Пусто, если сбор не включён или бот ещё ничего не видел.
+systemRouter.get('/polls/chats', requireAuth, requireRole('owner'), async (c) => {
+  const chats = await listChats(c.var.db)
+  return c.json({ chats })
 })
 
 const PollConfigSchema = z.object({
