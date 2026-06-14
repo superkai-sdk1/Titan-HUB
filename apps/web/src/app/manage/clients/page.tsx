@@ -722,8 +722,9 @@ export default function ClientsPage() {
                     )}
 
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 10 }}>
-                      {/* «Сопоставить из чата» — только для резидентов (они в ростере чата) */}
-                      {editForm.clientTier === 'resident' && (
+                      {/* «Сопоставить из чата» — для тех, кто бывает в чате клуба:
+                          резиденты, студенты, новички. */}
+                      {['resident', 'student', 'newbie'].includes(editForm.clientTier) && (
                         <Button variant="secondary" fullWidth icon="forum" onClick={() => setTgRosterOpen(true)}>
                           Сопоставить из чата
                         </Button>
