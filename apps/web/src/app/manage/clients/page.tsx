@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
+import { useAuthStore } from '@/store/auth.store'
 import { formatDistanceToNow } from 'date-fns'
 import { ru } from 'date-fns/locale'
 import { PageHeader, Sheet, Button, IconButton, ConfirmDialog, Chip, INP, LBL } from '@/components/manage/DesignSystem'
@@ -49,6 +50,35 @@ const PAY_LABELS: Record<string, string> = {
   deposit: 'Депозит', debt: 'Долг', certificate: 'Сертификат', split: 'Раздельная',
 }
 
+// DELETE с телом запроса. Хелпер из lib/api.ts (api.delete) тело не передаёт,
+// а контракт DELETE /clients/:id/tg-link ожидает JSON { tgId }. Повторяем
+// заголовки/BASE_URL из lib/api.ts, чтобы отвязать конкретный аккаунт.
+async function deleteWithBody<T>(path: string, body: unknown): Promise<T> {
+  const base = process.env.NEXT_PUBLIC_API_URL ?? '/api'
+  const token = useAuthStore.getState().token
+  const res = await fetch(`${base}${path}`, {
+    method: 'DELETE',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({ error: res.statusText }))
+    const err = (data as any)?.error
+    const message: string =
+      typeof err === 'string' ? err
+      : (err?.issues?.[0]?.message ?? err?.message ?? (data as any)?.message ?? res.statusText)
+    throw new Error(message)
+  }
+  if (res.status === 204) return undefined as T
+  return res.json()
+}
+
+// Тип одного привязанного Telegram-аккаунта профиля клиента.
+type TgAccount = { tgId: string; username: string | null; primary: boolean }
+
 export default function ClientsPage() {
   const qc = useQueryClient()
   const { show } = useToast()
@@ -73,6 +103,8 @@ export default function ClientsPage() {
   // Модалка «Участники чата» — сопоставление клиента с TG из ростера бота.
   const [tgRosterOpen, setTgRosterOpen] = useState(false)
   const [tgRosterSearch, setTgRosterSearch] = useState('')
+  // Аккаунт, который собираемся отвязать (для ConfirmDialog).
+  const [tgUnlinkTarget, setTgUnlinkTarget] = useState<TgAccount | null>(null)
   // Модалка начисления/списания (баланс или бонусы).
   const [adjModal, setAdjModal] = useState<{ kind: 'balance' | 'bonus'; op: 'add' | 'sub' } | null>(null)
   const [adjAmount, setAdjAmount] = useState('')
@@ -179,6 +211,16 @@ export default function ClientsPage() {
   }
   const telegramLinkMut = useMutation({ mutationFn: (id: string) => api.post<any>(`/clients/${id}/telegram-link`, {}), onSuccess: (res: any) => { setTgQr({ deepLink: res.deepLink, qrDataUrl: res.qrDataUrl }) }, onError: () => show('Не удалось создать ссылку привязки', 'error') })
 
+  // ── Telegram-аккаунты профиля ────────────────────────────────────────────────
+  // Список привязанных аккаунтов клиента (один человек может иметь несколько TG).
+  // Грузим только при открытой карточке с известным id.
+  const tgAccountsQ = useQuery({
+    queryKey: ['clients', selected?.id, 'tg-accounts'],
+    queryFn: () => api.get<{ accounts: TgAccount[] }>(`/clients/${selected.id}/tg-accounts`),
+    enabled: !!selected?.id,
+  })
+  const tgAccounts: TgAccount[] = tgAccountsQ.data?.accounts ?? []
+
   // ── Сопоставление с TG из чата ──────────────────────────────────────────────
   // Ростер участников: грузим только когда открыта модалка «Участники чата».
   type TgRosterUser = { tgId: string; username: string | null; firstName: string | null; lastName: string | null; chatId: string | null; lastSeen: string; linkedTo: string | null }
@@ -187,28 +229,31 @@ export default function ClientsPage() {
     queryFn: () => api.get<{ users: TgRosterUser[] }>('/clients/tg-roster'),
     enabled: tgRosterOpen,
   })
-  // Привязка по выбору из ростера.
+  // Привязка по выбору из ростера. ДОБАВЛЯЕТ аккаунт к профилю (не перезаписывает) —
+  // поддержка нескольких Telegram на одного человека.
   const tgMatchMut = useMutation({
     mutationFn: ({ id, tgId, tgUsername }: { id: string; tgId: string; tgUsername: string | null }) =>
       api.post<any>(`/clients/${id}/tg-link`, { tgId, tgUsername: tgUsername ?? undefined }),
     onSuccess: (_res: any, vars) => {
+      qc.invalidateQueries({ queryKey: ['clients', vars.id, 'tg-accounts'] })
       qc.invalidateQueries({ queryKey: ['clients'] })
-      setSelected((s: any) => s ? { ...s, tgId: vars.tgId, tgUsername: vars.tgUsername } : s)
-      show('Сопоставлено', 'success')
+      show('Аккаунт привязан', 'success')
       setTgRosterOpen(false)
       setTgRosterSearch('')
     },
-    onError: (e: any) => show(e?.message ?? 'Не удалось сопоставить', 'error'),
+    onError: (e: any) => show(e?.message ?? 'Не удалось привязать', 'error'),
   })
-  // Отвязка TG.
+  // Отвязка конкретного аккаунта — DELETE с телом { tgId }.
   const tgUnlinkMut = useMutation({
-    mutationFn: (id: string) => api.delete(`/clients/${id}/tg-link`),
-    onSuccess: () => {
+    mutationFn: ({ id, tgId }: { id: string; tgId: string }) =>
+      deleteWithBody<{ ok: boolean }>(`/clients/${id}/tg-link`, { tgId }),
+    onSuccess: (_res, vars) => {
+      qc.invalidateQueries({ queryKey: ['clients', vars.id, 'tg-accounts'] })
       qc.invalidateQueries({ queryKey: ['clients'] })
-      setSelected((s: any) => s ? { ...s, tgId: null, tgUsername: null } : s)
       show('Отвязано', 'success')
+      setTgUnlinkTarget(null)
     },
-    onError: () => show('Не удалось отвязать', 'error'),
+    onError: (e: any) => show(e?.message ?? 'Не удалось отвязать', 'error'),
   })
 
   const clients: any[] = data?.clients ?? []
@@ -225,7 +270,7 @@ export default function ClientsPage() {
     setMode('view')
     setTab('info')
     setTgQr(null)
-    setTgRosterOpen(false); setTgRosterSearch('')
+    setTgRosterOpen(false); setTgRosterSearch(''); setTgUnlinkTarget(null)
     setAdjModal(null); setAdjAmount(''); setAdjComment('')
   }
 
@@ -374,7 +419,6 @@ export default function ClientsPage() {
           const bal = parseNum(selected.balance)
           const debt = bal < 0 ? -bal : 0
           const deposit = bal > 0 ? bal : 0
-          const isLinked = !!(selected.tgUsername || selected.tgId)
 
           // ── РЕЖИМ РЕДАКТИРОВАНИЯ ──────────────────────────────────────────
           if (mode === 'edit' && editForm) {
@@ -392,43 +436,65 @@ export default function ClientsPage() {
                 <div><label style={LBL}>День рождения</label><input type="date" value={editForm.birthday} onChange={e => setEditForm((p: any) => ({ ...p, birthday: e.target.value }))} style={INP} /></div>
                 <div><label style={LBL}>Статус</label><select value={editForm.clientTier} onChange={e => setEditForm((p: any) => ({ ...p, clientTier: e.target.value }))} style={{ ...INP, background: 'rgba(29,26,36,0.8)', cursor: 'pointer' } as React.CSSProperties}>{tierList.map(t => <option key={t.key} value={t.key}>{t.label}</option>)}</select></div>
 
-                {/* Привязка телеграма */}
+                {/* Telegram-аккаунты профиля (один человек может иметь несколько TG) */}
                 <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 16 }}>
-                  <p style={{ ...LBL, marginBottom: 10 }}>Telegram</p>
-                  {isLinked ? (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--on-surface)' }}>
-                        <Icon name="telegram" size={18} color="#229ED9" />
-                        Telegram: {selected.tgUsername ? `@${selected.tgUsername}` : selected.tgId}
-                      </div>
-                      <Button variant="danger" fullWidth icon="link"
-                        loading={tgUnlinkMut.isPending}
-                        onClick={() => tgUnlinkMut.mutate(selected.id)}>
-                        Отвязать
-                      </Button>
+                  <p style={{ ...LBL, marginBottom: 10 }}>Telegram-аккаунты</p>
+
+                  {/* Список привязанных аккаунтов */}
+                  {tgAccountsQ.isLoading ? (
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px 0', color: 'var(--on-surface-variant)' }}>
+                      <Icon name="progress_activity" size={22} style={{ animation: 'spin 1s linear infinite' }} />
+                      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
                     </div>
-                  ) : tgQr ? (
-                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, padding: 12, borderRadius: 14, background: 'rgba(255,255,255,0.04)' }}>
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={tgQr.qrDataUrl} alt="QR для привязки Telegram" width={180} height={180} style={{ borderRadius: 12, background: '#fff', padding: 6 }} />
-                      <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', textAlign: 'center', margin: 0 }}>Отсканируйте QR в Telegram, чтобы привязать аккаунт</p>
-                      <a href={tgQr.deepLink} target="_blank" rel="noreferrer" style={{ fontSize: 13, fontWeight: 700, color: '#229ED9', textDecoration: 'none' }}>Открыть в Telegram</a>
-                      <Button variant="ghost" fullWidth icon="forum" onClick={() => setTgRosterOpen(true)}>
-                        Сопоставить из чата
-                      </Button>
-                    </div>
+                  ) : tgAccounts.length === 0 ? (
+                    <p style={{ fontSize: 13, color: 'var(--on-surface-variant)', margin: '0 0 4px' }}>Нет привязанных аккаунтов</p>
                   ) : (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                      <Button variant="secondary" fullWidth icon="link"
-                        loading={telegramLinkMut.isPending}
-                        onClick={() => telegramLinkMut.mutate(selected.id)}>
-                        Привязать телеграм
-                      </Button>
-                      <Button variant="ghost" fullWidth icon="forum" onClick={() => setTgRosterOpen(true)}>
-                        Сопоставить из чата
-                      </Button>
+                      {tgAccounts.map((acc) => (
+                        <div key={acc.tgId}
+                          style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 12, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
+                          <Icon name="telegram" size={20} color="#229ED9" style={{ flexShrink: 0 }} />
+                          <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                            <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--on-surface)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {acc.username ? `@${acc.username}` : `id ${acc.tgId}`}
+                            </span>
+                            {acc.primary && (
+                              <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 6, background: 'rgba(34,158,217,0.16)', color: '#229ED9', textTransform: 'uppercase', letterSpacing: '0.05em' }}>основной</span>
+                            )}
+                          </div>
+                          <IconButton icon="link_off" ariaLabel="Отвязать" variant="danger"
+                            disabled={tgUnlinkMut.isPending}
+                            onClick={() => setTgUnlinkTarget(acc)} />
+                        </div>
+                      ))}
                     </div>
                   )}
+
+                  {/* Сопоставление из ростера бота + привязка по ссылке/QR */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 10 }}>
+                    <Button variant="secondary" fullWidth icon="forum" onClick={() => setTgRosterOpen(true)}>
+                      Сопоставить из чата
+                    </Button>
+                    {tgQr ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, padding: 12, borderRadius: 14, background: 'rgba(255,255,255,0.04)' }}>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={tgQr.qrDataUrl} alt="QR для привязки Telegram" width={180} height={180} style={{ borderRadius: 12, background: '#fff', padding: 6 }} />
+                        <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', textAlign: 'center', margin: 0 }}>Отсканируйте QR в Telegram, чтобы привязать аккаунт</p>
+                        <a href={tgQr.deepLink} target="_blank" rel="noreferrer" style={{ fontSize: 13, fontWeight: 700, color: '#229ED9', textDecoration: 'none' }}>Открыть в Telegram</a>
+                      </div>
+                    ) : (
+                      <Button variant="ghost" fullWidth icon="link"
+                        loading={telegramLinkMut.isPending}
+                        onClick={() => telegramLinkMut.mutate(selected.id)}>
+                        Получить ссылку для самопривязки
+                      </Button>
+                    )}
+                  </div>
+
+                  {/* Подсказка */}
+                  <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', lineHeight: 1.5, margin: '10px 0 0' }}>
+                    Один человек может иметь несколько Telegram-аккаунтов — все они будут узнаваться как этот профиль (в боте и интерфейсе). Список участников пополняет бот опросов; включите сбор в разделе Опросы.
+                  </p>
                 </div>
 
                 <Button fullWidth size="lg" loading={update.isPending} disabled={!editForm.nickname?.trim()} onClick={saveEdit}>Сохранить</Button>
@@ -787,6 +853,17 @@ export default function ClientsPage() {
         confirmLabel="Удалить навсегда"
         danger
         loading={purge.isPending}
+      />
+
+      <ConfirmDialog
+        open={!!tgUnlinkTarget}
+        onClose={() => setTgUnlinkTarget(null)}
+        onConfirm={() => selected && tgUnlinkTarget && tgUnlinkMut.mutate({ id: selected.id, tgId: tgUnlinkTarget.tgId })}
+        title="Отвязать аккаунт?"
+        message={`Аккаунт ${tgUnlinkTarget ? (tgUnlinkTarget.username ? `@${tgUnlinkTarget.username}` : `id ${tgUnlinkTarget.tgId}`) : ''} больше не будет связан с этим профилем.`}
+        confirmLabel="Отвязать"
+        danger
+        loading={tgUnlinkMut.isPending}
       />
     </div>
   )

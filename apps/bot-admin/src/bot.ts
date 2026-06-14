@@ -6,6 +6,7 @@ import {
   inventory,
   events,
   tgLinkRequests,
+  appSettings,
   eq,
   and,
   desc,
@@ -127,10 +128,26 @@ export function createAdminBot(ctx: AdminBotCtx): Bot {
     .text('🤖 Спросить Titan', 'ai_ask').text('🔒 Закрыть смену', 'close_shift').row()
 
   async function getProfile(tgId: string): Promise<Profile | null> {
-    if (ALLOWED_TG_IDS.length && !ALLOWED_TG_IDS.includes(tgId)) return null
-    const [p] = await db.select().from(profiles).where(and(eq(profiles.tgId, tgId), isNull(profiles.deletedAt)))
-    if (!p || !['owner', 'staff'].includes(p.role)) return null
-    return p
+    // Прямое совпадение основного tg_id (с учётом env-allowlist).
+    if (!(ALLOWED_TG_IDS.length && !ALLOWED_TG_IDS.includes(tgId))) {
+      const [p] = await db.select().from(profiles).where(and(eq(profiles.tgId, tgId), isNull(profiles.deletedAt)))
+      if (p && ['owner', 'staff'].includes(p.role)) return p
+    }
+    // Доп. аккаунт (алиас): один человек — несколько TG. Привязан владельцем →
+    // авторизован (allowlist не применяем). Карта tg_aliases в app_settings;
+    // формат синхронен apps/api/src/lib/tgAliases.ts.
+    try {
+      const [row] = await db.select({ value: appSettings.value }).from(appSettings).where(eq(appSettings.key, 'tg_aliases'))
+      if (row?.value) {
+        const map = JSON.parse(row.value) as Record<string, { profileId?: string }>
+        const pid = map?.[tgId]?.profileId
+        if (pid) {
+          const [p2] = await db.select().from(profiles).where(and(eq(profiles.id, pid), isNull(profiles.deletedAt)))
+          if (p2 && ['owner', 'staff'].includes(p2.role)) return p2
+        }
+      }
+    } catch { /* нет/битые алиасы */ }
+    return null
   }
 
   // Короткий JWT для профиля → вызовы нашего API (переиспользуем всю бизнес-логику).

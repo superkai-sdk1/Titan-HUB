@@ -1,5 +1,5 @@
 import { Bot, InlineKeyboard } from 'grammy'
-import { profiles, tgLinkRequests, transactions, clientTiers, eq, desc, type Database } from '@titan/database'
+import { profiles, tgLinkRequests, transactions, clientTiers, appSettings, eq, desc, type Database } from '@titan/database'
 import { createHmac, timingSafeEqual } from 'node:crypto'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -89,6 +89,27 @@ export function createWalletBot(ctx: WalletBotCtx): Bot {
     .text('🔔 Уведомления', 'notif').row()
     .webApp('💳 Открыть кошелёк', ctx.webappUrl)
 
+  type Profile = typeof profiles.$inferSelect
+  // Резолв профиля по TG: сначала основной tg_id, затем доп. аккаунты (один человек
+  // — несколько TG). Карта tg_aliases в app_settings; формат синхронен
+  // apps/api/src/lib/tgAliases.ts. Основной путь (прямое совпадение) не меняется.
+  async function resolveProfileByTg(tgId: string): Promise<Profile | null> {
+    const [direct] = await db.select().from(profiles).where(eq(profiles.tgId, tgId))
+    if (direct) return direct
+    try {
+      const [row] = await db.select({ value: appSettings.value }).from(appSettings).where(eq(appSettings.key, 'tg_aliases'))
+      if (row?.value) {
+        const map = JSON.parse(row.value) as Record<string, { profileId?: string }>
+        const pid = map?.[tgId]?.profileId
+        if (pid) {
+          const [p] = await db.select().from(profiles).where(eq(profiles.id, pid))
+          return p ?? null
+        }
+      }
+    } catch { /* нет/битые алиасы */ }
+    return null
+  }
+
   bot.command('start', async (ctx2) => {
     const payload = ctx2.match
     const tgId = String(ctx2.from?.id)
@@ -133,7 +154,7 @@ export function createWalletBot(ctx: WalletBotCtx): Bot {
       return
     }
 
-    const [profile] = await db.select().from(profiles).where(eq(profiles.tgId, tgId))
+    const profile = await resolveProfileByTg(tgId)
     if (!profile) {
       await ctx2.reply('👋 Добро пожаловать в Titan Wallet!\n\nЧтобы привязать аккаунт, обратитесь к администратору.')
       return
@@ -145,7 +166,7 @@ export function createWalletBot(ctx: WalletBotCtx): Bot {
   bot.callbackQuery('balance', async (ctx2) => {
     await ctx2.answerCallbackQuery()
     const tgId = String(ctx2.from?.id)
-    const [profile] = await db.select().from(profiles).where(eq(profiles.tgId, tgId))
+    const profile = await resolveProfileByTg(tgId)
     if (!profile) {
       await ctx2.reply('❌ Аккаунт не привязан. Используйте ссылку из кассы.')
       return
@@ -166,7 +187,7 @@ export function createWalletBot(ctx: WalletBotCtx): Bot {
   // Уведомления клиента (начисление бонусов, депозит, долг) — вкл/выкл.
   bot.callbackQuery('notif', async (ctx2) => {
     await ctx2.answerCallbackQuery()
-    const [profile] = await db.select().from(profiles).where(eq(profiles.tgId, String(ctx2.from?.id)))
+    const profile = await resolveProfileByTg(String(ctx2.from?.id))
     if (!profile) { await ctx2.reply('❌ Аккаунт не привязан.'); return }
     const on = profile.walletNotifyEnabled !== false
     const kb = new InlineKeyboard().text(on ? '🔕 Выключить' : '🔔 Включить', on ? 'notif_off' : 'notif_on')
@@ -174,19 +195,21 @@ export function createWalletBot(ctx: WalletBotCtx): Bot {
   })
   bot.callbackQuery('notif_off', async (ctx2) => {
     await ctx2.answerCallbackQuery()
-    await db.update(profiles).set({ walletNotifyEnabled: false }).where(eq(profiles.tgId, String(ctx2.from?.id)))
+    const profile = await resolveProfileByTg(String(ctx2.from?.id))
+    if (profile) await db.update(profiles).set({ walletNotifyEnabled: false }).where(eq(profiles.id, profile.id))
     await ctx2.reply('🔕 Уведомления выключены. Включить можно кнопкой «Уведомления».')
   })
   bot.callbackQuery('notif_on', async (ctx2) => {
     await ctx2.answerCallbackQuery()
-    await db.update(profiles).set({ walletNotifyEnabled: true }).where(eq(profiles.tgId, String(ctx2.from?.id)))
+    const profile = await resolveProfileByTg(String(ctx2.from?.id))
+    if (profile) await db.update(profiles).set({ walletNotifyEnabled: true }).where(eq(profiles.id, profile.id))
     await ctx2.reply('🔔 Уведомления включены.')
   })
 
   bot.callbackQuery('history', async (ctx2) => {
     await ctx2.answerCallbackQuery()
     const tgId = String(ctx2.from?.id)
-    const [profile] = await db.select().from(profiles).where(eq(profiles.tgId, tgId))
+    const profile = await resolveProfileByTg(tgId)
     if (!profile) {
       await ctx2.reply('❌ Аккаунт не привязан.')
       return

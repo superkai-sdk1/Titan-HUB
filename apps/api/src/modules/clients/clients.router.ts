@@ -16,6 +16,7 @@ import { hashPassword } from '@titan/auth'
 import { notify, notifyClient } from '../notifications/push.js'
 import { visitProgress, maybePromoteToResident } from '../../lib/loyalty.js'
 import { listRoster } from '../../lib/roster.js'
+import { readAliases, aliasesForProfile, addAlias, removeAlias, resolveProfileIdByAlias } from '../../lib/tgAliases.js'
 import { createHmac } from 'node:crypto'
 
 const CreateClientSchema = z.object({
@@ -238,15 +239,34 @@ clientsRouter.post('/', requireRole('owner', 'staff'), zValidator('json', Create
 clientsRouter.get('/tg-roster', async (c) => {
   const db = c.var.db
   const users = await listRoster(db)
-  // Помечаем, кто из ростера уже привязан к какому-то клиенту (чтобы UI не дублировал).
+  // Помечаем, кто из ростера уже привязан к клиенту (как ОСНОВНОЙ tg_id ИЛИ как
+  // дополнительный аккаунт — алиас), чтобы UI не дублировал.
   const ids = users.map((u) => u.tgId)
-  const linked = ids.length
-    ? await db
-        .select({ tgId: profiles.tgId, nickname: profiles.nickname })
+  const linkMap = new Map<string, string>()
+  if (ids.length) {
+    const linkedPrimary = await db
+      .select({ tgId: profiles.tgId, nickname: profiles.nickname })
+      .from(profiles)
+      .where(and(inArray(profiles.tgId, ids), isNull(profiles.deletedAt)))
+    for (const l of linkedPrimary) if (l.tgId) linkMap.set(l.tgId, l.nickname)
+
+    const aliasMap = await readAliases(db)
+    const aliasPids = ids.filter((id) => aliasMap[id]).map((id) => aliasMap[id]!.profileId)
+    if (aliasPids.length) {
+      const aliasProfiles = await db
+        .select({ id: profiles.id, nickname: profiles.nickname })
         .from(profiles)
-        .where(and(inArray(profiles.tgId, ids), isNull(profiles.deletedAt)))
-    : []
-  const linkMap = new Map(linked.map((l) => [l.tgId as string, l.nickname]))
+        .where(and(inArray(profiles.id, aliasPids), isNull(profiles.deletedAt)))
+      const nickById = new Map(aliasProfiles.map((p) => [p.id, p.nickname]))
+      for (const id of ids) {
+        const a = aliasMap[id]
+        if (a && !linkMap.has(id)) {
+          const nick = nickById.get(a.profileId)
+          if (nick) linkMap.set(id, nick)
+        }
+      }
+    }
+  }
   return c.json({ users: users.map((u) => ({ ...u, linkedTo: linkMap.get(u.tgId) ?? null })) })
 })
 
@@ -301,8 +321,24 @@ clientsRouter.post('/:id/telegram-link', requireRole('owner', 'staff'), async (c
   return c.json({ deepLink, qrDataUrl, expiresIn: 900 })
 })
 
-// Сопоставить клиента с пользователем из ростера чата (привязать его tg_id).
-// profiles.tg_id уникален — если занят другим профилем, отдаём 409.
+// Список Telegram-аккаунтов клиента (один человек может иметь несколько TG):
+// основной (profiles.tg_id) + дополнительные (алиасы в app_settings).
+clientsRouter.get('/:id/tg-accounts', async (c) => {
+  const db = c.var.db
+  const id = c.req.param('id')
+  const [me] = await db.select({ tgId: profiles.tgId, tgUsername: profiles.tgUsername }).from(profiles).where(eq(profiles.id, id)).limit(1)
+  if (!me) return c.json({ error: 'Not found' }, 404)
+  const aliases = await aliasesForProfile(db, id)
+  const accounts = [
+    ...(me.tgId ? [{ tgId: me.tgId, username: me.tgUsername, primary: true }] : []),
+    ...aliases.map((a) => ({ tgId: a.tgId, username: a.username, primary: false })),
+  ]
+  return c.json({ accounts })
+})
+
+// Привязать TG-аккаунт к клиенту. Если у клиента ещё нет основного — ставим
+// основным (profiles.tg_id); иначе добавляем ДОПОЛНИТЕЛЬНЫМ (алиас). Один tg_id
+// не может принадлежать двум профилям (проверка по основным И алиасам → 409).
 clientsRouter.post(
   '/:id/tg-link',
   requireRole('owner', 'staff'),
@@ -312,42 +348,71 @@ clientsRouter.post(
     const id = c.req.param('id')
     const { tgId, tgUsername } = c.req.valid('json')
 
-    const [other] = await db
+    // Занят ли этот tgId другим профилем (как основной)?
+    const [otherPrimary] = await db
       .select({ id: profiles.id, nickname: profiles.nickname })
       .from(profiles)
       .where(and(eq(profiles.tgId, tgId), isNull(profiles.deletedAt)))
       .limit(1)
-    if (other && other.id !== id) {
-      return c.json({ error: `Этот Telegram уже привязан к «${other.nickname}»` }, 409)
+    if (otherPrimary && otherPrimary.id !== id) {
+      return c.json({ error: `Этот Telegram уже привязан к «${otherPrimary.nickname}»` }, 409)
+    }
+    // ...или как дополнительный (алиас) у другого профиля?
+    const aliasOwner = await resolveProfileIdByAlias(db, tgId)
+    if (aliasOwner && aliasOwner !== id) {
+      return c.json({ error: 'Этот Telegram уже привязан к другому профилю' }, 409)
     }
 
-    try {
-      const [client] = await db
-        .update(profiles)
-        .set({ tgId, tgUsername: tgUsername ?? null })
-        .where(eq(profiles.id, id))
-        .returning()
-      if (!client) return c.json({ error: 'Not found' }, 404)
-      const { pin, passwordHash, ...safe } = client
-      return c.json({ client: safe })
-    } catch (err: any) {
-      if (err?.code === '23505') return c.json({ error: 'Этот Telegram уже привязан к другому профилю' }, 409)
-      throw err
+    const [me] = await db.select({ tgId: profiles.tgId }).from(profiles).where(eq(profiles.id, id)).limit(1)
+    if (!me) return c.json({ error: 'Not found' }, 404)
+
+    // Уже привязан к этому профилю — ок (идемпотентно).
+    if (me.tgId === tgId || aliasOwner === id) {
+      // обновим username при необходимости
+      if (me.tgId === tgId) await db.update(profiles).set({ tgUsername: tgUsername ?? null }).where(eq(profiles.id, id))
+      else await addAlias(db, tgId, id, tgUsername ?? null)
+    } else if (!me.tgId) {
+      // Нет основного → ставим основным.
+      try {
+        await db.update(profiles).set({ tgId, tgUsername: tgUsername ?? null }).where(eq(profiles.id, id))
+      } catch (err: any) {
+        if (err?.code === '23505') return c.json({ error: 'Этот Telegram уже привязан к другому профилю' }, 409)
+        throw err
+      }
+    } else {
+      // Основной уже есть → добавляем дополнительным аккаунтом.
+      await addAlias(db, tgId, id, tgUsername ?? null)
     }
+
+    const aliases = await aliasesForProfile(db, id)
+    const [meNow] = await db.select({ tgId: profiles.tgId, tgUsername: profiles.tgUsername }).from(profiles).where(eq(profiles.id, id)).limit(1)
+    const accounts = [
+      ...(meNow?.tgId ? [{ tgId: meNow.tgId, username: meNow.tgUsername, primary: true }] : []),
+      ...aliases.map((a) => ({ tgId: a.tgId, username: a.username, primary: false })),
+    ]
+    return c.json({ ok: true, accounts })
   },
 )
 
-// Снять сопоставление клиента с Telegram.
-clientsRouter.delete('/:id/tg-link', requireRole('owner', 'staff'), async (c) => {
-  const db = c.var.db
-  const [client] = await db
-    .update(profiles)
-    .set({ tgId: null, tgUsername: null })
-    .where(eq(profiles.id, c.req.param('id')))
-    .returning()
-  if (!client) return c.json({ error: 'Not found' }, 404)
-  return c.json({ ok: true })
-})
+// Отвязать конкретный TG-аккаунт клиента (основной или дополнительный).
+clientsRouter.delete(
+  '/:id/tg-link',
+  requireRole('owner', 'staff'),
+  zValidator('json', z.object({ tgId: z.string().min(1) })),
+  async (c) => {
+    const db = c.var.db
+    const id = c.req.param('id')
+    const { tgId } = c.req.valid('json')
+    const [me] = await db.select({ tgId: profiles.tgId }).from(profiles).where(eq(profiles.id, id)).limit(1)
+    if (!me) return c.json({ error: 'Not found' }, 404)
+    if (me.tgId === tgId) {
+      await db.update(profiles).set({ tgId: null, tgUsername: null }).where(eq(profiles.id, id))
+    } else {
+      await removeAlias(db, tgId)
+    }
+    return c.json({ ok: true })
+  },
+)
 
 clientsRouter.delete('/:id', requireRole('owner'), async (c) => {
   const db = c.var.db
