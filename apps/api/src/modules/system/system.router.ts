@@ -10,8 +10,27 @@ import { updatesChannel } from '../../lib/realtime.js'
 import { createBackup, listBackups, lastBackup, restoreNamed, restoreFromUpload, rcloneConfigured } from '../../lib/backup.js'
 import { encryptSecret, decryptSecret, maskSecret, getClubIntegration } from '../../lib/secrets.js'
 import { readPollConfigs, writePollConfigs, postPollConfig, type PollConfig } from '../../lib/polls.js'
+import { setTelegramWebhook, deleteTelegramWebhook, getTelegramWebhookInfo, getChatAdministrators } from '../../lib/telegram.js'
+import { tgWebhookSecret, tgWebhookUrl } from '../../lib/tgWebhook.js'
+import { upsertRosterUser } from '../../lib/roster.js'
+// Control-БД: резолв clubId на основном домене (c.var.club=null → ищем по db_name).
+import { getControlDb, clubs as ctrlClubs, eq as ceq } from '../../../../../packages/database/dist/control/index.js'
 
 export const systemRouter = new Hono<AppEnv>()
+
+// clubId текущего клуба: из контекста (клуб-поддомен) или по db_name основной БД
+// (основной домен → синглтон). Нужен для URL/секрета вебхука бота опросов.
+async function resolveClubId(c: { var: AppEnv['Variables'] }): Promise<string | null> {
+  const fromCtx = c.var.club?.id
+  if (fromCtx) return fromCtx
+  try {
+    const def = new URL(process.env['DATABASE_URL'] ?? '').pathname.replace(/^\//, '')
+    const [club] = await getControlDb().select({ id: ctrlClubs.id }).from(ctrlClubs).where(ceq(ctrlClubs.dbName, def)).limit(1)
+    return club?.id ?? null
+  } catch {
+    return null
+  }
+}
 
 systemRouter.get('/info', requireAuth, async (c) => {
   const db = c.var.db
@@ -328,3 +347,53 @@ systemRouter.post(
     return c.json({ ok: true, messageId: r.messageId })
   },
 )
+
+// ─── Сбор участников чата (вебхук бота опросов) ─────────────────────────────────
+// Telegram не отдаёт список участников — бот копит «увиденных» (голоса/сообщения/
+// входы). Включение = setWebhook + мгновенный посев администраторов чатов.
+
+// GET /system/polls/collect — включён ли сбор (сверяем url вебхука с нашим).
+systemRouter.get('/polls/collect', requireAuth, requireRole('owner'), async (c) => {
+  const token = await getClubIntegration(c.var.db, 'poll_bot_token')
+  if (!token) return c.json({ enabled: false, tokenConfigured: false })
+  const clubId = await resolveClubId(c)
+  if (!clubId) return c.json({ enabled: false, tokenConfigured: true, error: 'club_not_registered' })
+  const info = await getTelegramWebhookInfo(token)
+  return c.json({ enabled: info.ok && info.url === tgWebhookUrl(clubId), tokenConfigured: true })
+})
+
+// POST /system/polls/collect — включить сбор: setWebhook + посеять админов чатов.
+systemRouter.post('/polls/collect', requireAuth, requireRole('owner'), async (c) => {
+  const db = c.var.db
+  const token = await getClubIntegration(db, 'poll_bot_token')
+  if (!token) return c.json({ error: 'Не задан токен бота опросов (раздел «Интеграции»)' }, 400)
+  const clubId = await resolveClubId(c)
+  if (!clubId) return c.json({ error: 'Клуб не зарегистрирован в реестре платформы' }, 400)
+
+  const r = await setTelegramWebhook(token, tgWebhookUrl(clubId), tgWebhookSecret(clubId), [
+    'message', 'poll_answer', 'chat_member', 'my_chat_member',
+  ])
+  if (!r.ok) return c.json({ error: r.error ?? 'Не удалось включить сбор' }, 502)
+
+  // Посев: администраторы настроенных чатов сразу в ростер (остальных бот добавит,
+  // как только они проголосуют/напишут).
+  let seeded = 0
+  try {
+    const configs = await readPollConfigs(db)
+    const chatIds = Array.from(new Set(configs.map((x) => x.chatId).filter(Boolean)))
+    for (const chatId of chatIds) {
+      const a = await getChatAdministrators(token, chatId)
+      if (a.ok && a.admins) for (const u of a.admins) { if (await upsertRosterUser(db, u, chatId)) seeded++ }
+    }
+  } catch (e) {
+    console.error('[polls] посев админов не удался', e)
+  }
+  return c.json({ ok: true, enabled: true, seeded })
+})
+
+// DELETE /system/polls/collect — выключить сбор (снять вебхук).
+systemRouter.delete('/polls/collect', requireAuth, requireRole('owner'), async (c) => {
+  const token = await getClubIntegration(c.var.db, 'poll_bot_token')
+  if (token) await deleteTelegramWebhook(token)
+  return c.json({ ok: true, enabled: false })
+})

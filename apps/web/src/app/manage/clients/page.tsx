@@ -70,6 +70,9 @@ export default function ClientsPage() {
   const [newTier, setNewTier] = useState({ label: '', color: '#8B5CF6' })
   const [tagsInput, setTagsInput] = useState('')
   const [tgQr, setTgQr] = useState<{ deepLink: string; qrDataUrl: string } | null>(null)
+  // Модалка «Участники чата» — сопоставление клиента с TG из ростера бота.
+  const [tgRosterOpen, setTgRosterOpen] = useState(false)
+  const [tgRosterSearch, setTgRosterSearch] = useState('')
   // Модалка начисления/списания (баланс или бонусы).
   const [adjModal, setAdjModal] = useState<{ kind: 'balance' | 'bonus'; op: 'add' | 'sub' } | null>(null)
   const [adjAmount, setAdjAmount] = useState('')
@@ -176,6 +179,38 @@ export default function ClientsPage() {
   }
   const telegramLinkMut = useMutation({ mutationFn: (id: string) => api.post<any>(`/clients/${id}/telegram-link`, {}), onSuccess: (res: any) => { setTgQr({ deepLink: res.deepLink, qrDataUrl: res.qrDataUrl }) }, onError: () => show('Не удалось создать ссылку привязки', 'error') })
 
+  // ── Сопоставление с TG из чата ──────────────────────────────────────────────
+  // Ростер участников: грузим только когда открыта модалка «Участники чата».
+  type TgRosterUser = { tgId: string; username: string | null; firstName: string | null; lastName: string | null; chatId: string | null; lastSeen: string; linkedTo: string | null }
+  const tgRoster = useQuery({
+    queryKey: ['clients', 'tg-roster'],
+    queryFn: () => api.get<{ users: TgRosterUser[] }>('/clients/tg-roster'),
+    enabled: tgRosterOpen,
+  })
+  // Привязка по выбору из ростера.
+  const tgMatchMut = useMutation({
+    mutationFn: ({ id, tgId, tgUsername }: { id: string; tgId: string; tgUsername: string | null }) =>
+      api.post<any>(`/clients/${id}/tg-link`, { tgId, tgUsername: tgUsername ?? undefined }),
+    onSuccess: (_res: any, vars) => {
+      qc.invalidateQueries({ queryKey: ['clients'] })
+      setSelected((s: any) => s ? { ...s, tgId: vars.tgId, tgUsername: vars.tgUsername } : s)
+      show('Сопоставлено', 'success')
+      setTgRosterOpen(false)
+      setTgRosterSearch('')
+    },
+    onError: (e: any) => show(e?.message ?? 'Не удалось сопоставить', 'error'),
+  })
+  // Отвязка TG.
+  const tgUnlinkMut = useMutation({
+    mutationFn: (id: string) => api.delete(`/clients/${id}/tg-link`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['clients'] })
+      setSelected((s: any) => s ? { ...s, tgId: null, tgUsername: null } : s)
+      show('Отвязано', 'success')
+    },
+    onError: () => show('Не удалось отвязать', 'error'),
+  })
+
   const clients: any[] = data?.clients ?? []
   const total: number = data?.total ?? clients.length
   // Есть ли ещё страницы: загружено меньше, чем всего в выборке.
@@ -190,6 +225,7 @@ export default function ClientsPage() {
     setMode('view')
     setTab('info')
     setTgQr(null)
+    setTgRosterOpen(false); setTgRosterSearch('')
     setAdjModal(null); setAdjAmount(''); setAdjComment('')
   }
 
@@ -363,12 +399,12 @@ export default function ClientsPage() {
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--on-surface)' }}>
                         <Icon name="telegram" size={18} color="#229ED9" />
-                        Привязан: @{selected.tgUsername ?? '—'}
+                        Telegram: {selected.tgUsername ? `@${selected.tgUsername}` : selected.tgId}
                       </div>
                       <Button variant="danger" fullWidth icon="link"
-                        loading={update.isPending}
-                        onClick={() => update.mutate({ id: selected.id, tgId: null, tgUsername: null })}>
-                        Отменить привязку
+                        loading={tgUnlinkMut.isPending}
+                        onClick={() => tgUnlinkMut.mutate(selected.id)}>
+                        Отвязать
                       </Button>
                     </div>
                   ) : tgQr ? (
@@ -377,13 +413,21 @@ export default function ClientsPage() {
                       <img src={tgQr.qrDataUrl} alt="QR для привязки Telegram" width={180} height={180} style={{ borderRadius: 12, background: '#fff', padding: 6 }} />
                       <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', textAlign: 'center', margin: 0 }}>Отсканируйте QR в Telegram, чтобы привязать аккаунт</p>
                       <a href={tgQr.deepLink} target="_blank" rel="noreferrer" style={{ fontSize: 13, fontWeight: 700, color: '#229ED9', textDecoration: 'none' }}>Открыть в Telegram</a>
+                      <Button variant="ghost" fullWidth icon="forum" onClick={() => setTgRosterOpen(true)}>
+                        Сопоставить из чата
+                      </Button>
                     </div>
                   ) : (
-                    <Button variant="secondary" fullWidth icon="link"
-                      loading={telegramLinkMut.isPending}
-                      onClick={() => telegramLinkMut.mutate(selected.id)}>
-                      Привязать телеграм
-                    </Button>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      <Button variant="secondary" fullWidth icon="link"
+                        loading={telegramLinkMut.isPending}
+                        onClick={() => telegramLinkMut.mutate(selected.id)}>
+                        Привязать телеграм
+                      </Button>
+                      <Button variant="ghost" fullWidth icon="forum" onClick={() => setTgRosterOpen(true)}>
+                        Сопоставить из чата
+                      </Button>
+                    </div>
                   )}
                 </div>
 
@@ -581,6 +625,66 @@ export default function ClientsPage() {
             </button>
           </div>
         </div>
+      </Sheet>
+
+      {/* Участники чата — сопоставление с TG из ростера бота */}
+      <Sheet open={tgRosterOpen} onClose={() => { setTgRosterOpen(false); setTgRosterSearch('') }} title="Участники чата">
+        {(() => {
+          const users: any[] = tgRoster.data?.users ?? []
+          const q = tgRosterSearch.trim().toLowerCase()
+          const filtered = q
+            ? users.filter((u: any) => [u.username, u.firstName, u.lastName, u.tgId].some((v: any) => String(v ?? '').toLowerCase().includes(q)))
+            : users
+          const nameOf = (u: any) => {
+            const full = [u.firstName, u.lastName].filter(Boolean).join(' ').trim()
+            return full || (u.username ? `@${u.username}` : u.tgId)
+          }
+          return (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div style={{ position: 'relative' }}>
+                <Icon name="search" size={18} color="var(--on-surface-variant)" style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }} />
+                <input value={tgRosterSearch} onChange={e => setTgRosterSearch(e.target.value)} placeholder="Поиск по имени, нику или ID…" style={{ ...INP, paddingLeft: 42, borderRadius: 12 }} />
+              </div>
+
+              {tgRoster.isLoading ? (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '40px 0', color: 'var(--on-surface-variant)' }}>
+                  <Icon name="progress_activity" size={26} style={{ animation: 'spin 1s linear infinite' }} />
+                  <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+                </div>
+              ) : users.length === 0 ? (
+                <p style={{ fontSize: 13, color: 'var(--on-surface-variant)', lineHeight: 1.5, textAlign: 'center', padding: '16px 8px', margin: 0 }}>
+                  Список пуст. Бот собирает участников, как только они проголосуют в опросе или напишут в чат. Включите сбор в разделе «Опросы» и убедитесь, что бот — админ группы.
+                </p>
+              ) : filtered.length === 0 ? (
+                <p style={{ fontSize: 13, color: 'var(--on-surface-variant)', textAlign: 'center', padding: '16px 8px', margin: 0 }}>Никого не найдено</p>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {filtered.map((u: any) => {
+                    // Уже привязан к другому клиенту — некликабельная строка с пометкой.
+                    const takenByOther = !!u.linkedTo && u.linkedTo !== selected?.nickname
+                    const seen = u.lastSeen ? formatDistanceToNow(new Date(u.lastSeen), { locale: ru, addSuffix: true }) : '—'
+                    return (
+                      <div key={u.tgId}
+                        onClick={() => { if (!takenByOther && selected && !tgMatchMut.isPending) tgMatchMut.mutate({ id: selected.id, tgId: u.tgId, tgUsername: u.username }) }}
+                        style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', borderRadius: 12, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', cursor: takenByOther ? 'default' : 'pointer', opacity: takenByOther ? 0.55 : 1 }}>
+                        <Icon name="telegram" size={20} color="#229ED9" style={{ flexShrink: 0 }} />
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <p style={{ fontSize: 14, fontWeight: 600, margin: 0, color: 'var(--on-surface)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{nameOf(u)}</p>
+                          <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: '2px 0 0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {u.username ? `@${u.username} · ` : ''}был(а) {seen}
+                          </p>
+                          {takenByOther && (
+                            <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: '2px 0 0' }}>уже привязан к {u.linkedTo}</p>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          )
+        })()}
       </Sheet>
 
       {/* Модалка детали чека */}

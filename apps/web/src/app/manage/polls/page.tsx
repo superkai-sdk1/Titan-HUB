@@ -98,6 +98,11 @@ export default function PollsPage() {
   const [tokenConfigured, setTokenConfigured] = useState(false)
   const [tokenMasked, setTokenMasked] = useState<string | null>(null)
 
+  // Сбор участников из чата (отдельный тумблер).
+  const [collectEnabled, setCollectEnabled] = useState(false)
+  const [collectTokenConfigured, setCollectTokenConfigured] = useState(false)
+  const [collectBusy, setCollectBusy] = useState(false)
+
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
 
@@ -120,6 +125,12 @@ export default function PollsPage() {
       setConfigs(res.configs.length > 0 ? res.configs : buildDefaults())
       setTokenConfigured(res.tokenConfigured)
       setTokenMasked(res.tokenMasked)
+      // Состояние сбора участников — отдельная подписка; ошибку не роняем на весь экран.
+      try {
+        const c = await api.get<{ enabled: boolean; tokenConfigured: boolean }>('/system/polls/collect')
+        setCollectEnabled(c.enabled)
+        setCollectTokenConfigured(c.tokenConfigured)
+      } catch { /* статус сбора недоступен — оставляем дефолты */ }
     } catch (e) {
       setLoadError(e instanceof ApiError ? e.message : 'Не удалось загрузить опросы')
     } finally {
@@ -211,6 +222,27 @@ export default function PollsPage() {
     }
   }
 
+  // ── Тумблер сбора участников из чата ─────────────────────────────────────────
+  async function toggleCollect(next: boolean) {
+    if (collectBusy) return
+    setCollectBusy(true)
+    try {
+      if (next) {
+        const res = await api.post<{ ok: boolean; enabled: boolean; seeded: number }>('/system/polls/collect', {})
+        setCollectEnabled(true)
+        show(res.seeded > 0 ? `Сбор включён · добавлено ${res.seeded} админов` : 'Сбор включён', 'success')
+      } else {
+        await api.delete('/system/polls/collect')
+        setCollectEnabled(false)
+        show('Сбор выключен', 'success')
+      }
+    } catch (e) {
+      show(e instanceof ApiError ? e.message : 'Не удалось изменить сбор участников', 'error')
+    } finally {
+      setCollectBusy(false)
+    }
+  }
+
   // ── Загрузка / ошибка ─────────────────────────────────────────────────────────
   if (loading) {
     return (
@@ -278,6 +310,29 @@ export default function PollsPage() {
             Интеграции
           </Button>
         </div>
+
+        {/* ─── Сбор участников из чата ────────────────────────────────────── */}
+        <SectionGroup title="Сбор участников из чата">
+          <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <p style={{ fontSize: 14, fontWeight: 500, margin: 0, color: 'var(--on-surface)' }}>Собирать участников из чата</p>
+                {!collectTokenConfigured && (
+                  <p style={{ fontSize: 12, color: 'var(--warning)', margin: '2px 0 0' }}>Сначала задайте токен бота в «Интеграции»</p>
+                )}
+              </div>
+              <Toggle
+                value={collectEnabled}
+                onChange={v => { if (collectTokenConfigured && !collectBusy) toggleCollect(v) }}
+                ariaLabel="Собирать участников из чата"
+                color={collectTokenConfigured ? undefined : 'rgba(255,255,255,0.15)'}
+              />
+            </div>
+            <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: 0, lineHeight: 1.5 }}>
+              Бот собирает тех, кто голосует в опросах и пишет в чат (бот должен быть админом). Полный список участников Telegram не отдаёт — список пополняется по мере активности. Сопоставление — в карточке клиента, кнопка «Сопоставить из чата».
+            </p>
+          </div>
+        </SectionGroup>
 
         {/* ─── Список опросов ────────────────────────────────────────────── */}
         {configs.map(c => {

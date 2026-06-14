@@ -15,6 +15,7 @@ import { accrueBonusLot, getBonusExpiryDays } from '../../lib/bonusLots.js'
 import { hashPassword } from '@titan/auth'
 import { notify, notifyClient } from '../notifications/push.js'
 import { visitProgress, maybePromoteToResident } from '../../lib/loyalty.js'
+import { listRoster } from '../../lib/roster.js'
 import { createHmac } from 'node:crypto'
 
 const CreateClientSchema = z.object({
@@ -232,6 +233,23 @@ clientsRouter.post('/', requireRole('owner', 'staff'), zValidator('json', Create
   return c.json({ client: safe }, 201)
 })
 
+// Ростер «увиденных» Telegram-пользователей чата (для сопоставления клиента с TG).
+// Регистрируем ДО /:id, иначе «tg-roster» попало бы в параметр :id.
+clientsRouter.get('/tg-roster', async (c) => {
+  const db = c.var.db
+  const users = await listRoster(db)
+  // Помечаем, кто из ростера уже привязан к какому-то клиенту (чтобы UI не дублировал).
+  const ids = users.map((u) => u.tgId)
+  const linked = ids.length
+    ? await db
+        .select({ tgId: profiles.tgId, nickname: profiles.nickname })
+        .from(profiles)
+        .where(and(inArray(profiles.tgId, ids), isNull(profiles.deletedAt)))
+    : []
+  const linkMap = new Map(linked.map((l) => [l.tgId as string, l.nickname]))
+  return c.json({ users: users.map((u) => ({ ...u, linkedTo: linkMap.get(u.tgId) ?? null })) })
+})
+
 clientsRouter.get('/:id', async (c) => {
   const db = c.var.db
   const [client] = await db.select().from(profiles).where(and(eq(profiles.id, c.req.param('id')), isNull(profiles.deletedAt)))
@@ -281,6 +299,54 @@ clientsRouter.post('/:id/telegram-link', requireRole('owner', 'staff'), async (c
   const qrDataUrl = await QRCode.toDataURL(deepLink, { margin: 1, width: 320 })
 
   return c.json({ deepLink, qrDataUrl, expiresIn: 900 })
+})
+
+// Сопоставить клиента с пользователем из ростера чата (привязать его tg_id).
+// profiles.tg_id уникален — если занят другим профилем, отдаём 409.
+clientsRouter.post(
+  '/:id/tg-link',
+  requireRole('owner', 'staff'),
+  zValidator('json', z.object({ tgId: z.string().min(1), tgUsername: z.string().nullable().optional() })),
+  async (c) => {
+    const db = c.var.db
+    const id = c.req.param('id')
+    const { tgId, tgUsername } = c.req.valid('json')
+
+    const [other] = await db
+      .select({ id: profiles.id, nickname: profiles.nickname })
+      .from(profiles)
+      .where(and(eq(profiles.tgId, tgId), isNull(profiles.deletedAt)))
+      .limit(1)
+    if (other && other.id !== id) {
+      return c.json({ error: `Этот Telegram уже привязан к «${other.nickname}»` }, 409)
+    }
+
+    try {
+      const [client] = await db
+        .update(profiles)
+        .set({ tgId, tgUsername: tgUsername ?? null })
+        .where(eq(profiles.id, id))
+        .returning()
+      if (!client) return c.json({ error: 'Not found' }, 404)
+      const { pin, passwordHash, ...safe } = client
+      return c.json({ client: safe })
+    } catch (err: any) {
+      if (err?.code === '23505') return c.json({ error: 'Этот Telegram уже привязан к другому профилю' }, 409)
+      throw err
+    }
+  },
+)
+
+// Снять сопоставление клиента с Telegram.
+clientsRouter.delete('/:id/tg-link', requireRole('owner', 'staff'), async (c) => {
+  const db = c.var.db
+  const [client] = await db
+    .update(profiles)
+    .set({ tgId: null, tgUsername: null })
+    .where(eq(profiles.id, c.req.param('id')))
+    .returning()
+  if (!client) return c.json({ error: 'Not found' }, 404)
+  return c.json({ ok: true })
 })
 
 clientsRouter.delete('/:id', requireRole('owner'), async (c) => {

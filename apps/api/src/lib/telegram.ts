@@ -56,3 +56,53 @@ export async function sendTelegramPoll(token: string, p: SendPollParams): Promis
     return { ok: false, error: e instanceof Error ? e.message : String(e) }
   }
 }
+
+// ── Вебхук (приём апдейтов: сбор участников + позже результаты опросов) ──────────
+
+async function tgCall(token: string, method: string, body: Record<string, unknown>): Promise<{ ok: boolean; result?: any; error?: string }> {
+  try {
+    const res = await fetch(`${TG_API}/bot${token}/${method}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    const data = (await res.json().catch(() => ({}))) as { ok?: boolean; description?: string; result?: unknown }
+    if (!res.ok || !data?.ok) return { ok: false, error: data?.description || `HTTP ${res.status}` }
+    return { ok: true, result: data.result }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) }
+  }
+}
+
+export function setTelegramWebhook(
+  token: string,
+  url: string,
+  secretToken: string,
+  allowedUpdates: string[],
+): Promise<{ ok: boolean; error?: string }> {
+  return tgCall(token, 'setWebhook', {
+    url,
+    secret_token: secretToken,
+    allowed_updates: allowedUpdates,
+    drop_pending_updates: false,
+  })
+}
+
+export function deleteTelegramWebhook(token: string): Promise<{ ok: boolean; error?: string }> {
+  return tgCall(token, 'deleteWebhook', { drop_pending_updates: false })
+}
+
+export async function getTelegramWebhookInfo(token: string): Promise<{ ok: boolean; url?: string; error?: string }> {
+  const r = await tgCall(token, 'getWebhookInfo', {})
+  if (!r.ok) return { ok: false, error: r.error }
+  return { ok: true, url: (r.result?.url as string) ?? '' }
+}
+
+// Список администраторов чата (единственный способ получить часть участников
+// мгновенно). Возвращает массив user-объектов (без ботов решает вызывающий).
+export async function getChatAdministrators(token: string, chatId: string | number): Promise<{ ok: boolean; admins?: any[]; error?: string }> {
+  const r = await tgCall(token, 'getChatAdministrators', { chat_id: chatId })
+  if (!r.ok) return { ok: false, error: r.error }
+  const admins = Array.isArray(r.result) ? r.result.map((m: any) => m.user).filter(Boolean) : []
+  return { ok: true, admins }
+}
