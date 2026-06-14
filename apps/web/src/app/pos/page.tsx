@@ -40,6 +40,16 @@ interface PlayerResult {
   photoUrl: string | null
 }
 
+// Игрок GoMafia в подборе (из /gomafia/search).
+interface PosGmPlayer {
+  gomafiaId: string
+  login: string
+  avatar: string | null
+  elo: number | null
+  clubTitle: string | null
+  inClub: boolean
+}
+
 interface SpaceResult {
   id: string
   name: string
@@ -249,7 +259,7 @@ function PosPageInner() {
   const createClient = useMutation({
     // POST /clients возвращает { client: {...} } — раньше читали .profile.id (undefined),
     // из-за чего открытие чека падало молча: клиент создавался, а чек не открывался.
-    mutationFn: (body: { nickname: string; clientTier: string }) =>
+    mutationFn: (body: { nickname: string; clientTier: string; fullName?: string; photoUrl?: string; searchTags?: string[] }) =>
       api.post<{ client: { id: string } }>('/clients', body),
   })
 
@@ -264,6 +274,11 @@ function PosPageInner() {
   const [selectedPlayer, setSelectedPlayer] = useState<PlayerResult | null>(null)
   const [newClientNick, setNewClientNick] = useState('')
   const [newClientTier, setNewClientTier] = useState('newbie')
+  // Подбор GoMafia в шаге «новый клиент».
+  const [posGmQuery, setPosGmQuery] = useState('')
+  const [posGmResults, setPosGmResults] = useState<any[]>([])
+  const [posGmLoading, setPosGmLoading] = useState(false)
+  const [posGmPicked, setPosGmPicked] = useState<{ gomafiaId: string; login: string; fullName: string | null; photoUrl: string | null } | null>(null)
   const [selectedTariffId, setSelectedTariffId] = useState<string | null>(null)
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -359,6 +374,33 @@ function PosPageInner() {
     }
   }, [searchQuery])
 
+  // Подбор GoMafia в шаге «новый клиент»: дебаунс-поиск (клуб → все игроки).
+  useEffect(() => {
+    if (newCheckStep !== 'new_client') return
+    const q = posGmQuery.trim()
+    if (q.length < 2) { setPosGmResults([]); setPosGmLoading(false); return }
+    setPosGmLoading(true)
+    const t = setTimeout(async () => {
+      try {
+        const r = await api.get<{ players: PosGmPlayer[] }>(`/gomafia/search?q=${encodeURIComponent(q)}`)
+        setPosGmResults(Array.isArray(r.players) ? r.players : [])
+      } catch { setPosGmResults([]) }
+      finally { setPosGmLoading(false) }
+    }, 350)
+    return () => clearTimeout(t)
+  }, [posGmQuery, newCheckStep])
+
+  async function pickPosGomafia(p: PosGmPlayer) {
+    setPosGmPicked({ gomafiaId: String(p.gomafiaId), login: p.login, fullName: null, photoUrl: p.avatar ?? null })
+    setNewClientNick(p.login || '')
+    setPosGmQuery('')
+    setPosGmResults([])
+    try {
+      const r = await api.get<{ player: { fullName?: string | null } }>(`/gomafia/player/${p.gomafiaId}`)
+      if (r.player?.fullName) setPosGmPicked(prev => (prev ? { ...prev, fullName: r.player.fullName ?? null } : prev))
+    } catch { /* имя необязательно */ }
+  }
+
   function openNewCheckModal() {
     setShowNewCheck(true)
     setNewCheckStep('search')
@@ -367,6 +409,9 @@ function PosPageInner() {
     setSelectedPlayer(null)
     setNewClientNick('')
     setNewClientTier('guest')
+    setPosGmQuery('')
+    setPosGmResults([])
+    setPosGmPicked(null)
   }
 
   function closeNewCheckModal() {
@@ -1128,12 +1173,70 @@ function PosPageInner() {
                   </div>
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                  {/* Поле 1 — поиск по GoMafia */}
                   <div>
                     <label style={{ display: 'block', marginBottom: 8, fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--on-surface-variant)' }}>
-                      Никнейм *
+                      Поиск в GoMafia
+                    </label>
+                    {posGmPicked ? (
+                      <div className="glass-l2" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 14, border: '1px solid rgba(139,92,246,0.3)' }}>
+                        {posGmPicked.photoUrl
+                          ? /* eslint-disable-next-line @next/next/no-img-element */ <img src={posGmPicked.photoUrl} alt="" width={36} height={36} style={{ width: 36, height: 36, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
+                          : <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'rgba(139,92,246,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Icon name="person" size={18} color="#a78bfa" /></div>}
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <p style={{ margin: 0, fontSize: 14, fontWeight: 700, color: 'var(--on-surface)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{posGmPicked.login}</p>
+                          <p style={{ margin: '2px 0 0', fontSize: 11, color: 'var(--on-surface-variant)' }}>GoMafia #{posGmPicked.gomafiaId}{posGmPicked.fullName ? ` · ${posGmPicked.fullName}` : ''}</p>
+                        </div>
+                        <button onClick={() => { setPosGmPicked(null) }} aria-label="Отвязать"
+                          style={{ width: 32, height: 32, borderRadius: 9, border: 'none', cursor: 'pointer', background: 'rgba(255,255,255,0.06)', color: 'var(--on-surface-variant)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                          <Icon name="close" size={16} />
+                        </button>
+                      </div>
+                    ) : (
+                      <>
+                        <input
+                          value={posGmQuery}
+                          onChange={e => setPosGmQuery(e.target.value)}
+                          placeholder="Ник игрока на GoMafia…"
+                          className="glass-l2"
+                          style={{ width: '100%', padding: '14px 16px', borderRadius: 14, border: '1px solid rgba(255,255,255,0.08)', color: 'var(--on-surface)', fontSize: 15, outline: 'none', background: 'none' }}
+                        />
+                        {posGmQuery.trim().length >= 2 && (
+                          <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 240, overflowY: 'auto' }}>
+                            {posGmLoading && <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: '4px 2px' }}>Поиск…</p>}
+                            {!posGmLoading && posGmResults.length === 0 && <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: '4px 2px' }}>Игроки не найдены</p>}
+                            {posGmResults.map(p => (
+                              <button key={p.gomafiaId} type="button" onClick={() => pickPosGomafia(p)} className="glass-l2"
+                                style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.08)', cursor: 'pointer', textAlign: 'left', width: '100%', background: 'none' }}>
+                                {p.avatar
+                                  ? /* eslint-disable-next-line @next/next/no-img-element */ <img src={p.avatar} alt="" width={34} height={34} style={{ width: 34, height: 34, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
+                                  : <div style={{ width: 34, height: 34, borderRadius: '50%', background: 'rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Icon name="person" size={18} color="var(--on-surface-variant)" /></div>}
+                                <div style={{ flex: 1, minWidth: 0 }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                    <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--on-surface)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.login}</span>
+                                    {p.inClub && <span style={{ fontSize: 9, fontWeight: 800, padding: '1px 6px', borderRadius: 5, background: 'rgba(139,92,246,0.2)', color: '#a78bfa', textTransform: 'uppercase', letterSpacing: '0.05em', flexShrink: 0 }}>клуб</span>}
+                                  </div>
+                                  <p style={{ margin: '1px 0 0', fontSize: 11, color: 'var(--on-surface-variant)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                    {p.clubTitle ? p.clubTitle : 'Без клуба'}{p.elo != null ? ` · ELO ${Math.round(p.elo)}` : ''}
+                                  </p>
+                                </div>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                        <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: '8px 2px 0', lineHeight: 1.4 }}>
+                          Сначала игроки вашего клуба, затем все игроки сайта.
+                        </p>
+                      </>
+                    )}
+                  </div>
+
+                  {/* Поле 2 — никнейм вручную (для тех, у кого нет GoMafia) */}
+                  <div>
+                    <label style={{ display: 'block', marginBottom: 8, fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--on-surface-variant)' }}>
+                      Никнейм * {posGmPicked ? '' : '(если нет GoMafia)'}
                     </label>
                     <input
-                      autoFocus
                       value={newClientNick}
                       onChange={e => setNewClientNick(e.target.value)}
                       placeholder="Имя игрока"
@@ -1160,7 +1263,15 @@ function PosPageInner() {
                   <button
                     onClick={async () => {
                       if (!newClientNick.trim()) return
-                      const clientRes = await createClient.mutateAsync({ nickname: newClientNick.trim(), clientTier: newClientTier })
+                      const body: { nickname: string; clientTier: string; fullName?: string; photoUrl?: string; searchTags?: string[] } = {
+                        nickname: newClientNick.trim(), clientTier: newClientTier,
+                      }
+                      if (posGmPicked) {
+                        body.searchTags = [`gomafia:${posGmPicked.gomafiaId}`]
+                        if (posGmPicked.photoUrl) body.photoUrl = posGmPicked.photoUrl
+                        if (posGmPicked.fullName) body.fullName = posGmPicked.fullName
+                      }
+                      const clientRes = await createClient.mutateAsync(body)
                       createCheck.mutate({ playerId: clientRes.client.id })
                     }}
                     disabled={!newClientNick.trim() || createClient.isPending || createCheck.isPending}
