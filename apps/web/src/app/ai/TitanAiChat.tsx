@@ -11,6 +11,7 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { Icon } from '@/components/Icon'
+import { TaiLogo } from '@/components/TaiLogo'
 
 type ActionKey =
   | 'revenue_summary' | 'shift_report' | 'product_analysis' | 'client_analysis'
@@ -44,22 +45,10 @@ function formatTime(ts: number) {
   return new Date(ts).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
 }
 
-function TypingDots() {
-  return (
-    <div style={{ display: 'flex', gap: 5, alignItems: 'center', padding: '2px 0' }}>
-      {[0, 1, 2].map(i => (
-        <span key={i} style={{ width: 7, height: 7, borderRadius: '50%', background: '#a78bfa', display: 'inline-block', animation: 'tai-dot 1.2s infinite ease-in-out', animationDelay: `${i * 0.18}s` }} />
-      ))}
-    </div>
-  )
-}
-
+// Аватарка ассистента в сообщениях — статичная искра (без нагрузки на десятках
+// сообщений). Фирменный знак Tai.
 function AssistantAvatar() {
-  return (
-    <div style={{ width: 30, height: 30, borderRadius: 10, background: 'linear-gradient(135deg, #8B5CF6, #4cd7f6)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, boxShadow: '0 2px 8px rgba(139,92,246,0.4)' }}>
-      <Icon name="titan_ai" size={17} color="#fff" />
-    </div>
-  )
+  return <TaiLogo size={30} animated={false} />
 }
 
 export function TitanAiChat() {
@@ -114,9 +103,7 @@ export function TitanAiChat() {
         <div style={{ maxWidth: 760, margin: '0 auto', width: '100%', padding: '16px 16px 8px', boxSizing: 'border-box' }}>
           {empty ? (
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: 18, padding: '24px 8px 8px' }}>
-              <div style={{ width: 64, height: 64, borderRadius: 20, background: 'linear-gradient(135deg, #8B5CF6, #4cd7f6)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 8px 28px rgba(139,92,246,0.45)' }}>
-                <Icon name="titan_ai" size={34} color="#fff" />
-              </div>
+              <TaiLogo size={84} />
               <div>
                 <h2 style={{ fontSize: 20, fontWeight: 800, margin: 0, letterSpacing: '-0.01em' }}>Чем помочь?</h2>
                 <p style={{ fontSize: 14, color: 'var(--on-surface-variant)', margin: '6px 0 0', lineHeight: 1.45, maxWidth: 360 }}>
@@ -153,9 +140,10 @@ export function TitanAiChat() {
                 )
               })}
               {isLoading && (
-                <div className="tai-msg" style={{ display: 'flex', gap: 9, alignItems: 'flex-end' }}>
-                  <AssistantAvatar />
-                  <div className="glass-l2" style={{ padding: '12px 16px', borderRadius: '18px 18px 18px 6px' }}><TypingDots /></div>
+                <div className="tai-msg" style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '2px 0' }}>
+                  <TaiLogo size={34} thinking float={false} />
+                  <span style={{ fontSize: 13, fontWeight: 700, background: 'linear-gradient(90deg,#a78bfa,#e0c3fc,#4cd7f6,#a78bfa)', backgroundSize: '200% 100%', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text', animation: 'tai-shimmer 2s linear infinite' }}>Tai думает…</span>
+                  <style>{`@keyframes tai-shimmer { to { background-position: 200% center } }`}</style>
                 </div>
               )}
             </div>
@@ -184,7 +172,7 @@ export function TitanAiChat() {
               onChange={e => setInput(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() } }}
               rows={1}
-              aria-label="Сообщение для TITAN AI"
+              aria-label="Сообщение для Tai"
               placeholder="Спросите что угодно о клубе…"
               disabled={isLoading}
               style={{ flex: 1, resize: 'none', maxHeight: 132, minHeight: 46, padding: '12px 14px', borderRadius: 16, border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(255,255,255,0.05)', color: 'var(--on-surface)', fontSize: 16, lineHeight: 1.4, outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit' }}

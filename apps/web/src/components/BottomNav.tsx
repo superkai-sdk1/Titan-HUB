@@ -2,6 +2,7 @@
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { Icon } from '@/components/Icon'
+import { TaiLogo } from '@/components/TaiLogo'
 import { useClubContext } from '@/components/ClubGate'
 import { NAV_PRIMARY, isNavActive, type NavItem as NavItemType } from '@/lib/nav'
 
@@ -133,7 +134,7 @@ export function BottomNav() {
         {/* CENTER FAB */}
         <button
           onClick={handleFAB}
-          aria-label={fabAi ? 'TITAN AI' : 'Новый чек'}
+          aria-label={fabAi ? 'Tai' : 'Новый чек'}
           style={{
             width: 52,
             height: 52,
@@ -160,7 +161,7 @@ export function BottomNav() {
             e.currentTarget.style.boxShadow = '0 4px 20px rgba(139,92,246,0.5), 0 0 0 3px rgba(29,26,36,0.8)'
           }}
         >
-          <Icon name={fabAi ? 'titan_ai' : 'add'} size={fabAi ? 24 : 26} color="#fff" />
+          {fabAi ? <TaiLogo size={30} float={false} /> : <Icon name="add" size={26} color="#fff" />}
         </button>
 
         {/* RIGHT tabs */}

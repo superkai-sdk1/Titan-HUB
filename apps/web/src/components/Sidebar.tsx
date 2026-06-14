@@ -4,6 +4,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import { useState } from 'react'
 import { useCurrentShift } from '@/hooks/useShift'
 import { Icon } from '@/components/Icon'
+import { TaiLogo } from '@/components/TaiLogo'
 import { useClubContext } from '@/components/ClubGate'
 import { NAV_PRIMARY, NAV_SHIFTS, isNavActive } from '@/lib/nav'
 
@@ -161,7 +162,7 @@ export function Sidebar() {
             return (
               <Link
                 href="/ai"
-                title={collapsed ? 'TITAN AI' : undefined}
+                title={collapsed ? 'Tai' : undefined}
                 aria-current={aiActive ? 'page' : undefined}
                 style={{
                   display: 'flex', alignItems: 'center', gap: collapsed ? 0 : 12,
@@ -171,11 +172,9 @@ export function Sidebar() {
                   border: '1px solid rgba(139,92,246,0.25)',
                 }}
               >
-                <div style={{ width: 30, height: 30, borderRadius: 9, background: 'linear-gradient(135deg, #8B5CF6, #4cd7f6)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, boxShadow: '0 2px 10px rgba(139,92,246,0.45)' }}>
-                  <Icon name="titan_ai" size={18} color="#fff" />
-                </div>
+                <TaiLogo size={30} float={false} />
                 {!collapsed && (
-                  <span style={{ fontSize: 14, fontWeight: 700, whiteSpace: 'nowrap', background: 'linear-gradient(135deg, #a78bfa, #4cd7f6)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>TITAN AI</span>
+                  <span style={{ fontSize: 14, fontWeight: 700, whiteSpace: 'nowrap', background: 'linear-gradient(135deg, #a78bfa, #4cd7f6)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>Tai</span>
                 )}
               </Link>
             )

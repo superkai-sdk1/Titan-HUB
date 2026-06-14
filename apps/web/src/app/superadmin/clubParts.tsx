@@ -50,7 +50,7 @@ export const MODULE_LABELS: Record<string, string> = {
   analytics: 'Аналитика',
   events: 'Мероприятия',
   notifications: 'Уведомления',
-  ai: 'TITAN AI',
+  ai: 'Tai (Titan AI)',
   platega: 'Оплата СБП (Platega)',
   // Инфраструктурные — в тогглах не показываем.
   system: 'Система',

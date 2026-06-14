@@ -9,6 +9,7 @@
  */
 import { useRouter } from 'next/navigation'
 import { Icon } from '@/components/Icon'
+import { TaiLogo } from '@/components/TaiLogo'
 import { TitanAiChat } from './TitanAiChat'
 
 export default function TitanAiPage() {
@@ -24,12 +25,10 @@ export default function TitanAiPage() {
         >
           <Icon name="arrow_back" size={18} />
         </button>
-        <div style={{ width: 36, height: 36, borderRadius: 11, background: 'linear-gradient(135deg, #8B5CF6, #4cd7f6)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, boxShadow: '0 4px 14px rgba(139,92,246,0.4)' }}>
-          <Icon name="titan_ai" size={21} color="#fff" />
-        </div>
+        <TaiLogo size={40} float={false} />
         <div style={{ minWidth: 0 }}>
-          <h1 style={{ fontSize: 18, fontWeight: 800, letterSpacing: '-0.01em', margin: 0, background: 'linear-gradient(135deg, #a78bfa, #4cd7f6)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', whiteSpace: 'nowrap' }}>TITAN AI</h1>
-          <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: '1px 0 0' }}>Ассистент на данных клуба</p>
+          <h1 style={{ fontSize: 18, fontWeight: 800, letterSpacing: '-0.01em', margin: 0, background: 'linear-gradient(135deg, #a78bfa, #4cd7f6)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', whiteSpace: 'nowrap' }}>Tai</h1>
+          <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: '1px 0 0' }}>Ассистент Titan AI на данных клуба</p>
         </div>
       </div>
 
