@@ -11,10 +11,10 @@ import { createBackup, listBackups, lastBackup, restoreNamed, restoreFromUpload,
 import { encryptSecret, decryptSecret, maskSecret, getClubIntegration } from '../../lib/secrets.js'
 import { readPollConfigs, writePollConfigs, postPollConfig, type PollConfig } from '../../lib/polls.js'
 import { recordPollPosted } from '../../lib/pollState.js'
-import { setTelegramWebhook, deleteTelegramWebhook, getTelegramWebhookInfo, getChatAdministrators } from '../../lib/telegram.js'
+import { setTelegramWebhook, deleteTelegramWebhook, getTelegramWebhookInfo, getChatAdministrators, getTelegramChat } from '../../lib/telegram.js'
 import { tgWebhookSecret, tgWebhookUrl } from '../../lib/tgWebhook.js'
 import { upsertRosterUser } from '../../lib/roster.js'
-import { listChats } from '../../lib/tgChats.js'
+import { listChats, recordChat } from '../../lib/tgChats.js'
 import { getBoolSetting } from '../../lib/appSettings.js'
 // Control-БД: резолв clubId на основном домене (c.var.club=null → ищем по db_name).
 import { getControlDb, clubs as ctrlClubs, eq as ceq } from '../../../../../packages/database/dist/control/index.js'
@@ -414,6 +414,9 @@ systemRouter.post('/polls/collect', requireAuth, requireRole('owner'), async (c)
     const configs = await readPollConfigs(db)
     const chatIds = Array.from(new Set(configs.map((x) => x.chatId).filter(Boolean)))
     for (const chatId of chatIds) {
+      // Сразу занести группу в список выбора (title/type), чтобы дропдаун не был пуст.
+      const chat = await getTelegramChat(token, chatId)
+      if (chat) await recordChat(db, chat).catch(() => {})
       const a = await getChatAdministrators(token, chatId)
       if (a.ok && a.admins) for (const u of a.admins) { if (await upsertRosterUser(db, u, chatId)) seeded++ }
     }

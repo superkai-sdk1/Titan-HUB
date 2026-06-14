@@ -107,6 +107,15 @@ export async function getChatAdministrators(token: string, chatId: string | numb
   return { ok: true, admins }
 }
 
+// Базовая инфо о чате (title/type) — чтобы сразу показать настроенные группы в
+// списке выбора, не дожидаясь активности. Возвращает null при любой ошибке.
+export async function getTelegramChat(token: string, chatId: string | number): Promise<{ id: string; title: string | null; type: string | null } | null> {
+  const r = await tgCall(token, 'getChat', { chat_id: chatId })
+  if (!r.ok || !r.result) return null
+  const res = r.result as any
+  return { id: String(res.id ?? chatId), title: (res.title as string) ?? null, type: (res.type as string) ?? null }
+}
+
 // Является ли пользователь админом/создателем чата (для гейта команд @all/@tvari).
 export async function isTelegramChatAdmin(token: string, chatId: string | number, userId: string | number): Promise<boolean> {
   const r = await tgCall(token, 'getChatMember', { chat_id: chatId, user_id: userId })

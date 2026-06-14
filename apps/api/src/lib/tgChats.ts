@@ -35,7 +35,7 @@ async function write(db: Database, map: ChatsMap): Promise<void> {
 
 // Зафиксировать группу/супергруппу (личку/каналы пропускаем). Пишем только при
 // новой группе или смене названия.
-export async function recordChat(db: Database, chat: { id?: number | string; title?: string; type?: string } | null | undefined): Promise<void> {
+export async function recordChat(db: Database, chat: { id?: number | string | null; title?: string | null; type?: string | null } | null | undefined): Promise<void> {
   if (!chat || chat.id == null) return
   const type = chat.type ?? null
   if (type === 'private') return // опросы — только в группы
