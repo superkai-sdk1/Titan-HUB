@@ -13,6 +13,9 @@ import { telLink, openContact } from '@/lib/contact'
 import { useRouter } from 'next/navigation'
 
 const GM_TAG_RE = /^gomafia:\d+$/
+// Скрытые «системные» теги (привязка GoMafia + ник GoMafia) — не показываем в поле
+// «Теги» и сохраняем при правках, чтобы не потерять.
+const MANAGED_TAG_RE = /^(gomafia:\d+|gmnick:)/
 const gomafiaIdOf = (c: any): string | null => {
   const t = (Array.isArray(c?.searchTags) ? c.searchTags : []).find((x: string) => GM_TAG_RE.test(x))
   return t ? t.split(':')[1] : null
@@ -406,7 +409,7 @@ export default function ClientsPage() {
       clientTier: selected.clientTier ?? 'guest',
     })
     // Тег gomafia:* управляется отдельным блоком — в поле «Теги» его не показываем.
-    setTagsInput(tags.filter(t => !GM_TAG_RE.test(t)).join(', '))
+    setTagsInput(tags.filter(t => !MANAGED_TAG_RE.test(t)).join(', '))
     setTgQr(null)
     setMode('edit')
   }
@@ -414,8 +417,8 @@ export default function ClientsPage() {
   function saveEdit() {
     if (!selected) return
     // Сохраняем привязку GoMafia (тег gomafia:*) — поле «Теги» её не затирает.
-    const manual = tagsInput.split(',').map(t => t.trim()).filter(Boolean).filter(t => !GM_TAG_RE.test(t))
-    const gm = (Array.isArray(selected.searchTags) ? selected.searchTags : []).filter((t: string) => GM_TAG_RE.test(t))
+    const manual = tagsInput.split(',').map(t => t.trim()).filter(Boolean).filter(t => !MANAGED_TAG_RE.test(t))
+    const gm = (Array.isArray(selected.searchTags) ? selected.searchTags : []).filter((t: string) => MANAGED_TAG_RE.test(t))
     const searchTags = [...manual, ...gm]
     update.mutate({
       id: selected.id,

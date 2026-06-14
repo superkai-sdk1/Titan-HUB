@@ -14,6 +14,7 @@ import { requireAuth, requireRole } from '../../middleware/auth.js'
 import { getCurrentShift } from '../shifts/shifts.service.js'
 import { notify, notifyClient } from '../notifications/push.js'
 import { maybePromoteToResident } from '../../lib/loyalty.js'
+import { profileNameCondition, profileTagCondition } from '../../lib/searchVariants.js'
 import { accrueBonusLot, spendBonusLots, getBonusExpiryDays } from '../../lib/bonusLots.js'
 import { getNumericSetting, LARGE_CHECK_KEY, DEFAULT_LARGE_CHECK, getBoolSetting, STAFF_DISCOUNT_KEY, STAFF_MAX_DISCOUNT_KEY, DEFAULT_STAFF_MAX_DISCOUNT } from '../../lib/appSettings.js'
 import { round2, computeRental, computeTotals } from '../../lib/money.js'
@@ -394,7 +395,6 @@ posRouter.get('/players/search', requireRole('owner', 'staff'), async (c) => {
   const db = c.var.db
   const q = c.req.query('q') ?? ''
   if (!q.trim()) return c.json({ players: [] })
-  const term = `%${q.toLowerCase()}%`
 
   const playerFields = {
     id: profiles.id,
@@ -411,16 +411,13 @@ posRouter.get('/players/search', requireRole('owner', 'staff'), async (c) => {
   // планшеты (role='tablet').
   const baseWhere = and(inArray(profiles.role, ['client', 'staff', 'owner']), isNull(profiles.deletedAt))
 
+  // Сквозной умный поиск (раскладка + транслитерация в обе стороны) по нику/имени/
+  // нику в Telegram (byNick — приоритет) и по тегам (byTags, вкл. ник GoMafia).
+  const nameCond = profileNameCondition(q)
+  const tagCond = profileTagCondition(q)
   const [byNick, byTags] = await Promise.all([
-    db.select(playerFields).from(profiles)
-      .where(and(baseWhere, sql`lower(${profiles.nickname}) like ${term}`))
-      .limit(20),
-    db.select(playerFields).from(profiles)
-      .where(and(baseWhere, sql`exists (
-        select 1 from unnest(${profiles.searchTags}) as tag
-        where lower(tag) like ${term}
-      )`))
-      .limit(20),
+    nameCond ? db.select(playerFields).from(profiles).where(and(baseWhere, nameCond)).limit(20) : Promise.resolve([] as any[]),
+    tagCond ? db.select(playerFields).from(profiles).where(and(baseWhere, tagCond)).limit(20) : Promise.resolve([] as any[]),
   ])
 
   // Дедупликация: byNick приоритетнее, потом byTags без дублей

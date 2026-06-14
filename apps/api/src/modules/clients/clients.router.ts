@@ -7,6 +7,7 @@ import {
   eq, and, isNull, isNotNull, ilike, or, desc, asc, sql, count, inArray,
 } from '@titan/database'
 import { ensureSystemStatuses } from '../../lib/statusTariffs.js'
+import { profileNameCondition, profileTagCondition } from '../../lib/searchVariants.js'
 
 // Роли, видимые в разделе «Клиенты». Сотрудники/владельцы — тоже клиенты (имеют
 // депозит/бонусы/тариф в том же профиле). Исключаем только планшеты.
@@ -122,12 +123,13 @@ clientsRouter.get('/', async (c) => {
     inArray(profiles.role, CLIENT_ROLES),
     archived ? isNotNull(profiles.deletedAt) : isNull(profiles.deletedAt),
     tier ? eq(profiles.clientTier, tier) : undefined,
+    // Сквозной умный поиск: ник / имя / ник в Telegram / теги (вкл. ник GoMafia),
+    // с учётом раскладки и транслитерации в обе стороны. + телефон по сырому запросу.
     search
       ? or(
-          ilike(profiles.nickname, `%${search}%`),
-          ilike(profiles.phone ?? '', `%${search}%`),
-          // Поиск и по тегам клиента (search_tags), как в /pos/players/search.
-          sql`exists (select 1 from unnest(${profiles.searchTags}) as tag where lower(tag) like ${`%${search.toLowerCase()}%`})`,
+          profileNameCondition(search),
+          profileTagCondition(search),
+          ilike(profiles.phone, `%${search}%`),
         )
       : undefined,
   )
@@ -472,8 +474,10 @@ clientsRouter.post(
     // Ручное фото (photo_url) и фото Telegram имеют приоритет — их не трогаем.
     const player = await gomafiaPlayer(gomafiaId).catch(() => null)
 
-    const tags = (me.searchTags ?? []).filter((t) => !GM_TAG_RE.test(t))
+    const tags = (me.searchTags ?? []).filter((t) => !GM_TAG_RE.test(t) && !t.startsWith('gmnick:'))
     tags.push(tag)
+    // Ник на GoMafia — отдельным скрытым тегом, чтобы клиент находился и по нему.
+    if (player?.login) tags.push(`gmnick:${player.login}`)
     const patch: Record<string, unknown> = { searchTags: tags, gomafiaPhotoUrl: player?.avatar ?? null }
     if (!me.fullName && player?.fullName) patch['fullName'] = player.fullName
 
@@ -483,13 +487,13 @@ clientsRouter.post(
   },
 )
 
-// Отвязать клиента от GoMafia (убираем тег gomafia:*; имя/фото не трогаем).
+// Отвязать клиента от GoMafia (убираем теги gomafia:* и gmnick:*; имя/фото не трогаем).
 clientsRouter.delete('/:id/gomafia-link', requireRole('owner', 'staff'), async (c) => {
   const db = c.var.db
   const id = c.req.param('id')
   const [me] = await db.select({ searchTags: profiles.searchTags }).from(profiles).where(eq(profiles.id, id)).limit(1)
   if (!me) return c.json({ error: 'Not found' }, 404)
-  const tags = (me.searchTags ?? []).filter((t) => !GM_TAG_RE.test(t))
+  const tags = (me.searchTags ?? []).filter((t) => !GM_TAG_RE.test(t) && !t.startsWith('gmnick:'))
   const [updated] = await db.update(profiles).set({ searchTags: tags, gomafiaPhotoUrl: null }).where(eq(profiles.id, id)).returning()
   const { pin, passwordHash, ...safe } = updated
   return c.json({ ok: true, client: safe })
