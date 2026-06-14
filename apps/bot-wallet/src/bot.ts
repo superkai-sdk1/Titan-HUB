@@ -44,9 +44,17 @@ type LinkVerify =
   | { ok: false; reason: 'malformed' | 'bad_signature' | 'expired' }
 
 function verifyLink(raw: string): LinkVerify {
-  const parts = raw.split('_')
-  if (parts.length !== 3) return { ok: false, reason: 'malformed' }
-  const [idB64, expB36, sig] = parts
+  // idB64 и sig — base64url (САМИ содержат '_' и '-'), поэтому payload НЕЛЬЗЯ делить
+  // по '_' (раньше split('_') ломал ~42% ссылок → «недействительна»). Парсим по
+  // ФИКСИРОВАННЫМ длинам: idB64=22, sig=16, между ними expB36. Формат:
+  // <idB64:22>_<expB36>_<sig:16>.
+  const ID_LEN = 22
+  const SIG_LEN = 16
+  if (raw.length < ID_LEN + SIG_LEN + 3) return { ok: false, reason: 'malformed' }
+  if (raw[ID_LEN] !== '_' || raw[raw.length - SIG_LEN - 1] !== '_') return { ok: false, reason: 'malformed' }
+  const idB64 = raw.slice(0, ID_LEN)
+  const sig = raw.slice(raw.length - SIG_LEN)
+  const expB36 = raw.slice(ID_LEN + 1, raw.length - SIG_LEN - 1)
   if (!idB64 || !expB36 || !sig) return { ok: false, reason: 'malformed' }
   if (!/^[0-9a-z]+$/.test(expB36)) return { ok: false, reason: 'malformed' }
   const exp = parseInt(expB36, 36)
