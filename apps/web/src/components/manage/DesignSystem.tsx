@@ -1,5 +1,6 @@
 'use client'
 import React, { useRef, useCallback, useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useRouter, usePathname } from 'next/navigation'
 import { motion, AnimatePresence, useMotionValue, useTransform, animate, PanInfo } from 'framer-motion'
 import { Icon } from '@/components/Icon'
@@ -162,6 +163,13 @@ export function Sheet({
     return () => { document.body.style.overflow = prev }
   }, [open])
 
+  // Рендерим через портал в document.body: иначе любой предок с transform/
+  // backdrop-filter (сплит-вью, pull-to-refresh) становится containing block для
+  // position:fixed → панель «прилипает» к длинной странице, а не к экрану, и до
+  // неё приходится скроллить. Портал в body привязывает fixed к вьюпорту.
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => { setMounted(true) }, [])
+
   const DISMISS_THRESHOLD = 110
   const DISMISS_VELOCITY = 600
   // Overlay затухает при свайпе-закрытии.
@@ -240,10 +248,14 @@ export function Sheet({
     else animate(dragY, 0, { type: 'spring', damping: 34, stiffness: 360 })
   }, [dragY, close])
 
+  // До монтирования (SSR/гидрация) портала нет — ничего не рендерим (модалка
+  // всё равно изначально закрыта).
+  if (!mounted) return null
+
   // ── Desktop variant: centered modal с адаптивной высотой ────────────────
   if (isDesktop) {
     const width = DESKTOP_WIDTHS[desktopSize]
-    return (
+    return createPortal(
       <AnimatePresence>
         {open && (
           <motion.div
@@ -320,12 +332,13 @@ export function Sheet({
             </motion.div>
           </motion.div>
         )}
-      </AnimatePresence>
+      </AnimatePresence>,
+      document.body,
     )
   }
 
   // ── Mobile variant: интерактивный bottom sheet (высота 1:1 с пальцем) ──────
-  return (
+  return createPortal(
     <AnimatePresence onExitComplete={() => animate(dragY, 0, { duration: 0 })}>
       {open && (
         <>
@@ -442,7 +455,8 @@ export function Sheet({
           </motion.div>
         </>
       )}
-    </AnimatePresence>
+    </AnimatePresence>,
+    document.body,
   )
 }
 
