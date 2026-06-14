@@ -10,6 +10,7 @@ import { updatesChannel } from '../../lib/realtime.js'
 import { createBackup, listBackups, lastBackup, restoreNamed, restoreFromUpload, rcloneConfigured } from '../../lib/backup.js'
 import { encryptSecret, decryptSecret, maskSecret, getClubIntegration } from '../../lib/secrets.js'
 import { readPollConfigs, writePollConfigs, postPollConfig, type PollConfig } from '../../lib/polls.js'
+import { recordPollPosted } from '../../lib/pollState.js'
 import { setTelegramWebhook, deleteTelegramWebhook, getTelegramWebhookInfo, getChatAdministrators } from '../../lib/telegram.js'
 import { tgWebhookSecret, tgWebhookUrl } from '../../lib/tgWebhook.js'
 import { upsertRosterUser } from '../../lib/roster.js'
@@ -300,6 +301,7 @@ const PollConfigSchema = z.object({
   threadId: z.number().int().nullable(),
   title: z.string().min(1).max(200),
   subtitleDay: z.string().max(64),
+  autoDay: z.boolean().optional(),
   subtitleTime: z.string().max(32),
   options: z.array(z.string().min(1).max(100)).min(2).max(10),
   weekdays: z.array(z.number().int().min(1).max(7)).max(7),
@@ -344,6 +346,7 @@ systemRouter.post(
     if (!token) return c.json({ error: 'Не задан токен бота опросов' }, 400)
     const r = await postPollConfig(token, cfg)
     if (!r.ok) return c.json({ error: r.error ?? 'Не удалось отправить опрос' }, 502)
+    if (r.pollId) await recordPollPosted(db, cfg.chatId, r.pollId, r.messageId ?? 0, cfg.threadId).catch(() => {})
     return c.json({ ok: true, messageId: r.messageId })
   },
 )

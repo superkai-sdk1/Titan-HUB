@@ -106,3 +106,27 @@ export async function getChatAdministrators(token: string, chatId: string | numb
   const admins = Array.isArray(r.result) ? r.result.map((m: any) => m.user).filter(Boolean) : []
   return { ok: true, admins }
 }
+
+// Является ли пользователь админом/создателем чата (для гейта команд @all/@tvari).
+export async function isTelegramChatAdmin(token: string, chatId: string | number, userId: string | number): Promise<boolean> {
+  const r = await tgCall(token, 'getChatMember', { chat_id: chatId, user_id: userId })
+  if (!r.ok) return false
+  const status = r.result?.status as string | undefined
+  return status === 'creator' || status === 'administrator'
+}
+
+// Отправить текстовое сообщение в чат/топик. Никогда не бросает.
+export async function sendTelegramMessage(
+  token: string,
+  chatId: string | number,
+  text: string,
+  opts?: { messageThreadId?: number | null; parseMode?: 'HTML' | 'Markdown' },
+): Promise<{ ok: boolean; error?: string }> {
+  return tgCall(token, 'sendMessage', {
+    chat_id: chatId,
+    text,
+    ...(opts?.messageThreadId ? { message_thread_id: opts.messageThreadId } : {}),
+    ...(opts?.parseMode ? { parse_mode: opts.parseMode } : {}),
+    disable_web_page_preview: true,
+  })
+}

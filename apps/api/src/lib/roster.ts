@@ -21,7 +21,8 @@ export interface RosterUser {
   username: string | null
   firstName: string | null
   lastName: string | null
-  chatId: string | null
+  chatId: string | null // последний чат, где видели
+  chatIds?: string[] // ВСЕ чаты, где видели (для @all/@tvari по конкретному чату)
   lastSeen: string // ISO
 }
 
@@ -68,20 +69,25 @@ export async function upsertRosterUser(
   const list = await readRoster(db)
   const now = Date.now()
   const idx = list.findIndex((r) => r.tgId === tgId)
+  const cid = chatId != null ? String(chatId) : null
+  const prevChatIds = idx >= 0 ? (list[idx]!.chatIds ?? (list[idx]!.chatId ? [list[idx]!.chatId!] : [])) : []
+  const chatIds = cid && !prevChatIds.includes(cid) ? [...prevChatIds, cid] : prevChatIds
   const next: RosterUser = {
     tgId,
     username: u.username ?? null,
     firstName: u.first_name ?? null,
     lastName: u.last_name ?? null,
-    chatId: chatId != null ? String(chatId) : (idx >= 0 ? list[idx]!.chatId : null),
+    chatId: cid ?? (idx >= 0 ? list[idx]!.chatId : null),
+    chatIds,
     lastSeen: new Date(now).toISOString(),
   }
 
   if (idx >= 0) {
     const cur = list[idx]!
     const seenMs = new Date(cur.lastSeen).getTime()
+    const newChat = cid != null && !prevChatIds.includes(cid) // увидели в новом чате — записать
     const sameMeta = cur.username === next.username && cur.firstName === next.firstName && cur.lastName === next.lastName && cur.chatId === next.chatId
-    if (sameMeta && !Number.isNaN(seenMs) && now - seenMs < REFRESH_MS) return false // троттлинг
+    if (!newChat && sameMeta && !Number.isNaN(seenMs) && now - seenMs < REFRESH_MS) return false // троттлинг
     list[idx] = next
   } else {
     list.push(next)
@@ -98,4 +104,13 @@ export async function upsertRosterUser(
 export async function listRoster(db: Database): Promise<RosterUser[]> {
   const list = await readRoster(db)
   return list.sort((a, b) => new Date(b.lastSeen).getTime() - new Date(a.lastSeen).getTime())
+}
+
+// Ростер конкретного чата (видели именно в этом чате) — для @all/@tvari.
+// Back-compat: у старых записей нет chatIds → сверяем по chatId.
+export async function listRosterForChat(db: Database, chatId: string): Promise<RosterUser[]> {
+  const list = await readRoster(db)
+  return list
+    .filter((u) => u.chatIds?.includes(chatId) || u.chatId === chatId)
+    .sort((a, b) => new Date(b.lastSeen).getTime() - new Date(a.lastSeen).getTime())
 }

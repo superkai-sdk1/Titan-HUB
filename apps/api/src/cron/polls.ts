@@ -1,6 +1,7 @@
 import { db, type Database } from '@titan/database'
 import { getClubIntegration } from '../lib/secrets.js'
 import { readPollConfigs, writePollConfigs, isPollDue, postPollConfig } from '../lib/polls.js'
+import { recordPollPosted } from '../lib/pollState.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Постинг регулярных опросов в Telegram. Вызывается планировщиком (index.ts)
@@ -34,6 +35,12 @@ export async function runPollsForDb(database: Database = db): Promise<void> {
     if (r.ok) {
       cfg.lastPostedAt = new Date().toISOString()
       changed = true
+      // Запоминаем как «последний опрос» чата (для @tvari).
+      if (r.pollId) {
+        await recordPollPosted(database, cfg.chatId, r.pollId, r.messageId ?? 0, cfg.threadId).catch((e) =>
+          console.error('[polls] recordPollPosted', e),
+        )
+      }
       console.log(`[polls] опрос «${cfg.title}» отправлен в ${cfg.chatId}${cfg.threadId ? `/${cfg.threadId}` : ''}`)
     } else {
       console.error(`[polls] не удалось отправить «${cfg.title}» (${cfg.chatId}): ${r.error}`)

@@ -24,8 +24,12 @@ export interface PollConfig {
   threadId: number | null
   /** Заголовок опроса, напр. «Спортивная мафия». */
   title: string
-  /** Подзаголовок: день недели события (статичный текст), напр. «Пятница». */
+  /** Подзаголовок: день недели события (статичный текст), напр. «Пятница».
+   *  Игнорируется, если autoDay=true (тогда подставляется день выкладки). */
   subtitleDay: string
+  /** Если true — день недели в подзаголовке = день ВЫКЛАДКИ опроса (сегодня, МСК),
+   *  а не статичный subtitleDay. */
+  autoDay?: boolean
   /** Подзаголовок: время события (статичный текст), напр. «20:00». */
   subtitleTime: string
   options: string[]
@@ -58,9 +62,22 @@ export async function writePollConfigs(db: Database, configs: PollConfig[]): Pro
   else await db.insert(appSettings).values({ key: POLL_CONFIGS_KEY, value })
 }
 
-// Текст вопроса опроса = «Заголовок\nПодзаголовок-день Подзаголовок-время».
-export function buildPollQuestion(cfg: PollConfig): string {
-  const sub = [cfg.subtitleDay, cfg.subtitleTime].map((s) => (s ?? '').trim()).filter(Boolean).join(' ')
+// Русские названия дней недели (1=Пн..7=Вс).
+const RU_WEEKDAYS = ['Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота', 'Воскресенье']
+
+// День недели момента nowMs по МСК (UTC+3), напр. «Среда».
+export function russianWeekday(nowMs: number): string {
+  const d = new Date(nowMs + 3 * 3600 * 1000)
+  const js = d.getUTCDay() // 0=Вс..6=Сб
+  const idx = js === 0 ? 6 : js - 1 // 0=Пн..6=Вс
+  return RU_WEEKDAYS[idx]!
+}
+
+// Текст вопроса = «Заголовок\nДень Время». День: автоматический (день выкладки,
+// nowMs) при autoDay=true, иначе статичный subtitleDay.
+export function buildPollQuestion(cfg: PollConfig, nowMs: number = Date.now()): string {
+  const day = cfg.autoDay ? russianWeekday(nowMs) : (cfg.subtitleDay ?? '').trim()
+  const sub = [day, (cfg.subtitleTime ?? '').trim()].filter(Boolean).join(' ')
   return sub ? `${cfg.title}\n${sub}` : cfg.title
 }
 

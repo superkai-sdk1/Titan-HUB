@@ -26,6 +26,7 @@ interface PollConfig {
   threadId: number | null
   title: string
   subtitleDay: string
+  autoDay?: boolean
   subtitleTime: string
   options: string[]
   weekdays: number[] // 1=Пн..7=Вс — ДНИ ПОСТИНГА
@@ -56,13 +57,13 @@ function buildDefaults(): PollConfig[] {
     {
       id: crypto.randomUUID(), kind: 'sport', enabled: false,
       chatId: '-1001281350483', threadId: 127961,
-      title: 'Спортивная мафия', subtitleDay: 'Пятница', subtitleTime: '20:00',
+      title: 'Спортивная мафия', subtitleDay: 'Пятница', autoDay: true, subtitleTime: '20:00',
       options: [...DEFAULT_OPTIONS], weekdays: [], postTime: '10:00',
     },
     {
       id: crypto.randomUUID(), kind: 'city', enabled: false,
       chatId: '-1002018963369', threadId: 67316,
-      title: 'Городская мафия', subtitleDay: '', subtitleTime: '',
+      title: 'Городская мафия', subtitleDay: '', autoDay: true, subtitleTime: '',
       options: [...DEFAULT_OPTIONS], weekdays: [], postTime: '10:00',
     },
   ]
@@ -72,7 +73,7 @@ function emptyConfig(): PollConfig {
   return {
     id: crypto.randomUUID(), kind: 'custom', enabled: false,
     chatId: '', threadId: null,
-    title: '', subtitleDay: '', subtitleTime: '',
+    title: '', subtitleDay: '', autoDay: true, subtitleTime: '',
     options: [...DEFAULT_OPTIONS], weekdays: [], postTime: '10:00',
   }
 }
@@ -331,6 +332,16 @@ export default function PollsPage() {
             <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: 0, lineHeight: 1.5 }}>
               Бот собирает тех, кто голосует в опросах и пишет в чат (бот должен быть админом). Полный список участников Telegram не отдаёт — список пополняется по мере активности. Сопоставление — в карточке клиента, кнопка «Сопоставить из чата».
             </p>
+            <div style={{ padding: '10px 12px', borderRadius: 12, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
+              <p style={{ fontSize: 12, fontWeight: 600, margin: '0 0 6px', color: 'var(--on-surface)' }}>Команды бота в чате (для админов):</p>
+              <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: 0, lineHeight: 1.6 }}>
+                <b style={{ color: 'var(--on-surface)' }}>@all</b> — отметить всех известных участников чата.<br />
+                <b style={{ color: 'var(--on-surface)' }}>@tvari</b> — отметить тех, кто не проголосовал в последнем опросе.
+              </p>
+              <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: '6px 0 0', lineHeight: 1.4 }}>
+                Работают, когда сбор включён и бот — админ чата. Отмечаются только «увиденные» ботом участники.
+              </p>
+            </div>
           </div>
         </SectionGroup>
 
@@ -380,13 +391,24 @@ export default function PollsPage() {
                   </Button>
                 </div>
 
-                {/* Подзаголовки */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                  <FormField label="Подзаголовок — день">
-                    <input style={INP} value={c.subtitleDay}
-                      onChange={e => patchConfig(c.id, { subtitleDay: e.target.value })}
-                      placeholder="Пятница" />
-                  </FormField>
+                {/* Подзаголовок: день (авто/статичный) + время */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+                  <div style={{ minWidth: 0 }}>
+                    <p style={{ ...LBL, margin: 0 }}>День недели — по дню выкладки</p>
+                    <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: '2px 0 0', lineHeight: 1.4 }}>
+                      Авто-подстановка (Пн–Вс) в день отправки опроса.
+                    </p>
+                  </div>
+                  <Toggle value={c.autoDay !== false} onChange={v => patchConfig(c.id, { autoDay: v })} ariaLabel="Авто день недели" />
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: c.autoDay !== false ? '1fr' : '1fr 1fr', gap: 12 }}>
+                  {c.autoDay === false && (
+                    <FormField label="Подзаголовок — день">
+                      <input style={INP} value={c.subtitleDay}
+                        onChange={e => patchConfig(c.id, { subtitleDay: e.target.value })}
+                        placeholder="Пятница" />
+                    </FormField>
+                  )}
                   <FormField label="Подзаголовок — время">
                     <input style={INP} value={c.subtitleTime}
                       onChange={e => patchConfig(c.id, { subtitleTime: e.target.value })}
@@ -394,7 +416,9 @@ export default function PollsPage() {
                   </FormField>
                 </div>
                 <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: '-8px 0 0', lineHeight: 1.45 }}>
-                  Показывается в опросе под заголовком (статичный текст).
+                  {c.autoDay !== false
+                    ? 'Напр.: «Спортивная мафия / Среда 20:00» — день = день выкладки.'
+                    : 'Показывается в опросе под заголовком (статичный текст).'}
                 </p>
 
                 {/* Варианты ответов */}
