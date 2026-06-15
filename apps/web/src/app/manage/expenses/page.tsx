@@ -2,9 +2,9 @@
 import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 
-// Экран «Расходы» переехал во вкладку аналитики (/dashboard?tab=expenses).
+// Экран «Расходы» переехал во вкладку раздела «Склад» (/manage/inventory?tab=expenses).
 export default function ExpensesRedirect() {
   const router = useRouter()
-  useEffect(() => { router.replace('/dashboard?tab=expenses') }, [router])
+  useEffect(() => { router.replace('/manage/inventory?tab=expenses') }, [router])
   return null
 }

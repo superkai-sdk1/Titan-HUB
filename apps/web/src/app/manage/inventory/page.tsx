@@ -16,8 +16,30 @@ import { ru } from 'date-fns/locale'
 import { ItemsTab, type ItemsFilter } from './tabs/ItemsTab'
 import { SuppliesTab } from './tabs/SuppliesTab'
 import { RevisionTab } from './tabs/RevisionTab'
+import { ExpensesTab } from '@/app/dashboard/ExpensesTab'
 
-type Tab = 'items' | 'supplies' | 'revision'
+type Tab = 'items' | 'supplies' | 'revision' | 'expenses'
+
+// Дата по МСК (YYYY-MM-DD) со сдвигом на N дней назад — для периода расходов.
+function mskDate(daysAgo: number): string {
+  return new Date(Date.now() + 3 * 3600 * 1000 - daysAgo * 86400000).toISOString().slice(0, 10)
+}
+function monthStart(): string {
+  const d = new Date(Date.now() + 3 * 3600 * 1000)
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-01`
+}
+type ExpPreset = 'today' | 'week' | 'month' | 'd30'
+const EXP_PRESETS: { key: ExpPreset; label: string }[] = [
+  { key: 'today', label: 'Сегодня' }, { key: 'week', label: 'Неделя' },
+  { key: 'month', label: 'Месяц' }, { key: 'd30', label: '30 дней' },
+]
+function expRange(p: ExpPreset): { from: string; to: string } {
+  const to = mskDate(0)
+  if (p === 'today') return { from: to, to }
+  if (p === 'week') return { from: mskDate(6), to }
+  if (p === 'month') return { from: monthStart(), to }
+  return { from: mskDate(29), to }
+}
 
 interface Overview {
   stockValue: number
@@ -33,9 +55,10 @@ const TABS: { key: Tab; label: string; icon: string }[] = [
   { key: 'items',    label: 'Остатки',  icon: 'inventory_2' },
   { key: 'supplies', label: 'Поставки', icon: 'local_shipping' },
   { key: 'revision', label: 'Ревизия',  icon: 'fact_check' },
+  { key: 'expenses', label: 'Расходы',  icon: 'receipt_long' },
 ]
 
-function isTab(v: string | null): v is Tab { return v === 'items' || v === 'supplies' || v === 'revision' }
+function isTab(v: string | null): v is Tab { return v === 'items' || v === 'supplies' || v === 'revision' || v === 'expenses' }
 
 function KpiCard({ icon, color, value, label, onClick, active }: { icon: string; color: string; value: string; label: string; onClick?: () => void; active?: boolean }) {
   const clickable = !!onClick
@@ -65,6 +88,7 @@ function StockHub() {
   const router = useRouter()
   const { attempt } = useUnsavedGuard()
   const [tab, setTab] = useState<Tab>('items')
+  const [expPreset, setExpPreset] = useState<ExpPreset>('d30')
   const [itemsFilter, setItemsFilter] = useState<ItemsFilter>('all')
 
   // Вкладка в URL (?tab=) — без next/navigation, чтобы не требовать Suspense.
@@ -91,7 +115,7 @@ function StockHub() {
     ? ov.lowStockCount + ov.outOfStockCount > 0
       ? `${ov.lowStockCount} мало · ${ov.outOfStockCount} нет в наличии`
       : 'Остатки в норме'
-    : 'Остатки · поставки · ревизия'
+    : 'Остатки · поставки · ревизия · расходы'
 
   function goItems(f: ItemsFilter) { setItemsFilter(f); changeTab('items') }
 
@@ -146,6 +170,23 @@ function StockHub() {
         {tab === 'items' && <ItemsTab filter={itemsFilter} setFilter={setItemsFilter} />}
         {tab === 'supplies' && <SuppliesTab />}
         {tab === 'revision' && <RevisionTab />}
+        {tab === 'expenses' && (() => {
+          const { from, to } = expRange(expPreset)
+          return (
+            <div>
+              {/* Период расходов */}
+              <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 2, marginBottom: 14 }}>
+                {EXP_PRESETS.map(p => (
+                  <button key={p.key} onClick={() => setExpPreset(p.key)}
+                    style={{ flexShrink: 0, fontSize: 12, fontWeight: 700, padding: '6px 12px', borderRadius: 999, cursor: 'pointer', border: '1px solid ' + (expPreset === p.key ? 'rgba(139,92,246,0.5)' : 'rgba(255,255,255,0.1)'), background: expPreset === p.key ? 'rgba(139,92,246,0.18)' : 'rgba(255,255,255,0.04)', color: expPreset === p.key ? '#a78bfa' : 'var(--on-surface-variant)' }}>
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+              <ExpensesTab from={from} to={to} />
+            </div>
+          )
+        })()}
       </div>
     </div>
   )

@@ -10,7 +10,6 @@ import { ru } from 'date-fns/locale'
 import { useCountUp } from '@/hooks/useCountUp'
 import { StateView } from '@/components/StateView'
 import { Chip } from '@/components/manage/DesignSystem'
-import { ExpensesTab } from './ExpensesTab'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 type MainTab = 'overview' | 'finance' | 'expenses' | 'games' | 'bar' | 'players' | 'staff'
@@ -1725,7 +1724,7 @@ export default function DashboardPage() {
   // Читаем window.location в useEffect (без next/navigation useSearchParams,
   // чтобы не требовать Suspense-границу).
   useEffect(() => {
-    const TAB_KEYS: MainTab[] = ['overview', 'finance', 'expenses', 'games', 'bar', 'players', 'staff']
+    const TAB_KEYS: MainTab[] = ['overview', 'finance', 'games', 'bar', 'players', 'staff']
     const tab = new URLSearchParams(window.location.search).get('tab')
     if (tab && (TAB_KEYS as string[]).includes(tab)) setActiveTab(tab as MainTab)
   }, [])
@@ -1765,7 +1764,6 @@ export default function DashboardPage() {
   const TABS = [
     { key: 'overview' as MainTab, label: 'Обзор',          icon: 'dashboard' },
     { key: 'finance'  as MainTab, label: 'Финансы',        icon: 'payments' },
-    { key: 'expenses' as MainTab, label: 'Расходы',        icon: 'receipt_long' },
     { key: 'games'    as MainTab, label: 'Игры и тарифы',  icon: 'confirmation_number' },
     { key: 'bar'      as MainTab, label: 'Бар',            icon: 'inventory_2' },
     { key: 'players'  as MainTab, label: 'Игроки',         icon: 'group' },
@@ -1814,7 +1812,6 @@ export default function DashboardPage() {
           <div style={{ padding: '16px clamp(16px, 2vw, 24px) var(--bottom-nav-clear)', width: '100%', maxWidth: 'var(--content-wide)', margin: '0 auto', boxSizing: 'border-box' }}>
             {activeTab === 'overview'  && (overview ? <OverviewTab overview={overview} periodText={period.label} /> : ovError ? <StateView state="error" description="Не удалось загрузить аналитику." action={{ label: 'Повторить', onClick: () => refetchOv() }} /> : <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}><Skeleton h={156} /><SkeletonCards /></div>)}
             {activeTab === 'finance'   && <FinanceTab from={period.from} to={period.to} />}
-            {activeTab === 'expenses'  && <ExpensesTab from={period.from} to={period.to} />}
             {activeTab === 'games'     && <TariffsTab from={period.from} to={period.to} />}
             {activeTab === 'bar'       && <ProductsTab products={products} from={period.from} to={period.to} />}
             {activeTab === 'players'   && <PlayersTab clients={clients} />}
