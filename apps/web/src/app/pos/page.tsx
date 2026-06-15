@@ -239,8 +239,10 @@ function PosPageInner() {
     const el = gridRef.current
     if (!el) return
     const calc = () => {
+      // По ширине контейнера. Порог «2 колонки» низкий (≥280): на телефоне грид
+      // ~290–360px (вьюпорт минус паддинги), и при пороге 380 он падал в 1 колонку.
       const w = el.clientWidth
-      setCols(w >= 1040 ? 4 : w >= 720 ? 3 : w >= 380 ? 2 : 1)
+      setCols(w >= 980 ? 4 : w >= 620 ? 3 : w >= 280 ? 2 : 1)
     }
     calc()
     const ro = new ResizeObserver(calc)
