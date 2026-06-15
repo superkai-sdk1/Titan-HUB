@@ -347,8 +347,11 @@ function PosPageInner() {
   const [rightClosing, setRightClosing] = useState(false)
   const closeRightPanel = useCallback(() => {
     setRightClosing(true)
+    // Чек могли удалить/оплатить в панели — сразу обновляем сетку и сводку смены.
+    qc.invalidateQueries({ queryKey: ['checks'] })
+    qc.invalidateQueries({ queryKey: ['pos', 'shift-summary'] })
     setTimeout(() => { setRightClosing(false); setActiveCheckId(null) }, 200)
-  }, [])
+  }, [qc])
 
   // Close shift modal state
   const [showCloseShift, setShowCloseShift] = useState(false)
@@ -479,6 +482,14 @@ function PosPageInner() {
 
   const checks = checksData?.checks ?? []
   const prechecks = prechecksData?.prechecks ?? []
+
+  // Карточка смены должна пересчитываться сразу при изменении набора/сумм открытых
+  // чеков (удаление/оплата/добавление позиции), а не раз в 30с. Подпись по чекам
+  // (id+сумма+кол-во позиций) меняется → инвалидируем сводку смены.
+  const checksSig = checks.map(c => `${c.id}:${c.totalAmount}:${c.itemCount}`).join('|')
+  useEffect(() => {
+    qc.invalidateQueries({ queryKey: ['pos', 'shift-summary'] })
+  }, [checksSig, qc])
 
   // «Пульс» карточки чека: непрочитанное обращение гостя (чат / вызов / заказ /
   // запрос счёта). staff_call привязан к пространству (без checkId), остальные — к чеку.

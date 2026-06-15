@@ -855,6 +855,9 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
     onSuccess: () => {
       setConfirmCancel(false)
       qc.invalidateQueries({ queryKey: ['checks', 'active'] })
+      // Список чеков кассы + сводка смены (карточка «Смена») — пересчитать сразу.
+      qc.invalidateQueries({ queryKey: ['checks'] })
+      qc.invalidateQueries({ queryKey: ['pos', 'shift-summary'] })
       if (onClose) onClose()
       else onBack()
     },
