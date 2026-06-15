@@ -231,6 +231,15 @@ function PosPageInner() {
   })
   const [showShiftDetail, setShowShiftDetail] = useState(false)
 
+  // Число колонок masonry-сетки чеков: 2 на телефоне, шире на больших экранах.
+  const [cols, setCols] = useState(2)
+  useEffect(() => {
+    const calc = () => { const w = window.innerWidth; setCols(w >= 1280 ? 4 : w >= 1024 ? 3 : 2) }
+    calc()
+    window.addEventListener('resize', calc)
+    return () => window.removeEventListener('resize', calc)
+  }, [])
+
   const { show: showToast } = useToast()
 
   const createCheck = useMutation({
@@ -547,62 +556,40 @@ function PosPageInner() {
       <div className="pos-cards-wrap" style={{ flex: 1 }}>
         <div className="pos-cards-grid">
         <style>{`
-          .pos-cards-wrap { padding: 8px 12px 12px; }
-          /* Masonry-сетка: карточки разной высоты без «дыр» (CSS columns). 2 колонки
-             на телефоне, шире на больших экранах. Высота каждой карточки — по контенту
-             (число позиций). Вертикальный зазор — margin-bottom у самих карточек. */
-          .pos-cards-grid {
-            column-count: 2;
-            column-gap: 8px;
-            padding-bottom: calc(16px + var(--bottom-nav-clear, 0px));
-          }
-          .pos-cards-grid > * {
-            width: 100%;
-            margin: 0 0 8px;
-            break-inside: avoid;
-            -webkit-column-break-inside: avoid;
-          }
-          .pos-check-card { padding: 11px; }
-          .pos-check-card .card-avatar { width: 30px; height: 30px; font-size: 11px; }
-          .pos-check-card .card-name { font-size: 12.5px; }
+          /* Masonry со смещением правой колонки (стиль Apple «Воспоминания»):
+             раскладку строит MasonryColumns (flex-колонки), здесь — облик карточек:
+             крупные скругления, воздух, мягкий фон. Высота — по числу позиций. */
+          .pos-cards-wrap { padding: 10px 14px calc(20px + var(--bottom-nav-clear, 0px)); }
+          .pos-check-card { padding: 14px; border-radius: 24px !important; }
+          .pos-check-card .card-avatar { width: 32px; height: 32px; font-size: 11px; }
+          .pos-check-card .card-name { font-size: 13px; }
           .pos-check-card .card-space { font-size: 10px; }
-          .pos-check-card .card-amount { font-size: 22px; }
-          .pos-check-card .card-line { font-size: 11px; }
-          .pos-check-card .card-top { margin-bottom: 9px; gap: 8px; }
+          .pos-check-card .card-amount { font-size: 23px; }
+          .pos-check-card .card-line { font-size: 11.5px; }
+          .pos-check-card .card-top { margin-bottom: 10px; gap: 9px; }
           @media (min-width: 480px) {
-            .pos-cards-grid { column-gap: 12px; }
-            .pos-cards-grid > * { margin-bottom: 12px; }
-            .pos-check-card { padding: 13px; }
-            .pos-check-card .card-avatar { width: 34px; height: 34px; font-size: 12px; }
-            .pos-check-card .card-amount { font-size: 24px; }
+            .pos-check-card { padding: 16px; }
+            .pos-check-card .card-avatar { width: 36px; height: 36px; font-size: 12px; }
+            .pos-check-card .card-amount { font-size: 25px; }
             .pos-check-card .card-line { font-size: 12px; }
           }
           @media (min-width: 1024px) {
-            .pos-cards-wrap { padding: 0 32px 16px; }
-            .pos-cards-grid {
-              column-count: auto;
-              column-width: 250px;
-              column-gap: 20px;
-              padding-bottom: 24px;
-              max-width: var(--content-wide);
-              margin: 0 auto;
-            }
-            .pos-cards-grid > * { margin-bottom: 20px; }
-            .pos-check-card { padding: 15px; border-radius: 20px !important; }
-            .pos-check-card .card-avatar { width: 38px; height: 38px; font-size: 13px; }
+            .pos-cards-wrap { padding: 0 32px 24px; max-width: var(--content-wide); margin: 0 auto; }
+            .pos-check-card { padding: 18px; border-radius: 28px !important; }
+            .pos-check-card .card-avatar { width: 40px; height: 40px; font-size: 13px; }
             .pos-check-card .card-amount { font-size: 28px; }
             .pos-check-card .card-line { font-size: 12.5px; }
-            .pos-check-card .card-top { margin-bottom: 12px; gap: 10px; }
+            .pos-check-card .card-top { margin-bottom: 13px; gap: 11px; }
           }
         `}</style>
 
-          {/* Skeleton loading */}
-          {isLoading && Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="skeleton" style={{ height: 160, borderRadius: 20 }} />
-          ))}
-
-          {/* Check cards */}
-          {checks.map((check, idx) => {
+          <MasonryColumns cols={cols} items={([
+            // Скелетоны при загрузке
+            ...(isLoading ? Array.from({ length: 6 }).map((_, i) => (
+              <div key={`sk${i}`} className="skeleton" style={{ height: 120 + (i % 3) * 44, borderRadius: 24 }} />
+            )) : []),
+            // Открытые чеки
+            ...checks.map((check, idx) => {
             const warn = isWarning(check.createdAt, now)
             const timerColor = getTimerColor(check.createdAt, now)
             const isActive = activeCheckId === check.id
@@ -713,11 +700,9 @@ function PosPageInner() {
                 )}
               </button>
             )
-          })}
-
-          {/* Предчеки — отметившиеся «Да»/«Опоздаю» в опросе вечера. Полупрозрачные,
-              с переливающимся ИИ-фоном; долгое нажатие → открытый чек по тарифу. */}
-          {prechecks.map((pc) => {
+          }),
+            // Предчеки — тот же стиль карточки (ИИ-фон, тариф как позиция)
+            ...prechecks.map((pc) => {
             const holding = holdingId === pc.playerId
             const price = parseFloat(String(pc.tariffPrice ?? 0)) || 0
             return (
@@ -777,67 +762,46 @@ function PosPageInner() {
                 {holding && <div style={{ position: 'absolute', bottom: 0, left: 0, height: 3, background: 'linear-gradient(90deg,#A07DFF,#4cd7f6)', animation: 'tai-hold 0.6s linear forwards' }} />}
               </div>
             )
-          })}
+          }),
+            // Карточка смены — предпоследняя (перед «Новый чек»)
+            ...(!shiftLoading ? [(
+              <ShiftCard
+                key="shift-card"
+                shift={shift}
+                summary={shiftSummary}
+                onOpen={() => setShowOpenShift(true)}
+                onCloseShift={() => setShowCloseShift(true)}
+                onDetail={() => setShowShiftDetail(true)}
+              />
+            )] : []),
+            // Новый чек — последняя карточка
+            ...((shift && !isLoading) ? [(
+              <button
+                key="new-check"
+                onClick={openNewCheckModal}
+                style={{
+                  borderRadius: 24,
+                  padding: 14,
+                  cursor: 'pointer',
+                  background: 'rgba(139,92,246,0.03)',
+                  border: '1.5px dashed rgba(139,92,246,0.3)',
+                  display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                  gap: 10, minHeight: 100, transition: 'all 0.2s',
+                }}
+                onMouseEnter={e => { e.currentTarget.style.background = 'rgba(139,92,246,0.08)'; e.currentTarget.style.borderColor = 'rgba(139,92,246,0.6)' }}
+                onMouseLeave={e => { e.currentTarget.style.background = 'rgba(139,92,246,0.03)'; e.currentTarget.style.borderColor = 'rgba(139,92,246,0.3)' }}
+              >
+                <div style={{ width: 40, height: 40, borderRadius: '50%', background: 'linear-gradient(135deg, rgba(139,92,246,0.25), rgba(76,215,246,0.25))', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <Icon name="add" size={22} color="#A78BFA" />
+                </div>
+                <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', color: '#A78BFA' }}>
+                  НОВЫЙ ЧЕК
+                </span>
+              </button>
+            )] : []),
+          ]).filter(Boolean)} />
           {prechecks.length > 0 && (
             <style>{`@keyframes tai-precheck-bg{0%{background-position:0% 50%}50%{background-position:100% 50%}100%{background-position:0% 50%}}@keyframes tai-precheck-sheen{0%{background-position:220% 0}100%{background-position:-60% 0}}@keyframes tai-hold{from{width:0}to{width:100%}}`}</style>
-          )}
-
-          {/* Карточка смены — предпоследняя (после чеков/предчеков, перед «новый чек») */}
-          {!shiftLoading && (
-            <ShiftCard
-              shift={shift}
-              summary={shiftSummary}
-              onOpen={() => setShowOpenShift(true)}
-              onCloseShift={() => setShowCloseShift(true)}
-              onDetail={() => setShowShiftDetail(true)}
-            />
-          )}
-
-          {/* New check slot */}
-          {shift && !isLoading && (
-            <button
-              onClick={openNewCheckModal}
-              style={{
-                borderRadius: 20,
-                padding: 14,
-                cursor: 'pointer',
-                background: 'rgba(139,92,246,0.03)',
-                border: '1.5px dashed rgba(139,92,246,0.3)',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 10,
-                minHeight: 80,
-                transition: 'all 0.2s',
-              }}
-              onMouseEnter={e => {
-                e.currentTarget.style.background = 'rgba(139,92,246,0.08)'
-                e.currentTarget.style.borderColor = 'rgba(139,92,246,0.6)'
-              }}
-              onMouseLeave={e => {
-                e.currentTarget.style.background = 'rgba(139,92,246,0.03)'
-                e.currentTarget.style.borderColor = 'rgba(139,92,246,0.3)'
-              }}
-            >
-              <div style={{
-                width: 40, height: 40, borderRadius: '50%',
-                background: 'linear-gradient(135deg, rgba(139,92,246,0.25), rgba(76,215,246,0.25))',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-              }}>
-                <Icon name="add" size={22} color="#A78BFA" />
-              </div>
-              <span style={{
-                fontFamily: "'JetBrains Mono', monospace",
-                fontSize: 11,
-                fontWeight: 700,
-                textTransform: 'uppercase',
-                letterSpacing: '0.1em',
-                color: '#A78BFA',
-              }}>
-                НОВЫЙ ЧЕК
-              </span>
-            </button>
           )}
         </div>
       </div>
@@ -1530,6 +1494,24 @@ export default function PosPage() {
 }
 
 const fmtRub = (n: number) => `${Math.round(n || 0).toLocaleString('ru')} ₽`
+
+/* ─── Masonry-раскладка со смещением правой колонки (стиль Apple «Воспоминания») ─
+   Карточки раздаются по колонкам по кругу (i % cols), нечётные колонки сдвинуты
+   вниз на offset — отсюда «шахматный» ритм. Высота колонок — по контенту. */
+function MasonryColumns({ cols, items, gap = 12, offset = 34 }: { cols: number; items: React.ReactNode[]; gap?: number; offset?: number }) {
+  const n = Math.max(1, cols)
+  const columns: React.ReactNode[][] = Array.from({ length: n }, () => [])
+  items.forEach((node, i) => { columns[i % n].push(node) })
+  return (
+    <div style={{ display: 'flex', gap, alignItems: 'flex-start' }}>
+      {columns.map((col, ci) => (
+        <div key={ci} style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap, marginTop: n > 1 && ci % 2 === 1 ? offset : 0 }}>
+          {col}
+        </div>
+      ))}
+    </div>
+  )
+}
 
 /* ─── Карточка смены в кассе ──────────────────────────────────────────────── */
 function ShiftCard({ shift, summary, onOpen, onCloseShift, onDetail }: {
