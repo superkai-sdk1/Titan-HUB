@@ -4,7 +4,7 @@ import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import {
-  checks, checkItems, checkPayments, checkDiscounts, inventory, menuCategories, profiles, shifts, expenses, events,
+  checks, checkItems, checkPayments, checkDiscounts, inventory, menuCategories, profiles, shifts, expenses, events, spaces,
   salaryPayments, refunds, tariffs, eveningTypes, analyticsEvents, stockMovements,
   eq, and, gte, lte, lt, desc, asc, sql, sum, count, avg, isNull, isNotNull, ne, inArray,
 } from '@titan/database'
@@ -597,6 +597,103 @@ analyticsRouter.get('/products', zValidator('query', dateRangeQuerySchema), asyn
 // Тариф маппится на проданное через backing-позицию: tariffs.item_id = check_items.item_id.
 // Окно — то же полуоткрытое [fromStart, toEndExclusive) по МСК, что и в /revenue;
 // только закрытые чеки. Тип вечера берём со смены чека (shifts.evening_type).
+// ─── Аналитика мероприятий ──────────────────────────────────────────────────
+// Окно — по КАЛЕНДАРНОЙ дате события (events.date = 'YYYY-MM-DD'), а не по бизнес-дню:
+// мероприятия планируются по обычной дате. Длительность и группировки считаем в JS.
+analyticsRouter.get('/events', zValidator('query', dateRangeQuerySchema), async (c) => {
+  const db = c.var.db
+  const q = c.req.valid('query')
+  const h = await getBusinessDayStartHour(db)
+  const from = q.from ?? bizDayStr(30, h)
+  const to = q.to ?? bizDayStr(0, h)
+
+  const rows = await db
+    .select({
+      id: events.id, date: events.date, startTime: events.startTime, endTime: events.endTime,
+      plannedHours: events.plannedHours, type: events.type, format: events.format, status: events.status,
+      attendeesCount: events.attendeesCount, title: events.title,
+      fixedAmount: events.fixedAmount, manualAmount: events.manualAmount,
+      participationFee: events.participationFee, prizeFund: events.prizeFund,
+      lunchCost: events.lunchCost, otherCost: events.otherCost,
+      spaceId: events.spaceId, customerName: events.customerName, customerPhone: events.customerPhone,
+      checkId: events.checkId, checkTotal: checks.totalAmount, spaceName: spaces.name,
+    })
+    .from(events)
+    .leftJoin(checks, eq(checks.id, events.checkId))
+    .leftJoin(spaces, eq(spaces.id, events.spaceId))
+    .where(and(gte(events.date, from), lte(events.date, to)))
+    .orderBy(desc(events.date))
+
+  const n = (v: unknown) => parseFloat(String(v ?? 0)) || 0
+  const durHours = (start: string | null, end: string | null, planned: number | null) => {
+    if (start && end) {
+      const [sh, sm] = start.split(':').map(Number)
+      const [eh, em] = end.split(':').map(Number)
+      let d = (eh * 60 + em) - (sh * 60 + sm)
+      if (d < 0) d += 24 * 60 // через полночь
+      return d / 60
+    }
+    return planned ?? 0
+  }
+  const eventRevenue = (r: any) => r.checkTotal != null ? n(r.checkTotal) : (n(r.manualAmount) || n(r.fixedAmount) || 0)
+  const categoryOf = (r: any) => r.format === 'minicap' ? 'Миникап' : r.type === 'exit' ? 'Выезд' : 'Титан'
+  // Пн..Вс (в России неделя с понедельника). Date.getUTCDay(): 0=вс..6=сб.
+  const WD = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс']
+  const wdIndex = (dateStr: string) => { const d = new Date(`${dateStr}T12:00:00Z`).getUTCDay(); return (d + 6) % 7 }
+
+  const active = (rows as any[]).filter(r => r.status !== 'cancelled')
+  const byStatus: Record<string, number> = {}
+  for (const r of rows as any[]) byStatus[r.status] = (byStatus[r.status] ?? 0) + 1
+
+  let hours = 0, revenue = 0, attendees = 0
+  const days = new Set<string>()
+  const catMap = new Map<string, { count: number; revenue: number; hours: number }>()
+  const wdCount = [0, 0, 0, 0, 0, 0, 0]
+  const custMap = new Map<string, { name: string; phone: string | null; count: number; hours: number; revenue: number }>()
+  const zoneMap = new Map<string, { name: string; count: number; revenue: number }>()
+
+  for (const r of active) {
+    const dur = durHours(r.startTime, r.endTime, r.plannedHours)
+    const rev = eventRevenue(r)
+    hours += dur; revenue += rev; attendees += (r.attendeesCount ?? 0)
+    if (r.date) { days.add(r.date); wdCount[wdIndex(r.date)]++ }
+    const cat = categoryOf(r)
+    const cm = catMap.get(cat) ?? { count: 0, revenue: 0, hours: 0 }
+    cm.count++; cm.revenue += rev; cm.hours += dur; catMap.set(cat, cm)
+    if (r.customerName || r.customerPhone) {
+      const key = (r.customerName ?? '') + '|' + (r.customerPhone ?? '')
+      const c2 = custMap.get(key) ?? { name: r.customerName ?? 'Без имени', phone: r.customerPhone ?? null, count: 0, hours: 0, revenue: 0 }
+      c2.count++; c2.hours += dur; c2.revenue += rev; custMap.set(key, c2)
+    }
+    if (r.spaceName) {
+      const z = zoneMap.get(r.spaceName) ?? { name: r.spaceName, count: 0, revenue: 0 }
+      z.count++; z.revenue += rev; zoneMap.set(r.spaceName, z)
+    }
+  }
+
+  const cnt = active.length
+  return c.json({
+    from, to,
+    totals: {
+      count: cnt,
+      hours: Math.round(hours * 10) / 10,
+      days: days.size,
+      revenue,
+      attendees,
+      cancelled: byStatus['cancelled'] ?? 0,
+      avgDuration: cnt ? Math.round((hours / cnt) * 10) / 10 : 0,
+      avgCheck: cnt ? Math.round(revenue / cnt) : 0,
+      revenuePerHour: hours ? Math.round(revenue / hours) : 0,
+      avgAttendees: cnt ? Math.round((attendees / cnt) * 10) / 10 : 0,
+    },
+    byStatus,
+    byCategory: [...catMap.entries()].map(([label, v]) => ({ label, ...v })).sort((a, b) => b.revenue - a.revenue),
+    byWeekday: WD.map((label, i) => ({ label, count: wdCount[i] })),
+    topCustomers: [...custMap.values()].sort((a, b) => b.revenue - a.revenue || b.count - a.count).slice(0, 8),
+    topZones: [...zoneMap.values()].sort((a, b) => b.revenue - a.revenue).slice(0, 6),
+  })
+})
+
 analyticsRouter.get('/tariffs', zValidator('query', dateRangeQuerySchema), async (c) => {
   const db = c.var.db
   const q = c.req.valid('query')

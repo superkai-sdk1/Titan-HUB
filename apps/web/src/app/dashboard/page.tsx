@@ -12,7 +12,7 @@ import { StateView } from '@/components/StateView'
 import { Chip } from '@/components/manage/DesignSystem'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-type MainTab = 'overview' | 'finance' | 'expenses' | 'games' | 'bar' | 'players' | 'staff'
+type MainTab = 'overview' | 'finance' | 'events' | 'expenses' | 'games' | 'bar' | 'players' | 'staff'
 type ReportRange = '7d' | '30d' | 'month' | 'custom'
 
 const PAY_COLORS: Record<string, string> = {
@@ -1470,6 +1470,127 @@ function ChecksTab({ from, to }: { from: string; to: string }) {
   )
 }
 
+// ─── Tab: Мероприятия (часы/кол-во/дни + выручка, заказчики, загрузка) ────────
+function EvSection({ title, right, children }: { title: string; right?: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <div className="glass-l2" style={{ borderRadius: 16, overflow: 'hidden' }}>
+      <div style={{ padding: '14px 18px', borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+        <span style={{ ...LBL, margin: 0 }}>{title}</span>{right}
+      </div>
+      <div style={{ padding: '6px 18px 14px' }}>{children}</div>
+    </div>
+  )
+}
+
+function EventsTab({ from, to }: { from: string; to: string }) {
+  const { data, isLoading, isError, refetch } = useQuery({
+    queryKey: ['analytics', 'events', from, to],
+    queryFn: () => api.get<any>(`/analytics/events?from=${from}&to=${to}`),
+    enabled: !!from && !!to,
+  })
+  if (isLoading) return <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}><SkeletonCards /><Skeleton h={200} /></div>
+  if (isError || !data) return <StateView state="error" description="Не удалось загрузить аналитику мероприятий." action={{ label: 'Повторить', onClick: () => refetch() }} />
+  const t = data.totals
+  if (!t || t.count === 0) return <StateView state="empty" icon="celebration" title="Нет мероприятий за период" description="За выбранный период мероприятий не было — выберите другой период." />
+
+  const byCategory: any[] = data.byCategory ?? []
+  const byWeekday: any[] = data.byWeekday ?? []
+  const topCustomers: any[] = data.topCustomers ?? []
+  const topZones: any[] = data.topZones ?? []
+  const maxCatRev = Math.max(1, ...byCategory.map(c => parseNum(c.revenue)))
+  const maxWd = Math.max(1, ...byWeekday.map(w => w.count))
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+      {/* Основные метрики */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 12 }}>
+        <KpiCard label="Заказов" value={String(t.count)} suffix="" sub="мероприятий за период" icon="celebration" iconColor="#A78BFA" iconBg="rgba(167,139,250,0.1)" />
+        <KpiCard label="Часы заказов" value={`${t.hours} ч`} suffix="" sub="суммарная длительность" icon="schedule" iconColor="#4cd7f6" iconBg="rgba(76,215,246,0.1)" />
+        <KpiCard label="Дней с заказами" value={String(t.days)} suffix="" sub="дней с мероприятиями" icon="today" iconColor="#10B981" iconBg="rgba(16,185,129,0.1)" />
+        <KpiCard label="Выручка" rawValue={parseNum(t.revenue)} sub="по чекам мероприятий" icon="payments" iconColor="#8B5CF6" iconBg="rgba(139,92,246,0.1)" />
+      </div>
+
+      {/* Дополнительные метрики */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 10 }}>
+        {([
+          ['Средняя длительность', `${t.avgDuration} ч`, '#4cd7f6'],
+          ['Средний чек', `${fmt(parseNum(t.avgCheck))} ₽`, '#A78BFA'],
+          ['Выручка за час', `${fmt(parseNum(t.revenuePerHour))} ₽`, '#10B981'],
+          ['Гостей в среднем', String(t.avgAttendees), '#F59E0B'],
+        ] as [string, string, string][]).map(([label, value, color]) => (
+          <div key={label} className="glass-l2" style={{ borderRadius: 14, padding: '12px 14px', border: `1px solid ${color}26` }}>
+            <p style={{ fontSize: 18, fontWeight: 800, margin: 0, color, lineHeight: 1.1, fontVariantNumeric: 'tabular-nums' }}>{value}</p>
+            <p style={{ fontSize: 10.5, color: 'var(--on-surface-variant)', margin: '4px 0 0' }}>{label}</p>
+          </div>
+        ))}
+      </div>
+      {t.cancelled > 0 && <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: '-8px 4px 0' }}>Отменено мероприятий за период: <b style={{ color: '#F43F5E' }}>{t.cancelled}</b></p>}
+
+      {/* По формату */}
+      {byCategory.length > 0 && (
+        <EvSection title="По формату">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12, paddingTop: 6 }}>
+            {byCategory.map(c => (
+              <div key={c.label}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
+                  <span style={{ fontSize: 13, fontWeight: 600 }}>{c.label} <span style={{ fontSize: 11, color: 'var(--on-surface-variant)', fontWeight: 400 }}>· {c.count} зак. · {Math.round(c.hours * 10) / 10} ч</span></span>
+                  <span style={{ fontSize: 13, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{fmt(parseNum(c.revenue))} ₽</span>
+                </div>
+                <div style={{ height: 6, borderRadius: 3, background: 'rgba(255,255,255,0.06)', overflow: 'hidden' }}>
+                  <div style={{ height: '100%', width: `${(parseNum(c.revenue) / maxCatRev) * 100}%`, background: '#8B5CF6', borderRadius: 3 }} />
+                </div>
+              </div>
+            ))}
+          </div>
+        </EvSection>
+      )}
+
+      {/* Загрузка по дням недели */}
+      <EvSection title="Загрузка по дням недели">
+        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, height: 116, paddingTop: 8 }}>
+          {byWeekday.map(w => (
+            <div key={w.label} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, height: '100%', justifyContent: 'flex-end' }}>
+              <span style={{ fontSize: 11, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{w.count}</span>
+              <div style={{ width: '100%', maxWidth: 28, height: `${Math.max((w.count / maxWd) * 100, 3)}%`, minHeight: 3, background: w.count > 0 ? '#8B5CF6' : 'rgba(255,255,255,0.08)', borderRadius: '4px 4px 0 0', opacity: 0.9 }} />
+              <span style={{ fontSize: 10, color: 'var(--on-surface-variant)' }}>{w.label}</span>
+            </div>
+          ))}
+        </div>
+      </EvSection>
+
+      {/* Топ заказчиков */}
+      {topCustomers.length > 0 && (
+        <EvSection title="Топ заказчиков">
+          {topCustomers.map((c, i) => (
+            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 0', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+              <span style={{ fontSize: 11, fontFamily: "'JetBrains Mono',monospace", color: 'var(--on-surface-variant)', width: 16, flexShrink: 0 }}>{i + 1}</span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <p style={{ fontSize: 13, fontWeight: 600, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.name}</p>
+                <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: '2px 0 0' }}>{c.count} зак. · {Math.round(c.hours * 10) / 10} ч</p>
+              </div>
+              <span style={{ fontSize: 14, fontWeight: 800, flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>{fmt(parseNum(c.revenue))} ₽</span>
+            </div>
+          ))}
+        </EvSection>
+      )}
+
+      {/* Топ зон */}
+      {topZones.length > 0 && (
+        <EvSection title="Топ зон">
+          {topZones.map((z, i) => (
+            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 0', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+              <Icon name="vrpano" size={16} color="#4cd7f6" />
+              <span style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{z.name}</span>
+              <span style={{ fontSize: 11, color: 'var(--on-surface-variant)' }}>{z.count} зак.</span>
+              <span style={{ fontSize: 14, fontWeight: 800, fontVariantNumeric: 'tabular-nums', minWidth: 70, textAlign: 'right' }}>{fmt(parseNum(z.revenue))} ₽</span>
+            </div>
+          ))}
+        </EvSection>
+      )}
+    </div>
+  )
+}
+
 // ─── Tab: Тарифы (выручка/количество по тарифам + по типам вечеров) ───────────
 function TariffsTab({ from, to }: { from: string; to: string }) {
   // Кликабельный тариф → раскрываем строку с деталями (count/revenue).
@@ -1742,7 +1863,7 @@ export default function DashboardPage() {
   // Читаем window.location в useEffect (без next/navigation useSearchParams,
   // чтобы не требовать Suspense-границу).
   useEffect(() => {
-    const TAB_KEYS: MainTab[] = ['overview', 'finance', 'games', 'bar', 'players', 'staff']
+    const TAB_KEYS: MainTab[] = ['overview', 'finance', 'events', 'games', 'bar', 'players', 'staff']
     const tab = new URLSearchParams(window.location.search).get('tab')
     if (tab && (TAB_KEYS as string[]).includes(tab)) setActiveTab(tab as MainTab)
   }, [])
@@ -1782,6 +1903,7 @@ export default function DashboardPage() {
   const TABS = [
     { key: 'overview' as MainTab, label: 'Обзор',          icon: 'dashboard' },
     { key: 'finance'  as MainTab, label: 'Финансы',        icon: 'payments' },
+    { key: 'events'   as MainTab, label: 'Мероприятия',    icon: 'celebration' },
     { key: 'games'    as MainTab, label: 'Игры и тарифы',  icon: 'confirmation_number' },
     { key: 'bar'      as MainTab, label: 'Бар',            icon: 'inventory_2' },
     { key: 'players'  as MainTab, label: 'Игроки',         icon: 'group' },
@@ -1830,6 +1952,7 @@ export default function DashboardPage() {
           <div style={{ padding: '16px clamp(16px, 2vw, 24px) var(--bottom-nav-clear)', width: '100%', maxWidth: 'var(--content-wide)', margin: '0 auto', boxSizing: 'border-box' }}>
             {activeTab === 'overview'  && (overview ? <OverviewTab overview={overview} periodText={period.label} /> : ovError ? <StateView state="error" description="Не удалось загрузить аналитику." action={{ label: 'Повторить', onClick: () => refetchOv() }} /> : <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}><Skeleton h={156} /><SkeletonCards /></div>)}
             {activeTab === 'finance'   && <FinanceTab from={period.from} to={period.to} />}
+            {activeTab === 'events'    && <EventsTab from={period.from} to={period.to} />}
             {activeTab === 'games'     && <TariffsTab from={period.from} to={period.to} />}
             {activeTab === 'bar'       && <ProductsTab products={products} from={period.from} to={period.to} />}
             {activeTab === 'players'   && <PlayersTab clients={clients} />}
