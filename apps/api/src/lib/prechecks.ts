@@ -63,10 +63,11 @@ export async function getPrecheckCandidates(db: Database): Promise<PrecheckCandi
   }
   const profileIds = [...voteByProfile.keys()]
 
-  // Исключаем тех, у кого уже есть открытый чек в текущей смене.
-  const open = await db.select({ playerId: checks.playerId })
-    .from(checks).where(and(eq(checks.shiftId, shift.id), eq(checks.status, 'open'), isNotNull(checks.playerId)))
-  const openSet = new Set(open.map((o) => o.playerId).filter(Boolean) as string[])
+  // Исключаем тех, у кого в текущей смене уже есть открытый ('open') ИЛИ оплаченный
+  // ('closed') чек. Удалённый чек = 'cancelled' → НЕ исключаем (предчек вернётся).
+  const served = await db.select({ playerId: checks.playerId })
+    .from(checks).where(and(eq(checks.shiftId, shift.id), inArray(checks.status, ['open', 'closed']), isNotNull(checks.playerId)))
+  const openSet = new Set(served.map((o) => o.playerId).filter(Boolean) as string[])
 
   const profs = await db.select({
     id: profiles.id,

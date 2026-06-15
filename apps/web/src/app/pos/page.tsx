@@ -731,15 +731,17 @@ function PosPageInner() {
                 onContextMenu={(e) => e.preventDefault()}
                 style={{
                   borderRadius: 16, textAlign: 'left', cursor: 'pointer', position: 'relative', overflow: 'hidden',
-                  border: '1px solid rgba(160,125,255,0.35)', opacity: holding ? 0.96 : 0.8,
+                  border: '1px solid rgba(160,125,255,0.4)', opacity: holding ? 0.92 : 0.66,
                   display: 'flex', flexDirection: 'column',
                   transform: holding ? 'scale(0.97)' : 'scale(1)', transition: 'transform .15s, opacity .15s',
-                  background: 'linear-gradient(120deg, rgba(130,88,242,0.13), rgba(76,215,246,0.07), rgba(160,125,255,0.15), rgba(130,88,242,0.13))',
-                  backgroundSize: '300% 300%', animation: 'tai-precheck-bg 6s ease infinite',
-                  WebkitTapHighlightColor: 'transparent', userSelect: 'none',
+                  background: 'linear-gradient(120deg, rgba(130,88,242,0.26), rgba(76,215,246,0.13), rgba(160,125,255,0.3), rgba(76,215,246,0.13), rgba(130,88,242,0.26))',
+                  backgroundSize: '300% 300%', animation: 'tai-precheck-bg 5s ease infinite',
+                  WebkitTapHighlightColor: 'transparent', userSelect: 'none', WebkitUserSelect: 'none', WebkitTouchCallout: 'none',
                 }}
               >
-                <div className="card-top" style={{ display: 'flex', alignItems: 'center' }}>
+                {/* Переливающийся «ИИ-блик» поверх фона */}
+                <div aria-hidden style={{ position: 'absolute', inset: 0, pointerEvents: 'none', borderRadius: 16, background: 'linear-gradient(105deg, transparent 35%, rgba(224,195,252,0.22) 50%, transparent 65%)', backgroundSize: '250% 100%', animation: 'tai-precheck-sheen 2.8s linear infinite' }} />
+                <div className="card-top" style={{ display: 'flex', alignItems: 'center', position: 'relative' }}>
                   <div className="card-avatar" style={{
                     borderRadius: '50%', flexShrink: 0, overflow: 'hidden', border: '1px solid rgba(160,125,255,0.4)',
                     display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, color: '#A78BFA',
@@ -770,7 +772,7 @@ function PosPageInner() {
             )
           })}
           {prechecks.length > 0 && (
-            <style>{`@keyframes tai-precheck-bg{0%{background-position:0% 50%}50%{background-position:100% 50%}100%{background-position:0% 50%}}@keyframes tai-hold{from{width:0}to{width:100%}}`}</style>
+            <style>{`@keyframes tai-precheck-bg{0%{background-position:0% 50%}50%{background-position:100% 50%}100%{background-position:0% 50%}}@keyframes tai-precheck-sheen{0%{background-position:220% 0}100%{background-position:-60% 0}}@keyframes tai-hold{from{width:0}to{width:100%}}`}</style>
           )}
 
           {/* New check slot */}
