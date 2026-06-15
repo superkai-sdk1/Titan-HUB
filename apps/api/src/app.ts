@@ -18,6 +18,7 @@ import { posRouter } from './modules/pos/pos.router.js'
 import { shiftsRouter } from './modules/shifts/shifts.router.js'
 import { menuRouter } from './modules/menu/menu.router.js'
 import { clientsRouter } from './modules/clients/clients.router.js'
+import { collectionsRouter } from './modules/collections/collections.router.js'
 import { eventsRouter } from './modules/events/events.router.js'
 import { customersRouter } from './modules/customers/customers.router.js'
 import { spacesRouter } from './modules/spaces/spaces.router.js'
@@ -148,6 +149,7 @@ app.route('/api/pos', posRouter)
 app.route('/api/shifts', shiftsRouter)
 app.route('/api/menu', menuRouter)
 app.route('/api/clients', clientsRouter)
+app.route('/api/collections', collectionsRouter)
 app.route('/api/events', eventsRouter)
 app.route('/api/customers', customersRouter)
 app.route('/api/spaces', spacesRouter)
