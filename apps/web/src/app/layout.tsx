@@ -127,7 +127,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             }
             .layout-content {
               overflow-x: hidden;
-              overscroll-behavior: none;
+              /* contain (а НЕ none): не пускает оверскролл наружу (body всё равно
+                 overflow:hidden), но СОХРАНЯЕТ родную упругую отдачу/инерцию iOS.
+                 none убирал bounce → скролл ощущался «неестественно жёстким».
+                 Аналитика (свой ptr-root) всегда использовала contain — потому там
+                 скролл был плавным, а в «Управлении» (this) — нет. */
+              overscroll-behavior: contain;
             }
             body:has(.bottom-nav-root) .layout-content > :last-child {
               padding-bottom: var(--bottom-nav-clear, 0px);
