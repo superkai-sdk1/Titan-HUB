@@ -35,6 +35,7 @@ function disabledFor(p: string): boolean {
     || p === '/pos' || p.startsWith('/pos/')
     || p === '/dashboard' || p.startsWith('/dashboard/')
     || p === '/ai' || p.startsWith('/ai/') // у TITAN AI свой внутренний скролл + композер
+    || p === '/events' || p === '/manage/events' // у «Мероприятий» свой PTR-контейнер
 }
 
 export function GlobalPullToRefresh() {

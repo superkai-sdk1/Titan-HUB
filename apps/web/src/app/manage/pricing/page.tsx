@@ -319,25 +319,17 @@ export default function PricingPage() {
       <PageHeader title="Тарифы и аренда" subtitle="Стандартные тарифы, типы вечеров, ставки аренды" />
 
       <div style={{ padding: '12px 16px 0', maxWidth: 'var(--content-narrow)', margin: '0 auto', width: '100%' }}>
-        {/* Tabs */}
-        <div style={{ display: 'flex', gap: 4, borderBottom: '1px solid rgba(255,255,255,0.06)', overflowX: 'auto' }}>
-          {TABS.map(t => (
-            <button
-              key={t.key}
-              onClick={() => setTab(t.key)}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 6,
-                padding: '10px 14px', background: 'none', border: 'none', cursor: 'pointer',
-                fontSize: 13, fontWeight: 600,
-                color: tab === t.key ? '#8B5CF6' : 'var(--on-surface-variant)',
-                borderBottom: tab === t.key ? '2px solid #8B5CF6' : '2px solid transparent',
-                marginBottom: -1, whiteSpace: 'nowrap',
-              }}
-            >
-              <Icon name={t.icon} size={16} />
-              {t.label}
-            </button>
-          ))}
+        {/* Сегментированный переключатель (как в Складе): иконка над подписью */}
+        <div style={{ display: 'flex', gap: 4, padding: 4, borderRadius: 14, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)' }}>
+          {TABS.map(t => {
+            const active = tab === t.key
+            return (
+              <button key={t.key} onClick={() => setTab(t.key)} style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4, padding: '9px 4px', borderRadius: 11, border: 'none', cursor: 'pointer', transition: 'all 0.15s', background: active ? 'var(--primary-violet)' : 'transparent', color: active ? '#fff' : 'var(--on-surface-variant)' }}>
+                <Icon name={t.icon} size={19} color={active ? '#fff' : 'var(--on-surface-variant)'} />
+                <span style={{ fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100%' }}>{t.label}</span>
+              </button>
+            )
+          })}
         </div>
       </div>
 

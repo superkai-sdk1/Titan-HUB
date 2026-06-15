@@ -6,6 +6,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { Sheet, INP, LBL } from '@/components/manage/DesignSystem'
 import { useToast } from '@/components/Toast'
+import { PullToRefreshContainer } from '@/components/PullToRefreshContainer'
 import { telLink, whatsappLink, telegramLink, openContact } from '@/lib/contact'
 import { MinicapSheet } from './MinicapSheet'
 
@@ -43,6 +44,12 @@ const BLANK = {
 }
 
 const MONTHS_SHORT = ['', 'янв', 'фев', 'мар', 'апр', 'май', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек']
+const MONTHS_FULL = ['', 'Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь']
+// 'YYYY-MM' → «Май 2026» (год добавляем всегда — прошлые годы тоже попадают в папки).
+function monthLabel(ym: string): string {
+  const [y, m] = ym.split('-').map(Number)
+  return `${MONTHS_FULL[m] ?? ym} ${y}`
+}
 
 function FormSection({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -96,6 +103,9 @@ export default function EventsPage() {
   const openMinicap = (id: string | null) => { setSelected(null); setShowForm(false); setMinicapId(id); setMinicapOpen(true) }
   const [custResults, setCustResults] = useState<any[]>([])
   const [custFocus, setCustFocus] = useState(false)
+  // Раскрытые папки прошлых месяцев в «Прошедших».
+  const [openMonths, setOpenMonths] = useState<Set<string>>(new Set())
+  const toggleMonth = (ym: string) => setOpenMonths(s => { const n = new Set(s); n.has(ym) ? n.delete(ym) : n.add(ym); return n })
 
   const { data } = useQuery({ queryKey: ['events'], queryFn: () => api.get<any>('/events') })
   const allEvents: any[] = data?.events ?? []
@@ -105,8 +115,25 @@ export default function EventsPage() {
 
   const upcoming = allEvents.filter(e => !isPast(e)).sort((a, b) => sortKey(a).localeCompare(sortKey(b)))
   const past = allEvents.filter(isPast).sort((a, b) => sortKey(b).localeCompare(sortKey(a)))
-  const events = tab === 'upcoming' ? upcoming : past
   const upcomingCount = upcoming.length
+
+  // Прошедшие: текущий месяц — плоским списком; прошлые месяцы — в папки (чтобы не
+  // было простыни). Группировка по 'YYYY-MM', сортировка папок по убыванию.
+  const nowD = new Date()
+  const curYM = `${nowD.getFullYear()}-${String(nowD.getMonth() + 1).padStart(2, '0')}`
+  const pastThisMonth = past.filter(e => (e.date ?? '').slice(0, 7) === curYM)
+  const pastOlderGroups: { ym: string; label: string; items: any[] }[] = (() => {
+    const m = new Map<string, any[]>()
+    for (const e of past) {
+      const ym = (e.date ?? '').slice(0, 7)
+      if (!ym || ym === curYM) continue
+      if (!m.has(ym)) m.set(ym, [])
+      m.get(ym)!.push(e)
+    }
+    return [...m.entries()].sort((a, b) => b[0].localeCompare(a[0])).map(([ym, items]) => ({ ym, label: monthLabel(ym), items }))
+  })()
+
+  const refresh = async () => { await qc.invalidateQueries({ queryKey: ['events'] }) }
 
   const { data: staffData } = useQuery({ queryKey: ['staff'], queryFn: () => api.get<{ staff: any[] }>('/staff') })
   const staffList: any[] = staffData?.staff ?? []
@@ -225,11 +252,77 @@ export default function EventsPage() {
   const saving = create.isPending || saveEdit.isPending
   const set = (patch: any) => setForm((p: any) => ({ ...p, ...patch }))
 
+  // Карточка мероприятия (общая для плоских списков и папок прошлых месяцев).
+  const renderEventCard = (ev: any) => {
+    const [statusLabel, statusColor, statusIcon] = STATUS[ev.status] ?? ['—', '#94A3B8', 'help']
+    const isMini = ev.format === 'minicap'
+    const [typeLabel, typeIcon, typeColor] = isMini ? MINICAP_LABEL : (TYPES[ev.type] ?? ['—', 'event', '#94A3B8'])
+    const day = (ev.date ?? '').split('-')[2]
+    const month = MONTHS_SHORT[Number((ev.date ?? '').split('-')[1])] ?? ''
+    const responsible = staffById(ev.responsibleStaffId)
+    const baseAmount = ev.billingMode === 'hourly'
+      ? (ev.plannedHours ? `${ev.plannedHours} ч` : 'почасовая')
+      : ev.fixedAmount != null ? `${parseFloat(ev.fixedAmount).toLocaleString('ru')} ₽`
+      : ev.manualAmount != null ? `${parseFloat(ev.manualAmount).toLocaleString('ru')} ₽`
+      : null
+    return (
+      <div key={ev.id} className="glass-l2" onClick={() => isMini ? openMinicap(ev.id) : setSelected(ev)}
+        style={{ borderRadius: 16, padding: '16px', cursor: 'pointer', display: 'flex', gap: 14, alignItems: 'flex-start', transition: 'border-color 0.2s, transform 0.15s' }}
+        onMouseEnter={e => { e.currentTarget.style.borderColor = `${statusColor}44`; e.currentTarget.style.transform = 'translateY(-1px)' }}
+        onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)'; e.currentTarget.style.transform = 'translateY(0)' }}>
+        <div style={{ width: 54, height: 54, borderRadius: 14, background: `${statusColor}18`, border: `1px solid ${statusColor}33`, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+          <span style={{ fontSize: 20, fontWeight: 900, color: statusColor, lineHeight: 1 }}>{day}</span>
+          <span style={{ fontSize: 10, color: statusColor, textTransform: 'uppercase', letterSpacing: '0.04em', fontFamily: "'JetBrains Mono',monospace" }}>{month}</span>
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' as const, marginBottom: 6 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <Icon name={typeIcon} size={14} color={typeColor} />
+              <span style={{ fontSize: 14, fontWeight: 700 }}>{ev.title || typeLabel}</span>
+            </div>
+            <span style={{ fontSize: 10, fontWeight: 700, fontFamily: "'JetBrains Mono',monospace", padding: '2px 7px', borderRadius: 6, background: `${statusColor}20`, color: statusColor, textTransform: 'uppercase', letterSpacing: '0.06em', display: 'flex', alignItems: 'center', gap: 4 }}>
+              <Icon name={statusIcon} size={10} />{statusLabel}
+            </span>
+          </div>
+          <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: '0 0 3px' }}>
+            {ev.startTime}{ev.endTime ? ` — ${ev.endTime}` : ''}{baseAmount ? ` · ${baseAmount}` : ''}
+          </p>
+          {(ev.type === 'exit' && ev.location) && (
+            <p style={{ fontSize: 12, color: 'rgba(204,195,216,0.6)', margin: '0 0 3px', display: 'flex', alignItems: 'center', gap: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              <Icon name="location_on" size={12} color="#F59E0B" />{ev.location}
+            </p>
+          )}
+          {responsible && (
+            <p style={{ fontSize: 12, color: 'rgba(204,195,216,0.6)', margin: '0 0 3px', display: 'flex', alignItems: 'center', gap: 4 }}>
+              <Icon name="person" size={12} color="#a78bfa" />{responsible.nickname}
+            </p>
+          )}
+          {ev.comment && <p style={{ fontSize: 12, color: 'rgba(204,195,216,0.5)', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ev.comment}</p>}
+        </div>
+        {ev.status === 'planned' ? (
+          <button onClick={(e) => { e.stopPropagation(); isMini ? openMinicap(ev.id) : startEvent(ev) }} disabled={update.isPending}
+            style={{ alignSelf: 'center', display: 'flex', alignItems: 'center', gap: 5, padding: '8px 14px', borderRadius: 12, border: 'none', cursor: 'pointer', background: 'linear-gradient(135deg, #10B981, #4cd7f6)', color: '#fff', fontSize: 12, fontWeight: 700, flexShrink: 0, boxShadow: '0 4px 14px rgba(16,185,129,0.3)' }}>
+            <Icon name="play_arrow" size={15} />Начать
+          </button>
+        ) : (
+          <Icon name="chevron_right" size={18} color="rgba(204,195,216,0.3)" />
+        )}
+      </div>
+    )
+  }
+
+  const emptyState = (text: string) => (
+    <div style={{ textAlign: 'center', padding: '64px 0' }}>
+      <Icon name="event" size={56} color="rgba(204,195,216,0.2)" style={{ display: 'block', marginBottom: 12 }} />
+      <p style={{ fontSize: 15, color: 'rgba(204,195,216,0.4)', margin: 0 }}>{text}</p>
+    </div>
+  )
+
   return (
-    <div style={{ minHeight: '100%', display: 'flex', flexDirection: 'column', overflowX: 'hidden', width: '100%' }}>
-      {/* Header */}
-      <div style={{ position: 'sticky', top: 0, zIndex: 20, background: 'rgba(21,18,27,0.95)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)', borderBottom: '1px solid rgba(255,255,255,0.06)', padding: '16px 20px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+    <div style={{ height: '100dvh', display: 'flex', flexDirection: 'column', overflow: 'hidden', width: '100%' }}>
+      {/* Header — фиксированная (контент скроллится отдельно для свайп-обновления) */}
+      <div style={{ flexShrink: 0, zIndex: 20, background: 'rgba(21,18,27,0.95)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)', borderBottom: '1px solid rgba(255,255,255,0.06)', padding: '16px 20px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, maxWidth: 'var(--content-narrow)', margin: '0 auto', width: '100%' }}>
           {inManageSplit && (
             <button
               onClick={() => { if (window.matchMedia('(min-width: 1024px)').matches) router.push('/manage'); else router.back() }}
@@ -244,91 +337,68 @@ export default function EventsPage() {
           )}
           <div style={{ flex: 1, minWidth: 0 }}>
             <h1 style={{ fontSize: 22, fontWeight: 800, margin: 0, letterSpacing: '-0.02em' }}>Мероприятия</h1>
-            <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: '3px 0 0' }}>{events.length} событий{upcomingCount > 0 ? ` · ${upcomingCount} предстоящих` : ''}</p>
+            <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: '3px 0 0' }}>{allEvents.length} событий{upcomingCount > 0 ? ` · ${upcomingCount} предстоящих` : ''}</p>
           </div>
           <button onClick={openCreate} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 18px', borderRadius: 12, minHeight: 44, border: 'none', cursor: 'pointer', background: 'var(--primary-violet)', color: '#fff', fontSize: 13, fontWeight: 700, boxShadow: '0 2px 10px rgba(0,0,0,0.25)' }}>
             <Icon name="add" size={18} />Добавить
           </button>
         </div>
-        <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid rgba(255,255,255,0.06)', maxWidth: 'var(--content-narrow)', margin: '12px auto 0', width: '100%' }}>
-          {([['upcoming', 'Предстоящие', upcoming.length], ['past', 'Прошедшие', past.length]] as [typeof tab, string, number][]).map(([k, l, n]) => (
-            <button key={k} onClick={() => setTab(k)} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '9px 14px', border: 'none', background: 'transparent', cursor: 'pointer', borderBottom: tab === k ? '2px solid #8B5CF6' : '2px solid transparent', color: tab === k ? '#8B5CF6' : 'var(--on-surface-variant)', fontSize: 13, fontWeight: tab === k ? 700 : 500, transition: 'all 0.2s', marginBottom: -1, whiteSpace: 'nowrap' }}>
-              {l}
-              <span style={{ fontSize: 11, fontWeight: 700, padding: '1px 7px', borderRadius: 9999, background: tab === k ? 'rgba(139,92,246,0.18)' : 'rgba(255,255,255,0.06)', color: tab === k ? '#a78bfa' : 'var(--on-surface-variant)' }}>{n}</span>
-            </button>
-          ))}
-        </div>
       </div>
 
-      <div style={{ padding: '16px 16px var(--bottom-nav-clear)', flex: 1, maxWidth: 'var(--content-narrow)', margin: '0 auto', width: '100%', boxSizing: 'border-box' }}>
-        {events.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '80px 0' }}>
-            <Icon name="event" size={56} color="rgba(204,195,216,0.2)" style={{ display: 'block', marginBottom: 12 }} />
-            <p style={{ fontSize: 15, color: 'rgba(204,195,216,0.4)', margin: 0 }}>{tab === 'upcoming' ? 'Предстоящих мероприятий нет' : 'Прошедших мероприятий нет'}</p>
-          </div>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {events.map((ev: any) => {
-              const [statusLabel, statusColor, statusIcon] = STATUS[ev.status] ?? ['—', '#94A3B8', 'help']
-              const isMini = ev.format === 'minicap'
-              const [typeLabel, typeIcon, typeColor] = isMini ? MINICAP_LABEL : (TYPES[ev.type] ?? ['—', 'event', '#94A3B8'])
-              const day = ev.date.split('-')[2]
-              const month = MONTHS_SHORT[Number(ev.date.split('-')[1])] ?? ''
-              const responsible = staffById(ev.responsibleStaffId)
-              const baseAmount = ev.billingMode === 'hourly'
-                ? (ev.plannedHours ? `${ev.plannedHours} ч` : 'почасовая')
-                : ev.fixedAmount != null
-                ? `${parseFloat(ev.fixedAmount).toLocaleString('ru')} ₽`
-                : ev.manualAmount != null
-                ? `${parseFloat(ev.manualAmount).toLocaleString('ru')} ₽`
-                : null
-              return (
-                <div key={ev.id} className="glass-l2" onClick={() => isMini ? openMinicap(ev.id) : setSelected(ev)}
-                  style={{ borderRadius: 16, padding: '16px', cursor: 'pointer', display: 'flex', gap: 14, alignItems: 'flex-start', transition: 'border-color 0.2s, transform 0.15s' }}
-                  onMouseEnter={e => { e.currentTarget.style.borderColor = `${statusColor}44`; e.currentTarget.style.transform = 'translateY(-1px)' }}
-                  onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)'; e.currentTarget.style.transform = 'translateY(0)' }}>
-                  <div style={{ width: 54, height: 54, borderRadius: 14, background: `${statusColor}18`, border: `1px solid ${statusColor}33`, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                    <span style={{ fontSize: 20, fontWeight: 900, color: statusColor, lineHeight: 1 }}>{day}</span>
-                    <span style={{ fontSize: 10, color: statusColor, textTransform: 'uppercase', letterSpacing: '0.04em', fontFamily: "'JetBrains Mono',monospace" }}>{month}</span>
+      {/* Контент со свайпом для обновления (под шапкой) */}
+      <div style={{ flex: 1, minHeight: 0 }}>
+        <PullToRefreshContainer onRefresh={refresh}>
+          <div style={{ padding: '14px 16px var(--bottom-nav-clear)', maxWidth: 'var(--content-narrow)', margin: '0 auto', width: '100%', boxSizing: 'border-box' }}>
+            {/* Переключатель (как в Складе): иконка над подписью */}
+            <div style={{ display: 'flex', gap: 4, padding: 4, borderRadius: 14, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)', marginBottom: 16 }}>
+              {([['upcoming', 'Предстоящие', 'event', upcoming.length], ['past', 'Прошедшие', 'history', past.length]] as [typeof tab, string, string, number][]).map(([k, l, icon, n]) => {
+                const active = tab === k
+                return (
+                  <button key={k} onClick={() => setTab(k)} style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4, padding: '9px 4px', borderRadius: 11, border: 'none', cursor: 'pointer', transition: 'all 0.15s', background: active ? 'var(--primary-violet)' : 'transparent', color: active ? '#fff' : 'var(--on-surface-variant)' }}>
+                    <Icon name={icon} size={19} color={active ? '#fff' : 'var(--on-surface-variant)'} />
+                    <span style={{ fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100%' }}>{l} · {n}</span>
+                  </button>
+                )
+              })}
+            </div>
+
+            {/* Предстоящие */}
+            {tab === 'upcoming' && (
+              upcoming.length === 0
+                ? emptyState('Предстоящих мероприятий нет')
+                : <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>{upcoming.map(renderEventCard)}</div>
+            )}
+
+            {/* Прошедшие: этот месяц — плоско, прошлые месяцы — папками */}
+            {tab === 'past' && (
+              (pastThisMonth.length === 0 && pastOlderGroups.length === 0)
+                ? emptyState('Прошедших мероприятий нет')
+                : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    {pastThisMonth.map(renderEventCard)}
+                    {pastOlderGroups.map(g => {
+                      const open = openMonths.has(g.ym)
+                      return (
+                        <div key={g.ym}>
+                          <button onClick={() => toggleMonth(g.ym)} className="glass-l2" style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 12, padding: '13px 16px', borderRadius: 14, border: '1px solid rgba(255,255,255,0.08)', cursor: 'pointer', color: 'var(--on-surface)' }}>
+                            <div style={{ width: 38, height: 38, borderRadius: 11, background: 'rgba(139,92,246,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                              <Icon name="folder_open" size={20} color="#a78bfa" />
+                            </div>
+                            <div style={{ flex: 1, minWidth: 0, textAlign: 'left' }}>
+                              <p style={{ fontSize: 14, fontWeight: 700, margin: 0 }}>{g.label}</p>
+                              <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: '2px 0 0' }}>{g.items.length} событий</p>
+                            </div>
+                            <Icon name="expand_more" size={20} color="var(--on-surface-variant)" style={{ transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
+                          </button>
+                          {open && <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 10 }}>{g.items.map(renderEventCard)}</div>}
+                        </div>
+                      )
+                    })}
                   </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' as const, marginBottom: 6 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                        <Icon name={typeIcon} size={14} color={typeColor} />
-                        <span style={{ fontSize: 14, fontWeight: 700 }}>{ev.title || typeLabel}</span>
-                      </div>
-                      <span style={{ fontSize: 10, fontWeight: 700, fontFamily: "'JetBrains Mono',monospace", padding: '2px 7px', borderRadius: 6, background: `${statusColor}20`, color: statusColor, textTransform: 'uppercase', letterSpacing: '0.06em', display: 'flex', alignItems: 'center', gap: 4 }}>
-                        <Icon name={statusIcon} size={10} />{statusLabel}
-                      </span>
-                    </div>
-                    <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: '0 0 3px' }}>
-                      {ev.startTime}{ev.endTime ? ` — ${ev.endTime}` : ''}{baseAmount ? ` · ${baseAmount}` : ''}
-                    </p>
-                    {(ev.type === 'exit' && ev.location) && (
-                      <p style={{ fontSize: 12, color: 'rgba(204,195,216,0.6)', margin: '0 0 3px', display: 'flex', alignItems: 'center', gap: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        <Icon name="location_on" size={12} color="#F59E0B" />{ev.location}
-                      </p>
-                    )}
-                    {responsible && (
-                      <p style={{ fontSize: 12, color: 'rgba(204,195,216,0.6)', margin: '0 0 3px', display: 'flex', alignItems: 'center', gap: 4 }}>
-                        <Icon name="person" size={12} color="#a78bfa" />{responsible.nickname}
-                      </p>
-                    )}
-                    {ev.comment && <p style={{ fontSize: 12, color: 'rgba(204,195,216,0.5)', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ev.comment}</p>}
-                  </div>
-                  {ev.status === 'planned' ? (
-                    <button onClick={(e) => { e.stopPropagation(); isMini ? openMinicap(ev.id) : startEvent(ev) }} disabled={update.isPending}
-                      style={{ alignSelf: 'center', display: 'flex', alignItems: 'center', gap: 5, padding: '8px 14px', borderRadius: 12, border: 'none', cursor: 'pointer', background: 'linear-gradient(135deg, #10B981, #4cd7f6)', color: '#fff', fontSize: 12, fontWeight: 700, flexShrink: 0, boxShadow: '0 4px 14px rgba(16,185,129,0.3)' }}>
-                      <Icon name="play_arrow" size={15} />Начать
-                    </button>
-                  ) : (
-                    <Icon name="chevron_right" size={18} color="rgba(204,195,216,0.3)" />
-                  )}
-                </div>
-              )
-            })}
+                )
+            )}
           </div>
-        )}
+        </PullToRefreshContainer>
       </div>
 
       {/* Create / Edit sheet */}
