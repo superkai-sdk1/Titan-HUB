@@ -16,6 +16,7 @@ import { notify, notifyClient } from '../notifications/push.js'
 import { maybePromoteToResident } from '../../lib/loyalty.js'
 import { profileNameCondition, profileTagCondition } from '../../lib/searchVariants.js'
 import { getPrecheckCandidates } from '../../lib/prechecks.js'
+import { getCheckSuggestions, learnFromCheckClose } from '../../lib/suggestions.js'
 import { accrueBonusLot, spendBonusLots, getBonusExpiryDays } from '../../lib/bonusLots.js'
 import { getNumericSetting, LARGE_CHECK_KEY, DEFAULT_LARGE_CHECK, getBoolSetting, STAFF_DISCOUNT_KEY, STAFF_MAX_DISCOUNT_KEY, DEFAULT_STAFF_MAX_DISCOUNT } from '../../lib/appSettings.js'
 import { round2, computeRental, computeTotals } from '../../lib/money.js'
@@ -556,6 +557,12 @@ posRouter.get('/prechecks', requireRole('owner', 'staff', 'tablet'), async (c) =
   // Планшету предчеки не нужны, но роль допускаем (вернёт по смене/данным клуба).
   const prechecks = await getPrecheckCandidates(c.var.db)
   return c.json({ prechecks })
+})
+
+// ПРЕДУГАДАННЫЕ ПОЗИЦИИ: частые заказы клиента-резидента (Tai). Пусто для не-резидентов.
+posRouter.get('/checks/:id/suggestions', requireRole('owner', 'staff', 'tablet'), async (c) => {
+  const suggestions = await getCheckSuggestions(c.var.db, c.req.param('id'))
+  return c.json({ suggestions })
 })
 
 posRouter.post('/checks', requireRole('owner', 'staff'), zValidator('json', OpenCheckSchema), async (c) => {
@@ -1695,6 +1702,10 @@ posRouter.post('/checks/:id/pay', requireRole('owner', 'staff'), zValidator('jso
 
     publishEvent(c.var.club?.id, 'check:paid', { checkId })
     publishEvent(c.var.club?.id, 'check:closed', { checkId })
+
+    // Обучение предугадывания (Tai): что предлагали резиденту, но он к оплате не
+    // добавил → понижаем такие позиции в будущем. Fire-and-forget.
+    void learnFromCheckClose(db, checkId).catch(() => {})
 
     // Уведомления вне денежной транзакции (fire-and-forget, не блокируют ответ).
     const paidTotal = parseFloat(String(closedCheck?.totalAmount ?? 0)) || 0

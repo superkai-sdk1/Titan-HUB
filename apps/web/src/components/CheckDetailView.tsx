@@ -6,6 +6,7 @@ import { api, ApiError } from '@/lib/api'
 import { funnyGuestName } from '@/lib/funnyName'
 import { SwipeableRow } from '@/components/SwipeableRow'
 import { Icon } from '@/components/Icon'
+import { TaiLogo } from '@/components/TaiLogo'
 import { useToast } from '@/components/Toast'
 import { ConfirmDialog } from '@/components/manage/DesignSystem'
 import { TimeInput24 } from '@/components/TimeInput24'
@@ -651,7 +652,18 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
 
   // Ответ мутации = свежий чек целиком (getCheckWithItems). Пишем его прямо в кэш
   // вместо invalidate+refetch — карточка обновляется мгновенно, без сетевой задержки.
-  const writeCheck = useCallback((res: { check: CheckData }) => qc.setQueryData(['check', checkId], res.check), [qc, checkId])
+  const writeCheck = useCallback((res: { check: CheckData }) => {
+    qc.setQueryData(['check', checkId], res.check)
+    qc.invalidateQueries({ queryKey: ['suggestions', checkId] }) // позиции изменились → пересчитать
+  }, [qc, checkId])
+
+  // Предугаданные позиции (Tai) — частые заказы клиента-резидента, которых ещё нет в чеке.
+  const { data: suggestData } = useQuery({
+    queryKey: ['suggestions', checkId],
+    queryFn: () => api.get<{ suggestions: { itemId: string; name: string; price: string }[] }>(`/pos/checks/${checkId}/suggestions`),
+    enabled: !!checkId,
+  })
+  const suggestions = suggestData?.suggestions ?? []
 
   const addItem = useMutation({
     mutationFn: (itemId: string) => api.post<{ check: CheckData }>(`/pos/checks/${checkId}/items`, { itemId, quantity: 1 }),
@@ -1145,6 +1157,41 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
               </div>
               </SwipeableRow>
             ))}
+
+            {/* Предугаданные позиции (Tai) — частые заказы резидента. Полупрозрачные
+                строки; тап добавляет позицию в чек. */}
+            {suggestions.length > 0 && (
+              <>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, margin: '4px 2px 6px' }}>
+                  <TaiLogo size={16} animated={false} />
+                  <span style={{ fontSize: 11, fontWeight: 700, color: '#a78bfa', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Tai предлагает</span>
+                </div>
+                {suggestions.map((s) => (
+                  <button
+                    key={`sug-${s.itemId}`}
+                    onClick={() => addItem.mutate(s.itemId)}
+                    disabled={addItem.isPending}
+                    className="glass-l2"
+                    style={{
+                      width: '100%', borderRadius: 12, padding: '10px 14px', marginBottom: 8,
+                      display: 'flex', alignItems: 'center', gap: 12, textAlign: 'left',
+                      border: '1px dashed rgba(160,125,255,0.45)', background: 'transparent',
+                      opacity: addItem.isPending ? 0.4 : 0.62, cursor: addItem.isPending ? 'default' : 'pointer',
+                      transition: 'opacity .15s',
+                    }}
+                  >
+                    <TaiLogo size={22} animated={false} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <p style={{ fontSize: 13, fontWeight: 600, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--on-surface)' }}>{s.name}</p>
+                      <p style={{ fontSize: 11, color: '#a78bfa', margin: '2px 0 0' }}>предложено Tai · {parseFloat(String(s.price)).toLocaleString('ru')} ₽</p>
+                    </div>
+                    <span style={{ width: 32, height: 32, borderRadius: 10, background: 'rgba(139,92,246,0.2)', color: '#A78BFA', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                      <Icon name="add" size={16} />
+                    </span>
+                  </button>
+                ))}
+              </>
+            )}
 
             {check?.items.length === 0 && !isLoading && (
               <div style={{ textAlign: 'center', padding: '48px 0', color: 'var(--on-surface-variant)' }}>
