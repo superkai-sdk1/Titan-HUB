@@ -153,14 +153,15 @@ function StockHub() {
           )}
         </div>
 
-        {/* Переключатель вкладок (segmented) */}
+        {/* Переключатель вкладок (segmented) — иконка над подписью, чтобы 4 раздела
+            аккуратно помещались на узком экране. */}
         <div style={{ display: 'flex', gap: 4, padding: 4, borderRadius: 14, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)', marginBottom: 16 }}>
           {TABS.map(t => {
             const active = tab === t.key
             return (
-              <button key={t.key} onClick={() => changeTab(t.key)} style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '10px 8px', borderRadius: 11, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 700, transition: 'all 0.15s', background: active ? 'var(--primary-violet)' : 'transparent', color: active ? '#fff' : 'var(--on-surface-variant)' }}>
-                <Icon name={t.icon} size={17} color={active ? '#fff' : 'var(--on-surface-variant)'} />
-                {t.label}
+              <button key={t.key} onClick={() => changeTab(t.key)} style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4, padding: '9px 4px', borderRadius: 11, border: 'none', cursor: 'pointer', transition: 'all 0.15s', background: active ? 'var(--primary-violet)' : 'transparent', color: active ? '#fff' : 'var(--on-surface-variant)' }}>
+                <Icon name={t.icon} size={19} color={active ? '#fff' : 'var(--on-surface-variant)'} />
+                <span style={{ fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100%' }}>{t.label}</span>
               </button>
             )
           })}
