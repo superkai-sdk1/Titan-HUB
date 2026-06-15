@@ -231,13 +231,21 @@ function PosPageInner() {
   })
   const [showShiftDetail, setShowShiftDetail] = useState(false)
 
-  // Число колонок masonry-сетки чеков: 2 на телефоне, шире на больших экранах.
+  // Число колонок masonry-сетки — по ШИРИНЕ КОНТЕЙНЕРА (а не окна): в сплите левая
+  // панель узкая, и при расчёте от ширины окна колонок было слишком много → ломалось.
   const [cols, setCols] = useState(2)
+  const gridRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
-    const calc = () => { const w = window.innerWidth; setCols(w >= 1280 ? 4 : w >= 1024 ? 3 : 2) }
+    const el = gridRef.current
+    if (!el) return
+    const calc = () => {
+      const w = el.clientWidth
+      setCols(w >= 1040 ? 4 : w >= 720 ? 3 : w >= 380 ? 2 : 1)
+    }
     calc()
-    window.addEventListener('resize', calc)
-    return () => window.removeEventListener('resize', calc)
+    const ro = new ResizeObserver(calc)
+    ro.observe(el)
+    return () => ro.disconnect()
   }, [])
 
   const { show: showToast } = useToast()
@@ -268,7 +276,10 @@ function PosPageInner() {
     onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ['checks'] })
       setShowNewCheck(false)
-      router.push(`/pos/${res.check.id}`)
+      // На широком экране открываем новый чек в правой панели сплита (как при тапе
+      // по карточке), а не на весь экран. На телефоне — отдельной страницей.
+      if (window.innerWidth >= 1024) setActiveCheckId(res.check.id)
+      else router.push(`/pos/${res.check.id}`)
     },
     onError: (e) => showToast(e instanceof ApiError ? String((e.data as Record<string, unknown>)?.error ?? 'Не удалось создать чек') : 'Ошибка сети', 'error'),
   })
@@ -330,6 +341,12 @@ function PosPageInner() {
 
   // Desktop split-view: активный чек справа
   const [activeCheckId, setActiveCheckId] = useState<string | null>(null)
+  // Анимация закрытия правой панели сплита: ставим класс .closing, ждём анимацию, размонтируем.
+  const [rightClosing, setRightClosing] = useState(false)
+  const closeRightPanel = useCallback(() => {
+    setRightClosing(true)
+    setTimeout(() => { setRightClosing(false); setActiveCheckId(null) }, 200)
+  }, [])
 
   // Close shift modal state
   const [showCloseShift, setShowCloseShift] = useState(false)
@@ -554,7 +571,7 @@ function PosPageInner() {
       {/* Cards grid — scrollable */}
       <PullToRefreshContainer onRefresh={async () => { await refetchChecks() }} disabled={!shift}>
       <div className="pos-cards-wrap" style={{ flex: 1 }}>
-        <div className="pos-cards-grid">
+        <div className="pos-cards-grid" ref={gridRef}>
         <style>{`
           /* Masonry со смещением правой колонки (стиль Apple «Воспоминания»):
              раскладку строит MasonryColumns (flex-колонки), здесь — облик карточек:
@@ -1435,7 +1452,7 @@ function PosPageInner() {
       {/* Right panel — detail view на десктопе */}
       {activeCheckId && (
         <div
-          className="pos-right-panel"
+          className={`pos-right-panel${rightClosing ? ' closing' : ''}`}
           style={{
             width: 0,
             flexShrink: 0,
@@ -1447,8 +1464,8 @@ function PosPageInner() {
           <CheckDetailView
             key={activeCheckId}
             checkId={activeCheckId}
-            onBack={() => setActiveCheckId(null)}
-            onClose={() => setActiveCheckId(null)}
+            onBack={closeRightPanel}
+            onClose={closeRightPanel}
           />
         </div>
       )}
@@ -1459,13 +1476,20 @@ function PosPageInner() {
           from { opacity: 0; transform: translateX(28px); }
           to   { opacity: 1; transform: none; }
         }
+        @keyframes split-panel-out {
+          from { opacity: 1; transform: none; }
+          to   { opacity: 0; transform: translateX(36px); }
+        }
         @media (prefers-reduced-motion: reduce) {
-          .pos-right-panel { animation: none !important; }
+          .pos-right-panel, .pos-right-panel.closing { animation: none !important; }
         }
         @media (min-width: 1024px) {
           .pos-right-panel {
             width: var(--pos-right-w, 680px) !important;
             animation: split-panel-in 240ms cubic-bezier(0.22, 1, 0.36, 1) both;
+          }
+          .pos-right-panel.closing {
+            animation: split-panel-out 200ms cubic-bezier(0.4, 0, 1, 1) both !important;
           }
           .pos-split-handle {
             display: flex; align-items: center; justify-content: center;
@@ -1591,9 +1615,18 @@ function ShiftCard({ shift, summary, onOpen, onCloseShift, onDetail }: {
         <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 2, fontSize: 10, color: 'var(--on-surface-variant)' }}>Подробнее<Icon name="chevron_right" size={13} color="var(--on-surface-variant)" /></span>
       </div>
       <ShiftMiniStat label={`Открыто · ${summary.openChecks.count}`} value={fmtRub(summary.openChecks.total)} />
-      <ShiftMiniStat label="Прогноз вечера" value={fmtRub(summary.forecast.amount)} accent tai />
+      {/* Прогноз — подпись не влезает на телефоне: вместо неё бегущая ИИ-искра Tai
+          по строке (не доходит до суммы). Что это — поясняет шторка по тапу. */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }} aria-label="Прогноз вечера от Tai">
+        <div style={{ position: 'relative', flex: 1, height: 18, minWidth: 0, overflow: 'hidden' }}>
+          <span style={{ position: 'absolute', top: '50%', marginTop: -8, animation: 'tai-run 2.6s ease-in-out infinite' }}>
+            <TaiLogo size={16} thinking float={false} />
+          </span>
+        </div>
+        <span style={{ flexShrink: 0, fontSize: 17, fontWeight: 800, fontVariantNumeric: 'tabular-nums', color: '#A78BFA' }}>{fmtRub(summary.forecast.amount)}</span>
+      </div>
       <ShiftMiniStat label="В кассе" value={fmtRub(summary.cashInRegister)} />
-      <style>{`@keyframes tai-shift-bar{0%{background-position:0% 0}100%{background-position:300% 0}}`}</style>
+      <style>{`@keyframes tai-shift-bar{0%{background-position:0% 0}100%{background-position:300% 0}}@keyframes tai-run{0%{left:0}50%{left:calc(100% - 16px)}100%{left:0}}`}</style>
     </button>
   )
 }
@@ -1619,7 +1652,7 @@ function ShiftDetailSheet({ open, onClose, summary }: { open: boolean; onClose: 
       position: 'fixed', inset: 0, zIndex: 60, background: 'rgba(13,21,38,0.85)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
       display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16,
     }}>
-      <div className="glass-l1" style={{ borderRadius: 28, maxWidth: 480, width: '100%', maxHeight: '90dvh', overflowY: 'auto', WebkitOverflowScrolling: 'touch', boxShadow: '0 24px 80px rgba(0,0,0,0.6)', padding: 22 }}>
+      <div className="glass-l1" style={{ borderRadius: 28, maxWidth: 480, width: '100%', maxHeight: '90dvh', overflowY: 'auto', WebkitOverflowScrolling: 'touch', boxShadow: '0 24px 80px rgba(0,0,0,0.6)', padding: '22px 22px calc(22px + var(--bottom-nav-clear, 0px))' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
           <h3 style={{ margin: 0, fontSize: 18, fontWeight: 800 }}>Сводка смены</h3>
           <button onClick={onClose} style={{ width: 34, height: 34, borderRadius: 10, border: '1px solid rgba(255,255,255,0.1)', background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--on-surface-variant)' }}><Icon name="close" size={18} /></button>
@@ -1633,11 +1666,11 @@ function ShiftDetailSheet({ open, onClose, summary }: { open: boolean; onClose: 
           <DetailRow icon="account_balance_wallet" color="#10B981" title="В кассе сейчас" hint="Наличные с начала смены (касса)" value={fmtRub(summary.cashInRegister)} />
         </div>
 
-        {/* Пояснение прогноза */}
-        <div style={{ display: 'flex', gap: 8, padding: '12px 14px', borderRadius: 12, background: 'rgba(139,92,246,0.08)', border: '1px solid rgba(139,92,246,0.2)', marginBottom: 16 }}>
-          <TaiLogo size={20} float={false} />
-          <p style={{ margin: 0, fontSize: 12, color: 'var(--on-surface-variant)', lineHeight: 1.5 }}>
-            <b style={{ color: '#A78BFA' }}>Прогноз Tai</b> строится по привычкам гостей в открытых чеках: каждый чек проецируется до типичной суммы этого гостя (по его прошлым чекам, с поправкой на день недели). Гости без истории учитываются по текущей сумме.
+        {/* Пояснение прогноза — упор на ИИ */}
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '12px 14px', borderRadius: 12, background: 'rgba(139,92,246,0.1)', border: '1px solid rgba(139,92,246,0.25)', marginBottom: 16 }}>
+          <TaiLogo size={24} thinking float={false} />
+          <p style={{ margin: 0, fontSize: 12.5, color: 'var(--on-surface)', lineHeight: 1.45 }}>
+            <b style={{ color: '#A78BFA' }}>Tai</b> читает зал и предсказывает выручку вечера — по тысячам прошлых чеков, привычкам гостей и дню недели.
           </p>
         </div>
 
