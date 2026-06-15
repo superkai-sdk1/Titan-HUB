@@ -54,6 +54,15 @@ interface PlayerResult {
   photoUrl: string | null
 }
 
+// Прогноз/сводка смены для карточки кассы.
+interface ShiftForecastCheck { checkId: string; name: string; isResident: boolean; current: number; projected: number; avgSpend: number | null; samples: number; weekdayBased: boolean }
+interface ShiftSummary {
+  shift: { id: string; openedAt: string; eveningType: string } | null
+  openChecks: { count: number; total: number }
+  cashInRegister: number
+  forecast: { amount: number; currentTotal: number; additional: number; perCheck: ShiftForecastCheck[] }
+}
+
 // Игрок GoMafia в подборе (из /gomafia/search).
 interface PosGmPlayer {
   gomafiaId: string
@@ -211,6 +220,15 @@ function PosPageInner() {
     refetchInterval: 20000,
     enabled: !!shift,
   })
+
+  // Сводка смены для карточки кассы (открытые чеки, прогноз Tai, касса).
+  const { data: shiftSummary } = useQuery({
+    queryKey: ['pos', 'shift-summary'],
+    queryFn: () => api.get<ShiftSummary>('/pos/shift-summary'),
+    refetchInterval: 30000,
+    enabled: !!shift,
+  })
+  const [showShiftDetail, setShowShiftDetail] = useState(false)
 
   const { show: showToast } = useToast()
 
@@ -574,6 +592,17 @@ function PosPageInner() {
           }
         `}</style>
 
+          {/* Карточка смены: открыть/закрыть смену + сводка вечера (прогноз Tai) */}
+          {!shiftLoading && (
+            <ShiftCard
+              shift={shift}
+              summary={shiftSummary}
+              onOpen={() => setShowOpenShift(true)}
+              onCloseShift={() => setShowCloseShift(true)}
+              onDetail={() => setShowShiftDetail(true)}
+            />
+          )}
+
           {/* Skeleton loading */}
           {isLoading && Array.from({ length: 4 }).map((_, i) => (
             <div key={i} className="skeleton" style={{ height: 160, borderRadius: 20 }} />
@@ -887,46 +916,9 @@ function PosPageInner() {
         </div>
       )}
 
-      {/* No active shift overlay */}
-      {!shiftLoading && !shift && (
-        <div style={{
-          position: 'fixed', inset: 0, zIndex: 40,
-          background: 'rgba(21,18,27,0.8)',
-          backdropFilter: 'blur(12px)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24,
-        }}>
-          <div
-            className="glass-l1"
-            style={{ borderRadius: 32, padding: '48px 40px', maxWidth: 380, width: '100%', textAlign: 'center' }}
-          >
-            <div style={{
-              width: 64, height: 64, borderRadius: 20, marginBottom: 24, marginLeft: 'auto', marginRight: 'auto',
-              background: 'rgba(139,92,246,0.15)',
-              border: '1px solid rgba(139,92,246,0.3)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-            }}>
-              <Icon name="schedule" size={30} color="#A78BFA" />
-            </div>
-            <h2 style={{ fontSize: 20, fontWeight: 900, textTransform: 'uppercase', marginBottom: 8, color: 'var(--on-surface)' }}>
-              СМЕНА НЕ ОТКРЫТА
-            </h2>
-            <p style={{ color: 'var(--on-surface-variant)', fontSize: 13, marginBottom: 28 }}>
-              Откройте смену чтобы начать работу
-            </p>
-            <button
-              onClick={() => setShowOpenShift(true)}
-              style={{
-                width: '100%', padding: '14px 0', borderRadius: 14, border: 'none', cursor: 'pointer',
-                background: 'linear-gradient(135deg, #8B5CF6, #4cd7f6)',
-                color: '#fff', fontSize: 13, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em',
-                boxShadow: '0 4px 20px rgba(139,92,246,0.35)',
-              }}
-            >
-              Открыть смену
-            </button>
-          </div>
-        </div>
-      )}
+      {/* Состояние «смена не открыта» теперь — карточка ShiftCard в сетке кассы. */}
+
+      <ShiftDetailSheet open={showShiftDetail} onClose={() => setShowShiftDetail(false)} summary={shiftSummary} />
 
       <OpenShiftModal open={showOpenShift} onClose={() => setShowOpenShift(false)} />
 
@@ -1545,5 +1537,183 @@ export default function PosPage() {
     <Suspense fallback={null}>
       <PosPageInner />
     </Suspense>
+  )
+}
+
+const fmtRub = (n: number) => `${Math.round(n || 0).toLocaleString('ru')} ₽`
+
+/* ─── Карточка смены в кассе ──────────────────────────────────────────────── */
+function ShiftCard({ shift, summary, onOpen, onCloseShift, onDetail }: {
+  shift: any
+  summary?: ShiftSummary
+  onOpen: () => void
+  onCloseShift: () => void
+  onDetail: () => void
+}) {
+  const full: React.CSSProperties = { gridColumn: '1 / -1' }
+
+  // 1) Смена закрыта → крупная кнопка «Открыть смену».
+  if (!shift) {
+    return (
+      <button onClick={onOpen} style={{
+        ...full, borderRadius: 18, padding: '18px 20px', cursor: 'pointer', textAlign: 'left',
+        display: 'flex', alignItems: 'center', gap: 14, color: '#fff',
+        background: 'linear-gradient(135deg, rgba(139,92,246,0.9), rgba(76,215,246,0.85))',
+        border: '1px solid rgba(255,255,255,0.18)', boxShadow: '0 6px 22px rgba(139,92,246,0.3)',
+      }}>
+        <div style={{ width: 46, height: 46, borderRadius: 14, background: 'rgba(255,255,255,0.18)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+          <Icon name="schedule" size={26} color="#fff" />
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <p style={{ margin: 0, fontSize: 17, fontWeight: 800 }}>Открыть смену</p>
+          <p style={{ margin: '2px 0 0', fontSize: 12, opacity: 0.85 }}>Начните рабочий день, чтобы открывать чеки</p>
+        </div>
+        <Icon name="chevron_right" size={22} color="rgba(255,255,255,0.9)" />
+      </button>
+    )
+  }
+
+  // Пока сводка грузится — нейтральная карточка.
+  if (!summary) {
+    return (
+      <div className="glass-l2" style={{ ...full, borderRadius: 18, padding: '16px 20px', display: 'flex', alignItems: 'center', gap: 12, border: '1px solid rgba(255,255,255,0.08)' }}>
+        <Icon name="schedule" size={20} color="#A78BFA" />
+        <span style={{ fontSize: 13, color: 'var(--on-surface-variant)' }}>Смена открыта · загрузка сводки…</span>
+      </div>
+    )
+  }
+
+  const hasChecks = summary.openChecks.count > 0
+
+  // 3) Смена открыта, чеков нет → «Закрыть смену» + сумма в кассе.
+  if (!hasChecks) {
+    return (
+      <button onClick={onCloseShift} style={{
+        ...full, borderRadius: 18, padding: '16px 20px', cursor: 'pointer', textAlign: 'left',
+        display: 'flex', alignItems: 'center', gap: 14, color: 'var(--on-surface)',
+        background: 'rgba(244,63,94,0.07)', border: '1px solid rgba(244,63,94,0.28)',
+      }}>
+        <div style={{ width: 44, height: 44, borderRadius: 13, background: 'rgba(244,63,94,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+          <Icon name="logout" size={22} color="#F43F5E" />
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <p style={{ margin: 0, fontSize: 16, fontWeight: 800 }}>Закрыть смену</p>
+          <p style={{ margin: '2px 0 0', fontSize: 12, color: 'var(--on-surface-variant)' }}>Открытых чеков нет</p>
+        </div>
+        <div style={{ textAlign: 'right', flexShrink: 0 }}>
+          <p style={{ margin: 0, fontSize: 11, color: 'var(--on-surface-variant)' }}>В кассе</p>
+          <p style={{ margin: '2px 0 0', fontSize: 17, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>{fmtRub(summary.cashInRegister)}</p>
+        </div>
+      </button>
+    )
+  }
+
+  // 2) Смена открыта, есть чеки → 3 суммы (открыто / прогноз Tai / касса), тап → детали.
+  return (
+    <button onClick={onDetail} className="glass-l2" style={{
+      ...full, borderRadius: 18, padding: '14px 16px', cursor: 'pointer', textAlign: 'left',
+      border: '1px solid rgba(139,92,246,0.22)', display: 'flex', flexDirection: 'column', gap: 12,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <Icon name="receipt_long" size={16} color="#A78BFA" />
+        <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--on-surface)' }}>Смена</span>
+        <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 3, fontSize: 11, color: 'var(--on-surface-variant)' }}>Подробнее <Icon name="chevron_right" size={14} color="var(--on-surface-variant)" /></span>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr' }}>
+        <ShiftStat label={`Открыто · ${summary.openChecks.count}`} value={fmtRub(summary.openChecks.total)} />
+        <ShiftStat label="Прогноз вечера" value={fmtRub(summary.forecast.amount)} accent tai divider />
+        <ShiftStat label="В кассе" value={fmtRub(summary.cashInRegister)} divider />
+      </div>
+    </button>
+  )
+}
+
+function ShiftStat({ label, value, accent, tai, divider }: { label: string; value: string; accent?: boolean; tai?: boolean; divider?: boolean }) {
+  return (
+    <div style={{ paddingLeft: divider ? 12 : 0, borderLeft: divider ? '1px solid rgba(255,255,255,0.08)' : 'none', minWidth: 0 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 4 }}>
+        {tai && <TaiLogo size={14} float={false} />}
+        <span style={{ fontSize: 10, color: accent ? '#A78BFA' : 'var(--on-surface-variant)', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
+      </div>
+      <p style={{ margin: 0, fontSize: 16, fontWeight: 800, fontVariantNumeric: 'tabular-nums', color: accent ? '#A78BFA' : 'var(--on-surface)', lineHeight: 1.1 }}>{value}</p>
+    </div>
+  )
+}
+
+/* ─── Детализация сводки смены ────────────────────────────────────────────── */
+function ShiftDetailSheet({ open, onClose, summary }: { open: boolean; onClose: () => void; summary?: ShiftSummary }) {
+  if (!open || !summary) return null
+  const perCheck = [...summary.forecast.perCheck].sort((a, b) => b.projected - a.projected)
+  return (
+    <div onClick={e => { if (e.target === e.currentTarget) onClose() }} style={{
+      position: 'fixed', inset: 0, zIndex: 60, background: 'rgba(13,21,38,0.85)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16,
+    }}>
+      <div className="glass-l1" style={{ borderRadius: 28, maxWidth: 480, width: '100%', maxHeight: '90dvh', overflowY: 'auto', WebkitOverflowScrolling: 'touch', boxShadow: '0 24px 80px rgba(0,0,0,0.6)', padding: 22 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+          <h3 style={{ margin: 0, fontSize: 18, fontWeight: 800 }}>Сводка смены</h3>
+          <button onClick={onClose} style={{ width: 34, height: 34, borderRadius: 10, border: '1px solid rgba(255,255,255,0.1)', background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--on-surface-variant)' }}><Icon name="close" size={18} /></button>
+        </div>
+
+        {/* Три цифры с пояснениями */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 18 }}>
+          <DetailRow icon="receipt_long" color="#4cd7f6" title="Открыто чеков" hint={`${summary.openChecks.count} активных · уже набрано`} value={fmtRub(summary.openChecks.total)} />
+          <DetailRow icon="auto_awesome" color="#A78BFA" tai title="Прогноз вечера" hint="Сколько ожидается к закрытию смены" value={fmtRub(summary.forecast.amount)} accent
+            extra={summary.forecast.additional > 0 ? `+${fmtRub(summary.forecast.additional)} к текущему` : undefined} />
+          <DetailRow icon="account_balance_wallet" color="#10B981" title="В кассе сейчас" hint="Наличные с начала смены (касса)" value={fmtRub(summary.cashInRegister)} />
+        </div>
+
+        {/* Пояснение прогноза */}
+        <div style={{ display: 'flex', gap: 8, padding: '12px 14px', borderRadius: 12, background: 'rgba(139,92,246,0.08)', border: '1px solid rgba(139,92,246,0.2)', marginBottom: 16 }}>
+          <TaiLogo size={20} float={false} />
+          <p style={{ margin: 0, fontSize: 12, color: 'var(--on-surface-variant)', lineHeight: 1.5 }}>
+            <b style={{ color: '#A78BFA' }}>Прогноз Tai</b> строится по привычкам гостей в открытых чеках: каждый чек проецируется до типичной суммы этого гостя (по его прошлым чекам, с поправкой на день недели). Гости без истории учитываются по текущей сумме.
+          </p>
+        </div>
+
+        {/* Разбивка по чекам */}
+        <p style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--on-surface-variant)', margin: '0 0 8px' }}>По чекам</p>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          {perCheck.map(p => {
+            const uplift = p.projected - p.current
+            return (
+              <div key={p.checkId} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 0', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <p style={{ margin: 0, fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</p>
+                  <p style={{ margin: '2px 0 0', fontSize: 11, color: 'var(--on-surface-variant)' }}>
+                    {p.avgSpend != null
+                      ? <>обычно {fmtRub(p.avgSpend)} · {p.samples} {p.samples === 1 ? 'чек' : p.samples < 5 ? 'чека' : 'чеков'}{p.weekdayBased ? ' (этот день)' : ''}</>
+                      : 'без истории — по текущей сумме'}
+                  </p>
+                </div>
+                <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                  <p style={{ margin: 0, fontSize: 13, fontWeight: 800, color: uplift > 0 ? '#A78BFA' : 'var(--on-surface)', fontVariantNumeric: 'tabular-nums' }}>{fmtRub(p.projected)}</p>
+                  {uplift > 0 && <p style={{ margin: '1px 0 0', fontSize: 10, color: 'var(--on-surface-variant)' }}>сейчас {fmtRub(p.current)}</p>}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function DetailRow({ icon, color, title, hint, value, accent, tai, extra }: { icon: string; color: string; title: string; hint: string; value: string; accent?: boolean; tai?: boolean; extra?: string }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', borderRadius: 14, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
+      <div style={{ width: 40, height: 40, borderRadius: 12, background: `${color}1f`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, position: 'relative' }}>
+        <Icon name={icon} size={20} color={color} />
+        {tai && <span style={{ position: 'absolute', bottom: -3, right: -3 }}><TaiLogo size={16} float={false} /></span>}
+      </div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <p style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>{title}</p>
+        <p style={{ margin: '2px 0 0', fontSize: 11, color: 'var(--on-surface-variant)' }}>{hint}</p>
+      </div>
+      <div style={{ textAlign: 'right', flexShrink: 0 }}>
+        <p style={{ margin: 0, fontSize: 18, fontWeight: 800, fontVariantNumeric: 'tabular-nums', color: accent ? '#A78BFA' : 'var(--on-surface)' }}>{value}</p>
+        {extra && <p style={{ margin: '1px 0 0', fontSize: 10, color: '#A78BFA' }}>{extra}</p>}
+      </div>
+    </div>
   )
 }

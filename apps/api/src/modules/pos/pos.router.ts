@@ -11,7 +11,8 @@ import {
 import type { Database } from '@titan/database'
 import { recordMovement } from '../inventory/ledger.js'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
-import { getCurrentShift } from '../shifts/shifts.service.js'
+import { getCurrentShift, getShiftCashBalance } from '../shifts/shifts.service.js'
+import { computeShiftForecast } from '../../lib/shiftForecast.js'
 import { notify, notifyClient } from '../notifications/push.js'
 import { maybePromoteToResident } from '../../lib/loyalty.js'
 import { profileNameCondition, profileTagCondition } from '../../lib/searchVariants.js'
@@ -452,6 +453,23 @@ posRouter.get('/players/:id', requireRole('owner', 'staff', 'tablet'), async (c)
   }).from(profiles).where(eq(profiles.id, c.req.param('id')))
   if (!player) return c.json({ error: 'Not found' }, 404)
   return c.json({ player })
+})
+
+// Сводка смены для карточки кассы: открытые чеки, прогноз вечера (Tai), касса.
+posRouter.get('/shift-summary', requireRole('owner', 'staff'), async (c) => {
+  const db = c.var.db
+  const shift = await getCurrentShift(db)
+  if (!shift) return c.json({ shift: null })
+  const [{ expected }, forecast] = await Promise.all([
+    getShiftCashBalance(shift.id, db),
+    computeShiftForecast(db, shift.id),
+  ])
+  return c.json({
+    shift: { id: shift.id, openedAt: shift.openedAt, eveningType: shift.eveningType },
+    openChecks: { count: forecast.perCheck.length, total: forecast.currentTotal },
+    cashInRegister: expected,
+    forecast,
+  })
 })
 
 posRouter.get('/checks', requireRole('owner', 'staff', 'tablet'), async (c) => {
