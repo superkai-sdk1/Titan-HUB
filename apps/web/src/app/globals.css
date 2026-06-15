@@ -460,3 +460,9 @@ input[type="datetime-local"]::-webkit-calendar-picker-indicator {
     font-size: 16px !important;
   }
 }
+
+/* Строка-карточка чека (аналитика → чеки): мягкая подсветка при наведении/нажатии.
+   Инлайн-стиль ставит background:transparent, поэтому нужен !important. */
+.ti-check-row { transition: background 0.15s ease; }
+@media (hover: hover) { .ti-check-row:hover { background: rgba(255,255,255,0.035) !important; } }
+.ti-check-row:active { background: rgba(255,255,255,0.06) !important; }

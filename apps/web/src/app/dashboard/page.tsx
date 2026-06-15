@@ -630,21 +630,7 @@ function TodayTab({ businessDay }: { businessDay: string }) {
         {isLoading ? <StateView state="loading" />
           : isError ? <StateView state="error" description="Не удалось загрузить чеки." action={{ label: 'Повторить', onClick: () => refetch() }} />
           : checks.length === 0 ? <p style={{ padding: 28, textAlign: 'center', fontSize: 13, color: 'var(--on-surface-variant)' }}>Пока нет чеков сегодня</p>
-          : checks.map((c: any) => (
-            <button
-              key={c.id}
-              onClick={() => setOpenCheckId(c.id)}
-              style={{ width: '100%', textAlign: 'left', display: 'flex', alignItems: 'center', gap: 12, padding: '12px 18px', borderBottom: '1px solid rgba(255,255,255,0.04)', background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--on-surface)' }}
-            >
-              <span style={{ fontSize: 12, fontFamily: "'JetBrains Mono',monospace", color: 'var(--on-surface-variant)', width: 44, flexShrink: 0 }}>{fmtMsk(c.createdAt)}</span>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <p style={{ fontSize: 13, fontWeight: 600, margin: '0 0 3px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.guestName || 'Гость'}</p>
-                <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: '0 0 5px' }}>{c.staffNickname || '—'} · {c.itemCount ?? 0} поз.</p>
-                <PayChips payments={c.payments ?? []} />
-              </div>
-              <span style={{ fontSize: 14, fontWeight: 800, flexShrink: 0 }}>{fmt(parseNum(c.totalAmount))} ₽</span>
-            </button>
-          ))}
+          : checks.map((c: any) => <CheckRow key={c.id} c={c} onClick={() => setOpenCheckId(c.id)} />)}
       </div>
 
       {modal && <KpiBreakdownModal title={modal.title} subtitle={modal.subtitle} b={modal.b} onClose={() => setModal(null)} />}
@@ -1238,16 +1224,62 @@ function PlayersTab({ clients }: { clients: any }) {
 function PayChips({ payments }: { payments: { method: string; amount: number | string }[] }) {
   if (!payments?.length) return null
   return (
-    <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+    <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
       {payments.map((p, i) => {
         const color = PAY_COLORS[p.method] ?? '#94A3B8'
         return (
-          <span key={i} style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 6, background: `${color}1f`, color, whiteSpace: 'nowrap' }}>
+          <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, fontWeight: 700, padding: '3px 8px', borderRadius: 7, background: `${color}1f`, color, border: `1px solid ${color}33`, whiteSpace: 'nowrap' }}>
+            <span style={{ width: 5, height: 5, borderRadius: '50%', background: color }} />
             {payLabel(p.method)}
           </span>
         )
       })}
     </div>
+  )
+}
+
+// Аватар по приоритету фото (загруженное → Telegram → GoMafia). Нет фото:
+// зарегистрированный клиент → инициалы на градиенте, гость → иконка person.
+function CheckAvatar({ photoUrl, name, isClient, size = 42 }: { photoUrl?: string | null; name?: string | null; isClient?: boolean; size?: number }) {
+  const initials = (name ?? '').trim().replace(/[^\p{L}\p{N} ]/gu, '').split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase()
+  return (
+    <div style={{ width: size, height: size, borderRadius: '50%', flexShrink: 0, overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: Math.round(size * 0.34), fontWeight: 800, color: '#cbb8f5', border: '1px solid rgba(255,255,255,0.09)', background: photoUrl ? 'rgba(255,255,255,0.05)' : isClient ? 'linear-gradient(135deg, rgba(139,92,246,0.4), rgba(76,215,246,0.3))' : 'rgba(255,255,255,0.05)' }}>
+      {photoUrl
+        ? /* eslint-disable-next-line @next/next/no-img-element */ <img src={photoUrl} alt="" width={size} height={size} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+        : isClient && initials
+          ? initials
+          : <Icon name="person" size={Math.round(size * 0.5)} color="rgba(204,195,216,0.6)" />}
+    </div>
+  )
+}
+
+// Карточка-строка чека: аватар, ник/гость, мета (время · позиции · кассир),
+// шильдики способов оплаты и сумма. Общая для списков «Чеки» и «Чеки сегодня».
+function CheckRow({ c, onClick }: { c: any; onClick: () => void }) {
+  const name = c.guestName || 'Гость'
+  const isClient = !!c.playerId
+  return (
+    <button
+      onClick={onClick}
+      className="ti-check-row"
+      style={{ width: '100%', textAlign: 'left', display: 'flex', alignItems: 'center', gap: 12, padding: '11px 16px', borderBottom: '1px solid rgba(255,255,255,0.04)', background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--on-surface)' }}
+    >
+      <CheckAvatar photoUrl={c.photoUrl} name={name} isClient={isClient} />
+      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 5 }}>
+        <span style={{ fontSize: 14, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>{name}</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 11, color: 'var(--on-surface-variant)' }}>
+          <span style={{ fontFamily: "'JetBrains Mono',monospace" }}>{fmtMsk(c.createdAt)}</span>
+          <span style={{ opacity: 0.4 }}>·</span>
+          <span style={{ flexShrink: 0 }}>{c.itemCount ?? 0} поз.</span>
+          {c.staffNickname && <><span style={{ opacity: 0.4 }}>·</span><span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.staffNickname}</span></>}
+        </div>
+        <PayChips payments={c.payments ?? []} />
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+        <span style={{ fontSize: 15, fontWeight: 800, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{fmt(parseNum(c.totalAmount))} ₽</span>
+        <Icon name="chevron_right" size={15} color="rgba(204,195,216,0.35)" />
+      </div>
+    </button>
   )
 }
 
@@ -1430,21 +1462,7 @@ function ChecksTab({ from, to }: { from: string; to: string }) {
         {isLoading ? <StateView state="loading" />
           : isError ? <StateView state="error" description="Не удалось загрузить чеки." action={{ label: 'Повторить', onClick: () => refetch() }} />
           : checks.length === 0 ? <p style={{ padding: 28, textAlign: 'center', fontSize: 13, color: 'var(--on-surface-variant)' }}>Нет чеков за период</p>
-          : checks.map(c => (
-            <button
-              key={c.id}
-              onClick={() => setOpenId(c.id)}
-              style={{ width: '100%', textAlign: 'left', display: 'flex', alignItems: 'center', gap: 12, padding: '12px 18px', borderBottom: '1px solid rgba(255,255,255,0.04)', background: 'transparent', border: 'none', borderBottomStyle: 'solid', cursor: 'pointer', color: 'var(--on-surface)' }}
-            >
-              <span style={{ fontSize: 12, fontFamily: "'JetBrains Mono',monospace", color: 'var(--on-surface-variant)', width: 44, flexShrink: 0 }}>{fmtMsk(c.createdAt)}</span>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <p style={{ fontSize: 13, fontWeight: 600, margin: '0 0 3px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.guestName || 'Гость'}</p>
-                <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: '0 0 5px' }}>{c.staffNickname || '—'} · {c.itemCount ?? 0} поз.</p>
-                <PayChips payments={c.payments ?? []} />
-              </div>
-              <span style={{ fontSize: 14, fontWeight: 800, flexShrink: 0 }}>{fmt(parseNum(c.totalAmount))} ₽</span>
-            </button>
-          ))}
+          : checks.map(c => <CheckRow key={c.id} c={c} onClick={() => setOpenId(c.id)} />)}
       </div>
 
       {openId && <CheckDetailModal id={openId} onClose={() => setOpenId(null)} />}
