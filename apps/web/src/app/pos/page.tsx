@@ -20,6 +20,7 @@ interface CheckCard {
   createdAt: string
   totalAmount: string
   itemCount: number
+  items?: string[]
   status: string
   note?: string
   guestName?: string
@@ -547,61 +548,53 @@ function PosPageInner() {
         <div className="pos-cards-grid">
         <style>{`
           .pos-cards-wrap { padding: 8px 12px 12px; }
+          /* Masonry-сетка: карточки разной высоты без «дыр» (CSS columns). 2 колонки
+             на телефоне, шире на больших экранах. Высота каждой карточки — по контенту
+             (число позиций). Вертикальный зазор — margin-bottom у самих карточек. */
           .pos-cards-grid {
-            display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 8px;
-            /* Клиренс под плавающую нижнюю навигацию кладём на сам прокручиваемый
-               контент: последние карточки доезжают выше панели, без «мёртвой» полосы.
-               На десктопе --bottom-nav-clear=0 (панель скрыта) → остаётся 16px. */
+            column-count: 2;
+            column-gap: 8px;
             padding-bottom: calc(16px + var(--bottom-nav-clear, 0px));
           }
-          .pos-check-card { padding: 10px; }
-          .pos-check-card .card-avatar { width: 28px; height: 28px; font-size: 11px; }
-          .pos-check-card .card-name { font-size: 12px; }
+          .pos-cards-grid > * {
+            width: 100%;
+            margin: 0 0 8px;
+            break-inside: avoid;
+            -webkit-column-break-inside: avoid;
+          }
+          .pos-check-card { padding: 11px; }
+          .pos-check-card .card-avatar { width: 30px; height: 30px; font-size: 11px; }
+          .pos-check-card .card-name { font-size: 12.5px; }
           .pos-check-card .card-space { font-size: 10px; }
-          .pos-check-card .card-badge { display: none; }
-          .pos-check-card .card-amount { font-size: 20px; margin: 0 0 6px; }
-          .pos-check-card .card-timer-icon { font-size: 12px; }
-          .pos-check-card .card-timer-text { font-size: 11px; }
-          .pos-check-card .card-items { font-size: 10px; }
-          .pos-check-card .card-top { margin-bottom: 8px; gap: 7px; }
+          .pos-check-card .card-amount { font-size: 22px; }
+          .pos-check-card .card-line { font-size: 11px; }
+          .pos-check-card .card-top { margin-bottom: 9px; gap: 8px; }
           @media (min-width: 480px) {
-            .pos-cards-grid { gap: 12px; }
-            .pos-check-card { padding: 12px; }
-            .pos-check-card .card-avatar { width: 32px; height: 32px; font-size: 12px; }
-            .pos-check-card .card-amount { font-size: 22px; }
+            .pos-cards-grid { column-gap: 12px; }
+            .pos-cards-grid > * { margin-bottom: 12px; }
+            .pos-check-card { padding: 13px; }
+            .pos-check-card .card-avatar { width: 34px; height: 34px; font-size: 12px; }
+            .pos-check-card .card-amount { font-size: 24px; }
+            .pos-check-card .card-line { font-size: 12px; }
           }
           @media (min-width: 1024px) {
             .pos-cards-wrap { padding: 0 32px 16px; }
             .pos-cards-grid {
-              grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-              gap: 20px;
+              column-count: auto;
+              column-width: 250px;
+              column-gap: 20px;
               padding-bottom: 24px;
               max-width: var(--content-wide);
               margin: 0 auto;
             }
-            .pos-check-card { padding: 14px; border-radius: 20px !important; }
-            .pos-check-card .card-avatar { width: 36px; height: 36px; font-size: 13px; }
-            .pos-check-card .card-badge { display: flex; }
-            .pos-check-card .card-amount { font-size: 28px; margin: 0 0 10px; }
-            .pos-check-card .card-timer-icon { font-size: 14px; }
-            .pos-check-card .card-timer-text { font-size: 12px; }
-            .pos-check-card .card-items { font-size: 11px; }
+            .pos-cards-grid > * { margin-bottom: 20px; }
+            .pos-check-card { padding: 15px; border-radius: 20px !important; }
+            .pos-check-card .card-avatar { width: 38px; height: 38px; font-size: 13px; }
+            .pos-check-card .card-amount { font-size: 28px; }
+            .pos-check-card .card-line { font-size: 12.5px; }
             .pos-check-card .card-top { margin-bottom: 12px; gap: 10px; }
           }
         `}</style>
-
-          {/* Карточка смены: открыть/закрыть смену + сводка вечера (прогноз Tai) */}
-          {!shiftLoading && (
-            <ShiftCard
-              shift={shift}
-              summary={shiftSummary}
-              onOpen={() => setShowOpenShift(true)}
-              onCloseShift={() => setShowCloseShift(true)}
-              onDetail={() => setShowShiftDetail(true)}
-            />
-          )}
 
           {/* Skeleton loading */}
           {isLoading && Array.from({ length: 4 }).map((_, i) => (
@@ -656,7 +649,7 @@ function PosPageInner() {
                     <Icon name="notifications_active" size={15} color="#1a1622" />
                   </span>
                 )}
-                {/* Top: avatar + info + badge */}
+                {/* Top: avatar + nick */}
                 <div className="card-top" style={{ display: 'flex', alignItems: 'center' }}>
                   <div className="card-avatar" style={{
                     borderRadius: '50%', flexShrink: 0, overflow: 'hidden',
@@ -670,67 +663,45 @@ function PosPageInner() {
                       : getInitials(cardName)}
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <p className="card-name" style={{ fontWeight: 600, color: 'var(--on-surface)', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    <p className="card-name" style={{ fontWeight: 700, color: 'var(--on-surface)', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {cardName}
                     </p>
                     {check.spaceName && (
-                      <p className="card-space" style={{ color: 'var(--on-surface-variant)', margin: 0 }}>{check.spaceName}</p>
+                      <p className="card-space" style={{ color: 'var(--on-surface-variant)', margin: '1px 0 0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{check.spaceName}</p>
                     )}
-                  </div>
-                  <div className="card-badge" style={{
-                    padding: '3px 8px',
-                    borderRadius: 999,
-                    background: 'rgba(139,92,246,0.2)',
-                    border: '1px solid rgba(139,92,246,0.3)',
-                    fontSize: 9,
-                    fontWeight: 700,
-                    color: '#A78BFA',
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.05em',
-                    flexShrink: 0,
-                    alignItems: 'center',
-                  }}>
-                    Открыт
                   </div>
                 </div>
 
-                {/* Amount */}
-                <p className="card-amount" style={{
-                  fontWeight: 900,
-                  
-                  fontVariantNumeric: 'tabular-nums',
-                  color: 'var(--on-surface)',
-                  lineHeight: 1,
-                }}>
-                  {displayTotal.toLocaleString('ru')} ₽
-                </p>
+                {/* Позиции чека: до 5 строк; >5 → 4 строки + «Ещё N» */}
+                {(() => {
+                  const items = check.items ?? []
+                  const more = check.itemCount > 5
+                  const shown = more ? items.slice(0, 4) : items
+                  return (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 2, margin: '9px 0 10px' }}>
+                      {shown.map((it, i) => (
+                        <div key={i} className="card-line" style={{ display: 'flex', gap: 6, alignItems: 'baseline', color: 'var(--on-surface-variant)' }}>
+                          <span style={{ color: 'rgba(167,139,250,0.7)', flexShrink: 0 }}>•</span>
+                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{it}</span>
+                        </div>
+                      ))}
+                      {more && <div className="card-line" style={{ color: '#A78BFA', fontWeight: 600, paddingLeft: 12 }}>Ещё {check.itemCount - 4}</div>}
+                      {check.itemCount === 0 && <div className="card-line" style={{ color: 'rgba(204,195,216,0.4)' }}>Чек пуст</div>}
+                    </div>
+                  )
+                })()}
 
-                {/* Bottom: timer + items */}
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                    <Icon
-                      name={warn ? 'warning' : 'schedule'}
-                      color={timerColor}
-                      className="card-timer-icon"
-                    />
-                    <span className="card-timer-text" style={{
-                      fontWeight: 600, color: timerColor,
-                      animation: warn ? 'pulse-dot 2s ease-in-out infinite' : 'none',
-                    }}>
+                {/* Footer: время открытия + крупная сумма */}
+                <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 8, marginTop: 'auto' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <Icon name={warn ? 'warning' : 'schedule'} size={13} color={timerColor} />
+                    <span style={{ fontSize: 11, fontWeight: 600, color: timerColor, animation: warn ? 'pulse-dot 2s ease-in-out infinite' : 'none' }}>
                       {formatElapsed(check.createdAt, now)}
                     </span>
                   </div>
-                  {check.itemCount > 0 && (
-                    <span className="card-items" style={{
-                      padding: '2px 8px',
-                      borderRadius: 999,
-                      background: 'rgba(255,255,255,0.06)',
-                      fontSize: 11,
-                      color: 'var(--on-surface-variant)',
-                    }}>
-                      {check.itemCount} поз.
-                    </span>
-                  )}
+                  <p className="card-amount" style={{ fontWeight: 900, fontVariantNumeric: 'tabular-nums', color: 'var(--on-surface)', lineHeight: 1, margin: 0 }}>
+                    {displayTotal.toLocaleString('ru')} ₽
+                  </p>
                 </div>
 
                 {/* Rental stripe */}
@@ -787,13 +758,20 @@ function PosPageInner() {
                   <TaiLogo size={28} thinking float={false} />
                 </div>
 
-                <p className="card-amount" style={{ fontWeight: 900, fontVariantNumeric: 'tabular-nums', color: 'var(--on-surface)', lineHeight: 1 }}>
-                  {price.toLocaleString('ru')} ₽
-                </p>
+                {/* Позиция-тариф (как строка позиции у чека) */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 2, margin: '9px 0 10px', position: 'relative' }}>
+                  <div className="card-line" style={{ display: 'flex', gap: 6, alignItems: 'baseline', color: 'var(--on-surface-variant)' }}>
+                    <span style={{ color: 'rgba(167,139,250,0.7)', flexShrink: 0 }}>•</span>
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pc.tariffName ?? 'Тариф'}</span>
+                  </div>
+                </div>
 
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
-                  <span className="card-items" style={{ padding: '2px 8px', borderRadius: 999, background: 'rgba(160,125,255,0.16)', fontSize: 11, color: '#A78BFA', whiteSpace: 'nowrap' }}>{pc.tariffName ?? 'Тариф'}</span>
-                  <span style={{ fontSize: 11, color: 'var(--on-surface-variant)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Удерживайте, чтобы открыть</span>
+                {/* Footer: подсказка + крупная сумма */}
+                <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 8, marginTop: 'auto', position: 'relative' }}>
+                  <span style={{ fontSize: 10, fontWeight: 600, color: '#A78BFA', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Удерживайте</span>
+                  <p className="card-amount" style={{ fontWeight: 900, fontVariantNumeric: 'tabular-nums', color: 'var(--on-surface)', lineHeight: 1, margin: 0 }}>
+                    {price.toLocaleString('ru')} ₽
+                  </p>
                 </div>
 
                 {holding && <div style={{ position: 'absolute', bottom: 0, left: 0, height: 3, background: 'linear-gradient(90deg,#A07DFF,#4cd7f6)', animation: 'tai-hold 0.6s linear forwards' }} />}
@@ -802,6 +780,17 @@ function PosPageInner() {
           })}
           {prechecks.length > 0 && (
             <style>{`@keyframes tai-precheck-bg{0%{background-position:0% 50%}50%{background-position:100% 50%}100%{background-position:0% 50%}}@keyframes tai-precheck-sheen{0%{background-position:220% 0}100%{background-position:-60% 0}}@keyframes tai-hold{from{width:0}to{width:100%}}`}</style>
+          )}
+
+          {/* Карточка смены — предпоследняя (после чеков/предчеков, перед «новый чек») */}
+          {!shiftLoading && (
+            <ShiftCard
+              shift={shift}
+              summary={shiftSummary}
+              onOpen={() => setShowOpenShift(true)}
+              onCloseShift={() => setShowCloseShift(true)}
+              onDetail={() => setShowShiftDetail(true)}
+            />
           )}
 
           {/* New check slot */}
@@ -1550,92 +1539,91 @@ function ShiftCard({ shift, summary, onOpen, onCloseShift, onDetail }: {
   onCloseShift: () => void
   onDetail: () => void
 }) {
-  const full: React.CSSProperties = { gridColumn: '1 / -1' }
+  // Карточка-ячейка как чеки (ширину/зазор задаёт .pos-cards-grid > *).
+  const base: React.CSSProperties = { borderRadius: 16, padding: 14, textAlign: 'left', cursor: 'pointer', display: 'flex', flexDirection: 'column', position: 'relative', overflow: 'hidden', WebkitTapHighlightColor: 'transparent' }
 
-  // 1) Смена закрыта → крупная кнопка «Открыть смену».
+  // 1) Смена закрыта → «Открыть смену».
   if (!shift) {
     return (
       <button onClick={onOpen} style={{
-        ...full, borderRadius: 18, padding: '18px 20px', cursor: 'pointer', textAlign: 'left',
-        display: 'flex', alignItems: 'center', gap: 14, color: '#fff',
-        background: 'linear-gradient(135deg, rgba(139,92,246,0.9), rgba(76,215,246,0.85))',
-        border: '1px solid rgba(255,255,255,0.18)', boxShadow: '0 6px 22px rgba(139,92,246,0.3)',
+        ...base, color: '#fff', minHeight: 124, justifyContent: 'space-between', gap: 12,
+        background: 'linear-gradient(150deg, rgba(139,92,246,0.92), rgba(76,215,246,0.8))',
+        border: '1px solid rgba(255,255,255,0.2)', boxShadow: '0 6px 22px rgba(139,92,246,0.3)',
       }}>
-        <div style={{ width: 46, height: 46, borderRadius: 14, background: 'rgba(255,255,255,0.18)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+        <div style={{ width: 46, height: 46, borderRadius: 14, background: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <Icon name="schedule" size={26} color="#fff" />
         </div>
-        <div style={{ flex: 1, minWidth: 0 }}>
+        <div>
           <p style={{ margin: 0, fontSize: 17, fontWeight: 800 }}>Открыть смену</p>
-          <p style={{ margin: '2px 0 0', fontSize: 12, opacity: 0.85 }}>Начните рабочий день, чтобы открывать чеки</p>
+          <p style={{ margin: '2px 0 0', fontSize: 11, opacity: 0.85 }}>Начать рабочий день</p>
         </div>
-        <Icon name="chevron_right" size={22} color="rgba(255,255,255,0.9)" />
       </button>
     )
   }
 
-  // Пока сводка грузится — нейтральная карточка.
+  // Пока сводка грузится.
   if (!summary) {
     return (
-      <div className="glass-l2" style={{ ...full, borderRadius: 18, padding: '16px 20px', display: 'flex', alignItems: 'center', gap: 12, border: '1px solid rgba(255,255,255,0.08)' }}>
-        <Icon name="schedule" size={20} color="#A78BFA" />
-        <span style={{ fontSize: 13, color: 'var(--on-surface-variant)' }}>Смена открыта · загрузка сводки…</span>
+      <div className="glass-l2" style={{ ...base, cursor: 'default', minHeight: 100, alignItems: 'center', justifyContent: 'center', gap: 8, border: '1px solid rgba(255,255,255,0.08)' }}>
+        <TaiLogo size={22} thinking float={false} />
+        <span style={{ fontSize: 12, color: 'var(--on-surface-variant)' }}>Смена · сводка…</span>
       </div>
     )
   }
 
   const hasChecks = summary.openChecks.count > 0
 
-  // 3) Смена открыта, чеков нет → «Закрыть смену» + сумма в кассе.
+  // 3) Смена открыта, чеков нет → «Закрыть смену» + касса.
   if (!hasChecks) {
     return (
       <button onClick={onCloseShift} style={{
-        ...full, borderRadius: 18, padding: '16px 20px', cursor: 'pointer', textAlign: 'left',
-        display: 'flex', alignItems: 'center', gap: 14, color: 'var(--on-surface)',
+        ...base, color: 'var(--on-surface)', minHeight: 124, justifyContent: 'space-between', gap: 10,
         background: 'rgba(244,63,94,0.07)', border: '1px solid rgba(244,63,94,0.28)',
       }}>
-        <div style={{ width: 44, height: 44, borderRadius: 13, background: 'rgba(244,63,94,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+        <div style={{ width: 44, height: 44, borderRadius: 13, background: 'rgba(244,63,94,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <Icon name="logout" size={22} color="#F43F5E" />
         </div>
-        <div style={{ flex: 1, minWidth: 0 }}>
+        <div>
           <p style={{ margin: 0, fontSize: 16, fontWeight: 800 }}>Закрыть смену</p>
-          <p style={{ margin: '2px 0 0', fontSize: 12, color: 'var(--on-surface-variant)' }}>Открытых чеков нет</p>
+          <p style={{ margin: '2px 0 0', fontSize: 11, color: 'var(--on-surface-variant)' }}>Открытых чеков нет</p>
         </div>
-        <div style={{ textAlign: 'right', flexShrink: 0 }}>
-          <p style={{ margin: 0, fontSize: 11, color: 'var(--on-surface-variant)' }}>В кассе</p>
-          <p style={{ margin: '2px 0 0', fontSize: 17, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>{fmtRub(summary.cashInRegister)}</p>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 9 }}>
+          <span style={{ fontSize: 11, color: 'var(--on-surface-variant)' }}>В кассе</span>
+          <span style={{ fontSize: 16, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>{fmtRub(summary.cashInRegister)}</span>
         </div>
       </button>
     )
   }
 
-  // 2) Смена открыта, есть чеки → 3 суммы (открыто / прогноз Tai / касса), тап → детали.
+  // 2) Смена открыта, есть чеки → ИИ-карточка со сводкой (3 цифры), тап → детали.
   return (
     <button onClick={onDetail} className="glass-l2" style={{
-      ...full, borderRadius: 18, padding: '14px 16px', cursor: 'pointer', textAlign: 'left',
-      border: '1px solid rgba(139,92,246,0.22)', display: 'flex', flexDirection: 'column', gap: 12,
+      ...base, gap: 9, border: '1px solid rgba(139,92,246,0.35)',
+      background: 'linear-gradient(160deg, rgba(139,92,246,0.13), rgba(76,215,246,0.05))',
     }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <Icon name="receipt_long" size={16} color="#A78BFA" />
-        <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--on-surface)' }}>Смена</span>
-        <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 3, fontSize: 11, color: 'var(--on-surface-variant)' }}>Подробнее <Icon name="chevron_right" size={14} color="var(--on-surface-variant)" /></span>
+      {/* Бегущая ИИ-полоса сверху — «инновационный» акцент */}
+      <div aria-hidden style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 3, background: 'linear-gradient(90deg,#8B5CF6,#4cd7f6,#A07DFF,#8B5CF6)', backgroundSize: '300% 100%', animation: 'tai-shift-bar 4s linear infinite' }} />
+      <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+        <TaiLogo size={22} thinking float={false} />
+        <span style={{ fontSize: 13, fontWeight: 800, color: 'var(--on-surface)' }}>Смена</span>
+        <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 2, fontSize: 10, color: 'var(--on-surface-variant)' }}>Подробнее<Icon name="chevron_right" size={13} color="var(--on-surface-variant)" /></span>
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr' }}>
-        <ShiftStat label={`Открыто · ${summary.openChecks.count}`} value={fmtRub(summary.openChecks.total)} />
-        <ShiftStat label="Прогноз вечера" value={fmtRub(summary.forecast.amount)} accent tai divider />
-        <ShiftStat label="В кассе" value={fmtRub(summary.cashInRegister)} divider />
-      </div>
+      <ShiftMiniStat label={`Открыто · ${summary.openChecks.count}`} value={fmtRub(summary.openChecks.total)} />
+      <ShiftMiniStat label="Прогноз вечера" value={fmtRub(summary.forecast.amount)} accent tai />
+      <ShiftMiniStat label="В кассе" value={fmtRub(summary.cashInRegister)} />
+      <style>{`@keyframes tai-shift-bar{0%{background-position:0% 0}100%{background-position:300% 0}}`}</style>
     </button>
   )
 }
 
-function ShiftStat({ label, value, accent, tai, divider }: { label: string; value: string; accent?: boolean; tai?: boolean; divider?: boolean }) {
+function ShiftMiniStat({ label, value, accent, tai }: { label: string; value: string; accent?: boolean; tai?: boolean }) {
   return (
-    <div style={{ paddingLeft: divider ? 12 : 0, borderLeft: divider ? '1px solid rgba(255,255,255,0.08)' : 'none', minWidth: 0 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 4 }}>
-        {tai && <TaiLogo size={14} float={false} />}
-        <span style={{ fontSize: 10, color: accent ? '#A78BFA' : 'var(--on-surface-variant)', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
-      </div>
-      <p style={{ margin: 0, fontSize: 16, fontWeight: 800, fontVariantNumeric: 'tabular-nums', color: accent ? '#A78BFA' : 'var(--on-surface)', lineHeight: 1.1 }}>{value}</p>
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+      <span style={{ display: 'flex', alignItems: 'center', gap: 4, minWidth: 0, fontSize: 11, fontWeight: accent ? 700 : 500, color: accent ? '#A78BFA' : 'var(--on-surface-variant)' }}>
+        {tai && <TaiLogo size={13} float={false} />}
+        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
+      </span>
+      <span style={{ flexShrink: 0, fontSize: accent ? 17 : 15, fontWeight: 800, fontVariantNumeric: 'tabular-nums', color: accent ? '#A78BFA' : 'var(--on-surface)' }}>{value}</span>
     </div>
   )
 }

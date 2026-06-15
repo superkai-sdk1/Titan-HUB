@@ -6,7 +6,7 @@ import {
   checks, checkItems, checkItemModifiers, checkPayments, checkDiscounts, pendingOrders, chatMessages,
   inventory, profiles, spaces, certificates, bonusHistory, transactions, modifiers as modifiersTable,
   appSettings, events, discounts, clientDiscountRules,
-  eq, and, ne, inArray, desc, sql, isNull,
+  eq, and, ne, inArray, desc, asc, sql, isNull,
 } from '@titan/database'
 import type { Database } from '@titan/database'
 import { recordMovement } from '../inventory/ledger.js'
@@ -519,6 +519,23 @@ posRouter.get('/checks', requireRole('owner', 'staff', 'tablet'), async (c) => {
   const itemCountByCheck = new Map<string, number>()
   for (const r of itemCountRows) itemCountByCheck.set(r.checkId, r.count)
 
+  // Превью позиций для карточек кассы: до 5 названий на чек (по алфавиту —
+  // у check_items нет поля порядка, id случайный). Карточка решает, как показать.
+  const itemNameRows = checkIds.length
+    ? await db
+        .select({ checkId: checkItems.checkId, name: inventory.name, quantity: checkItems.quantity })
+        .from(checkItems)
+        .innerJoin(inventory, eq(inventory.id, checkItems.itemId))
+        .where(inArray(checkItems.checkId, checkIds))
+        .orderBy(asc(inventory.name))
+    : []
+  const itemsByCheck = new Map<string, string[]>()
+  for (const r of itemNameRows as any[]) {
+    const arr = itemsByCheck.get(r.checkId) ?? []
+    if (arr.length < 5) arr.push((r.quantity ?? 1) > 1 ? `${r.name} ×${r.quantity}` : String(r.name))
+    itemsByCheck.set(r.checkId, arr)
+  }
+
   // Ники привязанных игроков одной выборкой.
   const playerRows = playerIds.length
     ? await db
@@ -565,7 +582,7 @@ posRouter.get('/checks', requireRole('owner', 'staff', 'tablet'), async (c) => {
       spaceHourlyRate = sp?.hourlyRate ?? null
     }
 
-    return { ...ch, itemCount: count, guestName, guestPhotoUrl, spaceName, spaceHourlyRate, hasRental: !!ch.spaceId }
+    return { ...ch, itemCount: count, items: itemsByCheck.get(ch.id) ?? [], guestName, guestPhotoUrl, spaceName, spaceHourlyRate, hasRental: !!ch.spaceId }
   })
   return c.json({ checks: enriched })
 })
