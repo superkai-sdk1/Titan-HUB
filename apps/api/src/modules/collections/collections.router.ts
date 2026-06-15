@@ -7,9 +7,12 @@ import {
   profiles, transactions,
   eq, and, inArray, sql, desc, asc, count, sum,
 } from '@titan/database'
-import { requireRole } from '../../middleware/auth.js'
+import { requireAuth, requireRole } from '../../middleware/auth.js'
 
 export const collectionsRouter = new Hono<AppEnv>()
+// Аутентификация для всех маршрутов раздела (как в clients): иначе requireRole
+// читает user.role у несуществующего user → 500 вместо 401.
+collectionsRouter.use('*', requireAuth)
 
 // Взносы только у резидентов (клиенты с тиром resident/student/newbie; гость — нет).
 const RESIDENT_TIERS = ['resident', 'student', 'newbie'] as const
