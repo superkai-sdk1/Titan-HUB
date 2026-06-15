@@ -2,8 +2,17 @@
 /**
  * Pull-to-refresh для ОСНОВНОГО контента: свайп сверху вниз (когда скролл вверху)
  * обновляет данные. Не создаёт свой скролл-контейнер — цепляется к уже существующему
- * `.layout-content` и тянет его контент вниз во время жеста. Обновление = invalidate
- * всех React Query.
+ * `.layout-content`. Обновление = invalidate всех React Query.
+ *
+ * САМ КОНТЕНТ НЕ ДВИГАЕМ (Material-style): индикатор-спиннер опускается сверху, а
+ * страница и её липкая шапка (PageHeader = position:sticky) остаются на месте.
+ * Раньше тянули `.layout-content` через transform — но это утягивало вниз и шапку,
+ * и выглядело так, будто «свайпается шапка, а не содержимое».
+ *
+ * Слушатель touchmove — PASSIVE и без preventDefault: за верхнюю границу прокрутки
+ * не пускает уже `overscroll-behavior: none` на .layout-content. Non-passive touchmove
+ * на скролл-контейнере убивал инерцию (momentum) iOS — поэтому в «Управлении» прокрутка
+ * шла рывками, а в «Аналитике» (где PTR отключён) была плавной.
  *
  * ВАЖНО: жест срабатывает ТОЛЬКО когда тянут сам основной контент. Если касание
  * началось внутри модалки/Sheet (портал вне .layout-content) или внутри вложенного
@@ -56,18 +65,15 @@ export function GlobalPullToRefresh() {
       }
       return false
     }
+    // Двигаем только индикатор (через состояние pull) — сам .layout-content не трогаем,
+    // чтобы не утягивать липкую шапку и не ломать momentum.
     const apply = (v: number) => {
       cur = v
       setPull(v)
-      // Тянем контент вниз пальцем (как в POS); индикатор сверху проявляется в зазоре.
-      el.style.transform = v > 0 ? `translateY(${v}px)` : ''
-      el.style.transition = 'none'
     }
-    const reset = (animate: boolean) => {
+    const reset = () => {
       cur = 0
       setPull(0)
-      el.style.transition = animate ? 'transform 0.3s ease' : 'none'
-      el.style.transform = ''
     }
 
     const onStart = (e: TouchEvent) => {
@@ -82,10 +88,11 @@ export function GlobalPullToRefresh() {
     }
     const onMove = (e: TouchEvent) => {
       if (startY === null || refreshingRef.current) return
-      if (el.scrollTop > 0) { startY = null; reset(false); return }
+      if (el.scrollTop > 0) { startY = null; reset(); return }
       const dy = e.touches[0].clientY - startY
-      if (dy <= 0) { if (cur !== 0) reset(false); return }
-      e.preventDefault()
+      if (dy <= 0) { if (cur !== 0) reset(); return }
+      // НЕ вызываем preventDefault: за верхнюю границу не пускает overscroll-behavior:none,
+      // а passive-слушатель сохраняет инерцию прокрутки.
       apply(Math.min(dy * 0.5, MAX_PULL))
     }
     const onEnd = async () => {
@@ -95,20 +102,18 @@ export function GlobalPullToRefresh() {
         refreshingRef.current = true
         setRefreshing(true)
         setPull(THRESHOLD)
-        el.style.transition = 'transform 0.2s ease'
-        el.style.transform = `translateY(${THRESHOLD}px)`
         try { await qc.invalidateQueries() } finally {
           refreshingRef.current = false
           setRefreshing(false)
-          reset(true)
+          reset()
         }
       } else {
-        reset(true)
+        reset()
       }
     }
 
     el.addEventListener('touchstart', onStart, { passive: true })
-    el.addEventListener('touchmove', onMove, { passive: false })
+    el.addEventListener('touchmove', onMove, { passive: true })
     el.addEventListener('touchend', onEnd, { passive: true })
     el.addEventListener('touchcancel', onEnd, { passive: true })
     return () => {
@@ -116,8 +121,6 @@ export function GlobalPullToRefresh() {
       el.removeEventListener('touchmove', onMove)
       el.removeEventListener('touchend', onEnd)
       el.removeEventListener('touchcancel', onEnd)
-      el.style.transform = ''
-      el.style.transition = ''
     }
   }, [disabled, pathname, qc])
 
@@ -126,27 +129,33 @@ export function GlobalPullToRefresh() {
   const progress = Math.min(pull / THRESHOLD, 1)
   if (indicatorH <= 8 && !refreshing) return null
 
+  // Контент стоит на месте — поэтому индикатор это компактная «таблетка», которая
+  // опускается сверху поверх шапки (своя матовая подложка, чтобы читалась над любым
+  // фоном), а не строка с текстом, налезающая на заголовок раздела.
+  const chipY = Math.max(8, indicatorH - 18)
   return (
     <div
       style={{
         position: 'fixed', top: 'env(safe-area-inset-top, 0px)', left: 0, right: 0,
-        height: indicatorH, zIndex: 35, pointerEvents: 'none',
-        display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-        overflow: 'hidden',
-        transition: refreshing ? 'height 0.2s ease' : 'none',
+        height: 0, zIndex: 35, pointerEvents: 'none',
+        display: 'flex', justifyContent: 'center',
       }}
     >
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, opacity: refreshing ? 1 : progress, transform: `scale(${0.6 + progress * 0.4})` }}>
+      <div
+        style={{
+          transform: `translateY(${chipY}px) scale(${refreshing ? 1 : 0.7 + progress * 0.3})`,
+          transition: refreshing ? 'transform 0.2s ease' : 'none',
+          width: 36, height: 36, borderRadius: '50%',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          background: 'rgba(28,24,36,0.82)', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)',
+          border: '1px solid rgba(139,92,246,0.35)', boxShadow: '0 6px 18px rgba(0,0,0,0.35)',
+          opacity: refreshing ? 1 : Math.min(1, progress + 0.25),
+        }}
+      >
         {refreshing ? (
-          <>
-            <div style={{ width: 24, height: 24, borderRadius: '50%', border: '2px solid rgba(139,92,246,0.3)', borderTopColor: '#8B5CF6', animation: 'ptr-spin 0.6s linear infinite' }} />
-            <span style={{ fontSize: 11, color: '#8B5CF6', fontWeight: 600, fontFamily: "'JetBrains Mono',monospace", letterSpacing: '0.06em' }}>ОБНОВЛЕНИЕ…</span>
-          </>
+          <div style={{ width: 20, height: 20, borderRadius: '50%', border: '2px solid rgba(139,92,246,0.3)', borderTopColor: '#8B5CF6', animation: 'ptr-spin 0.6s linear infinite' }} />
         ) : (
-          <>
-            <Icon name="arrow_downward" size={20} color="#8B5CF6" style={{ transform: progress >= 1 ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s ease' }} />
-            <span style={{ fontSize: 11, color: 'var(--on-surface-variant)', fontWeight: 600, fontFamily: "'JetBrains Mono',monospace", letterSpacing: '0.06em' }}>{progress >= 1 ? 'ОТПУСТИТЕ' : 'ПОТЯНИТЕ ВНИЗ'}</span>
-          </>
+          <Icon name="arrow_downward" size={20} color="#8B5CF6" style={{ transform: progress >= 1 ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s ease' }} />
         )}
       </div>
       <style>{`@keyframes ptr-spin { to { transform: rotate(360deg); } }`}</style>

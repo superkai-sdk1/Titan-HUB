@@ -341,7 +341,7 @@ export default function PricingPage() {
         </div>
       </div>
 
-      <div style={{ padding: '16px', maxWidth: 'var(--content-narrow)', margin: '0 auto', width: '100%' }}>
+      <div style={{ padding: '16px 16px var(--bottom-nav-clear, 24px)', maxWidth: 'var(--content-narrow)', margin: '0 auto', width: '100%' }}>
         {/* ─── ТАРИФЫ ─── */}
         {tab === 'tariffs' && (() => {
           // Статусы клиента (key, иерархия Резидент→Студент→Новичок→Гость) +

@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   DndContext,
   closestCenter,
-  PointerSensor,
+  MouseSensor,
   TouchSensor,
   useSensor,
   useSensors,
@@ -61,7 +61,7 @@ function ItemCardBody({ item, cat, onEdit, onDelete, dragHandle }: { item: any; 
     <div className="glass-l2" style={{ borderRadius: 16, padding: 12, display: 'flex', flexDirection: 'column', gap: 7, height: '100%', minHeight: 128, boxSizing: 'border-box', borderLeft: `3px solid ${catColor}`, position: 'relative' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
         {dragHandle && (
-          <span {...dragHandle} aria-label="Перетащить" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'grab', touchAction: 'none', userSelect: 'none', padding: 2, margin: -2, flexShrink: 0 }}>
+          <span {...dragHandle} aria-label="Перетащить" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'grab', userSelect: 'none', WebkitUserSelect: 'none', WebkitTouchCallout: 'none', padding: 2, margin: -2, flexShrink: 0 }}>
             <Icon name="drag_indicator" size={18} color="rgba(204,195,216,0.4)" />
           </span>
         )}
@@ -147,7 +147,7 @@ function SortableFolderTile({ cat, count, onOpen, onEdit }: { cat: any; count: n
       ref={setNodeRef}
       {...attributes}
       {...listeners}
-      style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.4 : 1, touchAction: 'none', cursor: isDragging ? 'grabbing' : undefined }}
+      style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.4 : 1, cursor: isDragging ? 'grabbing' : undefined, WebkitTouchCallout: 'none' }}
     >
       <FolderTile cat={cat} count={count} onOpen={onOpen} onEdit={onEdit} />
     </div>
@@ -204,9 +204,14 @@ export default function MenuPage() {
   const [confirmDelItem, setConfirmDelItem] = useState<any>(null)
   const [confirmDelCat, setConfirmDelCat] = useState<any>(null)
 
+  // На десктопе тащим мышью сразу (distance), на тач-устройствах — только после
+  // удержания (delay), иначе лёгкий вертикальный свайп запускал перетаскивание
+  // вместо прокрутки. tolerance отменяет drag, если палец заметно сдвинулся за
+  // время удержания (= это скролл, а не захват). MouseSensor вместо Pointer —
+  // чтобы на тач-экранах не перехватывался pointerdown в обход delay TouchSensor.
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
-    useSensor(TouchSensor, { activationConstraint: { distance: 8 } })
+    useSensor(MouseSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 220, tolerance: 8 } })
   )
 
   const { show } = useToast()
