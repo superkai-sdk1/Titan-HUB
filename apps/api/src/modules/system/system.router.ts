@@ -11,6 +11,7 @@ import { createBackup, listBackups, lastBackup, restoreNamed, restoreFromUpload,
 import { encryptSecret, decryptSecret, maskSecret, getClubIntegration } from '../../lib/secrets.js'
 import { getActiveSbpProvider } from '../pay/registry.js'
 import { getActiveFiscalProvider } from '../pay/fiscal/registry.js'
+import { getWhatsAppConfig, sendWhatsAppTemplate } from '../../lib/whatsapp.js'
 import { readPollConfigs, writePollConfigs, postPollConfig, type PollConfig } from '../../lib/polls.js'
 import { recordPollPosted } from '../../lib/pollState.js'
 import { setTelegramWebhook, deleteTelegramWebhook, getTelegramWebhookInfo, getChatAdministrators, getTelegramChat } from '../../lib/telegram.js'
@@ -235,6 +236,9 @@ const INTEGRATION_KEYS: Record<string, string> = {
   ferma_password: 'Платформа ОФД: пароль',
   ferma_inn: 'Платформа ОФД: ИНН',
   ferma_taxation: 'Платформа ОФД: система налогообложения',
+  // Маркетинг — WhatsApp Business (Meta Cloud API).
+  whatsapp_phone_id: 'WhatsApp: Phone Number ID',
+  whatsapp_token: 'WhatsApp: постоянный токен',
 }
 
 const isAllowedKey = (key: string): boolean =>
@@ -380,6 +384,72 @@ systemRouter.put(
         .onConflictDoUpdate({ target: appSettings.key, set: { value } })
     }
     return c.json({ ok: true })
+  },
+)
+
+// ─── WhatsApp Business (Meta Cloud API): уведомления клиентам ────────────────────
+// Креды (phone id / токен) — в integrations (мастер). Здесь — поведение: автопоздравление
+// с ДР шаблоном + тест-отправка. Проактив идёт только одобренным шаблоном Meta.
+
+systemRouter.get('/whatsapp-config', requireAuth, requireRole('owner'), async (c) => {
+  const db = c.var.db
+  const cfg = await getWhatsAppConfig(db)
+  const rows = await db.select().from(appSettings)
+    .where(inArray(appSettings.key, ['whatsapp_birthday_enabled', 'whatsapp_birthday_template', 'whatsapp_lang']))
+  const map = Object.fromEntries(rows.map((r) => [r.key, r.value]))
+  return c.json({
+    configured: !!cfg,
+    birthdayEnabled: map['whatsapp_birthday_enabled'] === 'true',
+    birthdayTemplate: map['whatsapp_birthday_template'] || '',
+    lang: map['whatsapp_lang'] || 'ru',
+  })
+})
+
+systemRouter.put(
+  '/whatsapp-config',
+  requireAuth,
+  requireRole('owner'),
+  zValidator('json', z.object({
+    birthdayEnabled: z.boolean().optional(),
+    birthdayTemplate: z.string().max(120).optional(),
+    lang: z.string().max(10).optional(),
+  })),
+  async (c) => {
+    const db = c.var.db
+    const b = c.req.valid('json')
+    const updates: Array<[string, string]> = []
+    if (b.birthdayEnabled !== undefined) updates.push(['whatsapp_birthday_enabled', String(b.birthdayEnabled)])
+    if (b.birthdayTemplate !== undefined) updates.push(['whatsapp_birthday_template', b.birthdayTemplate])
+    if (b.lang !== undefined) updates.push(['whatsapp_lang', b.lang])
+    for (const [key, value] of updates) {
+      await db.insert(appSettings).values({ key, value })
+        .onConflictDoUpdate({ target: appSettings.key, set: { value } })
+    }
+    return c.json({ ok: true })
+  },
+)
+
+// Тест-отправка: проверить связку (phone id/токен/шаблон). Шлёт указанный шаблон
+// (или ник как первый параметр) на номер. Ошибку Meta возвращаем владельцу.
+systemRouter.post(
+  '/whatsapp/test',
+  requireAuth,
+  requireRole('owner'),
+  zValidator('json', z.object({ to: z.string().min(5).max(20), template: z.string().max(120).optional() })),
+  async (c) => {
+    const db = c.var.db
+    const { to, template } = c.req.valid('json')
+    const cfg = await getWhatsAppConfig(db)
+    if (!cfg) return c.json({ ok: false, error: 'WhatsApp не настроен (введите ключи)' }, 400)
+    const tpl = template || (await (async () => {
+      const [row] = await db.select().from(appSettings).where(eq(appSettings.key, 'whatsapp_birthday_template')).limit(1)
+      return row?.value || ''
+    })())
+    if (!tpl) return c.json({ ok: false, error: 'Укажите имя одобренного шаблона' }, 400)
+    const [langRow] = await db.select().from(appSettings).where(eq(appSettings.key, 'whatsapp_lang')).limit(1)
+    const r = await sendWhatsAppTemplate(cfg, to, tpl, langRow?.value || 'ru', ['Тест'])
+    // 200 всегда: ok-флаг несёт результат, чтобы текст ошибки Meta дошёл до владельца.
+    return c.json(r)
   },
 )
 

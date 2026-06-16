@@ -1,6 +1,7 @@
 import { db, profiles, notifications, appSettings, bonusHistory, type Database } from '@titan/database'
 import { eq, and, isNull, inArray, sql } from 'drizzle-orm'
 import { accrueBonusLot, expireBonuses, getBonusExpiryDays } from '../lib/bonusLots.js'
+import { getWhatsAppConfig, sendWhatsAppTemplate } from '../lib/whatsapp.js'
 
 // database — БД клуба (пер-клубный cron). Дефолт = синглтон (одно-клубный режим /
 // основной клуб): поведение прежнее. Планировщик передаёт db каждого active-клуба.
@@ -25,7 +26,7 @@ export async function checkBirthdays(database: Database = db) {
   // ::date (битая строка уронила бы весь запрос). Сравниваем MM-DD через substring
   // только для строк формата YYYY-MM-DD.
   const birthdayClients = await database
-    .select({ id: profiles.id, nickname: profiles.nickname, birthday: profiles.birthday })
+    .select({ id: profiles.id, nickname: profiles.nickname, birthday: profiles.birthday, phone: profiles.phone })
     .from(profiles)
     .where(and(
       eq(profiles.role, 'client'),
@@ -123,6 +124,41 @@ export async function checkBirthdays(database: Database = db) {
         userId: owner.id,
       })
     }
+  }
+
+  // ── Поздравление в WhatsApp (одобренным шаблоном) ──────────────────────────────
+  // Гейт: настроены креды + включён тумблер + задан шаблон. Идемпотентно: маркер
+  // wa_birthday на клиента раз в день (повторный запуск крона не дублирует).
+  try {
+    const waCfg = await getWhatsAppConfig(database)
+    const waRows = await database.select().from(appSettings)
+      .where(inArray(appSettings.key, ['whatsapp_birthday_enabled', 'whatsapp_birthday_template', 'whatsapp_lang']))
+    const wa = Object.fromEntries(waRows.map((r) => [r.key, r.value]))
+    const waTemplate = wa['whatsapp_birthday_template'] || ''
+    if (waCfg && wa['whatsapp_birthday_enabled'] === 'true' && waTemplate) {
+      const lang = wa['whatsapp_lang'] || 'ru'
+      for (const client of birthdayClients) {
+        if (!client.phone) continue
+        const dup = await database.select({ id: notifications.id }).from(notifications)
+          .where(and(
+            eq(notifications.type, 'wa_birthday'),
+            eq(notifications.userId, client.id),
+            sql`DATE(${notifications.createdAt}) = CURRENT_DATE`,
+          )).limit(1)
+        if (dup.length > 0) continue
+        const r = await sendWhatsAppTemplate(waCfg, client.phone, waTemplate, lang, [client.nickname])
+        await database.insert(notifications).values({
+          type: 'wa_birthday',
+          title: 'WhatsApp-поздравление',
+          body: r.ok ? `Отправлено ${client.nickname}` : `Ошибка: ${r.error ?? '—'}`,
+          meta: { clientId: client.id, ok: r.ok, error: r.error ?? null },
+          userId: client.id,
+        })
+        if (!r.ok) console.error(`[birthdays:wa] ${client.nickname}: ${r.error}`)
+      }
+    }
+  } catch (e) {
+    console.error('[birthdays:wa] pass failed', e)
   }
 
   console.log(`[birthdays] Processed ${birthdayClients.length} birthday(s) for ${mmdd}`)

@@ -10,6 +10,7 @@ import { StateView } from '@/components/StateView'
 import { useToast } from '@/components/Toast'
 import { IntegrationsTab } from './IntegrationsTab'
 import { PaymentConfig } from './PaymentConfig'
+import { WhatsAppConfig } from './WhatsAppConfig'
 
 function SectionCard({ title, icon, color, children }: { title: string; icon: string; color: string; children: React.ReactNode }) {
   return (
@@ -225,6 +226,9 @@ export default function SettingsPage() {
                   </SectionCard>
 
                   <SaveButton onClick={() => save.mutate()} isPending={save.isPending} isSaved={saved} label="Сохранить изменения" />
+
+                  {/* WhatsApp-уведомления (поздравления с ДР и др.) — своя настройка. */}
+                  <WhatsAppConfig />
                 </>
               )}
             </>

@@ -153,8 +153,15 @@ const CATALOG: Product[] = [
   { id: 'kontur_ofd', name: 'Бизнес.Ру / Контур.ОФД', icon: 'receipt_long', color: '#10B981', kind: 'keys', fields: [], comingSoon: true,
     blurb: 'Альтернативные ОФД/кассы', about: 'Альтернативные операторы фискальных данных и кассовые сервисы (Бизнес.Ру, Контур.ОФД) на выбор.' },
   // Маркетинг и коммуникации
-  { id: 'whatsapp', name: 'WhatsApp Business', icon: 'chat', color: '#25D366', kind: 'keys', fields: [], comingSoon: true,
-    blurb: 'Уведомления и рассылки в WhatsApp', about: 'WhatsApp Business API: уведомления и рассылки клиентам и заказчикам мероприятий (подтверждения, акции, дни рождения).' },
+  {
+    id: 'whatsapp', name: 'WhatsApp Business', icon: 'chat', color: '#25D366', kind: 'keys',
+    blurb: 'Уведомления клиентам в WhatsApp',
+    about: 'Отправка уведомлений клиентам через WhatsApp (Meta Cloud API): поздравления с днём рождения и др. ВАЖНО: проактивные сообщения идут только ОДОБРЕННЫМ шаблоном — создайте его в Meta Business Manager. Нужны Phone Number ID и постоянный токен из кабинета Meta for Developers. Поведение (шаблон, поздравления) — во вкладке «Поведение».',
+    fields: [
+      { key: 'whatsapp_phone_id', label: 'Phone Number ID', type: 'text', placeholder: 'Напр. 1029384756', hint: 'Meta for Developers → ваше WhatsApp-приложение → API Setup → Phone number ID.' },
+      { key: 'whatsapp_token', label: 'Постоянный токен', type: 'password', placeholder: 'EAAB…', hint: 'Постоянный (System User) access token с правом whatsapp_business_messaging. Временный 24-часовой не подойдёт.' },
+    ],
+  },
   { id: 'reviews', name: 'Отзывы 2ГИС / Яндекс', icon: 'star', color: '#FBBF24', kind: 'keys', fields: [], comingSoon: true,
     blurb: 'Сбор отзывов и карточка заведения', about: 'Сбор отзывов и управление карточкой заведения в 2ГИС и Яндекс.Картах — приглашать гостей оставить отзыв после визита.' },
   // Прочее
