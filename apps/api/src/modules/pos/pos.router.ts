@@ -24,6 +24,8 @@ import { getNumericSetting, LARGE_CHECK_KEY, DEFAULT_LARGE_CHECK, getBoolSetting
 import { round2, computeRental, computeTotals } from '../../lib/money.js'
 import { publishEvent, updatesChannel } from '../../lib/realtime.js'
 import { getClubIntegration } from '../../lib/secrets.js'
+import { getActiveSbpProvider, getProvider, resolveCreds, getPaymentTestMode } from '../pay/registry.js'
+import { buildCheckReceipt } from '../pay/fiscal/receipt.js'
 import { Redis } from 'ioredis'
 import { streamSSE } from 'hono/streaming'
 
@@ -1363,11 +1365,6 @@ posRouter.post('/checks/:id/qr', requireRole('owner', 'staff', 'tablet'), async 
   const db = c.var.db
   const checkId = c.req.param('id')
   const user = c.get('user')
-  // Креды Platega — пер-клубные (integrations БД клуба) с фолбэком на env.
-  // На основном домене integrations пусты → env (одно-клубный прод не затронут).
-  const merchantId = (await getClubIntegration(db, 'platega_merchant_id')) ?? process.env['PLATEGA_MERCHANT_ID']
-  const secret = (await getClubIntegration(db, 'platega_secret')) ?? process.env['PLATEGA_SECRET']
-  if (!merchantId || !secret) return c.json({ error: 'Platega не настроен' }, 503)
 
   const [check] = await db.select().from(checks).where(eq(checks.id, checkId))
   if (!check || check.status !== 'open') return c.json({ error: 'Check not open' }, 400)
@@ -1417,6 +1414,61 @@ posRouter.post('/checks/:id/qr', requireRole('owner', 'staff', 'tablet'), async 
     tipAmount: String(tip),
     acquiringSurcharge: surcharge8 ? String(round2(beforeSurcharge * 0.08)) : '0',
   }).where(eq(checks.id, checkId))
+
+  // ── Диспатч по активному СБП-эквайеру. 'platega' (дефолт) — существующий путь
+  // ниже без изменений; иначе создаём платёж через адаптер провайдера. ──
+  const activeProvider = await getActiveSbpProvider(db)
+  if (activeProvider !== 'platega') {
+    const provider = getProvider(activeProvider)
+    if (!provider) return c.json({ error: 'Неизвестный эквайер' }, 503)
+    const creds = await resolveCreds(db, provider)
+    if (provider.credKeys.some((k) => !creds[k])) {
+      return c.json({ error: `${provider.label}: не заданы ключи` }, 503)
+    }
+    const origin = new URL(c.req.url).origin
+    // Фискальный чек 54-ФЗ: только если провайдер умеет слать его сам (ЮKassa) и
+    // фискализация включена. Сумма чека = СПИСЫВАЕМАЯ (amount, с чаевыми/надбавкой) —
+    // у ЮKassa итог чека обязан совпадать с суммой платежа, иначе платёж отклонят.
+    const receipt = provider.supportsReceipt ? await buildCheckReceipt(db, check, amount).catch(() => undefined) : undefined
+    let result
+    try {
+      result = await provider.createSbpPayment({
+        creds,
+        amount,
+        checkId,
+        description: `Titan POS чек ${checkId.slice(0, 8)}`,
+        notificationUrl: `${origin}/api/pay/${provider.id}/webhook`,
+        returnUrl: origin,
+        receipt,
+        test: await getPaymentTestMode(db),
+      })
+    } catch (err) {
+      console.error(`[pay:${provider.id}] create error:`, err)
+      return c.json({ error: 'Ошибка создания платежа' }, 502)
+    }
+    // Рендерим СБП-payload (или ссылку на платёжную страницу) как QR-картинку.
+    let qrDataUrl: string | undefined
+    const payload = result.qrString ?? result.redirectUrl
+    if (payload) {
+      const QRCode = await import('qrcode')
+      const svgString = await QRCode.toString(payload, { type: 'svg', width: 280, margin: 1 })
+      qrDataUrl = `data:image/svg+xml;base64,${Buffer.from(svgString).toString('base64')}`
+    }
+    return c.json({
+      transactionId: result.transactionId,
+      qrDataUrl,
+      redirectUrl: result.redirectUrl,
+      chargedAmount: amount,
+      baseAmount,
+      surcharge8,
+      tip,
+    })
+  }
+
+  // ── Platega (дефолт) — креды пер-клубные (integrations) с фолбэком на env. ──
+  const merchantId = (await getClubIntegration(db, 'platega_merchant_id')) ?? process.env['PLATEGA_MERCHANT_ID']
+  const secret = (await getClubIntegration(db, 'platega_secret')) ?? process.env['PLATEGA_SECRET']
+  if (!merchantId || !secret) return c.json({ error: 'Platega не настроен' }, 503)
 
   const createRes = await fetch('https://app.platega.io/transaction/process', {
     method: 'POST',
@@ -1478,8 +1530,20 @@ posRouter.post('/checks/:id/qr', requireRole('owner', 'staff', 'tablet'), async 
 posRouter.get('/checks/:id/qr/:transactionId/status', requireRole('owner', 'staff'), async (c) => {
   const db = c.var.db
   const transactionId = c.req.param('transactionId')
-  // Креды Platega — пер-клубные (integrations БД клуба) с фолбэком на env.
-  // На основном домене integrations пусты → env (одно-клубный прод не затронут).
+
+  // Диспатч по активному эквайеру. Нормализуем к строкам Platega (CONFIRMED/
+  // CANCELED/NEW), которые уже понимает фронт CheckDetailView.
+  const activeProvider = await getActiveSbpProvider(db)
+  if (activeProvider !== 'platega') {
+    const provider = getProvider(activeProvider)
+    if (!provider) return c.json({ error: 'Неизвестный эквайер' }, 503)
+    const creds = await resolveCreds(db, provider)
+    const st = await provider.fetchStatus({ creds, transactionId }).catch(() => null)
+    const status = st?.status === 'confirmed' ? 'CONFIRMED' : st?.status === 'failed' ? 'CANCELED' : 'NEW'
+    return c.json({ status })
+  }
+
+  // ── Platega ── креды пер-клубные (integrations) с фолбэком на env.
   const merchantId = (await getClubIntegration(db, 'platega_merchant_id')) ?? process.env['PLATEGA_MERCHANT_ID']
   const secret = (await getClubIntegration(db, 'platega_secret')) ?? process.env['PLATEGA_SECRET']
   if (!merchantId || !secret) return c.json({ error: 'Platega не настроен' }, 503)

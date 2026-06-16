@@ -2,7 +2,7 @@ import type { AppEnv } from '../../types.js'
 import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
-import { appSettings, eveningTypes, integrations, eq } from '@titan/database'
+import { appSettings, eveningTypes, integrations, eq, inArray } from '@titan/database'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
 import { getCurrentShift } from '../shifts/shifts.service.js'
 import { Redis } from 'ioredis'
@@ -211,6 +211,15 @@ const INTEGRATION_KEYS: Record<string, string> = {
   platega_merchant_id: 'Platega: Merchant ID',
   platega_secret: 'Platega: секретный ключ',
   poll_bot_token: 'Токен бота опросов Telegram',
+  // СБП-эквайеры (приём оплат). Заведение вводит свои боевые/тестовые ключи.
+  tbank_terminal_key: 'Т-Банк: Terminal Key',
+  tbank_password: 'Т-Банк: Password',
+  yookassa_shop_id: 'ЮKassa: shopId',
+  yookassa_secret_key: 'ЮKassa: секретный ключ',
+  sber_username: 'СберБизнес: API-логин',
+  sber_password: 'СберБизнес: API-пароль',
+  alfa_username: 'Альфа/Точка: API-логин',
+  alfa_password: 'Альфа/Точка: API-пароль',
 }
 
 const isAllowedKey = (key: string): boolean =>
@@ -276,6 +285,56 @@ systemRouter.delete('/integrations/:key', requireAuth, requireRole('owner'), asy
   await db.delete(integrations).where(eq(integrations.key, key))
   return c.json({ ok: true, key, configured: false })
 })
+
+// ─── Конфигурация приёма оплат и фискализации (не секреты → app_settings) ──────
+// sbp_provider: активный СБП-эквайер кнопки «СБП» на кассе ('platega'|'tbank'|…).
+// fiscal_provider: кто пробивает чек 54-ФЗ ('' = выкл | 'yookassa' = сама ЮKassa).
+// payment_test_mode: песочница эквайера. fiscal_vat_code: код ставки НДС (ФФД).
+
+const SBP_PROVIDERS = ['platega', 'tbank', 'yookassa', 'sber', 'alfa'] as const
+const FISCAL_PROVIDERS = ['', 'yookassa'] as const
+
+systemRouter.get('/payment-config', requireAuth, requireRole('owner'), async (c) => {
+  const db = c.var.db
+  const rows = await db.select().from(appSettings)
+    .where(inArray(appSettings.key, ['sbp_provider', 'fiscal_provider', 'payment_test_mode', 'fiscal_vat_code', 'fiscal_default_phone']))
+  const map = Object.fromEntries(rows.map((r) => [r.key, r.value]))
+  return c.json({
+    sbpProvider: map['sbp_provider'] || 'platega',
+    fiscalProvider: map['fiscal_provider'] || '',
+    testMode: map['payment_test_mode'] === 'true',
+    vatCode: Number(map['fiscal_vat_code']) || 1,
+    defaultPhone: map['fiscal_default_phone'] || '',
+  })
+})
+
+systemRouter.put(
+  '/payment-config',
+  requireAuth,
+  requireRole('owner'),
+  zValidator('json', z.object({
+    sbpProvider: z.enum(SBP_PROVIDERS).optional(),
+    fiscalProvider: z.enum(FISCAL_PROVIDERS).optional(),
+    testMode: z.boolean().optional(),
+    vatCode: z.number().int().min(1).max(6).optional(),
+    defaultPhone: z.string().max(20).optional(),
+  })),
+  async (c) => {
+    const db = c.var.db
+    const b = c.req.valid('json')
+    const updates: Array<[string, string]> = []
+    if (b.sbpProvider !== undefined) updates.push(['sbp_provider', b.sbpProvider])
+    if (b.fiscalProvider !== undefined) updates.push(['fiscal_provider', b.fiscalProvider])
+    if (b.testMode !== undefined) updates.push(['payment_test_mode', String(b.testMode)])
+    if (b.vatCode !== undefined) updates.push(['fiscal_vat_code', String(b.vatCode)])
+    if (b.defaultPhone !== undefined) updates.push(['fiscal_default_phone', b.defaultPhone])
+    for (const [key, value] of updates) {
+      await db.insert(appSettings).values({ key, value })
+        .onConflictDoUpdate({ target: appSettings.key, set: { value } })
+    }
+    return c.json({ ok: true })
+  },
+)
 
 // ─── Регулярные опросы Telegram (бот опросов) ───────────────────────────────────
 // Только owner. Токен бота — отдельная интеграция poll_bot_token (маска как у

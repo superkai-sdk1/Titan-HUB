@@ -83,17 +83,46 @@ const CATALOG: Product[] = [
     ],
   },
 
-  // ─── Витрина «Скоро» (в разработке; кнопка «Установить» → «Скоро») ───────────
-  // Платежи и эквайринг
-  { id: 'tbank', name: 'Т-Банк (СБП)', icon: 'credit_card', color: '#FFDD2D', kind: 'keys', fields: [], comingSoon: true,
-    blurb: 'СБП и эквайринг от Т-Банка', about: 'Приём оплат по СБП (QR) и интернет-эквайринг через Т-Банк (Тинькофф). Альтернатива Platega для приёма платежей на кассе.' },
-  { id: 'yookassa', name: 'ЮKassa', icon: 'account_balance_wallet', color: '#8B5CF6', kind: 'keys', fields: [], comingSoon: true,
-    blurb: 'СБП, карты и 54-ФЗ-чеки', about: 'ЮKassa (ЮMoney): приём по СБП и картам + фискальные чеки 54-ФЗ из коробки. Одно из самых распространённых решений в РФ.' },
-  { id: 'sberbusiness', name: 'СберБизнес', icon: 'account_balance', color: '#21A038', kind: 'keys', fields: [], comingSoon: true,
-    blurb: 'Эквайринг и СБП от Сбера', about: 'Приём оплат по СБП и картам через эквайринг Сбербанка для бизнес-клиентов Сбера.' },
-  { id: 'tochka_alfa', name: 'Точка / Альфа', icon: 'credit_card', color: '#EF3124', kind: 'keys', fields: [], comingSoon: true,
-    blurb: 'Эквайринг Точки и Альфа-Банка', about: 'Дополнительные банки-эквайеры (Точка-банк, Альфа-Банк) — чтобы клиент мог выбрать привычный банк для приёма оплат.' },
-  // Фискализация 54-ФЗ
+  // ─── СБП-эквайеры (приём оплат на кассе). После ввода ключей выберите активного
+  // эквайера в блоке «Приём оплат» ниже. ─────────────────────────────────────────
+  {
+    id: 'tbank', name: 'Т-Банк (СБП)', icon: 'credit_card', color: '#FFDD2D', kind: 'keys',
+    blurb: 'Приём оплат по СБП (QR) на кассе',
+    about: 'Эквайринг по СБП через Т-Банк (Тинькофф): на кассе формируется QR, клиент платит через банк. Нужны Terminal Key и Password из кабинета Т-Бизнес. В кабинете укажите адрес уведомлений (NotificationURL) — он показан в мастере.',
+    fields: [
+      { key: 'tbank_terminal_key', label: 'Terminal Key', type: 'text', placeholder: 'Введите Terminal Key', hint: 'Кабинет Т-Бизнес → Магазины → ваш терминал → Terminal Key.' },
+      { key: 'tbank_password', label: 'Password', type: 'password', placeholder: 'Введите пароль терминала', hint: 'Там же → пароль терминала (Password) для подписи запросов.' },
+    ],
+  },
+  {
+    id: 'yookassa', name: 'ЮKassa', icon: 'account_balance_wallet', color: '#8B5CF6', kind: 'keys',
+    blurb: 'СБП + чеки 54-ФЗ из коробки',
+    about: 'ЮKassa (ЮMoney): приём по СБП (QR) на кассе и, при желании, фискальные чеки 54-ФЗ — ЮKassa пробивает их сама. Нужны shopId и секретный ключ из кабинета. Чтобы включить чеки, в блоке «Приём оплат» выберите ЮKassa фискальным провайдером.',
+    fields: [
+      { key: 'yookassa_shop_id', label: 'shopId', type: 'text', placeholder: 'Введите shopId', hint: 'Кабинет ЮKassa → Настройки → Магазин → shopId (идентификатор магазина).' },
+      { key: 'yookassa_secret_key', label: 'Секретный ключ', type: 'password', placeholder: 'Введите секретный ключ', hint: 'Кабинет ЮKassa → Интеграция → Ключи API → секретный ключ (live_… или test_…).' },
+    ],
+  },
+  {
+    id: 'sberbusiness', name: 'СберБизнес', icon: 'account_balance', color: '#21A038', kind: 'keys',
+    blurb: 'Эквайринг и СБП от Сбера',
+    about: 'Приём оплат через интернет-эквайринг Сбербанка (СБП/карты): гость оплачивает на платёжной странице. Нужны API-логин и пароль из кабинета СберБизнес / Сбербанк Эквайринг.',
+    fields: [
+      { key: 'sber_username', label: 'API-логин', type: 'text', placeholder: 'Введите API-логин', hint: 'Кабинет эквайринга Сбербанка → API-пользователь (логин вида …-api).' },
+      { key: 'sber_password', label: 'API-пароль', type: 'password', placeholder: 'Введите API-пароль', hint: 'Пароль того же API-пользователя.' },
+    ],
+  },
+  {
+    id: 'tochka_alfa', name: 'Точка / Альфа', icon: 'credit_card', color: '#EF3124', kind: 'keys',
+    blurb: 'Эквайринг Альфа-Банка / Точки',
+    about: 'Приём оплат через эквайринг Альфа-Банка (та же платёжная платформа использует и ряд других банков): гость оплачивает на платёжной странице по СБП/картой. Нужны API-логин и пароль из кабинета эквайринга.',
+    fields: [
+      { key: 'alfa_username', label: 'API-логин', type: 'text', placeholder: 'Введите API-логин', hint: 'Кабинет эквайринга Альфа-Банка → API-пользователь.' },
+      { key: 'alfa_password', label: 'API-пароль', type: 'password', placeholder: 'Введите API-пароль', hint: 'Пароль того же API-пользователя.' },
+    ],
+  },
+  // ─── Витрина «Скоро» (в разработке) ──────────────────────────────────────────
+  // Фискализация 54-ФЗ (отдельные ОФД/кассы — пробивают чек на любую оплату)
   { id: 'atol', name: 'АТОЛ Онлайн', icon: 'receipt_long', color: '#4cd7f6', kind: 'keys', fields: [], comingSoon: true,
     blurb: 'Облачная касса 54-ФЗ', about: 'Фискализация чеков по 54-ФЗ через облачную кассу АТОЛ Онлайн — без покупки своего кассового аппарата.' },
   { id: 'evotor', name: 'Эвотор', icon: 'point_of_sale', color: '#F59E0B', kind: 'keys', fields: [], comingSoon: true,
@@ -128,6 +157,89 @@ function statusOf(p: Product, items: IntegrationItem[], gm?: GmStatus): Status {
   const full = n === p.fields.length
   const primary = cfg.find(i => i?.configured)
   return { installed: true, ok: full, partial: !full, masked: primary?.masked ?? '••••', detail: full ? '' : 'неполная настройка' }
+}
+
+// СБП-эквайеры для выбора активного на кассе. id = провайдер на бэке (sbp_provider).
+const ACQUIRERS: { id: string; label: string; keys: string[] }[] = [
+  { id: 'platega', label: 'Platega', keys: ['platega_merchant_id', 'platega_secret'] },
+  { id: 'tbank', label: 'Т-Банк', keys: ['tbank_terminal_key', 'tbank_password'] },
+  { id: 'yookassa', label: 'ЮKassa', keys: ['yookassa_shop_id', 'yookassa_secret_key'] },
+  { id: 'sber', label: 'СберБизнес', keys: ['sber_username', 'sber_password'] },
+  { id: 'alfa', label: 'Точка / Альфа', keys: ['alfa_username', 'alfa_password'] },
+]
+interface PayCfg { sbpProvider: string; fiscalProvider: string; testMode: boolean; vatCode: number; defaultPhone: string }
+
+// Блок «Приём оплат»: какой СБП-эквайер активен на кнопке «СБП» в кассе, тест-режим
+// и фискализация 54-ФЗ через ЮKassa. Хранится в app_settings (не секреты).
+function PaymentConfig({ items }: { items: IntegrationItem[] }) {
+  const qc = useQueryClient()
+  const { show } = useToast()
+  const { data } = useQuery<PayCfg>({ queryKey: ['payment-config'], queryFn: () => api.get('/system/payment-config') })
+  const isCfg = (keys: string[]) => keys.every(k => items.find(i => i.key === k)?.configured)
+  // Platega может работать через env (основной прод) — считаем доступным всегда.
+  const isAvailable = (a: typeof ACQUIRERS[number]) => a.id === 'platega' || isCfg(a.keys)
+  const save = useMutation({
+    mutationFn: (patch: Partial<PayCfg>) => api.put('/system/payment-config', patch),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['payment-config'] }); show('Настройки оплат сохранены', 'success') },
+    onError: () => show('Не удалось сохранить', 'error'),
+  })
+  if (!data) return null
+  const yookassaReady = isCfg(['yookassa_shop_id', 'yookassa_secret_key'])
+  const toggle: React.CSSProperties = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '11px 0' }
+
+  return (
+    <div className="glass-l2" style={{ borderRadius: 18, padding: 16, border: '1px solid rgba(255,255,255,0.08)', display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <Icon name="point_of_sale" size={18} color="#a78bfa" />
+        <p style={{ fontSize: 15, fontWeight: 800, margin: 0 }}>Приём оплат</p>
+      </div>
+      <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: '0 0 6px', lineHeight: 1.5 }}>
+        Какой эквайер используется кнопкой «СБП» на кассе. Сначала введите ключи нужного банка выше.
+      </p>
+
+      <span style={{ ...LBL, margin: 0 }}>Активный СБП-эквайер</span>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 4 }}>
+        {ACQUIRERS.map(a => {
+          const active = data.sbpProvider === a.id
+          const avail = isAvailable(a)
+          return (
+            <button key={a.id} disabled={!avail || save.isPending}
+              onClick={() => save.mutate({ sbpProvider: a.id })}
+              title={avail ? '' : 'Сначала введите ключи этого эквайера'}
+              style={{
+                padding: '8px 14px', borderRadius: 12, fontSize: 13, fontWeight: 700, cursor: avail ? 'pointer' : 'not-allowed',
+                border: active ? '1px solid rgba(139,92,246,0.6)' : '1px solid rgba(255,255,255,0.12)',
+                background: active ? 'rgba(139,92,246,0.18)' : 'transparent',
+                color: active ? '#c4b5fd' : avail ? 'var(--on-surface)' : 'var(--on-surface-variant)',
+                opacity: avail ? 1 : 0.5,
+              }}>
+              {a.label}{active && ' ✓'}
+            </button>
+          )
+        })}
+      </div>
+
+      <div style={{ height: 1, background: 'rgba(255,255,255,0.07)', margin: '10px 0 0' }} />
+
+      <label style={toggle}>
+        <span style={{ fontSize: 13.5 }}>Тестовый режим <span style={{ color: 'var(--on-surface-variant)', fontSize: 12 }}>— песочница эквайера (без реальных денег)</span></span>
+        <input type="checkbox" checked={data.testMode} disabled={save.isPending} onChange={(e) => save.mutate({ testMode: e.target.checked })} style={{ width: 18, height: 18, accentColor: '#8B5CF6' }} />
+      </label>
+
+      <div style={{ height: 1, background: 'rgba(255,255,255,0.07)' }} />
+
+      <label style={{ ...toggle, opacity: yookassaReady ? 1 : 0.5 }} title={yookassaReady ? '' : 'Нужны ключи ЮKassa'}>
+        <span style={{ fontSize: 13.5 }}>Чеки 54-ФЗ через ЮKassa <span style={{ color: 'var(--on-surface-variant)', fontSize: 12 }}>— ЮKassa сама пробивает фискальный чек</span></span>
+        <input type="checkbox" checked={data.fiscalProvider === 'yookassa'} disabled={!yookassaReady || save.isPending}
+          onChange={(e) => save.mutate({ fiscalProvider: e.target.checked ? 'yookassa' : '' })} style={{ width: 18, height: 18, accentColor: '#8B5CF6' }} />
+      </label>
+      {data.fiscalProvider === 'yookassa' && (
+        <p style={{ fontSize: 11.5, color: 'var(--on-surface-variant)', margin: '2px 0 0', lineHeight: 1.5 }}>
+          Чек уходит, если у гостя в карточке есть телефон. Для гостей без телефона укажите запасной контакт в кабинете ЮKassa.
+        </p>
+      )}
+    </div>
+  )
 }
 
 export function IntegrationsTab() {
@@ -229,6 +341,9 @@ export function IntegrationsTab() {
           {available.length > 0 && <span style={{ fontSize: 11, color: 'var(--on-surface-variant)' }}>Доступно: {available.length}</span>}
         </button>
       </div>
+
+      {/* ─── Приём оплат (активный эквайер + 54-ФЗ) ─── */}
+      <PaymentConfig items={items} />
 
       {/* ─── Магазин ─── */}
       <Sheet open={storeOpen} onClose={() => { setStoreOpen(false); setStoreProduct(null) }} title={storeProduct ? storeProduct.name : 'Магазин интеграций'} desktopSize="md">

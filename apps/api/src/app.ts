@@ -12,6 +12,7 @@ import { requireModule, requireAiPaid } from './middleware/module.js'
 import { clubRouter } from './modules/club/club.router.js'
 import { internalRouter } from './modules/internal/internal.router.js'
 import { tgRouter } from './modules/tg/tg.router.js'
+import { payRouter } from './modules/pay/pay.router.js'
 
 import { authRouter } from './modules/auth/auth.router.js'
 import { posRouter } from './modules/pos/pos.router.js'
@@ -131,6 +132,11 @@ app.route('/api/internal', internalRouter)
 // Приёмник вебхука Telegram (бот опросов: сбор участников). Защита — secret_token
 // Telegram; не гейтится подпиской (allowlist). Не для браузера.
 app.route('/api/tg', tgRouter)
+
+// Приёмник вебхуков эквайеров (СБП: Т-Банк/ЮKassa/Сбер/Альфа). Защита — подпись
+// провайдера + серверная сверка статуса; не гейтится подпиской (внешний вебхук,
+// не браузер). Монтируется ДО requireActiveSubscription, как /api/tg.
+app.route('/api/pay', payRouter)
 
 // Энфорсмент подписки на клуб-поддомене (грейс→блок). На основном домене (club=null)
 // и для allowlist (/api/club, /api/health, /api/superadmin) — пропуск.
