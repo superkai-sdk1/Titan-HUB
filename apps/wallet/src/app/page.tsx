@@ -15,7 +15,10 @@ declare global {
 
 import { useState, useEffect, useRef, useMemo } from 'react'
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'https://titanpos.ru'
+// API — ОТНОСИТЕЛЬНЫЙ (same-origin): пусто → запросы идут на `/api/...` текущего
+// хоста. Это и есть мультитенантность: kbr.titanpos.ru/residents → kbr.titanpos.ru/api,
+// и tenantContext на API резолвит нужный клуб по Host. (env может переопределить.)
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? ''
 // Токен входа из браузера/PWA храним локально — чтобы не вводить код при каждом
 // открытии (Telegram Mini App авторизуется заново сам, поэтому там не нужен).
 const STORAGE_KEY = 'titan_wallet_token'

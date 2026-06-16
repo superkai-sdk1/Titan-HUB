@@ -6,14 +6,14 @@ import { createWalletBot, type WalletBotCtx } from './bot.js'
 // активные клубы из /api/internal/bot-clubs и поднимает по wallet-боту на клуб.
 //   • ДЕФОЛТНЫЙ клуб → env-токен + синглтон-БД + основной WALLET_WEBAPP_URL
 //     (байт-в-байт прежнее поведение);
-//   • прочие → их wallet-токен + getClubDb + https://<subdomain>/wallet.
+//   • прочие → их wallet-токен + getClubDb + https://<subdomain>/residents.
 // Дедуп по токену (анти-409). Добавление клуба/смена токена → перезапуск контейнера.
 // ─────────────────────────────────────────────────────────────────────────────
 
 const API_URL = process.env['API_URL'] ?? 'http://api:3001'
 const INTERNAL_SECRET = process.env['JWT_SECRET'] ?? ''
 const ENV_TOKEN = process.env['WALLET_BOT_TOKEN']
-const ENV_WEBAPP = process.env['WALLET_WEBAPP_URL'] ?? 'https://titanpos.ru/wallet'
+const ENV_WEBAPP = process.env['WALLET_WEBAPP_URL'] ?? 'https://titanpos.ru/residents'
 
 interface ClubCfg {
   slug: string
@@ -68,7 +68,7 @@ async function main() {
       ctx: {
         token,
         db: c.isDefault ? singletonDb : getClubDb(clubConn(c.dbName)),
-        webappUrl: c.isDefault ? ENV_WEBAPP : `https://${c.subdomain}/wallet`,
+        webappUrl: c.isDefault ? ENV_WEBAPP : `https://${c.subdomain}/residents`,
         label: c.slug,
       },
     })

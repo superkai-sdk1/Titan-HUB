@@ -21,12 +21,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="ru">
       <head>
-        {/* Иконки/манифест прописаны явно с префиксом /wallet: приложение собрано с
-            basePath '/wallet', а basePath не всегда применяется к metadata-иконкам. */}
-        <link rel="manifest" href="/wallet/manifest.json" />
-        <link rel="icon" type="image/svg+xml" href="/wallet/favicon.svg" />
-        <link rel="icon" type="image/png" sizes="32x32" href="/wallet/favicon-32.png" />
-        <link rel="apple-touch-icon" sizes="180x180" href="/wallet/apple-touch-icon.png" />
+        {/* Иконки/манифест прописаны явно с префиксом /residents: приложение собрано
+            с basePath '/residents', а basePath не всегда применяется к metadata-иконкам. */}
+        <link rel="manifest" href="/residents/manifest.json" />
+        <link rel="icon" type="image/svg+xml" href="/residents/favicon.svg" />
+        <link rel="icon" type="image/png" sizes="32x32" href="/residents/favicon-32.png" />
+        <link rel="apple-touch-icon" sizes="180x180" href="/residents/apple-touch-icon.png" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="mobile-web-app-capable" content="yes" />
         {/* black-translucent — иммерсивный тёмный бар; контент уходит под «остров»,
