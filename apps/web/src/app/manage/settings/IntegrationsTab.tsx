@@ -1,14 +1,14 @@
 'use client'
 /**
- * Вкладка «Интеграции» — безопасное управление токенами/ключами.
+ * Вкладка «Интеграции».
  *
- * Анти-случайность (прямое требование владельца):
- * • Секреты read-only по умолчанию — видно только статус + masked-значение из API.
- * • Сам секрет НИКОГДА не возвращается и не показывается.
- * • Изменение — только через явную «Заменить» → модалку с предупреждением.
- *   Поле ввода нового значения отдельное, не префиллится; маскированное (password).
- *   Пустое значение не отправляется (кнопка «Сохранить» disabled) — нельзя затереть.
- * • Удаление — отдельное danger-подтверждение (ConfirmDialog).
+ * Экран = только УСТАНОВЛЕННЫЕ интеграции (карточки: иконка+имя, статус, маскированный
+ * ключ ••••XXXX, кнопка «Настроить»). Карточка «Добавить интеграцию» (как «Новый чек»
+ * в кассе) открывает «Магазин» — доступные к установке интеграции с описанием и
+ * пошаговым мастером настройки. Удаление — внутри окна «Настроить».
+ *
+ * Безопасность (как раньше): сам секрет наружу не отдаётся, видно только masked-значение;
+ * замена — отдельным полем (не префиллится), пустое поле = не менять.
  */
 import React, { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -18,535 +18,339 @@ import { INP, LBL, Button, Sheet, ConfirmDialog } from '@/components/manage/Desi
 import { StateView } from '@/components/StateView'
 import { useToast } from '@/components/Toast'
 
-interface IntegrationItem {
-  key: string
-  label: string
-  configured: boolean
-  masked: string | null
+interface IntegrationItem { key: string; label: string; configured: boolean; masked: string | null }
+interface Field { key: string; label: string; type: 'text' | 'password'; placeholder: string; hint: string; optional?: boolean }
+interface Product {
+  id: string
+  name: string
+  icon: string
+  color: string
+  blurb: string // короткое описание для магазина
+  about: string // что даёт интеграция (детально)
+  kind: 'keys' | 'gomafia'
+  fields: Field[]
+}
+
+const CATALOG: Product[] = [
+  {
+    id: 'poll_bot', name: 'Бот опросов', icon: 'fact_check', color: '#8B5CF6',
+    blurb: 'Опросы явки в Telegram-чате клуба',
+    about: 'Бот в вашем Telegram-чате: публикует опросы «придёте сегодня?», отмечает игроков командами @all / @tvari и собирает явку — она подтягивается в кассу предчеками.',
+    kind: 'keys',
+    fields: [{ key: 'poll_bot_token', label: 'Токен бота', type: 'password', placeholder: '123456:ABC-DEF…', hint: 'Откройте @BotFather в Telegram → /newbot (или /token у готового бота) → скопируйте токен вида 123456:ABC… Затем добавьте бота в чат клуба и сделайте администратором.' }],
+  },
+  {
+    id: 'admin_bot', name: 'Админ-бот', icon: 'badge', color: '#4cd7f6',
+    blurb: 'Уведомления владельцу и сотрудникам',
+    about: 'Telegram-бот для команды: уведомления о сменах, инкассации, расхождениях кассы; привязка аккаунта сотрудника.',
+    kind: 'keys',
+    fields: [{ key: 'admin_bot_token', label: 'Токен бота', type: 'password', placeholder: '123456:ABC-DEF…', hint: 'В @BotFather создайте отдельного бота (/newbot) → скопируйте токен. Это НЕ тот же бот, что для опросов.' }],
+  },
+  {
+    id: 'wallet_bot', name: 'Бот-кошелёк', icon: 'account_balance_wallet', color: '#10B981',
+    blurb: 'Telegram-кошелёк для клиентов',
+    about: 'Бот для клиентов: проверить баланс, бонусы и депозит прямо в Telegram.',
+    kind: 'keys',
+    fields: [{ key: 'wallet_bot_token', label: 'Токен бота', type: 'password', placeholder: '123456:ABC-DEF…', hint: 'В @BotFather создайте бота → скопируйте токен.' }],
+  },
+  {
+    id: 'ai', name: 'Tai — ИИ-ассистент', icon: 'auto_awesome', color: '#A78BFA',
+    blurb: 'Аналитика и прогнозы на ИИ',
+    about: 'Включает ИИ-функции: прогноз выручки вечера, подсказки в кассе, помощник в аналитике.',
+    kind: 'keys',
+    fields: [{ key: 'ai_api_key', label: 'API-ключ', type: 'password', placeholder: 'pza_…', hint: 'Личный кабинет Polza.ai → раздел API Keys → создайте ключ (начинается на pza_) → скопируйте целиком.' }],
+  },
+  {
+    id: 'platega', name: 'Platega — СБП', icon: 'credit_card', color: '#F59E0B',
+    blurb: 'Приём оплат по СБП (QR) на кассе',
+    about: 'Эквайринг по СБП: на кассе формируется QR, клиент платит через банк. Нужны два ключа из личного кабинета Platega.',
+    kind: 'keys',
+    fields: [
+      { key: 'platega_merchant_id', label: 'Merchant ID', type: 'text', placeholder: 'Введите Merchant ID', hint: 'Личный кабинет Platega → Настройки магазина → Merchant ID.' },
+      { key: 'platega_secret', label: 'Секретный ключ', type: 'password', placeholder: 'Введите секретный ключ', hint: 'Там же → раздел API / Интеграция → секретный ключ. Не путать с публичным.' },
+    ],
+  },
+  {
+    id: 'gomafia', name: 'GoMafia.pro', icon: 'sports_esports', color: '#EC4899',
+    blurb: 'Подбор игроков из вашего клуба',
+    about: 'При создании клиента подбирает игроков из состава вашего клуба и со всего gomafia.pro — ник, имя и фото подставляются автоматически.',
+    kind: 'gomafia',
+    fields: [
+      { key: 'login', label: 'Логин на GoMafia', type: 'text', placeholder: 'Ник или e-mail', hint: 'Ваш ник или e-mail владельца клуба на gomafia.pro.' },
+      { key: 'password', label: 'Пароль', type: 'password', placeholder: 'Пароль на GoMafia', hint: 'Пароль аккаунта владельца. Хранится зашифрованно, используется только для определения вашего клуба.' },
+      { key: 'clubUrl', label: 'Ссылка на клуб', type: 'text', placeholder: 'gomafia.pro/club/49', hint: 'Необязательно: ссылка на ваш клуб, если он не определится автоматически.', optional: true },
+    ],
+  },
+]
+
+type GmStatus = { connected: boolean; source: string | null; clubId: string | null; clubTitle: string | null; loginMasked: string | null }
+
+interface Status { installed: boolean; ok: boolean; partial: boolean; masked: string | null; detail: string }
+function statusOf(p: Product, items: IntegrationItem[], gm?: GmStatus): Status {
+  if (p.kind === 'gomafia') {
+    if (!gm?.connected) return { installed: false, ok: false, partial: false, masked: null, detail: '' }
+    return { installed: true, ok: !!gm.clubId, partial: !gm.clubId, masked: gm.loginMasked ?? null, detail: gm.clubTitle ? `клуб «${gm.clubTitle}»` : gm.clubId ? `клуб #${gm.clubId}` : 'клуб не указан' }
+  }
+  const cfg = p.fields.map(f => items.find(i => i.key === f.key))
+  const n = cfg.filter(i => i?.configured).length
+  if (n === 0) return { installed: false, ok: false, partial: false, masked: null, detail: '' }
+  const full = n === p.fields.length
+  const primary = cfg.find(i => i?.configured)
+  return { installed: true, ok: full, partial: !full, masked: primary?.masked ?? '••••', detail: full ? '' : 'неполная настройка' }
 }
 
 export function IntegrationsTab() {
   const qc = useQueryClient()
   const { show } = useToast()
 
-  // Модалка замены: какой ключ редактируется + значение в отдельном поле.
-  const [editing, setEditing] = useState<IntegrationItem | null>(null)
-  const [value, setValue] = useState('')
-  // Подтверждение удаления — отдельный ключ.
-  const [deleting, setDeleting] = useState<IntegrationItem | null>(null)
+  const { data, isLoading, error } = useQuery<{ items: IntegrationItem[] }>({ queryKey: ['integrations'], queryFn: () => api.get('/system/integrations') })
+  const { data: gm } = useQuery<GmStatus>({ queryKey: ['gomafia-status'], queryFn: () => api.get('/gomafia/status') })
 
-  // Platega — два ключа (Merchant ID + секрет) в одном блоке/модалке.
-  const [platOpen, setPlatOpen] = useState(false)
-  const [platMerchant, setPlatMerchant] = useState('')
-  const [platSecret, setPlatSecret] = useState('')
-  const [platDeleting, setPlatDeleting] = useState(false)
+  const [storeOpen, setStoreOpen] = useState(false)
+  const [storeProduct, setStoreProduct] = useState<Product | null>(null) // карточка в магазине (инфо)
+  const [wizard, setWizard] = useState<Product | null>(null) // мастер установки
+  const [step, setStep] = useState(0)
+  const [vals, setVals] = useState<Record<string, string>>({})
+  const [settings, setSettings] = useState<Product | null>(null) // окно «Настроить» установленной
+  const [confirmDel, setConfirmDel] = useState<Product | null>(null)
 
-  // GoMafia — логин владельца + (опц.) ссылка на клуб.
-  const [gmOpen, setGmOpen] = useState(false)
-  const [gmLogin, setGmLogin] = useState('')
-  const [gmPassword, setGmPassword] = useState('')
-  const [gmClubUrl, setGmClubUrl] = useState('')
-  const [gmNeedClub, setGmNeedClub] = useState(false)
-  const [gmDeleting, setGmDeleting] = useState(false)
+  const refresh = () => { qc.invalidateQueries({ queryKey: ['integrations'] }); qc.invalidateQueries({ queryKey: ['gomafia-status'] }) }
 
-  const { data, isLoading, error } = useQuery<{ items: IntegrationItem[] }>({
-    queryKey: ['integrations'],
-    queryFn: () => api.get('/system/integrations'),
-  })
-
-  const { data: gm } = useQuery<{ connected: boolean; source: string | null; clubId: string | null; clubTitle: string | null; loginMasked: string | null }>({
-    queryKey: ['gomafia-status'],
-    queryFn: () => api.get('/gomafia/status'),
-  })
-
-  const saveMut = useMutation({
-    mutationFn: ({ key, value }: { key: string; value: string }) =>
-      api.patch(`/system/integrations/${key}`, { value }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['integrations'] })
-      show('Ключ обновлён', 'success')
-      closeEdit()
+  const save = useMutation({
+    mutationFn: async ({ p, values }: { p: Product; values: Record<string, string> }) => {
+      if (p.kind === 'gomafia') {
+        const login = (values.login ?? '').trim(), password = (values.password ?? '').trim(), clubUrl = (values.clubUrl ?? '').trim()
+        // Полный вход (логин+пароль) либо только смена клуба (без пароля).
+        if (login && password) await api.post('/gomafia/connect', { login, password, clubUrl: clubUrl || undefined })
+        else if (clubUrl) await api.post('/gomafia/club', { clubUrl })
+        else throw new Error('Введите логин и пароль или ссылку на клуб')
+      } else {
+        for (const f of p.fields) {
+          const v = (values[f.key] ?? '').trim()
+          if (v) await api.patch(`/system/integrations/${f.key}`, { value: v })
+        }
+      }
     },
-    onError: () => show('Не удалось сохранить ключ', 'error'),
+    onSuccess: () => { refresh(); show('Интеграция сохранена', 'success'); closeWizard(); setSettings(null) },
+    onError: (e: any) => show(e?.message || 'Не удалось сохранить', 'error'),
   })
 
-  const deleteMut = useMutation({
-    mutationFn: (key: string) => api.delete(`/system/integrations/${key}`),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['integrations'] })
-      show('Ключ удалён', 'success')
-      setDeleting(null)
+  const uninstall = useMutation({
+    mutationFn: async (p: Product) => {
+      if (p.kind === 'gomafia') await api.delete('/gomafia/disconnect')
+      else for (const f of p.fields) await api.delete(`/system/integrations/${f.key}`)
     },
-    onError: () => show('Не удалось удалить ключ', 'error'),
+    onSuccess: () => { refresh(); show('Интеграция удалена', 'success'); setConfirmDel(null); setSettings(null) },
+    onError: () => show('Не удалось удалить', 'error'),
   })
 
-  // Platega: сохраняем оба ключа за один сабмит (пустое поле = «не менять»).
-  const platSaveMut = useMutation({
-    mutationFn: async ({ merchant, secret }: { merchant: string; secret: string }) => {
-      if (merchant) await api.patch('/system/integrations/platega_merchant_id', { value: merchant })
-      if (secret) await api.patch('/system/integrations/platega_secret', { value: secret })
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['integrations'] })
-      show('Platega обновлена', 'success')
-      closePlat()
-    },
-    onError: () => show('Не удалось сохранить Platega', 'error'),
-  })
-
-  // Удаление Platega = удаляем оба ключа.
-  const platDeleteMut = useMutation({
-    mutationFn: async () => {
-      await api.delete('/system/integrations/platega_merchant_id')
-      await api.delete('/system/integrations/platega_secret')
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['integrations'] })
-      show('Platega отключена', 'success')
-      setPlatDeleting(false)
-    },
-    onError: () => show('Не удалось отключить Platega', 'error'),
-  })
-
-  function openEdit(item: IntegrationItem) {
-    setEditing(item)
-    setValue('') // отдельное поле, никогда не префиллится
-  }
-  function closeEdit() {
-    setEditing(null)
-    setValue('')
-  }
-  function openPlat() { setPlatOpen(true); setPlatMerchant(''); setPlatSecret('') }
-  function closePlat() { setPlatOpen(false); setPlatMerchant(''); setPlatSecret('') }
-
-  // GoMafia: вход (логин/пароль + опц. ссылка на клуб); при неопределённом клубе
-  // оставляем модалку открытой и просим ссылку.
-  const gmConnectMut = useMutation({
-    mutationFn: (b: { login: string; password: string; clubUrl?: string }) => api.post<{ clubId: string | null; needClubUrl?: boolean }>('/gomafia/connect', b),
-    onSuccess: (res) => {
-      qc.invalidateQueries({ queryKey: ['gomafia-status'] })
-      if (res?.clubId) { show('GoMafia подключена', 'success'); closeGm() }
-      else { setGmNeedClub(true); show('Вход выполнен. Укажите ссылку на ваш клуб.', 'info') }
-    },
-    onError: (e: any) => show(e?.message || 'Не удалось подключить GoMafia', 'error'),
-  })
-  // Только задать/сменить клуб (без повторного ввода пароля).
-  const gmClubMut = useMutation({
-    mutationFn: (clubUrl: string) => api.post('/gomafia/club', { clubUrl }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['gomafia-status'] }); show('Клуб GoMafia сохранён', 'success'); closeGm() },
-    onError: (e: any) => show(e?.message || 'Не удалось задать клуб', 'error'),
-  })
-  const gmDisconnectMut = useMutation({
-    mutationFn: () => api.delete('/gomafia/disconnect'),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['gomafia-status'] }); show('GoMafia отключена', 'success'); setGmDeleting(false) },
-    onError: () => show('Не удалось отключить GoMafia', 'error'),
-  })
-  function openGm() { setGmOpen(true); setGmLogin(''); setGmPassword(''); setGmClubUrl(''); setGmNeedClub(false) }
-  function closeGm() { setGmOpen(false); setGmLogin(''); setGmPassword(''); setGmClubUrl(''); setGmNeedClub(false) }
-  function submitGm() {
-    const login = gmLogin.trim(), password = gmPassword.trim(), clubUrl = gmClubUrl.trim()
-    if (login && password) gmConnectMut.mutate({ login, password, clubUrl: clubUrl || undefined })
-    else if (clubUrl) gmClubMut.mutate(clubUrl)
-  }
+  function startWizard(p: Product) { setStoreProduct(null); setStoreOpen(false); setWizard(p); setStep(0); setVals({}) }
+  function closeWizard() { setWizard(null); setStep(0); setVals({}) }
+  function openSettings(p: Product) { setSettings(p); setVals({}) }
 
   if (isLoading && !data) return <StateView state="loading" />
   if (error) return <StateView state="error" description="Не удалось загрузить интеграции" />
 
   const items = data?.items ?? []
-  const trimmed = value.trim()
-
-  // Platega — два ключа объединены в один блок; из общего списка их убираем.
-  const platMerchantItem = items.find(i => i.key === 'platega_merchant_id')
-  const platSecretItem = items.find(i => i.key === 'platega_secret')
-  const otherItems = items.filter(i => i.key !== 'platega_merchant_id' && i.key !== 'platega_secret')
-  const platHasMerchant = !!platMerchantItem?.configured
-  const platHasSecret = !!platSecretItem?.configured
-  const platFull = platHasMerchant && platHasSecret
-  const platPartial = (platHasMerchant || platHasSecret) && !platFull
-  const platStatus = platFull
-    ? `Подключено • ID ${platMerchantItem?.masked ?? '••••'} · ключ ${platSecretItem?.masked ?? '••••'}`
-    : platPartial
-      ? `Неполная настройка — ${platHasMerchant ? 'нет секретного ключа' : 'нет Merchant ID'}`
-      : 'Не настроено'
-  const platTrimmedM = platMerchant.trim()
-  const platTrimmedS = platSecret.trim()
+  const withStatus = CATALOG.map(p => ({ p, st: statusOf(p, items, gm) }))
+  const installed = withStatus.filter(x => x.st.installed)
+  const available = CATALOG.filter(p => !withStatus.find(x => x.p.id === p.id)!.st.installed)
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-      <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: '0 0 4px', lineHeight: 1.5 }}>
-        Токены и ключи хранятся в зашифрованном виде. Показывается только маскированное
-        значение — изменить можно лишь через явную замену.
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: 0, lineHeight: 1.5 }}>
+        Установленные интеграции. Ключи хранятся в зашифрованном виде — показывается только маскированное значение.
       </p>
 
-      {otherItems.map(item => (
-        <div
-          key={item.key}
-          className="glass-l2"
-          style={{ borderRadius: 16, padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <div style={{
-              width: 36, height: 36, borderRadius: 11, flexShrink: 0,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              background: item.configured ? 'rgba(52,211,153,0.12)' : 'rgba(255,255,255,0.05)',
-              border: `1px solid ${item.configured ? 'rgba(52,211,153,0.28)' : 'rgba(255,255,255,0.1)'}`,
-            }}>
-              <Icon name={item.configured ? 'vpn_key' : 'key_off'} size={18} color={item.configured ? 'var(--success)' : 'var(--on-surface-variant)'} />
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 12 }}>
+        {installed.map(({ p, st }) => (
+          <button key={p.id} onClick={() => openSettings(p)} className="glass-l2"
+            style={{ textAlign: 'left', borderRadius: 18, padding: 16, border: '1px solid rgba(255,255,255,0.08)', cursor: 'pointer', color: 'var(--on-surface)', display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div style={{ width: 42, height: 42, borderRadius: 12, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: `${p.color}1f`, border: `1px solid ${p.color}3a` }}>
+                <Icon name={p.icon} size={22} color={p.color} />
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <p style={{ fontSize: 15, fontWeight: 700, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</p>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 700, marginTop: 3, color: st.ok ? '#10B981' : '#F59E0B' }}>
+                  <Icon name={st.ok ? 'check_circle' : 'error'} size={12} color={st.ok ? '#10B981' : '#F59E0B'} />
+                  {st.ok ? 'Подключено' : 'Ошибка настройки'}
+                </span>
+              </div>
             </div>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <p style={{ fontSize: 14, fontWeight: 600, margin: 0, color: 'var(--on-surface)' }}>{item.label}</p>
-              <p style={{
-                fontSize: 12, margin: '3px 0 0',
-                color: item.configured ? 'var(--success)' : 'var(--on-surface-variant)',
-                fontFamily: item.configured ? "'JetBrains Mono',monospace" : undefined,
-                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-              }}>
-                {item.configured ? `Подключено • ${item.masked ?? '••••'}` : 'Не настроено'}
-              </p>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--on-surface-variant)', fontFamily: "'JetBrains Mono',monospace", overflow: 'hidden' }}>
+              <Icon name="badge" size={13} color="var(--on-surface-variant)" style={{ flexShrink: 0 }} />
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{st.masked ?? (st.detail || '••••')}</span>
             </div>
-          </div>
+            <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '10px 0', borderRadius: 12, background: 'rgba(139,92,246,0.14)', border: '1px solid rgba(139,92,246,0.3)', color: '#a78bfa', fontSize: 13, fontWeight: 700 }}>
+              <Icon name="settings" size={16} color="#a78bfa" /> Настроить
+            </span>
+          </button>
+        ))}
 
-          <div style={{ display: 'flex', gap: 8 }}>
-            <Button
-              variant="secondary"
-              size="sm"
-              icon={item.configured ? 'edit' : 'add'}
-              onClick={() => openEdit(item)}
-              fullWidth
-            >
-              {item.configured ? 'Заменить' : 'Настроить'}
-            </Button>
-            {item.configured && (
-              <Button
-                variant="danger"
-                size="sm"
-                icon="delete"
-                ariaLabel={`Удалить ${item.label}`}
-                onClick={() => setDeleting(item)}
-              >
-                Удалить
-              </Button>
-            )}
+        {/* Карточка «Добавить интеграцию» — как «Новый чек» в кассе */}
+        <button onClick={() => { setStoreOpen(true); setStoreProduct(null) }}
+          style={{ borderRadius: 18, padding: 16, cursor: 'pointer', background: 'rgba(139,92,246,0.03)', border: '1.5px dashed rgba(139,92,246,0.35)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10, minHeight: 140 }}>
+          <div style={{ width: 44, height: 44, borderRadius: '50%', background: 'linear-gradient(135deg, rgba(139,92,246,0.25), rgba(76,215,246,0.25))', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <Icon name="add" size={24} color="#A78BFA" />
           </div>
-        </div>
-      ))}
-
-      {/* Platega — Merchant ID + секретный ключ в одном блоке/модалке */}
-      {(platMerchantItem || platSecretItem) && (
-        <div
-          className="glass-l2"
-          style={{ borderRadius: 16, padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <div style={{
-              width: 36, height: 36, borderRadius: 11, flexShrink: 0,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              background: platFull ? 'rgba(52,211,153,0.12)' : platPartial ? 'rgba(251,191,36,0.12)' : 'rgba(255,255,255,0.05)',
-              border: `1px solid ${platFull ? 'rgba(52,211,153,0.28)' : platPartial ? 'rgba(251,191,36,0.3)' : 'rgba(255,255,255,0.1)'}`,
-            }}>
-              <Icon name={platFull ? 'vpn_key' : platPartial ? 'warning' : 'key_off'} size={18} color={platFull ? 'var(--success)' : platPartial ? 'var(--warning)' : 'var(--on-surface-variant)'} />
-            </div>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <p style={{ fontSize: 14, fontWeight: 600, margin: 0, color: 'var(--on-surface)' }}>Platega (СБП-эквайринг)</p>
-              <p style={{
-                fontSize: 12, margin: '3px 0 0',
-                color: platFull ? 'var(--success)' : platPartial ? 'var(--warning)' : 'var(--on-surface-variant)',
-                fontFamily: platFull ? "'JetBrains Mono',monospace" : undefined,
-                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-              }}>
-                {platStatus}
-              </p>
-            </div>
-          </div>
-
-          <div style={{ display: 'flex', gap: 8 }}>
-            <Button
-              variant="secondary"
-              size="sm"
-              icon={platFull ? 'edit' : 'add'}
-              onClick={openPlat}
-              fullWidth
-            >
-              {platFull ? 'Заменить' : platPartial ? 'Дополнить' : 'Настроить'}
-            </Button>
-            {(platHasMerchant || platHasSecret) && (
-              <Button
-                variant="danger"
-                size="sm"
-                icon="delete"
-                ariaLabel="Удалить Platega"
-                onClick={() => setPlatDeleting(true)}
-              >
-                Удалить
-              </Button>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Модалка Platega — оба ключа сразу */}
-      <Sheet
-        open={platOpen}
-        onClose={closePlat}
-        title={platFull ? 'Заменить ключи Platega' : 'Настроить Platega'}
-        desktopSize="sm"
-      >
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <div style={{
-            display: 'flex', gap: 10, padding: 14, borderRadius: 12,
-            background: 'rgba(251,191,36,0.1)', border: '1px solid rgba(251,191,36,0.25)',
-          }}>
-            <Icon name="warning" size={18} color="var(--warning)" style={{ flexShrink: 0, marginTop: 1 }} />
-            <p style={{ fontSize: 13, margin: 0, color: 'var(--on-surface)', lineHeight: 1.5 }}>
-              Merchant ID и секретный ключ из личного кабинета Platega. Хранятся в зашифрованном виде.
-              {(platHasMerchant || platHasSecret) && <> Оставьте поле <b>пустым</b>, чтобы не менять текущее значение.</>}
-            </p>
-          </div>
-
-          <div>
-            <label style={LBL}>Merchant ID</label>
-            <input
-              type="text"
-              autoComplete="off"
-              autoFocus
-              style={INP}
-              value={platMerchant}
-              onChange={e => setPlatMerchant(e.target.value)}
-              placeholder={platHasMerchant ? `Сейчас: ${platMerchantItem?.masked ?? '••••'}` : 'Введите Merchant ID'}
-            />
-          </div>
-
-          <div>
-            <label style={LBL}>Секретный ключ</label>
-            <input
-              type="password"
-              autoComplete="new-password"
-              style={INP}
-              value={platSecret}
-              onChange={e => setPlatSecret(e.target.value)}
-              placeholder={platHasSecret ? 'Задан — введите новый, чтобы заменить' : 'Введите секретный ключ'}
-            />
-          </div>
-
-          <div style={{ display: 'flex', gap: 10 }}>
-            <Button variant="secondary" fullWidth onClick={closePlat} disabled={platSaveMut.isPending}>
-              Отмена
-            </Button>
-            <Button
-              variant="primary"
-              fullWidth
-              icon="save"
-              loading={platSaveMut.isPending}
-              // Хотя бы одно поле должно быть заполнено (пустое = не менять).
-              disabled={!platTrimmedM && !platTrimmedS}
-              onClick={() => platSaveMut.mutate({ merchant: platTrimmedM, secret: platTrimmedS })}
-            >
-              Сохранить
-            </Button>
-          </div>
-        </div>
-      </Sheet>
-
-      {/* Подтверждение удаления Platega (оба ключа) */}
-      <ConfirmDialog
-        open={platDeleting}
-        onClose={() => setPlatDeleting(false)}
-        onConfirm={() => platDeleteMut.mutate()}
-        title="Отключить Platega?"
-        message="Merchant ID и секретный ключ будут удалены. Приём оплат через СБП перестанет работать, пока вы не настроите их заново."
-        confirmLabel="Отключить"
-        danger
-        loading={platDeleteMut.isPending}
-      />
-
-      {/* GoMafia — подключение клуба (логин владельца) для подбора игроков */}
-      <div
-        className="glass-l2"
-        style={{ borderRadius: 16, padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <div style={{
-            width: 36, height: 36, borderRadius: 11, flexShrink: 0,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            background: gm?.connected ? 'rgba(52,211,153,0.12)' : 'rgba(255,255,255,0.05)',
-            border: `1px solid ${gm?.connected ? 'rgba(52,211,153,0.28)' : 'rgba(255,255,255,0.1)'}`,
-          }}>
-            <Icon name={gm?.connected ? 'sports_esports' : 'sports_esports'} size={18} color={gm?.connected ? 'var(--success)' : 'var(--on-surface-variant)'} />
-          </div>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <p style={{ fontSize: 14, fontWeight: 600, margin: 0, color: 'var(--on-surface)' }}>GoMafia.pro</p>
-            <p style={{
-              fontSize: 12, margin: '3px 0 0',
-              color: gm?.connected ? 'var(--success)' : 'var(--on-surface-variant)',
-              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-            }}>
-              {gm?.connected
-                ? `Подключено${gm.clubTitle ? ` • клуб «${gm.clubTitle}»` : gm.clubId ? ` • клуб #${gm.clubId}` : ' • клуб не указан'}${gm.source === 'project' ? ' • проектный аккаунт' : ''}`
-                : 'Не настроено'}
-            </p>
-          </div>
-        </div>
-
-        <div style={{ display: 'flex', gap: 8 }}>
-          <Button variant="secondary" size="sm" icon={gm?.connected ? 'edit' : 'add'} onClick={openGm} fullWidth>
-            {gm?.connected ? (gm.clubId ? 'Изменить' : 'Указать клуб') : 'Подключить'}
-          </Button>
-          {gm?.connected && (
-            <Button variant="danger" size="sm" icon="delete" ariaLabel="Отключить GoMafia" onClick={() => setGmDeleting(true)}>
-              Удалить
-            </Button>
-          )}
-        </div>
-        <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: 0, lineHeight: 1.5 }}>
-          Вход владельца клуба на gomafia.pro — чтобы при создании клиента подбирать игроков из состава вашего клуба и со всего сайта (ник, имя, фото подставляются автоматически).
-        </p>
+          <span style={{ fontSize: 13, fontWeight: 700, color: '#A78BFA' }}>Добавить интеграцию</span>
+          {available.length > 0 && <span style={{ fontSize: 11, color: 'var(--on-surface-variant)' }}>Доступно: {available.length}</span>}
+        </button>
       </div>
 
-      {/* Модалка GoMafia: логин + пароль + (опц.) ссылка на клуб */}
-      <Sheet open={gmOpen} onClose={closeGm} title={gm?.connected ? 'GoMafia' : 'Подключить GoMafia'} desktopSize="sm">
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <div style={{
-            display: 'flex', gap: 10, padding: 14, borderRadius: 12,
-            background: gmNeedClub ? 'rgba(251,191,36,0.12)' : 'rgba(255,255,255,0.03)',
-            border: `1px solid ${gmNeedClub ? 'rgba(251,191,36,0.3)' : 'rgba(255,255,255,0.08)'}`,
-          }}>
-            <Icon name={gmNeedClub ? 'warning' : 'info'} size={18} color={gmNeedClub ? 'var(--warning)' : 'var(--on-surface-variant)'} style={{ flexShrink: 0, marginTop: 1 }} />
-            <p style={{ fontSize: 13, margin: 0, color: 'var(--on-surface)', lineHeight: 1.5 }}>
-              {gmNeedClub
-                ? 'Вход выполнен, но клуб определить не удалось. Вставьте ссылку на ваш клуб (например, gomafia.pro/club/49).'
-                : <>Логин и пароль владельца на gomafia.pro. Хранятся в зашифрованном виде, используются только для определения вашего клуба. {gm?.connected && <>Чтобы только сменить клуб — заполните лишь ссылку на клуб.</>}</>}
-            </p>
-          </div>
-
-          {!gmNeedClub && (
-            <>
-              <div>
-                <label style={LBL}>Логин на GoMafia</label>
-                <input type="text" autoComplete="off" autoFocus style={INP} value={gmLogin}
-                  onChange={e => setGmLogin(e.target.value)}
-                  placeholder={gm?.loginMasked ? `Сейчас: ${gm.loginMasked}` : 'Ник или e-mail'} />
-              </div>
-              <div>
-                <label style={LBL}>Пароль</label>
-                <input type="password" autoComplete="new-password" style={INP} value={gmPassword}
-                  onChange={e => setGmPassword(e.target.value)}
-                  placeholder={gm?.connected ? 'Введите, чтобы переподключить' : 'Пароль на GoMafia'} />
-              </div>
-            </>
-          )}
-
-          <div>
-            <label style={LBL}>Ссылка на клуб {gmNeedClub ? '' : '(необязательно)'}</label>
-            <input type="text" autoComplete="off" autoFocus={gmNeedClub} style={INP} value={gmClubUrl}
-              onChange={e => setGmClubUrl(e.target.value)}
-              placeholder="gomafia.pro/club/49" />
-          </div>
-
-          <div style={{ display: 'flex', gap: 10 }}>
-            <Button variant="secondary" fullWidth onClick={closeGm} disabled={gmConnectMut.isPending || gmClubMut.isPending}>
-              Отмена
-            </Button>
-            <Button
-              variant="primary"
-              fullWidth
-              icon="check_circle"
-              loading={gmConnectMut.isPending || gmClubMut.isPending}
-              disabled={!(gmLogin.trim() && gmPassword.trim()) && !gmClubUrl.trim()}
-              onClick={submitGm}
-            >
-              {(gmLogin.trim() && gmPassword.trim()) ? 'Подключить' : 'Сохранить клуб'}
-            </Button>
-          </div>
-        </div>
-      </Sheet>
-
-      {/* Подтверждение отключения GoMafia */}
-      <ConfirmDialog
-        open={gmDeleting}
-        onClose={() => setGmDeleting(false)}
-        onConfirm={() => gmDisconnectMut.mutate()}
-        title="Отключить GoMafia?"
-        message="Логин, пароль и привязка клуба будут удалены. Подбор игроков из вашего клуба перестанет работать (поиск по всем игрокам останется доступен)."
-        confirmLabel="Отключить"
-        danger
-        loading={gmDisconnectMut.isPending}
-      />
-
-      {/* Модалка замены/настройки — с предупреждением и отдельным полем ввода */}
-      <Sheet
-        open={!!editing}
-        onClose={closeEdit}
-        title={editing?.configured ? 'Заменить ключ' : 'Настроить ключ'}
-        desktopSize="sm"
-      >
-        {editing && (
+      {/* ─── Магазин ─── */}
+      <Sheet open={storeOpen} onClose={() => { setStoreOpen(false); setStoreProduct(null) }} title={storeProduct ? storeProduct.name : 'Магазин интеграций'} desktopSize="md">
+        {storeProduct ? (
+          // Детальная карточка интеграции
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-            <div style={{
-              display: 'flex', gap: 10, padding: 14, borderRadius: 12,
-              background: 'rgba(251,191,36,0.1)', border: '1px solid rgba(251,191,36,0.25)',
-            }}>
-              <Icon name="warning" size={18} color="var(--warning)" style={{ flexShrink: 0, marginTop: 1 }} />
-              <p style={{ fontSize: 13, margin: 0, color: 'var(--on-surface)', lineHeight: 1.5 }}>
-                {editing.configured
-                  ? <>Текущее значение <b>{editing.label}</b> будет заменено. Старый ключ восстановить нельзя. Вставьте новое значение полностью.</>
-                  : <>Введите значение <b>{editing.label}</b>. Оно сохранится в зашифрованном виде.</>}
-              </p>
+            <button onClick={() => setStoreProduct(null)} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, alignSelf: 'flex-start', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--on-surface-variant)', fontSize: 13, padding: 0 }}>
+              <Icon name="chevron_left" size={16} /> Все интеграции
+            </button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+              <div style={{ width: 56, height: 56, borderRadius: 16, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: `${storeProduct.color}1f`, border: `1px solid ${storeProduct.color}3a` }}>
+                <Icon name={storeProduct.icon} size={30} color={storeProduct.color} />
+              </div>
+              <div style={{ minWidth: 0 }}>
+                <p style={{ fontSize: 18, fontWeight: 800, margin: 0 }}>{storeProduct.name}</p>
+                <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: '3px 0 0' }}>{storeProduct.blurb}</p>
+              </div>
             </div>
-
-            <div>
-              <label style={{
-                fontFamily: "'JetBrains Mono',monospace", fontSize: 10, fontWeight: 700,
-                textTransform: 'uppercase', letterSpacing: '0.08em',
-                color: 'var(--on-surface-variant)', margin: '0 0 8px', display: 'block',
-              }}>
-                Новое значение
-              </label>
-              <input
-                type="password"
-                autoComplete="new-password"
-                autoFocus
-                style={INP}
-                value={value}
-                onChange={e => setValue(e.target.value)}
-                placeholder="Вставьте токен / ключ"
-                onKeyDown={e => {
-                  if (e.key === 'Enter' && trimmed && !saveMut.isPending) {
-                    saveMut.mutate({ key: editing.key, value: trimmed })
-                  }
-                }}
-              />
+            <p style={{ fontSize: 14, color: 'var(--on-surface)', lineHeight: 1.55, margin: 0 }}>{storeProduct.about}</p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '12px 14px', borderRadius: 12, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
+              <span style={{ ...LBL, margin: 0 }}>Что понадобится</span>
+              {storeProduct.fields.map(f => (
+                <p key={f.key} style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: 0, lineHeight: 1.4 }}>• {f.label}{f.optional ? ' (необязательно)' : ''}</p>
+              ))}
             </div>
-
-            <div style={{ display: 'flex', gap: 10 }}>
-              <Button variant="secondary" fullWidth onClick={closeEdit} disabled={saveMut.isPending}>
-                Отмена
-              </Button>
-              <Button
-                variant="primary"
-                fullWidth
-                icon="save"
-                loading={saveMut.isPending}
-                // Пустое значение не сохраняется — нельзя случайно затереть ключ.
-                disabled={!trimmed}
-                onClick={() => saveMut.mutate({ key: editing.key, value: trimmed })}
-              >
-                Сохранить
-              </Button>
-            </div>
+            <Button variant="primary" fullWidth icon="add" onClick={() => startWizard(storeProduct)}>Установить</Button>
+          </div>
+        ) : available.length === 0 ? (
+          <StateView state="empty" icon="check_circle" title="Все интеграции установлены" description="Доступных к установке интеграций больше нет." />
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 12 }}>
+            {available.map(p => (
+              <button key={p.id} onClick={() => setStoreProduct(p)} className="glass-l2"
+                style={{ textAlign: 'left', borderRadius: 16, padding: 14, border: '1px solid rgba(255,255,255,0.08)', cursor: 'pointer', color: 'var(--on-surface)', display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <div style={{ width: 40, height: 40, borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', background: `${p.color}1f`, border: `1px solid ${p.color}3a` }}>
+                  <Icon name={p.icon} size={21} color={p.color} />
+                </div>
+                <div>
+                  <p style={{ fontSize: 14, fontWeight: 700, margin: 0 }}>{p.name}</p>
+                  <p style={{ fontSize: 11.5, color: 'var(--on-surface-variant)', margin: '3px 0 0', lineHeight: 1.4 }}>{p.blurb}</p>
+                </div>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 12, fontWeight: 700, color: '#a78bfa', marginTop: 'auto' }}>Подробнее <Icon name="chevron_right" size={14} color="#a78bfa" /></span>
+              </button>
+            ))}
           </div>
         )}
       </Sheet>
 
-      {/* Отдельное danger-подтверждение удаления */}
+      {/* ─── Мастер установки (step-by-step) ─── */}
+      {wizard && (() => {
+        const steps = wizard.fields
+        const f = steps[step]!
+        const val = vals[f.key] ?? ''
+        const canNext = f.optional || val.trim().length > 0
+        const isLast = step === steps.length - 1
+        // Для установки нужны все обязательные поля.
+        const allRequiredFilled = steps.every(s => s.optional || (vals[s.key] ?? '').trim().length > 0)
+        return (
+          <Sheet open onClose={closeWizard} title={`Установка · ${wizard.name}`} desktopSize="sm">
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              {/* Прогресс шагов */}
+              <div style={{ display: 'flex', gap: 6 }}>
+                {steps.map((_, i) => (
+                  <div key={i} style={{ flex: 1, height: 4, borderRadius: 2, background: i <= step ? wizard.color : 'rgba(255,255,255,0.1)', transition: 'background 0.2s' }} />
+                ))}
+              </div>
+              <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: 0 }}>Шаг {step + 1} из {steps.length}</p>
+
+              <div>
+                <label style={LBL}>{f.label}{f.optional ? ' · необязательно' : ''}</label>
+                <input
+                  type={f.type}
+                  autoComplete={f.type === 'password' ? 'new-password' : 'off'}
+                  autoFocus
+                  style={INP}
+                  value={val}
+                  onChange={e => setVals(v => ({ ...v, [f.key]: e.target.value }))}
+                  placeholder={f.placeholder}
+                  onKeyDown={e => { if (e.key === 'Enter' && canNext && !isLast) setStep(s => s + 1) }}
+                />
+              </div>
+
+              {/* Инструкция: где найти ключ */}
+              <div style={{ display: 'flex', gap: 10, padding: 14, borderRadius: 12, background: 'rgba(139,92,246,0.08)', border: '1px solid rgba(139,92,246,0.22)' }}>
+                <Icon name="info" size={18} color="#a78bfa" style={{ flexShrink: 0, marginTop: 1 }} />
+                <p style={{ fontSize: 12.5, margin: 0, color: 'var(--on-surface)', lineHeight: 1.5 }}>{f.hint}</p>
+              </div>
+
+              <div style={{ display: 'flex', gap: 10 }}>
+                {step > 0
+                  ? <Button variant="secondary" onClick={() => setStep(s => s - 1)} icon="chevron_left">Назад</Button>
+                  : <Button variant="secondary" onClick={closeWizard}>Отмена</Button>}
+                {isLast
+                  ? <Button variant="primary" fullWidth icon="check_circle" loading={save.isPending} disabled={!allRequiredFilled} onClick={() => save.mutate({ p: wizard, values: vals })}>Установить</Button>
+                  : <Button variant="primary" fullWidth iconRight="chevron_right" disabled={!canNext} onClick={() => setStep(s => s + 1)}>Далее</Button>}
+              </div>
+            </div>
+          </Sheet>
+        )
+      })()}
+
+      {/* ─── Окно «Настроить» установленной интеграции (замена + удаление) ─── */}
+      {settings && (() => {
+        const p = settings
+        const st = statusOf(p, items, gm)
+        const anyFilled = p.fields.some(f => (vals[f.key] ?? '').trim().length > 0)
+        return (
+          <Sheet open onClose={() => setSettings(null)} title={`Настроить · ${p.name}`} desktopSize="sm">
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: st.ok ? '#10B981' : '#F59E0B', fontWeight: 600 }}>
+                <Icon name={st.ok ? 'check_circle' : 'error'} size={16} color={st.ok ? '#10B981' : '#F59E0B'} />
+                {st.ok ? 'Подключено' : 'Неполная настройка'}{st.detail ? ` · ${st.detail}` : ''}
+              </div>
+              <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: 0, lineHeight: 1.5 }}>
+                Введите новое значение, чтобы заменить. Пустое поле — оставить как есть.
+              </p>
+              {p.fields.map(f => {
+                const cur = p.kind === 'gomafia'
+                  ? (f.key === 'login' ? gm?.loginMasked : null)
+                  : items.find(i => i.key === f.key)?.masked
+                return (
+                  <div key={f.key}>
+                    <label style={LBL}>{f.label}{f.optional ? ' · необязательно' : ''}</label>
+                    <input
+                      type={f.type}
+                      autoComplete={f.type === 'password' ? 'new-password' : 'off'}
+                      style={INP}
+                      value={vals[f.key] ?? ''}
+                      onChange={e => setVals(v => ({ ...v, [f.key]: e.target.value }))}
+                      placeholder={cur ? `Сейчас: ${cur} — введите новое, чтобы заменить` : f.placeholder}
+                    />
+                    <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: '6px 2px 0', lineHeight: 1.4 }}>{f.hint}</p>
+                  </div>
+                )
+              })}
+              <Button variant="primary" fullWidth icon="save" loading={save.isPending} disabled={!anyFilled} onClick={() => save.mutate({ p, values: vals })}>Сохранить</Button>
+              <button onClick={() => setConfirmDel(p)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '12px 0', borderRadius: 12, border: '1px solid rgba(244,63,94,0.3)', background: 'rgba(244,63,94,0.08)', color: '#F43F5E', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
+                <Icon name="delete" size={16} color="#F43F5E" /> Удалить интеграцию
+              </button>
+            </div>
+          </Sheet>
+        )
+      })()}
+
       <ConfirmDialog
-        open={!!deleting}
-        onClose={() => setDeleting(null)}
-        onConfirm={() => deleting && deleteMut.mutate(deleting.key)}
-        title="Удалить ключ?"
-        message={deleting ? `«${deleting.label}» будет удалён. Интеграция перестанет работать, пока вы не настроите ключ заново.` : undefined}
+        open={!!confirmDel}
+        onClose={() => setConfirmDel(null)}
+        onConfirm={() => confirmDel && uninstall.mutate(confirmDel)}
+        title={confirmDel ? `Удалить «${confirmDel.name}»?` : ''}
+        message="Ключи будут удалены, интеграция перестанет работать, пока вы не настроите её заново."
         confirmLabel="Удалить"
         danger
-        loading={deleteMut.isPending}
+        loading={uninstall.isPending}
       />
     </div>
   )
