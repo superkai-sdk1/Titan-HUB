@@ -9,6 +9,7 @@ import { Redis } from 'ioredis'
 import { updatesChannel } from '../../lib/realtime.js'
 import { createBackup, listBackups, lastBackup, restoreNamed, restoreFromUpload, rcloneConfigured } from '../../lib/backup.js'
 import { encryptSecret, decryptSecret, maskSecret, getClubIntegration } from '../../lib/secrets.js'
+import { getActiveSbpProvider } from '../pay/registry.js'
 import { readPollConfigs, writePollConfigs, postPollConfig, type PollConfig } from '../../lib/polls.js'
 import { recordPollPosted } from '../../lib/pollState.js'
 import { setTelegramWebhook, deleteTelegramWebhook, getTelegramWebhookInfo, getChatAdministrators, getTelegramChat } from '../../lib/telegram.js'
@@ -287,20 +288,32 @@ systemRouter.delete('/integrations/:key', requireAuth, requireRole('owner'), asy
 })
 
 // ─── Конфигурация приёма оплат и фискализации (не секреты → app_settings) ──────
-// sbp_provider: активный СБП-эквайер кнопки «СБП» на кассе ('platega'|'tbank'|…).
-// fiscal_provider: кто пробивает чек 54-ФЗ ('' = выкл | 'yookassa' = сама ЮKassa).
-// payment_test_mode: песочница эквайера. fiscal_vat_code: код ставки НДС (ФФД).
+// Активный СБП-эквайер НЕ выбирается вручную — он выводится из того, чьи ключи
+// введены (одно заведение = один эквайер), см. getActiveSbpProvider. Здесь —
+// только производные настройки: fiscal_provider ('' выкл | 'yookassa' = сама
+// пробивает чек 54-ФЗ), payment_test_mode (песочница), fiscal_vat_code (НДС ФФД).
 
-const SBP_PROVIDERS = ['platega', 'tbank', 'yookassa', 'sber', 'alfa'] as const
 const FISCAL_PROVIDERS = ['', 'yookassa'] as const
+const SBP_LABELS: Record<string, string> = {
+  platega: 'Platega', tbank: 'Т-Банк', yookassa: 'ЮKassa', sber: 'СберБизнес', alfa: 'Точка / Альфа',
+}
 
 systemRouter.get('/payment-config', requireAuth, requireRole('owner'), async (c) => {
   const db = c.var.db
   const rows = await db.select().from(appSettings)
-    .where(inArray(appSettings.key, ['sbp_provider', 'fiscal_provider', 'payment_test_mode', 'fiscal_vat_code', 'fiscal_default_phone']))
+    .where(inArray(appSettings.key, ['fiscal_provider', 'payment_test_mode', 'fiscal_vat_code', 'fiscal_default_phone']))
   const map = Object.fromEntries(rows.map((r) => [r.key, r.value]))
+
+  // Активный эквайер выводим из введённых ключей. «Настроен» = либо новый эквайер,
+  // либо Platega с заданным merchant id (integrations или env основного инстанса).
+  const sbpProvider = await getActiveSbpProvider(db)
+  const plategaConfigured = !!((await getClubIntegration(db, 'platega_merchant_id')) ?? process.env['PLATEGA_MERCHANT_ID'])
+  const sbpConfigured = sbpProvider !== 'platega' || plategaConfigured
+
   return c.json({
-    sbpProvider: map['sbp_provider'] || 'platega',
+    sbpProvider,
+    sbpProviderLabel: SBP_LABELS[sbpProvider] ?? sbpProvider,
+    sbpConfigured,
     fiscalProvider: map['fiscal_provider'] || '',
     testMode: map['payment_test_mode'] === 'true',
     vatCode: Number(map['fiscal_vat_code']) || 1,
@@ -313,7 +326,6 @@ systemRouter.put(
   requireAuth,
   requireRole('owner'),
   zValidator('json', z.object({
-    sbpProvider: z.enum(SBP_PROVIDERS).optional(),
     fiscalProvider: z.enum(FISCAL_PROVIDERS).optional(),
     testMode: z.boolean().optional(),
     vatCode: z.number().int().min(1).max(6).optional(),
@@ -323,7 +335,6 @@ systemRouter.put(
     const db = c.var.db
     const b = c.req.valid('json')
     const updates: Array<[string, string]> = []
-    if (b.sbpProvider !== undefined) updates.push(['sbp_provider', b.sbpProvider])
     if (b.fiscalProvider !== undefined) updates.push(['fiscal_provider', b.fiscalProvider])
     if (b.testMode !== undefined) updates.push(['payment_test_mode', String(b.testMode)])
     if (b.vatCode !== undefined) updates.push(['fiscal_vat_code', String(b.vatCode)])

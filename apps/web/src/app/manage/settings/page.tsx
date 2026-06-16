@@ -9,6 +9,7 @@ import { TimeInput24 } from '@/components/TimeInput24'
 import { StateView } from '@/components/StateView'
 import { useToast } from '@/components/Toast'
 import { IntegrationsTab } from './IntegrationsTab'
+import { PaymentConfig } from './PaymentConfig'
 
 function SectionCard({ title, icon, color, children }: { title: string; icon: string; color: string; children: React.ReactNode }) {
   return (
@@ -192,25 +193,11 @@ export default function SettingsPage() {
                     </Field>
                   </SectionCard>
 
-                  <SectionCard title="POS-терминал" icon="point_of_sale" color="#4cd7f6">
-                    <Field label="Оплата по умолчанию" icon="payments">
-                      <select style={SEL} value={form.default_payment} onChange={e => set('default_payment', e.target.value)}>
-                        <option value="cash">Наличные</option>
-                        <option value="card">Перевод</option>
-                        <option value="transfer">СБП</option>
-                      </select>
-                    </Field>
-                    <Field label="Подпись в чеке" icon="receipt_long">
-                      <textarea
-                        style={{ ...INP, minHeight: 72, resize: 'vertical' as const, fontFamily: 'inherit', lineHeight: 1.5 }}
-                        value={form.receipt_footer}
-                        onChange={e => set('receipt_footer', e.target.value)}
-                        placeholder="Текст внизу чека..."
-                      />
-                    </Field>
-                  </SectionCard>
-
                   <SaveButton onClick={() => save.mutate()} isPending={save.isPending} isSaved={saved} label="Сохранить изменения" />
+
+                  {/* Приём оплат: активный СБП-эквайер (по введённым ключам) + 54-ФЗ.
+                      Сохраняется отдельно (собственный API /system/payment-config). */}
+                  <PaymentConfig />
                 </>
               )}
 

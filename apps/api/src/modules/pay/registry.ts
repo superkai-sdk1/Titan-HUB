@@ -7,7 +7,7 @@
  * env (как Platega), чтобы основной одно-клубный прод можно было настроить через
  * переменные окружения.
  */
-import { appSettings, eq } from '@titan/database'
+import { appSettings, integrations, eq } from '@titan/database'
 import type { Database } from '@titan/database'
 import { getClubIntegration } from '../../lib/secrets.js'
 import type { SbpProvider, ProviderCreds } from './types.js'
@@ -40,9 +40,21 @@ async function getSetting(db: Database, key: string): Promise<string | null> {
   return row?.value ?? null
 }
 
-/** Активный СБП-эквайер ('platega' | 'tbank' | 'yookassa' | 'sber' | 'alfa'). */
+const NEW_PROVIDER_ORDER = ['tbank', 'yookassa', 'sber', 'alfa'] as const
+
+/**
+ * Активный СБП-эквайер ВЫВОДИТСЯ из того, чьи ключи введены (одно заведение —
+ * один эквайер, без ручного выбора): если настроен новый эквайер — он, иначе
+ * 'platega' (дефолт; работает через platega-ключи или env основного инстанса).
+ */
 export async function getActiveSbpProvider(db: Database): Promise<string> {
-  return (await getSetting(db, 'sbp_provider')) || 'platega'
+  const rows = await db.select({ key: integrations.key }).from(integrations)
+  const configured = new Set(rows.map((r) => r.key))
+  for (const id of NEW_PROVIDER_ORDER) {
+    const p = PAY_PROVIDERS[id]
+    if (p && p.credKeys.every((k) => configured.has(k))) return id
+  }
+  return 'platega'
 }
 
 /** Тестовый контур провайдера (песочница) вместо боевого. */
