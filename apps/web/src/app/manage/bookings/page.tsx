@@ -16,7 +16,8 @@ import { Icon } from '@/components/Icon'
 interface Booking {
   id: string; space_id: string | null; zone_name: string | null
   name: string; phone: string; guests: number | null
-  starts_at: string; duration_hours: string | null; comment: string | null
+  starts_at: string; duration_hours: string | null; tariff_hours: number | null
+  location: string | null; address: string | null; comment: string | null
   status: 'new' | 'confirmed' | 'cancelled' | 'done'; source: string; event_id: string | null
 }
 
@@ -84,13 +85,17 @@ export default function BookingsPage() {
               return (
                 <div key={b.id} className="glass-l2" style={{ borderRadius: 16, padding: 14, border: '1px solid rgba(255,255,255,0.08)' }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
-                    <span style={{ fontSize: 15, fontWeight: 800 }}>{b.name}</span>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{ fontSize: 15, fontWeight: 800 }}>{b.name}</span>
+                      <span style={{ fontSize: 10.5, fontWeight: 700, color: b.location === 'exit' ? '#F59E0B' : '#a78bfa', background: b.location === 'exit' ? 'rgba(245,158,11,0.15)' : 'rgba(139,92,246,0.15)', borderRadius: 7, padding: '2px 7px' }}>{b.location === 'exit' ? 'Выезд' : 'Штаб'}</span>
+                    </span>
                     <span style={{ fontSize: 11, fontWeight: 700, color: st.color, background: `${st.color}22`, border: `1px solid ${st.color}55`, borderRadius: 8, padding: '2px 8px' }}>{st.label}</span>
                   </div>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 14px', marginTop: 8, fontSize: 13, color: 'var(--on-surface-variant)' }}>
-                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="schedule" size={14} /> {fmtWhen(b.starts_at)}{b.duration_hours ? ` · ${Number(b.duration_hours)} ч` : ''}</span>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="schedule" size={14} /> {fmtWhen(b.starts_at)}{(b.tariff_hours ?? b.duration_hours) ? ` · ${Number(b.tariff_hours ?? b.duration_hours)} ч` : ''}</span>
                     {b.guests != null && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="group" size={14} /> {b.guests}</span>}
                     {b.zone_name && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="location_on" size={14} /> {b.zone_name}</span>}
+                    {b.location === 'exit' && b.address && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="location_on" size={14} /> {b.address}</span>}
                     <a href={`tel:${b.phone}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: '#a78bfa', textDecoration: 'none' }}><Icon name="call" size={14} color="#a78bfa" /> {b.phone}</a>
                   </div>
                   {b.comment && <p style={{ fontSize: 13, color: 'var(--on-surface)', margin: '8px 0 0', lineHeight: 1.45 }}>{b.comment}</p>}

@@ -1,18 +1,20 @@
 /**
- * Онлайн-бронирование зон.
+ * Онлайн-бронирование зон — клиентский конструктор мероприятия.
  *
- * Публичная сторона (без авторизации, монтируется ДО requireActiveSubscription, как
- * /api/pay): /config — настройки виджета (зоны, часы), POST / — создать бронь
- * (rate-limit глобальный на /api/*, валидация, гейт booking_enabled). Внутренняя
- * (auth): список + смена статуса; при подтверждении создаётся planned-мероприятие.
+ * Публичная сторона (без авторизации, ДО requireActiveSubscription): /config —
+ * данные виджета (локации, кабинки+ставка, тарифы по часам); POST / — заявка с
+ * выдачей claim_token (узнавание клиента); GET/PATCH /:token — статус и правки по
+ * токену без авторизации (токен = секрет в localStorage гостя). Внутренняя (auth):
+ * список + смена статуса; подтверждение создаёт planned-мероприятие (titan/exit,
+ * кабинка, плановые часы) и пишет event_id.
  *
- * Таблица bookings — через raw SQL (не в drizzle-схеме, как fiscal_receipts);
- * мероприятия — через drizzle (events).
+ * Таблица bookings — raw SQL; мероприятия/справочники — drizzle.
  */
 import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
-import { sql, events, spaces, appSettings, profiles, eq, and, isNull, inArray } from '@titan/database'
+import { randomUUID } from 'node:crypto'
+import { sql, events, spaces, appSettings, eventHourlyRates, profiles, eq, and, isNull, inArray, asc } from '@titan/database'
 import type { AppEnv } from '../../types.js'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
 import { notify } from '../notifications/push.js'
@@ -20,14 +22,15 @@ import { notify } from '../notifications/push.js'
 function rows<T = Record<string, unknown>>(res: unknown): T[] {
   return ((res as { rows?: unknown[] }).rows ?? (res as unknown[])) as T[]
 }
-
-// HH:MM + часы → HH:MM (с переносом за полночь по модулю 24).
 function addHours(time: string, hours: number): string {
   const [h, m] = time.split(':').map(Number)
   const total = (h! * 60 + m!) + Math.round(hours * 60)
-  const eh = Math.floor(total / 60) % 24
-  const em = total % 60
-  return `${String(eh).padStart(2, '0')}:${String(em).padStart(2, '0')}`
+  return `${String(Math.floor(total / 60) % 24).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`
+}
+// timestamptz → дата/время в МСК.
+function mskParts(iso: string): { date: string; time: string } {
+  const d = new Date(new Date(iso).getTime() + 3 * 3600 * 1000)
+  return { date: d.toISOString().slice(0, 10), time: d.toISOString().slice(11, 16) }
 }
 
 // ─── Публичный роутер (без авторизации) ──────────────────────────────────────
@@ -36,28 +39,36 @@ export const bookingsPublicRouter = new Hono<AppEnv>()
 bookingsPublicRouter.get('/config', async (c) => {
   const db = c.var.db
   const sx = await db.select().from(appSettings)
-    .where(inArray(appSettings.key, ['booking_enabled', 'venue_name', 'hours_open', 'hours_close']))
+    .where(inArray(appSettings.key, ['booking_enabled', 'venue_name', 'venue_address', 'hours_open', 'hours_close']))
   const m = Object.fromEntries(sx.map((r) => [r.key, r.value]))
   if (m['booking_enabled'] !== 'true') return c.json({ enabled: false })
-  const zones = await db.select({ id: spaces.id, name: spaces.name, capacity: spaces.capacity })
+
+  const cabins = await db.select({ id: spaces.id, name: spaces.name, capacity: spaces.capacity, hourlyRate: spaces.hourlyRate })
     .from(spaces).where(eq(spaces.isActive, true))
+  const tariffs = await db.select({ hours: eventHourlyRates.hours, price: eventHourlyRates.price })
+    .from(eventHourlyRates).orderBy(asc(eventHourlyRates.hours))
+
   return c.json({
     enabled: true,
     clubName: m['venue_name'] || 'Titan',
+    venueAddress: m['venue_address'] || '',
     hoursOpen: m['hours_open'] || '',
     hoursClose: m['hours_close'] || '',
-    zones,
+    cabins,
+    tariffs,
   })
 })
 
 const CreateSchema = z.object({
-  name: z.string().min(1).max(120),
-  phone: z.string().min(5).max(30),
+  location: z.enum(['titan', 'exit']),
+  address: z.string().max(300).optional(),
+  spaceId: z.string().uuid().optional(),
+  tariffHours: z.number().int().min(1).max(24).optional(),
   guests: z.number().int().min(1).max(500).optional(),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   time: z.string().regex(/^\d{2}:\d{2}$/),
-  durationHours: z.number().min(0.5).max(24).optional(),
-  spaceId: z.string().uuid().optional(),
+  name: z.string().min(1).max(120),
+  phone: z.string().min(5).max(30),
   comment: z.string().max(500).optional(),
 })
 
@@ -66,28 +77,88 @@ bookingsPublicRouter.post('/', zValidator('json', CreateSchema), async (c) => {
   const [en] = await db.select().from(appSettings).where(eq(appSettings.key, 'booking_enabled')).limit(1)
   if (en?.value !== 'true') return c.json({ error: 'Бронирование отключено' }, 403)
   const b = c.req.valid('json')
-  // Клуб в МСК (UTC+3); храним абсолютный момент в timestamptz.
   const startsAt = `${b.date}T${b.time}:00+03:00`
+  const token = randomUUID()
 
   const res = await db.execute(sql`
-    INSERT INTO bookings (space_id, name, phone, guests, starts_at, duration_hours, comment, status, source)
+    INSERT INTO bookings (space_id, name, phone, guests, starts_at, duration_hours, comment, status, source, location, address, tariff_hours, claim_token)
     VALUES (${b.spaceId ?? null}, ${b.name}, ${b.phone}, ${b.guests ?? null}, ${startsAt}::timestamptz,
-            ${b.durationHours ?? null}, ${b.comment ?? null}, 'new', 'widget')
+            ${b.tariffHours ?? null}, ${b.comment ?? null}, 'new', 'widget',
+            ${b.location}, ${b.location === 'exit' ? (b.address ?? null) : null}, ${b.tariffHours ?? null}, ${token})
     RETURNING id
   `)
   const id = rows<{ id: string }>(res)[0]?.id
 
-  // Уведомление владельцам (не валит ответ гостю).
   try {
     const owners = await db.select({ id: profiles.id }).from(profiles)
       .where(and(eq(profiles.role, 'owner'), isNull(profiles.deletedAt)))
-    const body = `${b.name} · ${b.date} ${b.time}${b.guests ? ` · ${b.guests} гост.` : ''}`
+    const where = b.location === 'exit' ? 'выезд' : 'Штаб'
+    const body = `${b.name} · ${where} · ${b.date} ${b.time}${b.guests ? ` · ${b.guests} гост.` : ''}`
     for (const o of owners) {
       await notify({ type: 'booking', title: '🗓️ Новая бронь', body, meta: { bookingId: id, url: '/manage/bookings' }, userId: o.id }, db, c.var.club?.id)
     }
   } catch { /* non-fatal */ }
 
-  return c.json({ ok: true, id })
+  return c.json({ ok: true, id, token })
+})
+
+// Статус брони по токену (узнавание клиента, без авторизации).
+bookingsPublicRouter.get('/:token', async (c) => {
+  const db = c.var.db
+  const token = c.req.param('token')
+  const res = await db.execute(sql`
+    SELECT b.id, b.status, b.location, b.address, s.name AS zone_name, b.tariff_hours, b.guests,
+           b.starts_at, b.name, b.phone, b.comment, b.created_at
+    FROM bookings b LEFT JOIN spaces s ON s.id = b.space_id
+    WHERE b.claim_token = ${token} LIMIT 1
+  `)
+  const bk = rows(res)[0]
+  if (!bk) return c.json({ error: 'not found' }, 404)
+  return c.json({ booking: bk })
+})
+
+const PublicPatchSchema = z.object({
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  time: z.string().regex(/^\d{2}:\d{2}$/).optional(),
+  guests: z.number().int().min(1).max(500).nullable().optional(),
+  tariffHours: z.number().int().min(1).max(24).nullable().optional(),
+  address: z.string().max(300).optional(),
+  comment: z.string().max(500).optional(),
+  cancel: z.boolean().optional(),
+})
+
+// Правка/отмена брони гостем по токену — пока статус 'new'.
+bookingsPublicRouter.patch('/:token', zValidator('json', PublicPatchSchema), async (c) => {
+  const db = c.var.db
+  const token = c.req.param('token')
+  const b = c.req.valid('json')
+  const res = await db.execute(sql`SELECT * FROM bookings WHERE claim_token = ${token} LIMIT 1`)
+  const bk = rows<Record<string, unknown>>(res)[0]
+  if (!bk) return c.json({ error: 'not found' }, 404)
+  if (bk['status'] !== 'new') return c.json({ error: 'Бронь уже обработана — правки недоступны' }, 409)
+
+  if (b.cancel) {
+    await db.execute(sql`UPDATE bookings SET status = 'cancelled', updated_at = now() WHERE claim_token = ${token}`)
+    return c.json({ ok: true, status: 'cancelled' })
+  }
+
+  const cur = mskParts(bk['starts_at'] as string)
+  const date = b.date ?? cur.date
+  const time = b.time ?? cur.time
+  const startsAt = `${date}T${time}:00+03:00`
+
+  await db.execute(sql`
+    UPDATE bookings SET
+      starts_at = ${startsAt}::timestamptz,
+      guests = ${b.guests !== undefined ? b.guests : (bk['guests'] as number | null)},
+      tariff_hours = ${b.tariffHours !== undefined ? b.tariffHours : (bk['tariff_hours'] as number | null)},
+      duration_hours = ${b.tariffHours !== undefined ? b.tariffHours : (bk['duration_hours'] as number | null)},
+      address = ${b.address !== undefined ? b.address : (bk['address'] as string | null)},
+      comment = ${b.comment !== undefined ? b.comment : (bk['comment'] as string | null)},
+      updated_at = now()
+    WHERE claim_token = ${token}
+  `)
+  return c.json({ ok: true })
 })
 
 // ─── Внутренний роутер (авторизация) ─────────────────────────────────────────
@@ -99,7 +170,8 @@ bookingsRouter.get('/', requireRole('owner', 'staff'), async (c) => {
   const status = c.req.query('status')
   const res = await db.execute(sql`
     SELECT b.id, b.space_id, s.name AS zone_name, b.name, b.phone, b.guests,
-           b.starts_at, b.duration_hours, b.comment, b.status, b.source, b.event_id, b.created_at
+           b.starts_at, b.duration_hours, b.tariff_hours, b.location, b.address,
+           b.comment, b.status, b.source, b.event_id, b.created_at
     FROM bookings b
     LEFT JOIN spaces s ON s.id = b.space_id
     ${status ? sql`WHERE b.status = ${status}` : sql``}
@@ -121,24 +193,23 @@ bookingsRouter.patch('/:id', requireRole('owner', 'staff'), zValidator('json', P
   const bk = rows<Record<string, unknown>>(res)[0]
   if (!bk) return c.json({ error: 'not found' }, 404)
 
-  // Подтверждение → создаём planned-мероприятие (один раз).
   let eventId = (bk['event_id'] as string | null) ?? null
   if (status === 'confirmed' && !eventId) {
-    const startsAt = new Date(bk['starts_at'] as string)
-    const msk = new Date(startsAt.getTime() + 3 * 3600 * 1000)
-    const date = msk.toISOString().slice(0, 10)
-    const time = msk.toISOString().slice(11, 16)
-    const dur = bk['duration_hours'] != null ? Number(bk['duration_hours']) : 0
-    const endTime = dur > 0 ? addHours(time, dur) : null
+    const { date, time } = mskParts(bk['starts_at'] as string)
+    const hours = bk['tariff_hours'] != null ? Number(bk['tariff_hours']) : (bk['duration_hours'] != null ? Number(bk['duration_hours']) : 0)
+    const endTime = hours > 0 ? addHours(time, hours) : null
+    const isExit = bk['location'] === 'exit'
     const [ev] = await db.insert(events).values({
-      type: 'titan',
+      type: isExit ? 'exit' : 'titan',
       title: `Бронь: ${String(bk['name'])}`,
+      location: isExit ? ((bk['address'] as string | null) ?? null) : 'TITAN',
       spaceId: (bk['space_id'] as string | null) ?? null,
       date,
       startTime: time,
       endTime,
       paymentType: 'fixed',
-      billingMode: 'amount',
+      billingMode: 'hourly',
+      plannedHours: hours > 0 ? hours : null,
       status: 'planned',
       customerName: String(bk['name']),
       customerPhone: String(bk['phone']),
@@ -149,8 +220,6 @@ bookingsRouter.patch('/:id', requireRole('owner', 'staff'), zValidator('json', P
     eventId = ev?.id ?? null
   }
 
-  await db.execute(sql`
-    UPDATE bookings SET status = ${status}, event_id = ${eventId}, updated_at = now() WHERE id = ${id}
-  `)
+  await db.execute(sql`UPDATE bookings SET status = ${status}, event_id = ${eventId}, updated_at = now() WHERE id = ${id}`)
   return c.json({ ok: true, status, eventId })
 })
