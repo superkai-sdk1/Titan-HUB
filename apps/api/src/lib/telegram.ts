@@ -129,13 +129,14 @@ export async function sendTelegramMessage(
   token: string,
   chatId: string | number,
   text: string,
-  opts?: { messageThreadId?: number | null; parseMode?: 'HTML' | 'Markdown' },
+  opts?: { messageThreadId?: number | null; parseMode?: 'HTML' | 'Markdown'; replyToMessageId?: number | null },
 ): Promise<{ ok: boolean; error?: string }> {
   return tgCall(token, 'sendMessage', {
     chat_id: chatId,
     text,
     ...(opts?.messageThreadId ? { message_thread_id: opts.messageThreadId } : {}),
     ...(opts?.parseMode ? { parse_mode: opts.parseMode } : {}),
+    ...(opts?.replyToMessageId ? { reply_to_message_id: opts.replyToMessageId } : {}),
     disable_web_page_preview: true,
   })
 }

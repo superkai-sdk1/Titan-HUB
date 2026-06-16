@@ -11,6 +11,7 @@ import { useToast } from '@/components/Toast'
 import { IntegrationsTab } from './IntegrationsTab'
 import { PaymentConfig } from './PaymentConfig'
 import { WhatsAppConfig } from './WhatsAppConfig'
+import { TaiChatConfig } from './TaiChatConfig'
 import { ReviewsConfig } from './ReviewsConfig'
 import { BookingConfig } from './BookingConfig'
 
@@ -237,6 +238,9 @@ export default function SettingsPage() {
 
                   {/* WhatsApp-уведомления (поздравления с ДР и др.) — своя настройка. */}
                   <WhatsAppConfig />
+
+                  {/* Tai в чате — дерзкие ответы бота опросов. */}
+                  <TaiChatConfig />
                 </>
               )}
             </>

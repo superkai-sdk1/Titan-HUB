@@ -15,6 +15,7 @@ import { getBoolSetting } from '../../lib/appSettings.js'
 import { recordChat, recordTopic } from '../../lib/tgChats.js'
 import { readAliases } from '../../lib/tgAliases.js'
 import { isTelegramChatAdmin, sendTelegramMessage } from '../../lib/telegram.js'
+import { taiChatReply } from '../../lib/tai.js'
 import type { Database } from '@titan/database'
 
 // tgId → ник СОПОСТАВЛЕННОГО клиента (profiles.tg_id напрямую, затем доп.аккаунты
@@ -49,6 +50,43 @@ const CMD_COOLDOWN_MS = 10 * 60 * 1000
 const CMD_WARN_THROTTLE_MS = 60 * 1000
 const lastCmdRun = new Map<string, number>() // `${chatId}:${userId}` → ts успешного запуска
 const lastCmdWarn = new Map<string, number>() // → ts последнего предупреждения (не спамить отказами)
+// Tai-чат: анти-спам/анти-стоимость — ответ не чаще раза в 12с от пользователя в чате.
+const TAI_COOLDOWN_MS = 12 * 1000
+const lastTaiReply = new Map<string, number>()
+
+// Сообщение адресовано Tai: реплай на сообщение бота ИЛИ упоминание «tai/тай» словом.
+function directedAtTai(msg: any): boolean {
+  const text = String(msg?.text ?? '').trim()
+  if (!text || text.startsWith('/')) return false
+  if (msg?.reply_to_message?.from?.is_bot) return true
+  return /(^|[^a-zа-яё0-9])(tai|тай)([^a-zа-яё0-9]|$)/i.test(text)
+}
+
+// Дерзкий ответ Tai в чат (комедийный роуст). Гейт: тумблер tai_chat_enabled + ИИ-ключ.
+async function handleTaiChat(db: Database, msg: any): Promise<void> {
+  const chatId = msg?.chat?.id
+  const text = String(msg?.text ?? '').trim()
+  if (!chatId || !text) return
+  if (!(await getBoolSetting('tai_chat_enabled', false, db))) return
+  const token = await getClubIntegration(db, 'poll_bot_token').catch(() => null)
+  if (!token) return
+
+  const key = `${chatId}:${msg.from?.id}`
+  const now = Date.now()
+  if (now - (lastTaiReply.get(key) ?? 0) < TAI_COOLDOWN_MS) return
+  lastTaiReply.set(key, now)
+
+  const fromName = msg.from?.first_name || (msg.from?.username ? '@' + msg.from.username : 'кто-то')
+  const replyText = msg.reply_to_message?.text ? String(msg.reply_to_message.text).slice(0, 400) : ''
+  const userMessage = replyText
+    ? `${fromName} отвечает на твою реплику «${replyText}»: ${text}`
+    : `${fromName} пишет тебе: ${text}`
+
+  const reply = await taiChatReply(db, userMessage)
+  if (reply) {
+    await sendTelegramMessage(token, chatId, reply, { messageThreadId: msg.message_thread_id ?? null, replyToMessageId: msg.message_id })
+  }
+}
 
 const normOpt = (s: string): string => s.trim().toLowerCase()
 function dedupById<T extends { tgId: string }>(arr: T[]): T[] {
@@ -63,7 +101,8 @@ function dedupById<T extends { tgId: string }>(arr: T[]): T[] {
 //   @all        — все известные участники чата.
 //   @tvari      — НЕ проголосовавшие + выбравшие «Думаю» в последнем опросе чата.
 //   @supertvari — выбравшие «Нет» в последнем опросе чата.
-async function handleMentionCommand(db: Database, msg: any, cmd: 'all' | 'tvari' | 'supertvari'): Promise<void> {
+//   @lubimki    — выбравшие «Да» в последнем опросе чата.
+async function handleMentionCommand(db: Database, msg: any, cmd: 'all' | 'tvari' | 'supertvari' | 'lubimki'): Promise<void> {
   const chatId = msg.chat?.id
   const fromId = msg.from?.id
   const threadId = msg.message_thread_id ?? null
@@ -128,6 +167,15 @@ async function handleMentionCommand(db: Database, msg: any, cmd: 'all' | 'tvari'
       targets = dedupById([...nonVoters, ...thinking])
       header = thinkingIdx >= 0 ? '⚠️ Не отметились или «Думаю»:' : '⚠️ Не отметились в последнем опросе:'
       emptyMsg = '✅ Все определились!'
+    } else if (cmd === 'lubimki') {
+      const yesIdx = options.findIndex((o) => normOpt(o) === 'да')
+      if (yesIdx < 0) {
+        await sendTelegramMessage(token, chatId, 'В последнем опросе нет варианта «Да».', { messageThreadId: threadId })
+        return
+      }
+      targets = Object.keys(voteMap).filter((tg) => voteMap[tg]!.includes(yesIdx)).map(lookup)
+      header = '❤️ Любимки (проголосовали «Да»):'
+      emptyMsg = 'Никто не выбрал «Да».'
     } else {
       const noIdx = options.findIndex((o) => normOpt(o) === 'нет')
       if (noIdx < 0) {
@@ -165,11 +213,12 @@ async function handleMentionCommand(db: Database, msg: any, cmd: 'all' | 'tvari'
 }
 
 // Распознать команду в первом слове сообщения.
-function parseMentionCommand(text: string | undefined): 'all' | 'tvari' | 'supertvari' | null {
+function parseMentionCommand(text: string | undefined): 'all' | 'tvari' | 'supertvari' | 'lubimki' | null {
   const first = (text ?? '').trim().split(/\s+/)[0]?.toLowerCase()
   if (first === '@all') return 'all'
   if (first === '@tvari' || first === '@твари') return 'tvari'
   if (first === '@supertvari' || first === '@супертвари') return 'supertvari'
+  if (first === '@lubimki' || first === '@любимки') return 'lubimki'
   return null
 }
 
@@ -217,6 +266,8 @@ tgRouter.post('/poll-webhook/:clubId', async (c) => {
       // Команды чата: @all / @tvari (только админ; реагируем на свежие сообщения).
       const cmd = parseMentionCommand(msg.text)
       if (cmd) await handleMentionCommand(db, msg, cmd)
+      // Иначе — если сообщение адресовано Tai (реплай боту / «тай …»), дерзкий ответ.
+      else if (!msg.from?.is_bot && directedAtTai(msg)) await handleTaiChat(db, msg)
     }
     const cm = update['chat_member'] ?? update['my_chat_member']
     if (cm) {

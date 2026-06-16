@@ -538,6 +538,30 @@ systemRouter.get('/booking/qr', requireAuth, requireRole('owner'), async (c) => 
   return c.json({ qrDataUrl: `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`, url })
 })
 
+// ─── Tai в чате: дерзкие ответы бота опросов на сообщения (комедийный роуст) ──────
+// Тумблер (app_settings.tai_chat_enabled). Нужен бот опросов (poll_bot_token) + ИИ-ключ.
+systemRouter.get('/tai-chat-config', requireAuth, requireRole('owner'), async (c) => {
+  const db = c.var.db
+  const [row] = await db.select().from(appSettings).where(eq(appSettings.key, 'tai_chat_enabled')).limit(1)
+  const botToken = await getClubIntegration(db, 'poll_bot_token').catch(() => null)
+  const aiKey = (await getClubIntegration(db, 'ai_api_key').catch(() => null)) ?? process.env['POLZA_API_KEY']
+  return c.json({ enabled: row?.value === 'true', botReady: !!botToken, aiReady: !!aiKey })
+})
+
+systemRouter.put(
+  '/tai-chat-config',
+  requireAuth,
+  requireRole('owner'),
+  zValidator('json', z.object({ enabled: z.boolean() })),
+  async (c) => {
+    const db = c.var.db
+    const { enabled } = c.req.valid('json')
+    await db.insert(appSettings).values({ key: 'tai_chat_enabled', value: String(enabled) })
+      .onConflictDoUpdate({ target: appSettings.key, set: { value: String(enabled) } })
+    return c.json({ ok: true })
+  },
+)
+
 // ─── Регулярные опросы Telegram (бот опросов) ───────────────────────────────────
 // Только owner. Токен бота — отдельная интеграция poll_bot_token (маска как у
 // прочих секретов). Конфиги опросов — JSON в app_settings (poll_configs).
