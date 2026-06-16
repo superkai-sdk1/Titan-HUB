@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, jsonb, boolean, timestamp, pgEnum } from 'drizzle-orm/pg-core'
+import { pgTable, uuid, text, numeric, jsonb, boolean, timestamp, pgEnum } from 'drizzle-orm/pg-core'
 import { profiles } from './profiles.js'
 
 export const tgLinkStatusEnum = pgEnum('tg_link_status', ['pending', 'approved', 'rejected'])
@@ -69,8 +69,27 @@ export const walletLoginCodes = pgTable('wallet_login_codes', {
   expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
 })
 
+// Онлайн-платежи клиента из Titan Resident (СБП через эквайер клуба): погашение
+// долга / пополнение депозита (→ profiles.balance + transaction) или взнос в Фонд
+// клуба (→ collection_contributions method='sbp'). Эффект применяется ТОЛЬКО при
+// подтверждении вебхуком (settleResidentPayment), идемпотентно по status.
+// collectionId — без FK (избегаем цикла импорта схем); валидируется в роутере.
+export const residentPayments = pgTable('resident_payments', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  profileId: uuid('profile_id').notNull().references(() => profiles.id),
+  purpose: text('purpose').notNull(), // 'deposit' | 'debt' | 'fund'
+  amount: numeric('amount', { precision: 12, scale: 2 }).notNull(),
+  provider: text('provider'),
+  transactionId: text('transaction_id'),
+  collectionId: uuid('collection_id'),
+  status: text('status').notNull().default('pending'), // 'pending' | 'confirmed' | 'failed'
+  appliedAt: timestamp('applied_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+})
+
 export type TgLinkRequest = typeof tgLinkRequests.$inferSelect
 export type Notification = typeof notifications.$inferSelect
 export type AppSetting = typeof appSettings.$inferSelect
 export type PushSubscription = typeof pushSubscriptions.$inferSelect
 export type WalletLoginCode = typeof walletLoginCodes.$inferSelect
+export type ResidentPayment = typeof residentPayments.$inferSelect

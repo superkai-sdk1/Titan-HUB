@@ -13,8 +13,10 @@ import { Hono } from 'hono'
 import type { Context } from 'hono'
 import type { AppEnv } from '../../types.js'
 import { publishEvent } from '../../lib/realtime.js'
+import { residentPayments, eq } from '@titan/database'
 import { getProvider, resolveCreds } from './registry.js'
 import { settleCheckPayment } from './settle.js'
+import { settleResidentPayment } from './residentSettle.js'
 
 export const payRouter = new Hono<AppEnv>()
 
@@ -68,21 +70,32 @@ const handleWebhook = async (c: Context<AppEnv>) => {
     return c.json({ error: 'verification pending' }, 503)
   }
 
+  // orderRef (checkId) может ссылаться на ЧЕК или на онлайн-платёж клиента
+  // (resident_payments). Различаем по наличию строки resident_payments — это
+  // НЕ меняет путь чека (доп. индексный SELECT перед settle).
+  const [residentRow] = await db.select({ id: residentPayments.id }).from(residentPayments).where(eq(residentPayments.id, checkId)).limit(1)
+
   let didClose = false
+  let residentApplied = false
   try {
     await db.transaction(async (tx) => {
-      const r = await settleCheckPayment(tx, {
-        checkId,
-        verifiedAmount,
-        transactionId,
-        descriptionPrefix: provider.label,
-      })
-      if (r === 'closed') didClose = true
+      if (residentRow) {
+        const r = await settleResidentPayment(tx, { paymentId: checkId, verifiedAmount, transactionId, descriptionPrefix: provider.label })
+        if (r === 'applied') residentApplied = true
+      } else {
+        const r = await settleCheckPayment(tx, {
+          checkId,
+          verifiedAmount,
+          transactionId,
+          descriptionPrefix: provider.label,
+        })
+        if (r === 'closed') didClose = true
+      }
     })
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : ''
     if (msg === 'AMOUNT_MISMATCH') {
-      console.error(`[pay:${providerId}] amount mismatch for check ${checkId} (tx ${transactionId})`)
+      console.error(`[pay:${providerId}] amount mismatch for ${checkId} (tx ${transactionId})`)
       return c.json({ error: 'amount mismatch' }, 400)
     }
     if (msg === 'CHECK_NOT_FOUND') return c.json({ error: 'check not found' }, 404)
@@ -94,6 +107,7 @@ const handleWebhook = async (c: Context<AppEnv>) => {
     publishEvent(c.var.club?.id, 'check:paid', { checkId })
     publishEvent(c.var.club?.id, 'check:closed', { checkId })
   }
+  if (residentApplied) publishEvent(c.var.club?.id, 'resident:paid', { paymentId: checkId })
   return ack()
 }
 

@@ -1,6 +1,6 @@
 import type { AppEnv } from '../../types.js'
 import { Hono } from 'hono'
-import { requireAuth, requireRole } from '../../middleware/auth.js'
+import { requireAuth } from '../../middleware/auth.js'
 import * as Minio from 'minio'
 
 const BUCKET = 'titan-uploads'
@@ -58,7 +58,9 @@ function getMinioClient() {
 }
 
 export const uploadRouter = new Hono<AppEnv>()
-uploadRouter.use('*', requireAuth, requireRole('owner', 'staff'))
+// Любой авторизованный пользователь (в т.ч. клиент в Titan Resident — загрузка
+// аватара). Жёстко ограничено: только изображения ≤2 МБ, тип сверяется по байтам.
+uploadRouter.use('*', requireAuth)
 
 uploadRouter.post('/image', async (c) => {
   const formData = await c.req.formData()

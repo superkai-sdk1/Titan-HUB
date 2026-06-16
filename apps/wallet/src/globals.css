@@ -5,11 +5,22 @@
   --color-foreground: hsl(213 31% 91%);
 }
 
+/* Фикс-shell: страница (фон) НЕ скролится и не «оттягивается» влево/вправо —
+   скролит только внутренний контейнер контента (.scroll в page.tsx). */
+html, body {
+  height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
 body {
   background-color: var(--color-background);
   color: var(--color-foreground);
   margin: 0;
   padding: 0;
+  position: fixed;          /* фон зафиксирован, без bounce всего документа */
+  inset: 0;
+  width: 100%;
   /* Нативное ощущение PWA: запрещаем выделение текста удержанием и iOS-«callout»
      (меню Копировать/Поиск по долгому тапу), убираем серую вспышку при тапе. */
   -webkit-user-select: none;

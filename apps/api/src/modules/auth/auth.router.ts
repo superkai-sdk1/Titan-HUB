@@ -1,7 +1,10 @@
 import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
-import { profiles, transactions, bonusLots, bonusHistory, checks, checkItems, checkPayments, checkDiscounts, inventory, spaces, walletLoginCodes, eq, ne, and, isNull, inArray, desc, gt, lt, ilike, sql } from '@titan/database'
+import { profiles, transactions, bonusLots, bonusHistory, checks, checkItems, checkPayments, checkDiscounts, inventory, spaces, walletLoginCodes, residentPayments, collections, collectionMembers, eq, ne, and, isNull, inArray, desc, gt, lt, ilike, sql } from '@titan/database'
 import { visitProgress } from '../../lib/loyalty.js'
+import { getActiveSbpProvider, getProvider, resolveCreds, getPaymentTestMode } from '../pay/registry.js'
+import { getClubIntegration } from '../../lib/secrets.js'
+import { round2 } from '../../lib/money.js'
 // @ts-ignore
 import { passkeys } from '@titan/database'
 import { signToken, verifyPin, verifyPassword, hashPassword, hashPin, isPlaintext, verifyTelegramInitData } from '@titan/auth'
@@ -502,6 +505,8 @@ authRouter.patch('/me', requireAuth, zValidator('json', z.object({
   nickname: z.string().trim().min(1).max(40).optional(),
   fullName: z.string().trim().max(120).nullable().optional(),
   phone: z.string().trim().max(40).nullable().optional(),
+  birthday: z.string().trim().max(20).nullable().optional(),   // 'YYYY-MM-DD'
+  photoUrl: z.string().trim().max(500).nullable().optional(),  // URL из /api/upload/image
 })), async (c) => {
   const user = c.get('user')
   const db = c.var.db
@@ -515,6 +520,8 @@ authRouter.patch('/me', requireAuth, zValidator('json', z.object({
   }
   if (body.fullName !== undefined) update.fullName = body.fullName || null
   if (body.phone !== undefined) update.phone = body.phone || null
+  if (body.birthday !== undefined) update.birthday = body.birthday || null
+  if (body.photoUrl !== undefined) update.photoUrl = body.photoUrl || null
   if (Object.keys(update).length === 0) return c.json({ ok: true })
   await db.update(profiles).set(update).where(eq(profiles.id, user.sub))
   const [profile] = await db.select().from(profiles).where(eq(profiles.id, user.sub))
@@ -543,6 +550,7 @@ authRouter.get('/me/bonus-lots', requireAuth, async (c) => {
 authRouter.get('/me/transactions', requireAuth, async (c) => {
   const user = c.get('user')
   const db = c.var.db
+  const limit = Math.min(500, Math.max(1, parseInt(c.req.query('limit') ?? '50', 10) || 50))
   const rows = await db.select({
     id: transactions.id,
     type: transactions.type,
@@ -553,7 +561,7 @@ authRouter.get('/me/transactions', requireAuth, async (c) => {
   }).from(transactions)
     .where(eq(transactions.playerId, user.sub))
     .orderBy(desc(transactions.createdAt))
-    .limit(50)
+    .limit(limit)
   return c.json({ transactions: rows })
 })
 
@@ -562,6 +570,7 @@ authRouter.get('/me/transactions', requireAuth, async (c) => {
 authRouter.get('/me/bonus-history', requireAuth, async (c) => {
   const user = c.get('user')
   const db = c.var.db
+  const limit = Math.min(500, Math.max(1, parseInt(c.req.query('limit') ?? '50', 10) || 50))
   const rows = await db.select({
     id: bonusHistory.id,
     amount: bonusHistory.amount,
@@ -570,13 +579,139 @@ authRouter.get('/me/bonus-history', requireAuth, async (c) => {
   }).from(bonusHistory)
     .where(eq(bonusHistory.profileId, user.sub))
     .orderBy(desc(bonusHistory.createdAt))
-    .limit(50)
+    .limit(limit)
   return c.json({ history: rows })
 })
 
 // Свой прогресс к статусу Резидент (для Wallet).
 authRouter.get('/me/visit-progress', requireAuth, async (c) => {
   return c.json(await visitProgress(c.get('user').sub, c.var.db))
+})
+
+// ── Онлайн-оплата клиента (Titan Resident): долг / депозит / Фонд клуба ──────────
+// Готовность СБП-эквайера клуба + активный Фонд клуба и рекомендуемая сумма взноса.
+authRouter.get('/me/pay-info', requireAuth, async (c) => {
+  const db = c.var.db
+  const user = c.get('user')
+  const activeProvider = await getActiveSbpProvider(db)
+  let sbpReady = false
+  if (activeProvider === 'platega') {
+    const m = (await getClubIntegration(db, 'platega_merchant_id').catch(() => null)) ?? process.env['PLATEGA_MERCHANT_ID']
+    const s = (await getClubIntegration(db, 'platega_secret').catch(() => null)) ?? process.env['PLATEGA_SECRET']
+    sbpReady = !!(m && s)
+  } else {
+    const provider = getProvider(activeProvider)
+    if (provider) {
+      const creds = await resolveCreds(db, provider)
+      sbpReady = provider.credKeys.every((k) => !!creds[k])
+    }
+  }
+  // Активный регулярный сбор = «Фонд клуба». Рекомендуемая сумма: перс. override → дефолт.
+  let fund: { available: boolean; name?: string; suggested?: number } = { available: false }
+  const [coll] = await db.select().from(collections)
+    .where(and(eq(collections.isActive, true), eq(collections.kind, 'recurring')))
+    .orderBy(desc(collections.createdAt)).limit(1)
+  if (coll) {
+    const [m] = await db.select().from(collectionMembers)
+      .where(and(eq(collectionMembers.collectionId, coll.id), eq(collectionMembers.playerId, user.sub))).limit(1)
+    const suggested = m?.amountOverride != null ? (parseFloat(m.amountOverride) || 0) : (parseFloat(coll.defaultAmount) || 0)
+    fund = { available: true, name: coll.name, suggested }
+  }
+  return c.json({ sbpReady, provider: activeProvider, fund })
+})
+
+// Создать онлайн-платёж через СБП-эквайер клуба. Возвращает ССЫЛКУ на оплату
+// (redirect-страница провайдера / СБП-payload), а не QR. Эффект применится при
+// подтверждении вебхуком (settleResidentPayment). purpose: deposit|debt|fund.
+authRouter.post('/me/payments', requireAuth, zValidator('json', z.object({
+  purpose: z.enum(['deposit', 'debt', 'fund']),
+  amount: z.number().positive().max(1_000_000),
+})), async (c) => {
+  const db = c.var.db
+  const user = c.get('user')
+  const { purpose, amount } = c.req.valid('json')
+  const amt = round2(amount)
+  if (amt < 1) return c.json({ error: 'Минимальная сумма — 1 ₽' }, 400)
+
+  // Для взноса в фонд — определяем активный сбор.
+  let collectionId: string | null = null
+  if (purpose === 'fund') {
+    const [coll] = await db.select().from(collections)
+      .where(and(eq(collections.isActive, true), eq(collections.kind, 'recurring')))
+      .orderBy(desc(collections.createdAt)).limit(1)
+    if (!coll) return c.json({ error: 'Фонд клуба сейчас недоступен' }, 400)
+    collectionId = coll.id
+  }
+
+  const activeProvider = await getActiveSbpProvider(db)
+  const [rp] = await db.insert(residentPayments).values({
+    profileId: user.sub, purpose, amount: String(amt), collectionId, provider: activeProvider, status: 'pending',
+  }).returning()
+  if (!rp) return c.json({ error: 'Не удалось создать платёж' }, 500)
+
+  const origin = new URL(c.req.url).origin
+  const label = purpose === 'fund' ? 'Фонд клуба' : purpose === 'debt' ? 'Погашение долга' : 'Пополнение депозита'
+
+  let paymentUrl: string | undefined
+  let transactionId: string | undefined
+  try {
+    if (activeProvider !== 'platega') {
+      const provider = getProvider(activeProvider)
+      if (!provider) return c.json({ error: 'Эквайер недоступен' }, 503)
+      const creds = await resolveCreds(db, provider)
+      if (provider.credKeys.some((k) => !creds[k])) return c.json({ error: 'Оплата сейчас недоступна' }, 503)
+      const result = await provider.createSbpPayment({
+        creds, amount: amt, checkId: rp.id,
+        description: `Titan Resident — ${label}`,
+        notificationUrl: `${origin}/api/pay/${provider.id}/webhook`,
+        returnUrl: origin,
+        test: await getPaymentTestMode(db),
+      })
+      transactionId = result.transactionId
+      paymentUrl = result.redirectUrl ?? result.qrString
+    } else {
+      const merchantId = (await getClubIntegration(db, 'platega_merchant_id').catch(() => null)) ?? process.env['PLATEGA_MERCHANT_ID']
+      const secret = (await getClubIntegration(db, 'platega_secret').catch(() => null)) ?? process.env['PLATEGA_SECRET']
+      if (!merchantId || !secret) return c.json({ error: 'Оплата сейчас недоступна' }, 503)
+      const createRes = await fetch('https://app.platega.io/transaction/process', {
+        method: 'POST',
+        headers: { 'X-MerchantId': merchantId, 'X-Secret': secret, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          paymentMethod: 2,
+          paymentDetails: { amount: amt, currency: 'RUB' },
+          description: `Titan Resident — ${label}`,
+          payload: rp.id, // orderRef = id онлайн-платежа (вебхук Platega ищет по нему)
+        }),
+      })
+      if (!createRes.ok) {
+        console.error('[resident] platega create', createRes.status, (await createRes.text().catch(() => '')).slice(0, 200))
+        throw new Error('platega create failed')
+      }
+      const data = await createRes.json() as Record<string, unknown>
+      transactionId = data['transactionId'] as string | undefined
+      paymentUrl = data['redirect'] as string | undefined
+    }
+  } catch (err) {
+    console.error('[resident] create payment error:', err)
+    await db.update(residentPayments).set({ status: 'failed' }).where(eq(residentPayments.id, rp.id)).catch(() => {})
+    return c.json({ error: 'Не удалось создать платёж' }, 502)
+  }
+
+  if (transactionId) await db.update(residentPayments).set({ transactionId }).where(eq(residentPayments.id, rp.id))
+  if (!paymentUrl) return c.json({ error: 'Эквайер не вернул ссылку на оплату' }, 502)
+  return c.json({ paymentId: rp.id, transactionId, paymentUrl })
+})
+
+// Статус онлайн-платежа (поллинг из приложения): pending | confirmed | failed.
+authRouter.get('/me/payments/:id', requireAuth, async (c) => {
+  const db = c.var.db
+  const user = c.get('user')
+  const id = c.req.param('id')
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) return c.json({ status: 'not_found' })
+  const [rp] = await db.select({ status: residentPayments.status })
+    .from(residentPayments)
+    .where(and(eq(residentPayments.id, id), eq(residentPayments.profileId, user.sub))).limit(1)
+  return c.json({ status: rp?.status ?? 'not_found' })
 })
 
 // Деталь СВОЕГО чека (для Wallet) — позиции, скидки, оплата, дата. Только если

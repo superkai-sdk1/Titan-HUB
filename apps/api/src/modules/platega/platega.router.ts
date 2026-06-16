@@ -4,12 +4,14 @@ import { timingSafeEqual } from 'node:crypto'
 import {
   checks, checkItems, checkItemModifiers, checkDiscounts, spaces,
   checkPayments, transactions, profiles, bonusHistory, appSettings,
+  residentPayments,
   eq, inArray,
 } from '@titan/database'
 import { accrueBonusLot, getBonusExpiryDays } from '../../lib/bonusLots.js'
 import { round2, computeRental, computeTotals } from '../../lib/money.js'
 import { publishEvent } from '../../lib/realtime.js'
 import { getClubIntegration } from '../../lib/secrets.js'
+import { settleResidentPayment } from '../pay/residentSettle.js'
 // Control-БД (продление подписки клуба по платежу платформы) — относительный путь
 // к dist, как в clubResolver/superadmin (закрытый exports-map @titan/database).
 import {
@@ -228,6 +230,27 @@ plategaRouter.post('/webhook', async (c) => {
   }
 
   const db = c.var.db
+
+  // Онлайн-платёж клиента из Titan Resident (payload = resident_payments.id):
+  // погашение долга / депозит / Фонд клуба. Применяется идемпотентно, чек не трогаем.
+  const [residentRow] = await db.select({ id: residentPayments.id }).from(residentPayments).where(eq(residentPayments.id, checkId)).limit(1)
+  if (residentRow) {
+    try {
+      await db.transaction(async (tx) => {
+        await settleResidentPayment(tx, { paymentId: checkId, verifiedAmount, transactionId, descriptionPrefix: 'Platega' })
+      })
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : ''
+      if (msg === 'AMOUNT_MISMATCH') {
+        console.error(`[platega] resident amount mismatch ${checkId} (tx ${transactionId})`)
+        return c.json({ error: 'amount mismatch' }, 400)
+      }
+      console.error('[platega] resident webhook error:', err)
+      return c.json({ error: 'internal error' }, 500)
+    }
+    publishEvent(c.var.club?.id, 'resident:paid', { paymentId: checkId })
+    return c.json({ ok: true })
+  }
   let didClose = false
   try {
     await db.transaction(async (tx) => {
