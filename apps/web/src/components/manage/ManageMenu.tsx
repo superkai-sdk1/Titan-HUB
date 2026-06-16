@@ -62,8 +62,7 @@ const NAV: NavGroup[] = [
       { href: '/manage/loyalty',   label: 'Лояльность', icon: 'loyalty', color: '#F59E0B', bg: 'rgba(245,158,11,0.15)', roles: ['owner','staff'] },
       // Сбор средств (Фонд клуба и разовые сборы) — взносы резидентов, мимо кассы.
       { href: '/manage/collections', label: 'Сбор средств', icon: 'savings', color: '#22C55E', bg: 'rgba(34,197,94,0.15)', roles: ['owner','staff'], perm: 'debtors' },
-      // Онлайн-бронирование зон (заявки с публичного виджета /book).
-      { href: '/manage/bookings', label: 'Бронирования', icon: 'event', color: '#EC4899', bg: 'rgba(236,72,153,0.15)', roles: ['owner','staff'] },
+      // Брони живут в «Мероприятиях» (заявки + Старые брони) — отдельного раздела нет.
     ],
   },
   {

@@ -91,7 +91,7 @@ export default function EventsPage() {
   // (сплит «Управления»). Внутри /manage показываем кнопку: на десктопе —
   // «закрыть раздел» (к пустому /manage), на мобильном — «назад» (к меню).
   const inManageSplit = !!pathname && pathname.startsWith('/manage')
-  const [tab, setTab] = useState<'upcoming' | 'past'>('upcoming')
+  const [tab, setTab] = useState<'upcoming' | 'past' | 'archive'>('upcoming')
   const [showForm, setShowForm] = useState(false)
   const [editId, setEditId] = useState<string | null>(null)
   const [selected, setSelected] = useState<any>(null)
@@ -109,6 +109,13 @@ export default function EventsPage() {
 
   const { data } = useQuery({ queryKey: ['events'], queryFn: () => api.get<any>('/events') })
   const allEvents: any[] = data?.events ?? []
+
+  // Брони: новые заявки (попадают сюда же, в «Мероприятия») и «Старые брони» (брони
+  // пространств штаба с завершённым мероприятием).
+  const { data: pendingData } = useQuery({ queryKey: ['bookings-pending'], queryFn: () => api.get<any>('/bookings?status=new'), refetchInterval: 60_000 })
+  const pendingBookings: any[] = pendingData?.bookings ?? []
+  const { data: archiveData } = useQuery({ queryKey: ['bookings-archive'], queryFn: () => api.get<any>('/bookings/archive') })
+  const archiveBookings: any[] = archiveData?.bookings ?? []
 
   const sortKey = (e: any) => `${e.date ?? ''}T${e.startTime ?? '00:00'}`
   const isPast = (e: any) => e.status === 'completed' || e.status === 'cancelled'
@@ -177,6 +184,23 @@ export default function EventsPage() {
     onError: (err: any) => show(err?.message ?? 'Не удалось изменить статус', 'error'),
   })
   const del = useMutation({ mutationFn: (id: string) => api.delete(`/events/${id}`), onSuccess: () => { qc.invalidateQueries({ queryKey: ['events'] }); setSelected(null) } })
+
+  // Подтверждение заявки → создаётся мероприятие; сразу открываем редактор, чтобы
+  // дозаполнить недостающее (ответственный и т.д.). Отклонение → бронь отменена.
+  const confirmBooking = useMutation({
+    mutationFn: (id: string) => api.patch<{ eventId: string | null }>(`/bookings/${id}`, { status: 'confirmed' }),
+    onSuccess: async (r) => {
+      qc.invalidateQueries({ queryKey: ['bookings-pending'] }); qc.invalidateQueries({ queryKey: ['events'] })
+      show('Бронь подтверждена — создано мероприятие', 'success')
+      try { if (r?.eventId) { const ev = await api.get<any>(`/events/${r.eventId}`); openEdit(ev.event) } } catch { /* */ }
+    },
+    onError: (e: any) => show(e?.message ?? 'Не удалось подтвердить', 'error'),
+  })
+  const rejectBooking = useMutation({
+    mutationFn: (id: string) => api.patch(`/bookings/${id}`, { status: 'cancelled' }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['bookings-pending'] }); show('Бронь отклонена', 'success') },
+    onError: (e: any) => show(e?.message ?? 'Ошибка', 'error'),
+  })
 
   function openCreate() {
     setForm(BLANK); setEditId(null); setFormError(null); setCustResults([]); setCustFocus(false); setShowForm(true)
@@ -318,6 +342,42 @@ export default function EventsPage() {
     </div>
   )
 
+  // Карточка брони — визуально ОТЛИЧАЕТСЯ от мероприятия (цветная рамка + бейдж).
+  // Брони пространств штаба отмечаются отдельно (фиолетовый, кабинка).
+  const fmtBk = (iso: string) => { try { return new Date(iso).toLocaleString('ru-RU', { timeZone: 'Europe/Moscow', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) } catch { return iso } }
+  const renderBookingCard = (b: any, mode: 'pending' | 'archive') => {
+    const isExit = b.location === 'exit'
+    const isSpace = b.location === 'titan' && !!b.space_id
+    const accent = mode === 'archive' ? '#94A3B8' : isExit ? '#F59E0B' : isSpace ? '#8B5CF6' : '#EC4899'
+    const tag = mode === 'archive' ? 'Старая бронь' : 'Заявка'
+    return (
+      <div key={b.id} style={{ borderRadius: 14, padding: 14, background: `${accent}12`, border: `1px solid ${accent}3a`, borderLeft: `3px solid ${accent}` }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+          <span style={{ fontSize: 15, fontWeight: 800 }}>{b.title || b.name}</span>
+          <span style={{ fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em', color: accent, background: `${accent}22`, border: `1px solid ${accent}55`, borderRadius: 6, padding: '2px 7px' }}>{tag}</span>
+        </div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 12px', marginTop: 8, fontSize: 12.5, color: 'var(--on-surface-variant)' }}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name={isSpace ? 'location_on' : isExit ? 'local_shipping' : 'event'} size={13} /> {isExit ? 'Выезд' : 'Штаб'}{isSpace && b.zone_name ? ` · ${b.zone_name}` : ''}</span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="schedule" size={13} /> {fmtBk(b.starts_at)}{b.tariff_hours ? ` · ${b.tariff_hours} ч` : ''}</span>
+          {b.guests != null && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="group" size={13} /> {b.guests}</span>}
+          {isExit && b.address && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="location_on" size={13} /> {b.address}</span>}
+          {b.name && (b.title ? <span>{b.name}</span> : null)}
+          <a href={`tel:${b.phone}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: '#a78bfa', textDecoration: 'none' }}><Icon name="call" size={13} color="#a78bfa" /> {b.phone}</a>
+        </div>
+        {b.comment && <p style={{ fontSize: 13, color: 'var(--on-surface)', margin: '8px 0 0', lineHeight: 1.45 }}>{b.comment}</p>}
+        {mode === 'archive' && b.check_total != null && <p style={{ fontSize: 13, fontWeight: 700, margin: '8px 0 0', color: '#c4b5fd' }}>Итог вечера: {Math.round(Number(b.check_total)).toLocaleString('ru-RU')} ₽</p>}
+        {mode === 'pending' && (
+          <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+            <button disabled={confirmBooking.isPending} onClick={() => confirmBooking.mutate(b.id)}
+              style={{ flex: 1, padding: '10px 0', borderRadius: 11, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 700, background: 'rgba(16,185,129,0.16)', color: '#10B981' }}>Подтвердить</button>
+            <button disabled={confirmBooking.isPending} onClick={() => rejectBooking.mutate(b.id)}
+              style={{ flex: 1, padding: '10px 0', borderRadius: 11, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 700, background: 'rgba(148,163,184,0.16)', color: 'var(--on-surface-variant)' }}>Отклонить</button>
+          </div>
+        )}
+      </div>
+    )
+  }
+
   return (
     <div style={{ height: '100dvh', display: 'flex', flexDirection: 'column', overflow: 'hidden', width: '100%' }}>
       {/* Header — фиксированная (контент скроллится отдельно для свайп-обновления) */}
@@ -351,7 +411,7 @@ export default function EventsPage() {
           <div style={{ padding: '14px 16px var(--bottom-nav-clear)', maxWidth: 'var(--content-narrow)', margin: '0 auto', width: '100%', boxSizing: 'border-box' }}>
             {/* Переключатель (как в Складе): иконка над подписью */}
             <div style={{ display: 'flex', gap: 4, padding: 4, borderRadius: 14, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)', marginBottom: 16 }}>
-              {([['upcoming', 'Предстоящие', 'event', upcoming.length], ['past', 'Прошедшие', 'history', past.length]] as [typeof tab, string, string, number][]).map(([k, l, icon, n]) => {
+              {([['upcoming', 'Предстоящие', 'event', upcoming.length], ['past', 'Прошедшие', 'history', past.length], ['archive', 'Старые', 'folder_open', archiveBookings.length]] as [typeof tab, string, string, number][]).map(([k, l, icon, n]) => {
                 const active = tab === k
                 return (
                   <button key={k} onClick={() => setTab(k)} style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4, padding: '9px 4px', borderRadius: 11, border: 'none', cursor: 'pointer', transition: 'all 0.15s', background: active ? 'var(--primary-violet)' : 'transparent', color: active ? '#fff' : 'var(--on-surface-variant)' }}>
@@ -362,11 +422,29 @@ export default function EventsPage() {
               })}
             </div>
 
-            {/* Предстоящие */}
+            {/* Предстоящие: сверху — новые заявки на бронь, затем мероприятия */}
             {tab === 'upcoming' && (
-              upcoming.length === 0
-                ? emptyState('Предстоящих мероприятий нет')
-                : <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>{upcoming.map(renderEventCard)}</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {pendingBookings.length > 0 && (
+                  <>
+                    <div style={{ fontSize: 12, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#F59E0B', display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <Icon name="schedule" size={14} color="#F59E0B" /> Заявки на бронь · {pendingBookings.length}
+                    </div>
+                    {pendingBookings.map((b) => renderBookingCard(b, 'pending'))}
+                    {upcoming.length > 0 && <div style={{ height: 6 }} />}
+                  </>
+                )}
+                {upcoming.length > 0
+                  ? upcoming.map(renderEventCard)
+                  : pendingBookings.length === 0 && emptyState('Предстоящих мероприятий нет')}
+              </div>
+            )}
+
+            {/* Старые брони — брони пространств с завершённым вечером */}
+            {tab === 'archive' && (
+              archiveBookings.length === 0
+                ? emptyState('Старых броней пока нет')
+                : <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>{archiveBookings.map((b) => renderBookingCard(b, 'archive'))}</div>
             )}
 
             {/* Прошедшие: этот месяц — плоско, прошлые месяцы — папками */}

@@ -531,7 +531,8 @@ systemRouter.put(
 systemRouter.get('/booking/qr', requireAuth, requireRole('owner'), async (c) => {
   const origin = c.req.query('origin') || ''
   if (!/^https?:\/\/[a-zA-Z0-9.\-:]+$/.test(origin)) return c.json({ error: 'bad origin' }, 400)
-  const url = `${origin}/book`
+  const loc = c.req.query('loc')
+  const url = `${origin}/book${loc === 'titan' || loc === 'exit' ? `?loc=${loc}` : ''}`
   const QRCode = await import('qrcode')
   const svg = await QRCode.toString(url, { type: 'svg', width: 240, margin: 1 })
   return c.json({ qrDataUrl: `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`, url })

@@ -61,6 +61,7 @@ bookingsPublicRouter.get('/config', async (c) => {
 
 const CreateSchema = z.object({
   location: z.enum(['titan', 'exit']),
+  title: z.string().max(160).optional(),
   address: z.string().max(300).optional(),
   spaceId: z.string().uuid().optional(),
   tariffHours: z.number().int().min(1).max(24).optional(),
@@ -81,10 +82,10 @@ bookingsPublicRouter.post('/', zValidator('json', CreateSchema), async (c) => {
   const token = randomUUID()
 
   const res = await db.execute(sql`
-    INSERT INTO bookings (space_id, name, phone, guests, starts_at, duration_hours, comment, status, source, location, address, tariff_hours, claim_token)
+    INSERT INTO bookings (space_id, name, phone, guests, starts_at, duration_hours, comment, status, source, location, address, tariff_hours, claim_token, title)
     VALUES (${b.spaceId ?? null}, ${b.name}, ${b.phone}, ${b.guests ?? null}, ${startsAt}::timestamptz,
             ${b.tariffHours ?? null}, ${b.comment ?? null}, 'new', 'widget',
-            ${b.location}, ${b.location === 'exit' ? (b.address ?? null) : null}, ${b.tariffHours ?? null}, ${token})
+            ${b.location}, ${b.location === 'exit' ? (b.address ?? null) : null}, ${b.tariffHours ?? null}, ${token}, ${b.title ?? null})
     RETURNING id
   `)
   const id = rows<{ id: string }>(res)[0]?.id
@@ -93,9 +94,9 @@ bookingsPublicRouter.post('/', zValidator('json', CreateSchema), async (c) => {
     const owners = await db.select({ id: profiles.id }).from(profiles)
       .where(and(eq(profiles.role, 'owner'), isNull(profiles.deletedAt)))
     const where = b.location === 'exit' ? 'выезд' : 'Штаб'
-    const body = `${b.name} · ${where} · ${b.date} ${b.time}${b.guests ? ` · ${b.guests} гост.` : ''}`
+    const body = `${b.title ? b.title + ' · ' : ''}${b.name} · ${where} · ${b.date} ${b.time}${b.guests ? ` · ${b.guests} гост.` : ''}`
     for (const o of owners) {
-      await notify({ type: 'booking', title: '🗓️ Новая бронь', body, meta: { bookingId: id, url: '/manage/bookings' }, userId: o.id }, db, c.var.club?.id)
+      await notify({ type: 'booking', title: '🗓️ Новая бронь', body, meta: { bookingId: id, url: '/events' }, userId: o.id }, db, c.var.club?.id)
     }
   } catch { /* non-fatal */ }
 
@@ -107,7 +108,7 @@ bookingsPublicRouter.get('/:token', async (c) => {
   const db = c.var.db
   const token = c.req.param('token')
   const res = await db.execute(sql`
-    SELECT b.id, b.status, b.location, b.address, s.name AS zone_name, b.tariff_hours, b.guests,
+    SELECT b.id, b.status, b.location, b.address, b.title, s.name AS zone_name, b.tariff_hours, b.guests,
            b.starts_at, b.name, b.phone, b.comment, b.created_at
     FROM bookings b LEFT JOIN spaces s ON s.id = b.space_id
     WHERE b.claim_token = ${token} LIMIT 1
@@ -169,7 +170,7 @@ bookingsRouter.get('/', requireRole('owner', 'staff'), async (c) => {
   const db = c.var.db
   const status = c.req.query('status')
   const res = await db.execute(sql`
-    SELECT b.id, b.space_id, s.name AS zone_name, b.name, b.phone, b.guests,
+    SELECT b.id, b.space_id, s.name AS zone_name, b.name, b.phone, b.guests, b.title,
            b.starts_at, b.duration_hours, b.tariff_hours, b.location, b.address,
            b.comment, b.status, b.source, b.event_id, b.created_at
     FROM bookings b
@@ -177,6 +178,25 @@ bookingsRouter.get('/', requireRole('owner', 'staff'), async (c) => {
     ${status ? sql`WHERE b.status = ${status}` : sql``}
     ORDER BY b.starts_at DESC
     LIMIT 300
+  `)
+  return c.json({ bookings: rows(res) })
+})
+
+// «Старые брони» — брони пространств штаба, чьё мероприятие уже завершено (чек
+// закрыт → событие completed). Для одноимённого раздела в «Мероприятиях».
+bookingsRouter.get('/archive', requireRole('owner', 'staff'), async (c) => {
+  const db = c.var.db
+  const res = await db.execute(sql`
+    SELECT b.id, b.space_id, s.name AS zone_name, b.name, b.phone, b.guests, b.title,
+           b.starts_at, b.tariff_hours, b.location, b.address, b.comment, b.status,
+           b.event_id, e.status AS event_status, ch.total_amount AS check_total
+    FROM bookings b
+    JOIN events e ON e.id = b.event_id
+    LEFT JOIN spaces s ON s.id = b.space_id
+    LEFT JOIN checks ch ON ch.id = e.check_id
+    WHERE b.space_id IS NOT NULL AND b.location = 'titan' AND e.status = 'completed'
+    ORDER BY b.starts_at DESC
+    LIMIT 200
   `)
   return c.json({ bookings: rows(res) })
 })
@@ -201,7 +221,7 @@ bookingsRouter.patch('/:id', requireRole('owner', 'staff'), zValidator('json', P
     const isExit = bk['location'] === 'exit'
     const [ev] = await db.insert(events).values({
       type: isExit ? 'exit' : 'titan',
-      title: `Бронь: ${String(bk['name'])}`,
+      title: (bk['title'] as string | null) || `Бронь: ${String(bk['name'])}`,
       location: isExit ? ((bk['address'] as string | null) ?? null) : 'TITAN',
       spaceId: (bk['space_id'] as string | null) ?? null,
       date,

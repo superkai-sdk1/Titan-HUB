@@ -55,13 +55,15 @@ export default function BookPage() {
   const [mine, setMine] = useState<{ token: string; b: MyBooking }[]>([])
   const [view, setView] = useState<'mine' | 'wizard'>('wizard')
 
+  const [fixedLoc, setFixedLoc] = useState<'titan' | 'exit' | null>(null)
   const [step, setStep] = useState(0)
   const [location, setLocation] = useState<'titan' | 'exit' | ''>('')
+  const [title, setTitle] = useState('')
   const [address, setAddress] = useState('')
   const [cabinId, setCabinId] = useState('')
   const [hours, setHours] = useState<number | null>(null)
-  const [date, setDate] = useState('')
-  const [time, setTime] = useState('')
+  const [dd, setDd] = useState(''); const [mm, setMm] = useState(''); const [yyyy, setYyyy] = useState('')
+  const [hh, setHh] = useState(''); const [mi, setMi] = useState('')
   const [guests, setGuests] = useState('')
   const [name, setName] = useState('')
   const [phone, setPhone] = useState('')
@@ -69,10 +71,17 @@ export default function BookPage() {
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
 
+  // Дата/время собираются из полей ввода (ДД ММ ГГГГ / ЧЧ ММ, 24ч) — не нативный пикер.
+  const date = dd.length === 2 && mm.length === 2 && yyyy.length === 4 ? `${yyyy}-${mm}-${dd}` : ''
+  const time = hh.length === 2 && mi.length === 2 ? `${hh}:${mi}` : ''
+
   useEffect(() => {
     (async () => {
       try {
         const c = await api.get<Config>('/bookings/public/config'); setCfg(c)
+        // Локация из ссылки: 2 отдельные ссылки для клиентов (?loc=titan|exit).
+        const p = new URLSearchParams(window.location.search).get('loc')
+        if (p === 'titan' || p === 'exit') { setFixedLoc(p); setLocation(p); setStep(1) }
         const tokens = loadTokens()
         if (tokens.length) {
           const got = await Promise.all(tokens.map((t) =>
@@ -108,7 +117,7 @@ export default function BookPage() {
     setMine(got.filter(Boolean) as { token: string; b: MyBooking }[])
   }
 
-  const resetWizard = () => { setStep(0); setLocation(''); setAddress(''); setCabinId(''); setHours(null); setDate(''); setTime(''); setGuests(''); setComment(''); setError('') }
+  const resetWizard = () => { setStep(fixedLoc ? 1 : 0); setLocation(fixedLoc ?? ''); setTitle(''); setAddress(''); setCabinId(''); setHours(null); setDd(''); setMm(''); setYyyy(''); setHh(''); setMi(''); setGuests(''); setComment(''); setError('') }
 
   const canNext = (): boolean => {
     if (step === 0) return !!location
@@ -123,7 +132,8 @@ export default function BookPage() {
     setError(''); setSubmitting(true)
     try {
       const r = await api.post<{ token: string }>('/bookings/public', {
-        location, address: location === 'exit' ? address.trim() : undefined,
+        location, title: title.trim() || undefined,
+        address: location === 'exit' ? address.trim() : undefined,
         spaceId: location === 'titan' ? (cabinId || undefined) : undefined,
         tariffHours: hours ?? undefined,
         guests: guests ? Number(guests) : undefined,
@@ -158,23 +168,24 @@ export default function BookPage() {
   )
 
   // ── Мастер ──
-  const totalSteps = 6
+  const firstStep = fixedLoc ? 1 : 0
   return (
     <div style={wrap}><div style={shell}>
-      <Header clubName={cfg.clubName} sub="Бронирование" />
+      <Header clubName={cfg.clubName} sub={fixedLoc === 'exit' ? 'Бронь выезда' : fixedLoc === 'titan' ? 'Бронь в Штабе' : 'Бронирование'} />
 
       {/* Прогресс */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '16px 0 18px' }}>
-        {step > 0 && (
+        {step > firstStep && (
           <button onClick={() => setStep((s) => s - 1)} aria-label="Назад"
             style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--on-surface-variant)', padding: 0, display: 'flex' }}>
             <Icon name="chevron_left" size={22} />
           </button>
         )}
         <div style={{ flex: 1, display: 'flex', gap: 5 }}>
-          {Array.from({ length: totalSteps }).map((_, i) => (
-            <div key={i} style={{ flex: 1, height: 4, borderRadius: 4, background: i <= step ? VIOLET : 'rgba(255,255,255,0.12)', transition: 'background .25s' }} />
-          ))}
+          {Array.from({ length: 6 - firstStep }).map((_, i) => {
+            const s = firstStep + i
+            return <div key={i} style={{ flex: 1, height: 4, borderRadius: 4, background: s <= step ? VIOLET : 'rgba(255,255,255,0.12)', transition: 'background .25s' }} />
+          })}
         </div>
         {mine.length > 0 && (
           <button onClick={() => setView('mine')} aria-label="Мои брони"
@@ -198,13 +209,18 @@ export default function BookPage() {
 
       {/* Шаг 1 — адрес (выезд) или кабинка (Titan) */}
       {step === 1 && location === 'exit' && (
-        <Step title="Адрес проведения" hint="Куда выезжаем?">
-          <input style={inp} value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Город, улица, дом" maxLength={300} autoFocus />
+        <Step title="Локация и название" hint="Куда выезжаем и как назвать мероприятие">
+          <label style={lbl}>Название локации / мероприятия</label>
+          <input style={inp} value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Напр.: День рождения Алексея" maxLength={160} />
+          <label style={lbl}>Адрес проведения</label>
+          <input style={inp} value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Город, улица, дом" maxLength={300} />
           {cfg.venueAddress && <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', marginTop: 10 }}>Наш штаб: {cfg.venueAddress}</p>}
         </Step>
       )}
       {step === 1 && location === 'titan' && (
         <Step title="Кабинка / пространство" hint="Аренда почасовая — итог по факту в конце вечера">
+          <label style={{ ...lbl, marginTop: 0 }}>Название мероприятия</label>
+          <input style={{ ...inp, marginBottom: 14 }} value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Напр.: Игра с друзьями" maxLength={160} />
           {cabins.length === 0 ? (
             <p style={{ color: 'var(--on-surface-variant)', fontSize: 14 }}>Подберём пространство при подтверждении.</p>
           ) : cabins.map((cb) => (
@@ -270,13 +286,23 @@ export default function BookPage() {
 
       {/* Шаг 3 — дата/время */}
       {step === 3 && (
-        <Step title="Когда?" hint={cfg.hoursOpen && cfg.hoursClose ? `Часы работы: ${cfg.hoursOpen}–${cfg.hoursClose}` : undefined}>
+        <Step title="Когда?">
           <label style={lbl}>Дата</label>
-          <input style={inp} type="date" value={date} min={mskToday()} onChange={(e) => setDate(e.target.value)} />
-          <label style={lbl}>Время начала</label>
-          <input style={inp} type="time" value={time} onChange={(e) => setTime(e.target.value)} />
-          <label style={lbl}>Гостей (необязательно)</label>
-          <input style={inp} type="number" min={1} value={guests} onChange={(e) => setGuests(e.target.value)} placeholder="Например, 6" />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <NumBox value={dd} onChange={setDd} max={2} ph="ДД" w={56} hi={31} />
+            <span style={{ color: 'var(--on-surface-variant)' }}>/</span>
+            <NumBox value={mm} onChange={setMm} max={2} ph="ММ" w={56} hi={12} />
+            <span style={{ color: 'var(--on-surface-variant)' }}>/</span>
+            <NumBox value={yyyy} onChange={setYyyy} max={4} ph="ГГГГ" w={84} />
+          </div>
+          <label style={lbl}>Время начала (24ч)</label>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <NumBox value={hh} onChange={setHh} max={2} ph="ЧЧ" w={56} hi={23} />
+            <span style={{ color: 'var(--on-surface-variant)', fontWeight: 800 }}>:</span>
+            <NumBox value={mi} onChange={setMi} max={2} ph="ММ" w={56} hi={59} />
+          </div>
+          <label style={lbl}>{location === 'exit' ? 'На сколько человек состоится мероприятие' : 'Гостей (необязательно)'}</label>
+          <input style={inp} type="number" min={1} inputMode="numeric" value={guests} onChange={(e) => setGuests(e.target.value)} placeholder="Например, 6" />
         </Step>
       )}
 
@@ -297,6 +323,7 @@ export default function BookPage() {
         <Step title="Проверьте заявку" hint="Всё верно?">
           <div style={{ ...glass, padding: 16, display: 'flex', flexDirection: 'column', gap: 2 }}>
             <Sum k="Формат" v={location === 'exit' ? 'Выезд' : 'Штаб Titan'} />
+            {title && <Sum k="Название" v={title} />}
             {location === 'exit' && address && <Sum k="Адрес" v={address} />}
             {location === 'titan' && cabin && <Sum k="Кабинка" v={cabin.name} />}
             {hours != null && <Sum k="Время" v={`${hours} ч`} />}
@@ -376,6 +403,15 @@ function Sum({ k, v }: { k: string; v: string }) {
 }
 function cta(): React.CSSProperties {
   return { width: '100%', padding: '15px 0', borderRadius: 15, border: 'none', cursor: 'pointer', fontSize: 16, fontWeight: 800, background: VIOLET, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }
+}
+// Числовое поле даты/времени (ДД/ММ/ГГГГ, ЧЧ/ММ) — ввод цифрами, не нативный пикер.
+function NumBox({ value, onChange, max, ph, w, hi }: { value: string; onChange: (v: string) => void; max: number; ph: string; w: number; hi?: number }) {
+  const box: React.CSSProperties = { width: w, textAlign: 'center', padding: '13px 4px', borderRadius: 13, border: '1px solid rgba(255,255,255,0.14)', background: 'rgba(255,255,255,0.05)', color: 'var(--on-surface)', fontSize: 18, fontWeight: 700, fontVariantNumeric: 'tabular-nums', outline: 'none', boxSizing: 'border-box' }
+  return (
+    <input style={box} value={value} inputMode="numeric" placeholder={ph} maxLength={max}
+      onChange={(e) => { let v = e.target.value.replace(/\D/g, '').slice(0, max); if (hi != null && v.length === max && Number(v) > hi) v = String(hi).padStart(max, '0'); onChange(v) }}
+      onBlur={(e) => { let v = e.target.value; if (max === 2 && v.length === 1) v = '0' + v; if (v !== value) onChange(v) }} />
+  )
 }
 
 // ── карточка брони в «Мои брони» (статус + правки) ──

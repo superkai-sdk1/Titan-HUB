@@ -23,14 +23,8 @@ export function BookingConfig() {
   const router = useRouter()
   const { show } = useToast()
   const origin = typeof window !== 'undefined' ? window.location.origin : ''
-  const bookUrl = origin ? `${origin}/book` : ''
 
   const { data } = useQuery<{ enabled: boolean }>({ queryKey: ['booking-config'], queryFn: () => api.get('/system/booking-config') })
-  const { data: qr } = useQuery<{ qrDataUrl: string | null; url?: string }>({
-    queryKey: ['booking-qr', origin],
-    queryFn: () => api.get(`/system/booking/qr?origin=${encodeURIComponent(origin)}`),
-    enabled: !!data?.enabled && !!origin,
-  })
 
   const save = useMutation({
     mutationFn: (enabled: boolean) => api.put('/system/booking-config', { enabled }),
@@ -56,29 +50,39 @@ export function BookingConfig() {
       {data.enabled && (
         <>
           <div style={divider} />
-          <span style={{ ...LBL, margin: '8px 0 2px' }}>Ссылка на форму</span>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 12px', borderRadius: 11, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)' }}>
-            <Icon name="link" size={15} color="var(--on-surface-variant)" />
-            <span style={{ flex: 1, fontSize: 13, fontFamily: "'JetBrains Mono',monospace", overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{bookUrl}</span>
-          </div>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginTop: 10 }}>
-            {qr?.qrDataUrl && (
-              <div style={{ background: '#fff', padding: 8, borderRadius: 10, flexShrink: 0 }}>
-                <img src={qr.qrDataUrl} alt="QR" style={{ width: 110, height: 110, display: 'block' }} />
-              </div>
-            )}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              <button style={chipBtn} onClick={() => copy(bookUrl)}><Icon name="link" size={14} /> Скопировать ссылку</button>
-              {qr?.qrDataUrl && <a href={qr.qrDataUrl} download="qr-bronirovanie.svg" style={{ ...chipBtn, textDecoration: 'none' }}><Icon name="qr_code_2" size={14} /> Скачать QR</a>}
-              <button style={chipBtn} onClick={() => router.push('/manage/bookings')}><Icon name="event" size={14} /> Заявки</button>
-            </div>
-          </div>
-          <p style={{ fontSize: 11.5, color: 'var(--on-surface-variant)', margin: '8px 0 0', lineHeight: 1.5 }}>
-            Разместите QR на столах/в соцсетях. Заявки приходят в «Управление → Бронирования» и уведомлением; подтверждение создаёт мероприятие.
+          <p style={{ fontSize: 11.5, color: 'var(--on-surface-variant)', margin: '8px 0 4px', lineHeight: 1.5 }}>
+            Две отдельные ссылки для гостей — отправляйте нужную. Заявки приходят в «Мероприятия» и уведомлением; подтверждение создаёт мероприятие.
           </p>
+          <LinkRow loc="titan" label="Бронь в Штабе" origin={origin} copy={copy} />
+          <LinkRow loc="exit" label="Бронь выезда" origin={origin} copy={copy} />
+          <button style={{ ...chipBtn, alignSelf: 'flex-start', marginTop: 6 }} onClick={() => router.push('/manage/events')}><Icon name="event" size={14} /> Открыть мероприятия</button>
         </>
       )}
+    </div>
+  )
+}
+
+function LinkRow({ loc, label, origin, copy }: { loc: 'titan' | 'exit'; label: string; origin: string; copy: (t: string) => void }) {
+  const url = origin ? `${origin}/book?loc=${loc}` : ''
+  const { data: qr } = useQuery<{ qrDataUrl: string | null }>({
+    queryKey: ['booking-qr', loc, origin],
+    queryFn: () => api.get(`/system/booking/qr?origin=${encodeURIComponent(origin)}&loc=${loc}`),
+    enabled: !!origin,
+  })
+  return (
+    <div style={{ marginTop: 12 }}>
+      <span style={{ ...LBL, margin: '0 0 4px', display: 'block' }}>{label}</span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 12px', borderRadius: 11, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)' }}>
+        <Icon name="link" size={15} color="var(--on-surface-variant)" />
+        <span style={{ flex: 1, fontSize: 12.5, fontFamily: "'JetBrains Mono',monospace", overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{url.replace(/^https?:\/\//, '')}</span>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginTop: 10 }}>
+        {qr?.qrDataUrl && <div style={{ background: '#fff', padding: 7, borderRadius: 10, flexShrink: 0 }}><img src={qr.qrDataUrl} alt="QR" style={{ width: 96, height: 96, display: 'block' }} /></div>}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <button style={chipBtn} onClick={() => copy(url)}><Icon name="link" size={14} /> Скопировать</button>
+          {qr?.qrDataUrl && <a href={qr.qrDataUrl} download={`qr-bron-${loc}.svg`} style={{ ...chipBtn, textDecoration: 'none' }}><Icon name="qr_code_2" size={14} /> Скачать QR</a>}
+        </div>
+      </div>
     </div>
   )
 }
