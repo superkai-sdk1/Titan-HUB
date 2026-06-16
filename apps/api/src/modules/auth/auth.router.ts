@@ -7,6 +7,7 @@ import { passkeys } from '@titan/database'
 import { signToken, verifyPin, verifyPassword, hashPassword, hashPin, isPlaintext, verifyTelegramInitData } from '@titan/auth'
 import { LoginPinSchema, LoginPasswordSchema, LoginTelegramSchema, SetPinSchema } from '@titan/types'
 import { requireAuth, tokenHash } from '../../middleware/auth.js'
+import { getBoolSetting } from '../../lib/appSettings.js'
 import { getSharedRedis } from '../../lib/redis.js'
 import { clientIp } from '../../lib/clientIp.js'
 import { Redis } from 'ioredis'
@@ -489,7 +490,10 @@ authRouter.get('/me', requireAuth, async (c) => {
   const [profile] = await db.select().from(profiles).where(eq(profiles.id, user.sub))
   if (!profile) return c.json({ error: 'Not found' }, 404)
   const { pin, passwordHash, ...safe } = profile
-  return c.json(safe)
+  // Флаг для Titan Resident: владелец может скрыть бонусы у клиентов (тогда вместо
+  // баланса на карточке — «Скоро тут появятся бонусы»). Настройка bonus_wallet_hidden.
+  const bonusDisplayHidden = await getBoolSetting('bonus_wallet_hidden', false, db)
+  return c.json({ ...safe, bonusDisplayHidden })
 })
 
 // PATCH /auth/me — правка СВОИХ данных (ник/имя/телефон). Роль и права через self

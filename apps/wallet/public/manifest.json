@@ -1,6 +1,6 @@
 {
-  "name": "Titan Wallet",
-  "short_name": "Wallet",
+  "name": "Titan Resident",
+  "short_name": "Resident",
   "description": "Ваш баланс и бонусы",
   "start_url": ".",
   "scope": ".",

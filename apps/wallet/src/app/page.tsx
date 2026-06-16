@@ -106,6 +106,7 @@ export default function WalletPage() {
   const [bonusHist, setBonusHist] = useState<BonusRow[]>([])
   const [bonusLots, setBonusLots] = useState<BonusLot[]>([])
   const [vp, setVp] = useState<VisitProgress | null>(null)
+  const [bonusHidden, setBonusHidden] = useState(false) // владелец скрыл бонусы у клиентов
   const [errorMsg, setErrorMsg] = useState<string>('')
   const [token, setToken] = useState<string | null>(null)
   const [openCheck, setOpenCheck] = useState<CheckDetail | null>(null)
@@ -160,6 +161,7 @@ export default function WalletPage() {
         bonusPoints: parseFloat(me.bonusPoints ?? '0') || 0,
         tier: me.clientTier ?? 'guest',
       })
+      setBonusHidden(!!me.bonusDisplayHidden)
 
       const [txRes, bhRes] = await Promise.all([
         fetch(`${API_URL}/api/auth/me/transactions`, { headers: authHeaders }),
@@ -277,13 +279,14 @@ export default function WalletPage() {
         id: 'm' + t.id, date: t.createdAt, emoji: getTransactionEmoji(t.type),
         label: t.description || t.type, sign: isPositive(t.type) ? 1 : -1, amount: Math.abs(t.amount), unit: '₽', checkId: t.checkId,
       }))
-    const bonus: FeedItem[] = bonusHist.map(b => ({
+    // Если бонусы скрыты владельцем — не показываем и бонусные строки в истории.
+    const bonus: FeedItem[] = bonusHidden ? [] : bonusHist.map(b => ({
       id: 'b' + b.id, date: b.createdAt, emoji: b.amount >= 0 ? '⭐' : '🔄',
       label: b.reason || (b.amount >= 0 ? 'Начисление бонусов' : 'Списание бонусов'),
       sign: b.amount >= 0 ? 1 : -1, amount: Math.abs(b.amount), unit: '⭐',
     }))
     return [...money, ...bonus].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-  }, [transactions, bonusHist])
+  }, [transactions, bonusHist, bonusHidden])
 
   const keyframes = (
     <style>{`
@@ -393,15 +396,21 @@ export default function WalletPage() {
               <span style={styles.tierBadge(tierColor)}>{tierLabel}</span>
             </div>
             <div>
-              <p style={styles.cardBonusLabel}>Бонусный баланс</p>
-              <p style={styles.cardBonus}>{bonus.toLocaleString('ru')} <span style={{ fontSize: 24 }}>⭐</span></p>
+              {bonusHidden ? (
+                <p style={styles.cardSoon}>Скоро тут появятся бонусы ⭐</p>
+              ) : (
+                <>
+                  <p style={styles.cardBonusLabel}>Бонусный баланс</p>
+                  <p style={styles.cardBonus}>{bonus.toLocaleString('ru')} <span style={{ fontSize: 24 }}>⭐</span></p>
+                </>
+              )}
               <p style={styles.cardNick}>@{profile?.nickname || 'гость'}</p>
             </div>
           </div>
         </div>
       </div>
 
-      {expiringBonus && (
+      {expiringBonus && !bonusHidden && (
         <p style={styles.bonusExpiry}>🔥 {Math.round(expiringBonus.remaining)} бонусов сгорают {formatExpiryDate(expiringBonus.expiresAt)}</p>
       )}
 
@@ -564,6 +573,7 @@ const styles = {
   tierBadge: (color: string) => ({ display: 'inline-block', padding: '3px 11px', borderRadius: 20, background: 'rgba(0,0,0,0.25)', border: `1px solid ${color}`, color: '#fff', fontSize: 11, fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase' as const }),
   cardBonusLabel: { fontSize: 11, margin: 0, opacity: 0.85, textTransform: 'uppercase' as const, letterSpacing: '1px', textShadow: '0 1px 4px rgba(0,0,0,0.4)' },
   cardBonus: { fontSize: 40, fontWeight: 900, fontStyle: 'italic' as const, margin: '2px 0 0', letterSpacing: '-1px', textShadow: '0 2px 10px rgba(0,0,0,0.4)' },
+  cardSoon: { fontSize: 22, fontWeight: 800, fontStyle: 'italic' as const, margin: 0, lineHeight: 1.25, maxWidth: 240, textShadow: '0 2px 10px rgba(0,0,0,0.4)' } as React.CSSProperties,
   cardNick: { fontSize: 15, fontWeight: 700, margin: '6px 0 0', opacity: 0.95, textShadow: '0 1px 4px rgba(0,0,0,0.4)' },
 
   bonusExpiry: { color: '#fbbf24', fontSize: 12, fontWeight: 600, margin: '0 0 14px', textAlign: 'center' as const },

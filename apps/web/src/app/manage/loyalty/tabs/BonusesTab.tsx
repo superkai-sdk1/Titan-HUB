@@ -18,6 +18,7 @@ export function BonusesTab() {
   const [onDebt, setOnDebt] = useState(false)
   const [birthdayEnabled, setBirthdayEnabled] = useState(false)
   const [birthdayAmount, setBirthdayAmount] = useState('0')
+  const [hideInWallet, setHideInWallet] = useState(false) // скрыть бонусы у клиентов в Titan Resident
   const [saved, setSaved] = useState(false)
 
   const { data } = useQuery<{ settings: Record<string, string> }>({
@@ -40,6 +41,7 @@ export function BonusesTab() {
     if (map.bonus_accrual_on_debt !== undefined) setOnDebt(map.bonus_accrual_on_debt === 'true')
     if (map.birthday_bonus_enabled !== undefined) setBirthdayEnabled(map.birthday_bonus_enabled === 'true')
     if (map.birthday_bonus_amount) setBirthdayAmount(map.birthday_bonus_amount)
+    if (map.bonus_wallet_hidden !== undefined) setHideInWallet(map.bonus_wallet_hidden === 'true')
   }, [data])
 
   const saveMut = useMutation({
@@ -62,6 +64,7 @@ export function BonusesTab() {
       bonus_accrual_on_debt: String(onDebt),
       birthday_bonus_enabled: String(birthdayEnabled),
       birthday_bonus_amount: birthdayAmount,
+      bonus_wallet_hidden: String(hideInWallet),
     })
   }
 
@@ -99,6 +102,27 @@ export function BonusesTab() {
             </div>
           </div>
           <Toggle value={enabled} onChange={setEnabled} color="#EAB308" />
+        </div>
+      </div>
+
+      {/* Показ бонусов в Titan Resident (независимо от начисления) */}
+      <div className="glass-l2" style={{ borderRadius: 18, padding: 20, display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{ width: 32, height: 32, borderRadius: 10, background: hideInWallet ? 'rgba(255,255,255,0.06)' : 'rgba(234,179,8,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Icon name={hideInWallet ? 'visibility_off' : 'visibility'} size={16} color={hideInWallet ? 'var(--on-surface-variant)' : '#EAB308'} />
+            </div>
+            <div>
+              <p style={{ fontSize: 14, fontWeight: 700, margin: '0 0 3px' }}>Отключить показ бонусов</p>
+              <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: 0, lineHeight: 1.5 }}>
+                {hideInWallet
+                  ? 'Бонусы скрыты — у клиентов на карточке «Скоро тут появятся бонусы».'
+                  : 'Клиенты видят свой бонусный баланс в Titan Resident.'}
+              </p>
+            </div>
+          </div>
+          {/* value = «скрыть»: ВКЛ → бонусы скрыты у клиентов */}
+          <Toggle value={hideInWallet} onChange={setHideInWallet} color="#EAB308" />
         </div>
       </div>
 
