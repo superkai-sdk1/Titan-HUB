@@ -789,6 +789,9 @@ export function ConfirmDialog({
   danger?: boolean
   loading?: boolean
 }) {
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => setMounted(true), [])
+
   useEffect(() => {
     if (!open || typeof document === 'undefined') return
     const prev = document.body.style.overflow
@@ -796,7 +799,11 @@ export function ConfirmDialog({
     return () => { document.body.style.overflow = prev }
   }, [open])
 
-  return (
+  // Рендерим через портал в document.body (как Sheet): иначе z-index диалога
+  // «заперт» в стек-контексте страницы и Sheet (портал в body) перекрывает его.
+  if (!mounted) return null
+
+  return createPortal(
     <AnimatePresence>
       {open && (
         <motion.div
@@ -804,7 +811,7 @@ export function ConfirmDialog({
           transition={{ duration: 0.16 }}
           onClick={() => { if (!loading) onClose() }}
           style={{
-            position: 'fixed', inset: 0, zIndex: 120,
+            position: 'fixed', inset: 0, zIndex: 200,
             background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)',
             display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24,
           }}
@@ -848,6 +855,7 @@ export function ConfirmDialog({
           </motion.div>
         </motion.div>
       )}
-    </AnimatePresence>
+    </AnimatePresence>,
+    document.body,
   )
 }
