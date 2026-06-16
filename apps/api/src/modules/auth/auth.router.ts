@@ -643,6 +643,11 @@ authRouter.post('/me/payments', requireAuth, zValidator('json', z.object({
     collectionId = coll.id
   }
 
+  // Эквайринговая надбавка 8% — её платит КЛИЕНТ поверх суммы услуги (как в кассе:
+  // эквайринг, не выручка). Зачисляется БАЗА (amt), а к оплате уходит amt×1.08.
+  // resident_payments.amount = БАЗА (её кредитуем); webhook сверяет «не меньше базы».
+  const charged = round2(amt * 1.08)
+
   const activeProvider = await getActiveSbpProvider(db)
   const [rp] = await db.insert(residentPayments).values({
     profileId: user.sub, purpose, amount: String(amt), collectionId, provider: activeProvider, status: 'pending',
@@ -661,7 +666,7 @@ authRouter.post('/me/payments', requireAuth, zValidator('json', z.object({
       const creds = await resolveCreds(db, provider)
       if (provider.credKeys.some((k) => !creds[k])) return c.json({ error: 'Оплата сейчас недоступна' }, 503)
       const result = await provider.createSbpPayment({
-        creds, amount: amt, checkId: rp.id,
+        creds, amount: charged, checkId: rp.id,
         description: `Titan Resident — ${label}`,
         notificationUrl: `${origin}/api/pay/${provider.id}/webhook`,
         returnUrl: origin,
@@ -678,7 +683,7 @@ authRouter.post('/me/payments', requireAuth, zValidator('json', z.object({
         headers: { 'X-MerchantId': merchantId, 'X-Secret': secret, 'Content-Type': 'application/json' },
         body: JSON.stringify({
           paymentMethod: 2,
-          paymentDetails: { amount: amt, currency: 'RUB' },
+          paymentDetails: { amount: charged, currency: 'RUB' },
           description: `Titan Resident — ${label}`,
           payload: rp.id, // orderRef = id онлайн-платежа (вебхук Platega ищет по нему)
         }),
@@ -699,7 +704,7 @@ authRouter.post('/me/payments', requireAuth, zValidator('json', z.object({
 
   if (transactionId) await db.update(residentPayments).set({ transactionId }).where(eq(residentPayments.id, rp.id))
   if (!paymentUrl) return c.json({ error: 'Эквайер не вернул ссылку на оплату' }, 502)
-  return c.json({ paymentId: rp.id, transactionId, paymentUrl })
+  return c.json({ paymentId: rp.id, transactionId, paymentUrl, base: amt, charged })
 })
 
 // Статус онлайн-платежа (поллинг из приложения): pending | confirmed | failed.

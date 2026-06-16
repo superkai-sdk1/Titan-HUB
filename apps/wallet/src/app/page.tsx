@@ -662,6 +662,16 @@ export default function WalletPage() {
 
                 <label style={styles.fieldLabel}>Сумма, ₽</label>
                 <input type="number" inputMode="decimal" min="1" value={payAmount} onChange={e => setPayAmount(e.target.value)} placeholder="0" style={styles.input} />
+                {(() => {
+                  const base = Math.round((parseFloat(payAmount.replace(',', '.')) || 0) * 100) / 100
+                  if (!(base >= 1)) return null
+                  const charged = Math.round(base * 1.08 * 100) / 100
+                  return (
+                    <p style={{ fontSize: 13, color: '#a78bfa', margin: '10px 2px 0', lineHeight: 1.5 }}>
+                      К оплате с учётом эквайринга 8%: <b style={{ color: '#fff' }}>{formatAmount(charged)} ₽</b>
+                    </p>
+                  )
+                })()}
 
                 <button onClick={startPayment} disabled={paying || !payAmount} style={{ ...styles.primaryBtn, opacity: paying || !payAmount ? 0.6 : 1, marginTop: 16 }}>
                   {paying ? 'Ожидаем оплату…' : 'Оплатить'}
