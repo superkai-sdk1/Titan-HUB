@@ -11,7 +11,7 @@ import { tgWebhookSecretValid } from '../../lib/tgWebhook.js'
 import { upsertRosterUser, listRosterForChat, listRoster } from '../../lib/roster.js'
 import { recordVote, lastPollForChat, voteMapOfPoll } from '../../lib/pollState.js'
 import { getClubIntegration } from '../../lib/secrets.js'
-import { getBoolSetting } from '../../lib/appSettings.js'
+import { getBoolSetting, getStringSetting } from '../../lib/appSettings.js'
 import { recordChat, recordTopic } from '../../lib/tgChats.js'
 import { readAliases } from '../../lib/tgAliases.js'
 import { isTelegramChatAdmin, sendTelegramMessage } from '../../lib/telegram.js'
@@ -50,9 +50,20 @@ const CMD_COOLDOWN_MS = 10 * 60 * 1000
 const CMD_WARN_THROTTLE_MS = 60 * 1000
 const lastCmdRun = new Map<string, number>() // `${chatId}:${userId}` → ts успешного запуска
 const lastCmdWarn = new Map<string, number>() // → ts последнего предупреждения (не спамить отказами)
-// Tai-чат: анти-спам/анти-стоимость — ответ не чаще раза в 12с от пользователя в чате.
+// Tai-чат: анти-спам (1 ответ в 12с/польз.) + короткая память чата для контекста.
 const TAI_COOLDOWN_MS = 12 * 1000
 const lastTaiReply = new Map<string, number>()
+const TAI_BUF_MAX = 8
+const taiBuffer = new Map<string, { name: string; text: string }[]>() // chatId → последние реплики
+
+function pushTaiBuffer(chatId: string | number | null | undefined, name: string, text: string): void {
+  if (!chatId || !text) return
+  const k = String(chatId)
+  const arr = taiBuffer.get(k) ?? []
+  arr.push({ name, text: text.slice(0, 300) })
+  while (arr.length > TAI_BUF_MAX) arr.shift()
+  taiBuffer.set(k, arr)
+}
 
 // Сообщение адресовано Tai: реплай на сообщение бота ИЛИ упоминание «tai/тай» словом.
 function directedAtTai(msg: any): boolean {
@@ -62,12 +73,28 @@ function directedAtTai(msg: any): boolean {
   return /(^|[^a-zа-яё0-9])(tai|тай)([^a-zа-яё0-9]|$)/i.test(text)
 }
 
-// Дерзкий ответ Tai в чат (комедийный роуст). Гейт: тумблер tai_chat_enabled + ИИ-ключ.
+// Пер-групповые настройки Tai (app_settings.tai_chat_settings — JSON по chatId).
+interface TaiChatPrefs { enabled: boolean; profanity: boolean; harshness: 'soft' | 'medium' | 'savage' }
+async function taiPrefsForChat(db: Database, chatId: string | number): Promise<TaiChatPrefs> {
+  const def: TaiChatPrefs = { enabled: true, profanity: true, harshness: 'savage' }
+  try {
+    const raw = await getStringSetting('tai_chat_settings', '', db)
+    if (!raw) return def
+    const map = JSON.parse(raw) as Record<string, Partial<TaiChatPrefs>>
+    const p = map[String(chatId)]
+    if (!p) return def
+    return { enabled: p.enabled !== false, profanity: p.profanity !== false, harshness: (p.harshness as TaiChatPrefs['harshness']) || 'savage' }
+  } catch { return def }
+}
+
+// Дерзкий ответ Tai в чат. Гейт: мастер-тумблер + пер-групповой enabled + ИИ-ключ.
 async function handleTaiChat(db: Database, msg: any): Promise<void> {
   const chatId = msg?.chat?.id
   const text = String(msg?.text ?? '').trim()
   if (!chatId || !text) return
   if (!(await getBoolSetting('tai_chat_enabled', false, db))) return
+  const prefs = await taiPrefsForChat(db, chatId)
+  if (!prefs.enabled) return
   const token = await getClubIntegration(db, 'poll_bot_token').catch(() => null)
   if (!token) return
 
@@ -77,13 +104,18 @@ async function handleTaiChat(db: Database, msg: any): Promise<void> {
   lastTaiReply.set(key, now)
 
   const fromName = msg.from?.first_name || (msg.from?.username ? '@' + msg.from.username : 'кто-то')
-  const replyText = msg.reply_to_message?.text ? String(msg.reply_to_message.text).slice(0, 400) : ''
+  const replyText = msg.reply_to_message?.text ? String(msg.reply_to_message.text).slice(0, 300) : ''
+  // Контекст — недавние сообщения чата (без текущего: оно уже последнее в буфере).
+  const ctxArr = (taiBuffer.get(String(chatId)) ?? []).slice(0, -1).slice(-6)
+  const context = ctxArr.length ? ctxArr.map((m) => `${m.name}: ${m.text}`).join('\n') : undefined
   const userMessage = replyText
     ? `${fromName} отвечает на твою реплику «${replyText}»: ${text}`
-    : `${fromName} пишет тебе: ${text}`
+    : `${fromName} пишет: ${text}`
 
-  const reply = await taiChatReply(db, userMessage)
+  const preset = await getStringSetting('tai_preset', 'roast', db)
+  const reply = await taiChatReply(db, { userMessage, context, preset, harshness: prefs.harshness, profanity: prefs.profanity })
   if (reply) {
+    pushTaiBuffer(chatId, 'Tai', reply)
     await sendTelegramMessage(token, chatId, reply, { messageThreadId: msg.message_thread_id ?? null, replyToMessageId: msg.message_id })
   }
 }
@@ -263,7 +295,11 @@ tgRouter.post('/poll-webhook/:clubId', async (c) => {
       if (msg.message_thread_id != null || msg.is_topic_message) {
         await recordTopic(db, msg.chat?.id, msg.message_thread_id, msg.forum_topic_created?.name ?? msg.reply_to_message?.forum_topic_created?.name ?? null)
       }
-      // Команды чата: @all / @tvari (только админ; реагируем на свежие сообщения).
+      // Короткая память чата для контекста Tai (накапливаем реплики людей).
+      if (msg.text && !msg.from?.is_bot) {
+        pushTaiBuffer(msg.chat?.id, msg.from?.first_name || msg.from?.username || 'гость', msg.text)
+      }
+      // Команды чата: @all / @tvari / @lubimki (только админ; реагируем на свежие сообщения).
       const cmd = parseMentionCommand(msg.text)
       if (cmd) await handleMentionCommand(db, msg, cmd)
       // Иначе — если сообщение адресовано Tai (реплай боту / «тай …»), дерзкий ответ.

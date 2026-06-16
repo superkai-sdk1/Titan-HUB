@@ -36,6 +36,17 @@ export async function getBoolSetting(key: string, fallback = false, database: Db
   }
 }
 
+// Строковая настройка из app_settings (для JSON-конфигов, пресетов и т.п.). При
+// отсутствии/ошибке → дефолт. Никогда не бросает.
+export async function getStringSetting(key: string, fallback: string, database: DbLike): Promise<string> {
+  try {
+    const [row] = await database.select({ value: appSettings.value }).from(appSettings).where(eq(appSettings.key, key))
+    return row?.value != null ? String(row.value) : fallback
+  } catch {
+    return fallback
+  }
+}
+
 // Час начала БИЗНЕС-ДНЯ (граница операционных суток) из app_settings. Целое в
 // [0..23]; всё прочее (отсутствие/мусор/ошибка) → дефолт 9 — байт-в-байт прежнее
 // поведение клуба (бизнес-день 09:00→06:00). Никогда не бросает. Возвращаемое

@@ -18,7 +18,8 @@ import { setTelegramWebhook, deleteTelegramWebhook, getTelegramWebhookInfo, getC
 import { tgWebhookSecret, tgWebhookUrl } from '../../lib/tgWebhook.js'
 import { upsertRosterUser } from '../../lib/roster.js'
 import { listChats, recordChat } from '../../lib/tgChats.js'
-import { getBoolSetting } from '../../lib/appSettings.js'
+import { getBoolSetting, getStringSetting } from '../../lib/appSettings.js'
+import { TAI_PRESETS } from '../../lib/tai.js'
 // Control-БД: резолв clubId на основном домене (c.var.club=null → ищем по db_name).
 import { getControlDb, clubs as ctrlClubs, eq as ceq } from '../../../../../packages/database/dist/control/index.js'
 
@@ -539,25 +540,60 @@ systemRouter.get('/booking/qr', requireAuth, requireRole('owner'), async (c) => 
 })
 
 // ─── Tai в чате: дерзкие ответы бота опросов на сообщения (комедийный роуст) ──────
-// Тумблер (app_settings.tai_chat_enabled). Нужен бот опросов (poll_bot_token) + ИИ-ключ.
+// Мастер-тумблер (tai_chat_enabled) + пресет стиля (tai_preset) + пер-групповые
+// настройки (tai_chat_settings: JSON по chatId → {enabled, profanity, harshness}).
+// Нужен бот опросов (poll_bot_token) + ИИ-ключ (ai_api_key / env POLZA_API_KEY).
+const TAI_HARSHNESS = ['soft', 'medium', 'savage'] as const
+
 systemRouter.get('/tai-chat-config', requireAuth, requireRole('owner'), async (c) => {
   const db = c.var.db
-  const [row] = await db.select().from(appSettings).where(eq(appSettings.key, 'tai_chat_enabled')).limit(1)
+  const enabled = await getBoolSetting('tai_chat_enabled', false, db)
+  const preset = await getStringSetting('tai_preset', 'roast', db)
   const botToken = await getClubIntegration(db, 'poll_bot_token').catch(() => null)
   const aiKey = (await getClubIntegration(db, 'ai_api_key').catch(() => null)) ?? process.env['POLZA_API_KEY']
-  return c.json({ enabled: row?.value === 'true', botReady: !!botToken, aiReady: !!aiKey })
+  // Пер-групповые настройки: список «увиденных» ботом чатов + сохранённые опции.
+  let settings: Record<string, { enabled?: boolean; profanity?: boolean; harshness?: string }> = {}
+  try { settings = JSON.parse(await getStringSetting('tai_chat_settings', '', db) || '{}') } catch { /* мусор → {} */ }
+  const chats = (await listChats(db)).map((ch) => {
+    const s = settings[String(ch.id)] ?? {}
+    return {
+      id: ch.id, title: ch.title, type: ch.type,
+      enabled: s.enabled !== false,
+      profanity: s.profanity !== false,
+      harshness: (TAI_HARSHNESS as readonly string[]).includes(s.harshness ?? '') ? s.harshness : 'savage',
+    }
+  })
+  return c.json({ enabled, preset, presets: TAI_PRESETS, chats, botReady: !!botToken, aiReady: !!aiKey })
 })
 
 systemRouter.put(
   '/tai-chat-config',
   requireAuth,
   requireRole('owner'),
-  zValidator('json', z.object({ enabled: z.boolean() })),
+  zValidator('json', z.object({
+    enabled: z.boolean().optional(),
+    preset: z.enum(['friendly', 'sarcastic', 'roast', 'nerd', 'chaos']).optional(),
+    chats: z.array(z.object({
+      id: z.union([z.string(), z.number()]),
+      enabled: z.boolean(),
+      profanity: z.boolean(),
+      harshness: z.enum(['soft', 'medium', 'savage']),
+    })).optional(),
+  })),
   async (c) => {
     const db = c.var.db
-    const { enabled } = c.req.valid('json')
-    await db.insert(appSettings).values({ key: 'tai_chat_enabled', value: String(enabled) })
-      .onConflictDoUpdate({ target: appSettings.key, set: { value: String(enabled) } })
+    const body = c.req.valid('json')
+    const setKey = async (key: string, value: string) => {
+      await db.insert(appSettings).values({ key, value })
+        .onConflictDoUpdate({ target: appSettings.key, set: { value, updatedAt: new Date() } })
+    }
+    if (body.enabled !== undefined) await setKey('tai_chat_enabled', String(body.enabled))
+    if (body.preset !== undefined) await setKey('tai_preset', body.preset)
+    if (body.chats !== undefined) {
+      const map: Record<string, { enabled: boolean; profanity: boolean; harshness: string }> = {}
+      for (const ch of body.chats) map[String(ch.id)] = { enabled: ch.enabled, profanity: ch.profanity, harshness: ch.harshness }
+      await setKey('tai_chat_settings', JSON.stringify(map))
+    }
     return c.json({ ok: true })
   },
 )
