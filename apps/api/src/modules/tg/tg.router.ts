@@ -1,5 +1,5 @@
 import { Hono } from 'hono'
-import { getClubDb } from '@titan/database'
+import { getClubDb, profiles, inArray } from '@titan/database'
 // Control-БД: относительный путь к dist (как в clubResolver/superadmin).
 import {
   getControlDb,
@@ -13,8 +13,29 @@ import { recordVote, lastPollForChat, voteMapOfPoll } from '../../lib/pollState.
 import { getClubIntegration } from '../../lib/secrets.js'
 import { getBoolSetting } from '../../lib/appSettings.js'
 import { recordChat, recordTopic } from '../../lib/tgChats.js'
+import { readAliases } from '../../lib/tgAliases.js'
 import { isTelegramChatAdmin, sendTelegramMessage } from '../../lib/telegram.js'
 import type { Database } from '@titan/database'
+
+// tgId → ник СОПОСТАВЛЕННОГО клиента (profiles.tg_id напрямую, затем доп.аккаунты
+// из tg_aliases). Для отображаемого текста упоминаний — вместо имени из Telegram.
+async function clientNicknamesByTgId(db: Database, tgIds: string[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>()
+  const ids = [...new Set(tgIds.filter(Boolean))]
+  if (ids.length === 0) return out
+  const direct = await db.select({ tgId: profiles.tgId, nickname: profiles.nickname }).from(profiles).where(inArray(profiles.tgId, ids))
+  for (const p of direct as any[]) if (p.tgId) out.set(p.tgId, p.nickname)
+  // Доп. аккаунты (алиасы) — для tgId, не привязанных напрямую.
+  const aliasMap = await readAliases(db)
+  const pending = ids.filter((t) => !out.has(t) && aliasMap[t])
+  if (pending.length) {
+    const profileIds = [...new Set(pending.map((t) => aliasMap[t]!.profileId))]
+    const aprofs = await db.select({ id: profiles.id, nickname: profiles.nickname }).from(profiles).where(inArray(profiles.id, profileIds))
+    const byId = new Map((aprofs as any[]).map((p) => [p.id, p.nickname]))
+    for (const t of pending) { const nick = byId.get(aliasMap[t]!.profileId); if (nick) out.set(t, nick) }
+  }
+  return out
+}
 
 function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -50,24 +71,28 @@ async function handleMentionCommand(db: Database, msg: any, cmd: 'all' | 'tvari'
   const token = await getClubIntegration(db, 'poll_bot_token').catch(() => null)
   if (!token) return
 
-  // Кулдаун — ОТДЕЛЬНЫЙ на каждую команду (chatId+userId+cmd). Отказы троттлим.
   const key = `${chatId}:${fromId}:${cmd}`
   const now = Date.now()
-  const since = now - (lastCmdRun.get(key) ?? 0)
-  if (since < CMD_COOLDOWN_MS) {
-    if (now - (lastCmdWarn.get(key) ?? 0) > CMD_WARN_THROTTLE_MS) {
-      lastCmdWarn.set(key, now)
-      const mins = Math.ceil((CMD_COOLDOWN_MS - since) / 60000)
-      await sendTelegramMessage(token, chatId, `⏳ Команды-отметки можно раз в 10 минут. Подождите ещё ~${mins} мин.`, { messageThreadId: threadId })
-    }
-    return
-  }
 
   // Кто может: только админ чата (по умолчанию) или любой участник — настройка клуба.
   const adminOnly = await getBoolSetting('poll_commands_admin_only', true, db)
-  if (adminOnly && !(await isTelegramChatAdmin(token, chatId, fromId))) {
+  const isAdmin = await isTelegramChatAdmin(token, chatId, fromId).catch(() => false)
+  if (adminOnly && !isAdmin) {
     await sendTelegramMessage(token, chatId, 'Команда доступна только администраторам чата.', { messageThreadId: threadId })
-    return // отказ кулдаун не тратит
+    return
+  }
+
+  // Кулдаун 10 мин (анти-спам) — ТОЛЬКО для не-админов. Админам — без ограничения.
+  if (!isAdmin) {
+    const since = now - (lastCmdRun.get(key) ?? 0)
+    if (since < CMD_COOLDOWN_MS) {
+      if (now - (lastCmdWarn.get(key) ?? 0) > CMD_WARN_THROTTLE_MS) {
+        lastCmdWarn.set(key, now)
+        const mins = Math.ceil((CMD_COOLDOWN_MS - since) / 60000)
+        await sendTelegramMessage(token, chatId, `⏳ Команды-отметки можно раз в 10 минут. Подождите ещё ~${mins} мин.`, { messageThreadId: threadId })
+      }
+      return
+    }
   }
 
   let targets: MentionTarget[] = []
@@ -115,19 +140,24 @@ async function handleMentionCommand(db: Database, msg: any, cmd: 'all' | 'tvari'
     }
   }
 
-  lastCmdRun.set(key, now) // успешное выполнение тратит кулдаун (в т.ч. пустой результат)
+  if (!isAdmin) lastCmdRun.set(key, now) // кулдаун тратят только не-админы (в т.ч. пустой результат)
 
   if (targets.length === 0) {
     await sendTelegramMessage(token, chatId, emptyMsg, { messageThreadId: threadId })
     return
   }
 
-  // Упоминаем инлайн-ссылкой tg://user?id=… — пингует и тех, у кого нет @username.
+  // Видимый текст упоминания — ник сопоставленного клиента (если есть); ссылка
+  // tg://user?id=… всё равно пингует. Фоллбэк: имя из Telegram → @username → «участник».
+  const nickByTg = await clientNicknamesByTgId(db, targets.map((u) => u.tgId))
   const CHUNK = 50
   for (let i = 0; i < targets.length; i += CHUNK) {
     const part = targets.slice(i, i + CHUNK)
     const mentions = part
-      .map((u) => `<a href="tg://user?id=${u.tgId}">${escapeHtml(u.firstName || (u.username ? '@' + u.username : 'участник'))}</a>`)
+      .map((u) => {
+        const label = nickByTg.get(u.tgId) || u.firstName || (u.username ? '@' + u.username : 'участник')
+        return `<a href="tg://user?id=${u.tgId}">${escapeHtml(label)}</a>`
+      })
       .join(' ')
     const text = i === 0 ? `${header}\n${mentions}` : mentions
     await sendTelegramMessage(token, chatId, text, { messageThreadId: threadId, parseMode: 'HTML' })
