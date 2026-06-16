@@ -90,16 +90,22 @@ bookingsPublicRouter.post('/', zValidator('json', CreateSchema), async (c) => {
   `)
   const id = rows<{ id: string }>(res)[0]?.id
 
-  // Выезд = заказчик мероприятия: сохраняем имя+телефон в справочник «Заказчики»
-  // (дедуп по телефону, как при создании события). Не валит ответ гостю.
-  if (b.location === 'exit' && (b.name || b.phone)) {
+  // Выезд = заказчик мероприятия: сохраняем имя+телефон в справочник «Заказчики».
+  // Дедуп по ЦИФРАМ номера (последние 10) — устойчиво к формату и префиксу 8/+7,
+  // чтобы тот же телефон в другом написании не плодил дубль. Не валит ответ гостю.
+  if (b.location === 'exit' && b.phone) {
     try {
+      const tail = b.phone.replace(/\D/g, '').slice(-10)
       let exists = false
-      if (b.phone) {
-        const found = await db.select({ id: customers.id }).from(customers).where(eq(customers.phone, b.phone)).limit(1)
-        exists = found.length > 0
+      if (tail.length >= 10) {
+        const found = await db.execute(sql`
+          SELECT id FROM customers
+          WHERE right(regexp_replace(coalesce(phone, ''), '[^0-9]', '', 'g'), 10) = ${tail}
+          LIMIT 1
+        `)
+        exists = rows(found).length > 0
       }
-      if (!exists) await db.insert(customers).values({ name: b.name ?? null, phone: b.phone ?? null })
+      if (!exists) await db.insert(customers).values({ name: b.name ?? null, phone: b.phone })
     } catch { /* non-fatal */ }
   }
 
