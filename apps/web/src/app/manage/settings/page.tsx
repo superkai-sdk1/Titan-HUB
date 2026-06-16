@@ -12,6 +12,7 @@ import { IntegrationsTab } from './IntegrationsTab'
 import { PaymentConfig } from './PaymentConfig'
 import { WhatsAppConfig } from './WhatsAppConfig'
 import { ReviewsConfig } from './ReviewsConfig'
+import { BookingConfig } from './BookingConfig'
 
 function SectionCard({ title, icon, color, children }: { title: string; icon: string; color: string; children: React.ReactNode }) {
   return (
@@ -203,6 +204,9 @@ export default function SettingsPage() {
 
                   {/* Отзывы: ссылка-приглашение + QR (Яндекс/2ГИС). Свой API. */}
                   <ReviewsConfig />
+
+                  {/* Онлайн-бронирование: публичная форма /book + QR. Свой API. */}
+                  <BookingConfig />
                 </>
               )}
 

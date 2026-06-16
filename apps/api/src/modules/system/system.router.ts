@@ -505,6 +505,38 @@ systemRouter.get('/reviews/qr', requireAuth, requireRole('owner'), async (c) => 
   return c.json({ qrDataUrl: `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`, url })
 })
 
+// ─── Онлайн-бронирование: вкл/выкл + ссылка/QR на публичную форму /book ───────────
+systemRouter.get('/booking-config', requireAuth, requireRole('owner'), async (c) => {
+  const db = c.var.db
+  const [row] = await db.select().from(appSettings).where(eq(appSettings.key, 'booking_enabled')).limit(1)
+  return c.json({ enabled: row?.value === 'true' })
+})
+
+systemRouter.put(
+  '/booking-config',
+  requireAuth,
+  requireRole('owner'),
+  zValidator('json', z.object({ enabled: z.boolean() })),
+  async (c) => {
+    const db = c.var.db
+    const { enabled } = c.req.valid('json')
+    await db.insert(appSettings).values({ key: 'booking_enabled', value: String(enabled) })
+      .onConflictDoUpdate({ target: appSettings.key, set: { value: String(enabled) } })
+    return c.json({ ok: true })
+  },
+)
+
+// QR на публичную форму брони. origin передаёт фронт (свой window.location.origin),
+// валидируем формат; только owner.
+systemRouter.get('/booking/qr', requireAuth, requireRole('owner'), async (c) => {
+  const origin = c.req.query('origin') || ''
+  if (!/^https?:\/\/[a-zA-Z0-9.\-:]+$/.test(origin)) return c.json({ error: 'bad origin' }, 400)
+  const url = `${origin}/book`
+  const QRCode = await import('qrcode')
+  const svg = await QRCode.toString(url, { type: 'svg', width: 240, margin: 1 })
+  return c.json({ qrDataUrl: `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`, url })
+})
+
 // ─── Регулярные опросы Telegram (бот опросов) ───────────────────────────────────
 // Только owner. Токен бота — отдельная интеграция poll_bot_token (маска как у
 // прочих секретов). Конфиги опросов — JSON в app_settings (poll_configs).

@@ -3,7 +3,7 @@ import { useEffect } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import { useAuthStore } from '@/store/auth.store'
 
-const PUBLIC = ['/login', '/privacy', '/terms']
+const PUBLIC = ['/login', '/privacy', '/terms', '/book']
 
 export function AuthGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter()

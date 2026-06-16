@@ -13,6 +13,7 @@ import { clubRouter } from './modules/club/club.router.js'
 import { internalRouter } from './modules/internal/internal.router.js'
 import { tgRouter } from './modules/tg/tg.router.js'
 import { payRouter } from './modules/pay/pay.router.js'
+import { bookingsPublicRouter, bookingsRouter } from './modules/bookings/bookings.router.js'
 
 import { authRouter } from './modules/auth/auth.router.js'
 import { posRouter } from './modules/pos/pos.router.js'
@@ -138,6 +139,10 @@ app.route('/api/tg', tgRouter)
 // не браузер). Монтируется ДО requireActiveSubscription, как /api/tg.
 app.route('/api/pay', payRouter)
 
+// Публичный приём брони с виджета /book (гость без авторизации). Защита — гейт
+// booking_enabled + глобальный rate-limit + валидация. ДО requireActiveSubscription.
+app.route('/api/bookings/public', bookingsPublicRouter)
+
 // Энфорсмент подписки на клуб-поддомене (грейс→блок). На основном домене (club=null)
 // и для allowlist (/api/club, /api/health, /api/superadmin) — пропуск.
 app.use('/api/*', requireActiveSubscription)
@@ -157,6 +162,7 @@ app.route('/api/shifts', shiftsRouter)
 app.route('/api/menu', menuRouter)
 app.route('/api/clients', clientsRouter)
 app.route('/api/collections', collectionsRouter)
+app.route('/api/bookings', bookingsRouter)
 app.route('/api/events', eventsRouter)
 app.route('/api/customers', customersRouter)
 app.route('/api/spaces', spacesRouter)

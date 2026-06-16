@@ -32,6 +32,7 @@ export function Sidebar() {
   }
 
   if (pathname === '/login') return null
+  if (pathname === '/book') return null
   if (pathname.startsWith('/tablet')) return null
   if (pathname.startsWith('/superadmin')) return null
 
