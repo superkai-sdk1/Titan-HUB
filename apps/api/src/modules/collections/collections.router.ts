@@ -200,21 +200,59 @@ collectionsRouter.get('/:id', requireRole('owner', 'staff'), async (c) => {
   const contribs = await db.select().from(collectionContributions).where(eq(collectionContributions.periodId, period.id))
   const contribByPlayer = new Map(contribs.map((x: any) => [x.playerId, x]))
 
+  // Карри-форвард (предоплата) для ежемесячных сборов: взносы участника копятся в
+  // «пул» и закрывают месяцы по порядку. Переплата → аванс на будущие месяцы;
+  // недобор → сколько доплатить, чтобы закрыть текущий месяц. Считаем пул как сумму
+  // всех взносов участника по периодам ≤ просматриваемого, а долженствование — как
+  // (число таких периодов × сумма взноса).
+  const r2 = (n: number) => Math.round(n * 100) / 100
+  const isRecurring = coll.kind !== 'oneoff'
+  let periodsCount = 1
+  const poolByPlayer = new Map<string, number>()
+  if (isRecurring) {
+    const periodsUpTo = await db.select({ id: collectionPeriods.id }).from(collectionPeriods)
+      .where(and(eq(collectionPeriods.collectionId, id), sql`${collectionPeriods.periodKey} <= ${periodKey}`))
+    periodsCount = Math.max(1, periodsUpTo.length)
+    const pids = periodsUpTo.map((p: any) => p.id)
+    if (pids.length) {
+      const poolRows = await db.select({
+        playerId: collectionContributions.playerId,
+        total: sql<string>`coalesce(sum(${collectionContributions.amount}), 0)`,
+      }).from(collectionContributions)
+        .where(and(eq(collectionContributions.collectionId, id), inArray(collectionContributions.periodId, pids)))
+        .groupBy(collectionContributions.playerId)
+      for (const pr of poolRows as any[]) poolByPlayer.set(pr.playerId, num(pr.total))
+    }
+  }
+
   const now = mskNow()
   const periodAmount = num(period.amount)
   const roster = residents.map((r: any) => {
     const m: any = memberByPlayer.get(r.id)
     const excluded = !!m && (m.excludedForever || (m.excludedUntil && new Date(m.excludedUntil) >= now))
     const override = m && m.amountOverride != null ? num(m.amountOverride) : null
+    const due = override ?? periodAmount
     const con: any = contribByPlayer.get(r.id)
+
+    // По умолчанию (разовый сбор / исключённый) — простая отметка за период.
+    let paid = !!con
+    let topUp = 0, prepaid = 0, prepaidMonths = 0, coveredByPrepay = false
+    if (isRecurring && !excluded) {
+      const pool = poolByPlayer.get(r.id) ?? 0
+      const credit = r2(pool - periodsCount * due) // > 0 — аванс, < 0 — недобор
+      paid = credit >= -0.005
+      if (credit < -0.005) topUp = r2(-credit)
+      else if (credit > 0.005) { prepaid = r2(credit); prepaidMonths = due > 0 ? Math.floor((credit + 0.001) / due) : 0 }
+      coveredByPrepay = paid && !con
+    }
     return {
       playerId: r.id, nickname: r.nickname, fullName: r.fullName, clientTier: r.clientTier,
       photoUrl: r.photoUrl, balance: num(r.balance),
-      expected: override ?? periodAmount,
+      expected: due,
       amountOverride: override,
       excluded, excludedForever: !!m?.excludedForever,
       excludedUntil: m?.excludedUntil ?? null,
-      paid: !!con,
+      paid, topUp, prepaid, prepaidMonths, coveredByPrepay,
       contribution: con ? { id: con.id, amount: num(con.amount), method: con.method, paidAt: con.paidAt, note: con.note } : null,
     }
   })
@@ -222,16 +260,19 @@ collectionsRouter.get('/:id', requireRole('owner', 'staff'), async (c) => {
   const rank = (x: any) => x.excluded ? 2 : x.paid ? 1 : 0
   roster.sort((a: any, b: any) => rank(a) - rank(b) || String(a.nickname).localeCompare(String(b.nickname), 'ru'))
 
-  // Итоги периода.
+  // Итоги периода. collected/byMethod — деньги, собранные В ЭТОМ месяце (взносы
+  // текущего периода). paidCount — сколько участников ЗАКРЫТЫ за месяц (включая
+  // покрытых авансом из прошлых переплат).
   const byMethod: Record<string, { total: number; count: number }> = {}
-  let collected = 0, paidCount = 0
+  let collected = 0
   for (const x of contribs as any[]) {
-    const amt = num(x.amount); collected += amt; paidCount++
+    const amt = num(x.amount); collected += amt
     const k = x.method; byMethod[k] = byMethod[k] ?? { total: 0, count: 0 }
     byMethod[k].total += amt; byMethod[k].count++
   }
   const excludedCount = roster.filter((r: any) => r.excluded).length
   const eligibleCount = roster.length - excludedCount
+  const paidCount = roster.filter((r: any) => r.paid && !r.excluded).length
 
   return c.json({
     collection: { id: coll.id, name: coll.name, description: coll.description, kind: coll.kind, isMandatory: coll.isMandatory, defaultAmount: num(coll.defaultAmount), isActive: coll.isActive },

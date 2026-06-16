@@ -266,16 +266,17 @@ function CollectionDetail({ id, onBack }: { id: string; onBack: () => void }) {
                         </div>
                         <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: '3px 0 0' }}>
                           {r.excluded ? `Исключён${r.excludedForever ? ' (навсегда)' : r.excludedUntil ? ` до ${new Date(r.excludedUntil).toLocaleDateString('ru')}` : ''}`
-                            : r.paid ? <>оплатил {formatMoney(r.contribution.amount)} · <span style={{ color: methodMeta(r.contribution.method).color }}>{methodMeta(r.contribution.method).label}</span></>
+                            : r.coveredByPrepay ? <span style={{ color: '#22C55E' }}>оплачено авансом{r.prepaidMonths > 0 ? ` · ещё ${r.prepaidMonths} мес` : ''}</span>
+                            : r.paid ? <>оплатил {formatMoney(r.contribution?.amount ?? 0)} · <span style={{ color: methodMeta(r.contribution?.method).color }}>{methodMeta(r.contribution?.method).label}</span>{r.prepaid > 0 ? <span style={{ color: '#22C55E' }}> · +{formatMoney(r.prepaid)} аванс{r.prepaidMonths > 0 ? ` (${r.prepaidMonths} мес)` : ''}</span> : null}</>
+                            : r.topUp > 0 ? <span style={{ color: '#F59E0B', fontWeight: 600 }}>доплатить {formatMoney(r.topUp)}{r.topUp < r.expected ? ` из ${formatMoney(r.expected)}` : ''}</span>
                             : `взнос ${formatMoney(r.expected)}`}
                         </p>
                       </div>
                       {/* Действие справа */}
-                      {r.paid
-                        ? <button onClick={() => unmark(r)} style={ghostBtn('#F43F5E')}>Снять</button>
-                        : !r.excluded
-                          ? <button onClick={() => setPayTarget({ ...r, periodId: period.id })} style={ghostBtn('#22C55E')}>Оплатил</button>
-                          : null}
+                      {r.excluded ? null
+                        : r.coveredByPrepay ? <span style={{ fontSize: 11, fontWeight: 800, color: '#22C55E', padding: '0 8px' }}>аванс</span>
+                        : r.paid ? <button onClick={() => unmark(r)} style={ghostBtn('#F43F5E')}>Снять</button>
+                        : <button onClick={() => setPayTarget({ ...r, periodId: period.id })} style={ghostBtn(r.topUp > 0 && r.topUp < r.expected ? '#F59E0B' : '#22C55E')}>{r.topUp > 0 && r.topUp < r.expected ? 'Доплатить' : 'Оплатил'}</button>}
                       <button onClick={() => setMemberTarget(r)} aria-label="Настройки участника" style={{ width: 34, height: 34, borderRadius: 9, border: '1px solid rgba(255,255,255,0.08)', background: 'rgba(255,255,255,0.03)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, color: 'var(--on-surface-variant)' }}><Icon name="tune" size={16} /></button>
                     </div>
                   ))}
@@ -338,7 +339,8 @@ function PeriodAmount({ id, period, onSaved }: { id: string; period: any; onSave
 /* ─── Шторка отметки оплаты ───────────────────────────────────────────────── */
 function PaySheet({ collectionId, target, onClose, onPaid }: { collectionId: string; target: any; onClose: () => void; onPaid: () => void }) {
   const { show } = useToast()
-  const [amount, setAmount] = useState(String(target.expected ?? ''))
+  // По умолчанию — сумма, чтобы закрыть текущий месяц (доплата); иначе обычный взнос.
+  const [amount, setAmount] = useState(String(target.topUp && target.topUp > 0 ? target.topUp : (target.expected ?? '')))
   const [method, setMethod] = useState<Method>('cash')
   const amt = parseFloat(amount) || 0
   const insufficientDeposit = method === 'deposit' && target.balance < amt
