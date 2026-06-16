@@ -14,7 +14,7 @@ import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import { randomUUID } from 'node:crypto'
-import { sql, events, spaces, appSettings, eventHourlyRates, profiles, eq, and, isNull, inArray, asc } from '@titan/database'
+import { sql, events, spaces, appSettings, eventHourlyRates, profiles, customers, eq, and, isNull, inArray, asc } from '@titan/database'
 import type { AppEnv } from '../../types.js'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
 import { notify } from '../notifications/push.js'
@@ -89,6 +89,19 @@ bookingsPublicRouter.post('/', zValidator('json', CreateSchema), async (c) => {
     RETURNING id
   `)
   const id = rows<{ id: string }>(res)[0]?.id
+
+  // Выезд = заказчик мероприятия: сохраняем имя+телефон в справочник «Заказчики»
+  // (дедуп по телефону, как при создании события). Не валит ответ гостю.
+  if (b.location === 'exit' && (b.name || b.phone)) {
+    try {
+      let exists = false
+      if (b.phone) {
+        const found = await db.select({ id: customers.id }).from(customers).where(eq(customers.phone, b.phone)).limit(1)
+        exists = found.length > 0
+      }
+      if (!exists) await db.insert(customers).values({ name: b.name ?? null, phone: b.phone ?? null })
+    } catch { /* non-fatal */ }
+  }
 
   try {
     const owners = await db.select({ id: profiles.id }).from(profiles)
