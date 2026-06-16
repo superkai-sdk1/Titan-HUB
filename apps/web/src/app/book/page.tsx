@@ -15,7 +15,7 @@ interface Cabin { id: string; name: string; capacity: number | null; hourlyRate:
 interface Tariff { hours: number; price: string }
 interface Config { enabled: boolean; clubName?: string; venueAddress?: string; hoursOpen?: string; hoursClose?: string; cabins?: Cabin[]; tariffs?: Tariff[] }
 interface MyBooking {
-  id: string; status: string; location: string | null; address: string | null; zone_name: string | null
+  id: string; status: string; event_status: string | null; location: string | null; address: string | null; zone_name: string | null
   tariff_hours: number | null; guests: number | null; starts_at: string; name: string; phone: string; comment: string | null
 }
 
@@ -24,9 +24,23 @@ const VIOLET = '#8B5CF6'
 
 const STATUS_META: Record<string, { label: string; color: string; icon: string }> = {
   new: { label: 'Ожидает подтверждения', color: '#F59E0B', icon: 'schedule' },
+  clarify: { label: 'Требует уточнения', color: '#FB923C', icon: 'info' },
   confirmed: { label: 'Подтверждена', color: '#10B981', icon: 'check_circle' },
   cancelled: { label: 'Отменена', color: '#94A3B8', icon: 'close' },
   done: { label: 'Завершена', color: '#8B5CF6', icon: 'check_circle' },
+}
+
+// Актуальный статус для клиента: пока бронь не подтверждена — её статус; после
+// подтверждения отражаем состояние связанного мероприятия (уточнение/отмена/завершение).
+function effStatus(b: MyBooking): string {
+  if (b.status === 'new') return 'new'
+  if (b.status === 'cancelled') return 'cancelled'
+  const es = b.event_status
+  if (es === 'cancelled') return 'cancelled'
+  if (es === 'completed') return 'done'
+  if (es === 'needs_clarification') return 'clarify'
+  if (es === 'active' || es === 'planned') return 'confirmed'
+  return b.status === 'done' ? 'done' : 'confirmed'
 }
 
 const money = (v: string | number) => `${Math.round(Number(v)).toLocaleString('ru-RU')} ₽`
@@ -416,7 +430,7 @@ function NumBox({ value, onChange, max, ph, w, hi }: { value: string; onChange: 
 
 // ── карточка брони в «Мои брони» (статус + правки) ──
 function MineCard({ token, b, cfg, onChanged }: { token: string; b: MyBooking; cfg: Config; onChanged: () => void }) {
-  const st = STATUS_META[b.status] ?? { label: b.status, color: '#94A3B8', icon: 'info' }
+  const st = STATUS_META[effStatus(b)] ?? { label: b.status, color: '#94A3B8', icon: 'info' }
   const [edit, setEdit] = useState(false)
   const [busy, setBusy] = useState(false)
   const cur = (() => { try { const d = new Date(new Date(b.starts_at).getTime() + 3 * 3600 * 1000); return { date: d.toISOString().slice(0, 10), time: d.toISOString().slice(11, 16) } } catch { return { date: '', time: '' } } })()

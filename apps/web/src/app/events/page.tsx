@@ -184,6 +184,12 @@ export default function EventsPage() {
     onError: (err: any) => show(err?.message ?? 'Не удалось изменить статус', 'error'),
   })
   const del = useMutation({ mutationFn: (id: string) => api.delete(`/events/${id}`), onSuccess: () => { qc.invalidateQueries({ queryKey: ['events'] }); setSelected(null) } })
+  // Жёсткое удаление навсегда (для уже отменённых): убирает событие и связанную бронь.
+  const purge = useMutation({
+    mutationFn: (id: string) => api.delete(`/events/${id}?purge=true`),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['events'] }); qc.invalidateQueries({ queryKey: ['bookings-archive'] }); qc.invalidateQueries({ queryKey: ['bookings-pending'] }); setSelected(null); show('Удалено навсегда', 'success') },
+    onError: (e: any) => show(e?.message ?? 'Не удалось удалить', 'error'),
+  })
 
   // Подтверждение заявки → создаётся мероприятие; сразу открываем редактор, чтобы
   // дозаполнить недостающее (ответственный и т.д.). Отклонение → бронь отменена.
@@ -723,10 +729,17 @@ export default function EventsPage() {
                   })}
                 </div>
               </div>
-              <button onClick={() => del.mutate(selected.id)}
-                style={{ width: '100%', padding: '13px 0', borderRadius: 14, border: '1px solid rgba(244,63,94,0.3)', background: 'rgba(244,63,94,0.08)', color: '#F87171', fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-                <Icon name="delete" size={16} />Удалить мероприятие
-              </button>
+              {selected.status === 'cancelled' ? (
+                <button onClick={() => { if (typeof window !== 'undefined' && window.confirm('Удалить навсегда? Бронь и мероприятие будут стёрты безвозвратно.')) purge.mutate(selected.id) }}
+                  style={{ width: '100%', padding: '13px 0', borderRadius: 14, border: '1px solid rgba(244,63,94,0.45)', background: 'rgba(244,63,94,0.16)', color: '#F87171', fontSize: 13, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                  <Icon name="delete" size={16} />Удалить навсегда
+                </button>
+              ) : (
+                <button onClick={() => del.mutate(selected.id)}
+                  style={{ width: '100%', padding: '13px 0', borderRadius: 14, border: '1px solid rgba(244,63,94,0.3)', background: 'rgba(244,63,94,0.08)', color: '#F87171', fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                  <Icon name="close" size={16} />Отменить мероприятие
+                </button>
+              )}
             </div>
           )
         })()}

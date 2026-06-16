@@ -410,7 +410,16 @@ eventsRouter.patch('/:id', requireRole('owner', 'staff'), zValidator('json', Eve
 
 eventsRouter.delete('/:id', requireRole('owner'), async (c) => {
   const db = c.var.db
-  await db.update(events).set({ status: 'cancelled' }).where(eq(events.id, c.req.param('id')))
+  const id = c.req.param('id')
+  // ?purge=true — ЖЁСТКОЕ удаление навсегда (участники + связанная бронь + событие).
+  // Без флага — мягкая отмена (status=cancelled, событие остаётся в истории).
+  if (c.req.query('purge') === 'true') {
+    await db.delete(eventParticipants).where(eq(eventParticipants.eventId, id))
+    await db.execute(sql`DELETE FROM bookings WHERE event_id = ${id}`)
+    await db.delete(events).where(eq(events.id, id))
+    return c.json({ ok: true, purged: true })
+  }
+  await db.update(events).set({ status: 'cancelled' }).where(eq(events.id, id))
   return c.json({ ok: true })
 })
 

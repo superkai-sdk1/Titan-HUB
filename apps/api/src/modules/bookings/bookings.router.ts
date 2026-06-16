@@ -109,8 +109,10 @@ bookingsPublicRouter.get('/:token', async (c) => {
   const token = c.req.param('token')
   const res = await db.execute(sql`
     SELECT b.id, b.status, b.location, b.address, b.title, s.name AS zone_name, b.tariff_hours, b.guests,
-           b.starts_at, b.name, b.phone, b.comment, b.created_at
-    FROM bookings b LEFT JOIN spaces s ON s.id = b.space_id
+           b.starts_at, b.name, b.phone, b.comment, b.created_at, e.status AS event_status
+    FROM bookings b
+    LEFT JOIN spaces s ON s.id = b.space_id
+    LEFT JOIN events e ON e.id = b.event_id
     WHERE b.claim_token = ${token} LIMIT 1
   `)
   const bk = rows(res)[0]
