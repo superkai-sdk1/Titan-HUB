@@ -1766,7 +1766,8 @@ posRouter.post('/checks/:id/pay', requireRole('owner', 'staff'), zValidator('jso
       if ((closed.debtAmount ?? 0) > 0) {
         void notifyClient(pid, `⚠️ Оплата в долг: ${Number(closed.debtAmount).toLocaleString('ru')} ₽`, db)
       }
-      // Авто-повышение Гость→Резидент после 10 посещений (бизнес-дней с чеком).
+      // Авто-повышение Новичок→Резидент после 10 посещений (бизнес-дней с чеком);
+      // maybePromoteToResident повышает ТОЛЬКО статус newbie, остальные не трогает.
       void maybePromoteToResident(pid, db).then(r => {
         if (r.promoted) void notifyClient(pid, '🎉 Поздравляем! Вы стали Резидентом Titan — спасибо, что с нами!', db)
       }).catch(() => {})

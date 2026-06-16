@@ -847,13 +847,9 @@ export default function ClientsPage() {
 
               {tab === 'tx' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  {vpData && (vpData.isResident ? (
-                    <div style={{ padding: '12px 14px', borderRadius: 12, background: 'rgba(139,92,246,0.1)', border: '1px solid rgba(139,92,246,0.25)', display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
-                      <Icon name="workspace_premium" size={18} color="#a78bfa" />
-                      <span style={{ flex: 1, fontSize: 13, fontWeight: 600 }}>Статус «Резидент» · {vpData.visits} посещений</span>
-                      {selected && <VisitButtons disabled={adjVisits.isPending} onAdj={(d) => adjVisits.mutate({ id: selected.id, delta: d })} />}
-                    </div>
-                  ) : vpData.tier === 'newbie' ? (
+                  {/* Счётчик посещений и ручное начисление — ТОЛЬКО для новичков
+                      (после 10 посещений → Резидент). У прочих статусов не показываем. */}
+                  {vpData && vpData.tier === 'newbie' && selected && (
                     <div style={{ padding: 14, borderRadius: 12, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', marginBottom: 4 }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
                         <span style={{ fontSize: 13, fontWeight: 600 }}>Новичок → Резидент</span>
@@ -866,15 +862,10 @@ export default function ClientsPage() {
                         <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: 0, flex: 1 }}>
                           {vpData.remaining > 0 ? `Осталось ${vpData.remaining} ${pluralVisits(vpData.remaining)} до статуса «Резидент»` : 'Порог достигнут — статус повысится сейчас'}
                         </p>
-                        {selected && <VisitButtons disabled={adjVisits.isPending} onAdj={(d) => adjVisits.mutate({ id: selected.id, delta: d })} />}
+                        <VisitButtons disabled={adjVisits.isPending} onAdj={(d) => adjVisits.mutate({ id: selected.id, delta: d })} />
                       </div>
                     </div>
-                  ) : selected ? (
-                    <div style={{ padding: '10px 14px', borderRadius: 12, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
-                      <span style={{ flex: 1, fontSize: 13, color: 'var(--on-surface-variant)' }}>Посещений: {vpData.visits}</span>
-                      <VisitButtons disabled={adjVisits.isPending} onAdj={(d) => adjVisits.mutate({ id: selected.id, delta: d })} />
-                    </div>
-                  ) : null)}
+                  )}
                   {(() => {
                     // Скрываем дубли «Долг/Оплата депозитом за чек» (withdrawal с checkId) —
                     // их представляет строка «Оплата чека». Строки с чеком — кликабельные.

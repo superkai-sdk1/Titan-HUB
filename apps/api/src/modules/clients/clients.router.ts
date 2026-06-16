@@ -580,8 +580,10 @@ clientsRouter.post('/:id/visits', requireRole('owner', 'staff'), zValidator('jso
   const user = c.get('user')
   const id = c.req.param('id')
   const { delta } = c.req.valid('json')
-  const [p] = await db.select({ id: profiles.id }).from(profiles).where(and(eq(profiles.id, id), isNull(profiles.deletedAt)))
+  const [p] = await db.select({ id: profiles.id, tier: profiles.clientTier }).from(profiles).where(and(eq(profiles.id, id), isNull(profiles.deletedAt)))
   if (!p) return c.json({ error: 'Not found' }, 404)
+  // Посещения к Резиденту учитываются только у новичков — у прочих статусов начисление не нужно.
+  if (p.tier !== 'newbie') return c.json({ error: 'Посещения учитываются только у клиентов со статусом «Новичок»' }, 400)
   await db.update(profiles).set({ manualVisits: sql`${profiles.manualVisits} + ${delta}` }).where(eq(profiles.id, id))
   await db.insert(transactions).values({
     type: 'visit_adjust',
