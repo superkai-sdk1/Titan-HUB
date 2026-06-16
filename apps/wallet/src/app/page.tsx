@@ -16,6 +16,9 @@ declare global {
 import { useState, useEffect, useRef, useMemo } from 'react'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'https://titanpos.ru'
+// Токен входа из браузера/PWA храним локально — чтобы не вводить код при каждом
+// открытии (Telegram Mini App авторизуется заново сам, поэтому там не нужен).
+const STORAGE_KEY = 'titan_wallet_token'
 
 interface UserProfile {
   id: string
@@ -39,7 +42,7 @@ interface VisitProgress { tier: string; visits: number; threshold: number; remai
 interface FeedItem { id: string; date: string; emoji: string; label: string; sign: 1 | -1; amount: number; unit: '₽' | '⭐'; checkId?: string | null }
 interface CheckDetail { check: { id: string; totalAmount: number; tipAmount?: number; createdAt: string; closedAt: string | null }; items: { name: string; quantity: number; priceAtTime: number; lineTotal: number }[]; payments: { method: string; amount: number }[]; discounts: { name: string | null; amount: number }[] }
 
-type AppState = 'loading' | 'error' | 'main'
+type AppState = 'loading' | 'error' | 'main' | 'code'
 
 const TIER_COLORS: Record<string, string> = {
   guest: '#94A3B8', resident: '#8B5CF6', student: '#F59E0B',
@@ -107,6 +110,13 @@ export default function WalletPage() {
   const [token, setToken] = useState<string | null>(null)
   const [openCheck, setOpenCheck] = useState<CheckDetail | null>(null)
   const [checkLoading, setCheckLoading] = useState(false)
+  // Вход из браузера/PWA по 4-значному коду.
+  const [loginCode, setLoginCode] = useState<string>('')
+  const [botUsername, setBotUsername] = useState<string | null>(null)
+  const [codeCopied, setCodeCopied] = useState(false)
+  const ticketRef = useRef<string | null>(null)
+  const codeExpiresRef = useRef<number>(0)
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   async function openCheckDetail(checkId: string) {
     if (!token) return
@@ -132,65 +142,129 @@ export default function WalletPage() {
   function onEnd() { setTilt(t => ({ ...t, rx: 0, ry: 0, gx: 50, gy: 50, active: false })) }
 
   useEffect(() => {
-    const tg = window.Telegram?.WebApp
-    if (!tg) { setErrorMsg('Откройте через Telegram'); setAppState('error'); return }
-    tg.ready(); tg.expand()
-    const initData = tg.initData
-    if (!initData) { setErrorMsg('Нет данных авторизации Telegram'); setAppState('error'); return }
+    let cancelled = false
+    const persist = (t: string) => { try { localStorage.setItem(STORAGE_KEY, t) } catch { /* приватный режим */ } }
+    const forget = () => { try { localStorage.removeItem(STORAGE_KEY) } catch { /* noop */ } }
 
-    ;(async () => {
-      try {
-        const authRes = await fetch(`${API_URL}/api/auth/login/telegram`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ initData }),
-        })
-        if (!authRes.ok) throw new Error(`Auth failed: ${authRes.status}`)
-        const authData = await authRes.json() as { token: string }
-        const authToken = authData.token
-        setToken(authToken)
-        const authHeaders = { Authorization: `Bearer ${authToken}` }
+    // Загрузка данных кошелька по токену. true — успех, false — токен невалиден.
+    async function loadWallet(authToken: string): Promise<boolean> {
+      const authHeaders = { Authorization: `Bearer ${authToken}` }
+      const meRes = await fetch(`${API_URL}/api/auth/me`, { headers: authHeaders })
+      if (!meRes.ok) return false
+      const me = await meRes.json() as Record<string, any>
+      if (cancelled) return true
+      setToken(authToken)
+      setProfile({
+        id: me.id, nickname: (me.nickname ?? '').trim(),
+        balance: parseFloat(me.balance ?? '0') || 0,
+        bonusPoints: parseFloat(me.bonusPoints ?? '0') || 0,
+        tier: me.clientTier ?? 'guest',
+      })
 
-        const meRes = await fetch(`${API_URL}/api/auth/me`, { headers: authHeaders })
-        if (!meRes.ok) throw new Error(`Profile fetch failed: ${meRes.status}`)
-        const me = await meRes.json() as Record<string, any>
-        setProfile({
-          id: me.id, nickname: (me.nickname ?? '').trim(),
-          balance: parseFloat(me.balance ?? '0') || 0,
-          bonusPoints: parseFloat(me.bonusPoints ?? '0') || 0,
-          tier: me.clientTier ?? 'guest',
-        })
-
-        const [txRes, bhRes] = await Promise.all([
-          fetch(`${API_URL}/api/auth/me/transactions`, { headers: authHeaders }),
-          fetch(`${API_URL}/api/auth/me/bonus-history`, { headers: authHeaders }).catch(() => null),
-        ])
-        const txData = txRes.ok ? (await txRes.json()) as { transactions: any[] } : { transactions: [] }
-        setTransactions((txData.transactions ?? []).map((t) => ({
-          id: t.id, type: t.type, description: t.description ?? t.type, amount: Number(t.amount) || 0, createdAt: t.createdAt, checkId: t.checkId ?? null,
-        })))
-        if (bhRes && bhRes.ok) {
-          const bh = (await bhRes.json()) as { history?: any[] }
-          setBonusHist((bh.history ?? []).map((b) => ({ id: b.id, amount: Number(b.amount) || 0, reason: b.reason ?? null, createdAt: b.createdAt })))
-        }
-
-        try {
-          const lotsRes = await fetch(`${API_URL}/api/auth/me/bonus-lots`, { headers: authHeaders })
-          if (lotsRes.ok) {
-            const lotsData = (await lotsRes.json()) as { lots?: any[] }
-            setBonusLots((lotsData.lots ?? []).map((l) => ({ amount: Number(l.amount) || 0, remaining: Number(l.remaining) || 0, expiresAt: l.expiresAt ?? null })))
-          }
-        } catch { /* подсказка о сгорании необязательна */ }
-
-        try {
-          const vpRes = await fetch(`${API_URL}/api/auth/me/visit-progress`, { headers: authHeaders })
-          if (vpRes.ok) setVp(await vpRes.json() as VisitProgress)
-        } catch { /* прогресс статуса необязателен */ }
-
-        setAppState('main')
-      } catch (err) {
-        setErrorMsg(err instanceof Error ? err.message : 'Ошибка авторизации')
-        setAppState('error')
+      const [txRes, bhRes] = await Promise.all([
+        fetch(`${API_URL}/api/auth/me/transactions`, { headers: authHeaders }),
+        fetch(`${API_URL}/api/auth/me/bonus-history`, { headers: authHeaders }).catch(() => null),
+      ])
+      const txData = txRes.ok ? (await txRes.json()) as { transactions: any[] } : { transactions: [] }
+      if (cancelled) return true
+      setTransactions((txData.transactions ?? []).map((t) => ({
+        id: t.id, type: t.type, description: t.description ?? t.type, amount: Number(t.amount) || 0, createdAt: t.createdAt, checkId: t.checkId ?? null,
+      })))
+      if (bhRes && bhRes.ok) {
+        const bh = (await bhRes.json()) as { history?: any[] }
+        setBonusHist((bh.history ?? []).map((b) => ({ id: b.id, amount: Number(b.amount) || 0, reason: b.reason ?? null, createdAt: b.createdAt })))
       }
-    })()
+
+      try {
+        const lotsRes = await fetch(`${API_URL}/api/auth/me/bonus-lots`, { headers: authHeaders })
+        if (lotsRes.ok) {
+          const lotsData = (await lotsRes.json()) as { lots?: any[] }
+          setBonusLots((lotsData.lots ?? []).map((l) => ({ amount: Number(l.amount) || 0, remaining: Number(l.remaining) || 0, expiresAt: l.expiresAt ?? null })))
+        }
+      } catch { /* подсказка о сгорании необязательна */ }
+
+      try {
+        const vpRes = await fetch(`${API_URL}/api/auth/me/visit-progress`, { headers: authHeaders })
+        if (vpRes.ok && !cancelled) setVp(await vpRes.json() as VisitProgress)
+      } catch { /* прогресс статуса необязателен */ }
+
+      if (!cancelled) setAppState('main')
+      return true
+    }
+
+    const stopPolling = () => { if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null } }
+
+    // Запрос нового кода входа (показывается на экране, отправляется боту).
+    async function requestCode(): Promise<void> {
+      try {
+        const r = await fetch(`${API_URL}/api/auth/wallet-code/start`, { method: 'POST' })
+        if (!r.ok) throw new Error('start failed')
+        const d = await r.json() as { code: string; ticket: string | null; botUsername: string | null; expiresAt: string }
+        if (cancelled) return
+        ticketRef.current = d.ticket
+        codeExpiresRef.current = new Date(d.expiresAt).getTime()
+        setLoginCode(d.code)
+        setBotUsername(d.botUsername)
+        setCodeCopied(false)
+        setAppState('code')
+      } catch {
+        if (!cancelled) { setErrorMsg('Не удалось получить код входа. Проверьте соединение.'); setAppState('error') }
+      }
+    }
+
+    const startPolling = () => {
+      stopPolling()
+      pollRef.current = setInterval(async () => {
+        const ticket = ticketRef.current
+        if (!ticket || cancelled) return
+        if (Date.now() > codeExpiresRef.current) { await requestCode(); return } // код истёк — обновляем
+        try {
+          const r = await fetch(`${API_URL}/api/auth/wallet-code/status?ticket=${encodeURIComponent(ticket)}`)
+          if (!r.ok) return
+          const d = await r.json() as { status: string; token?: string }
+          if (d.status === 'ok' && d.token) {
+            stopPolling()
+            persist(d.token)
+            if (!cancelled) await loadWallet(d.token)
+          } else if (d.status === 'expired') {
+            await requestCode()
+          }
+        } catch { /* сеть моргнула — повторим на следующем тике */ }
+      }, 2500)
+    }
+
+    async function boot() {
+      const tg = window.Telegram?.WebApp
+      // 1) Внутри Telegram Mini App — авторизация по initData (как раньше).
+      if (tg && tg.initData) {
+        tg.ready(); tg.expand()
+        try {
+          const authRes = await fetch(`${API_URL}/api/auth/login/telegram`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ initData: tg.initData }),
+          })
+          if (!authRes.ok) throw new Error(`Auth failed: ${authRes.status}`)
+          const { token: t } = await authRes.json() as { token: string }
+          if (!(await loadWallet(t))) throw new Error('Profile fetch failed')
+        } catch (err) {
+          if (!cancelled) { setErrorMsg(err instanceof Error ? err.message : 'Ошибка авторизации'); setAppState('error') }
+        }
+        return
+      }
+      // 2) Браузер/PWA — пробуем сохранённый токен; если протух — код входа.
+      let stored: string | null = null
+      try { stored = localStorage.getItem(STORAGE_KEY) } catch { /* noop */ }
+      if (stored) {
+        const ok = await loadWallet(stored).catch(() => false)
+        if (ok) return
+        forget()
+      }
+      if (cancelled) return
+      await requestCode()
+      startPolling()
+    }
+
+    boot()
+    return () => { cancelled = true; stopPolling() }
   }, [])
 
   // Единый фид: деньги (transactions) + бонусы (bonusHistory), по дате.
@@ -233,9 +307,49 @@ export default function WalletPage() {
     return (
       <div style={styles.root}>{keyframes}
         <div style={styles.centered}>
-          <span style={{ fontSize: 64 }}>✈️</span>
-          <h2 style={{ color: '#fff', marginTop: 16, fontSize: 20, fontWeight: 700, textAlign: 'center' }}>Откройте через Telegram</h2>
+          <span style={{ fontSize: 64 }}>⚠️</span>
+          <h2 style={{ color: '#fff', marginTop: 16, fontSize: 20, fontWeight: 700, textAlign: 'center' }}>Не удалось войти</h2>
           <p style={{ color: '#94A3B8', marginTop: 8, fontSize: 14, textAlign: 'center', maxWidth: 260 }}>{errorMsg}</p>
+        </div>
+      </div>
+    )
+  }
+  if (appState === 'code') {
+    const copyCode = async () => {
+      try { await navigator.clipboard.writeText(loginCode); setCodeCopied(true); setTimeout(() => setCodeCopied(false), 1800) } catch { /* clipboard недоступен */ }
+    }
+    return (
+      <div style={styles.root}>{keyframes}
+        <div style={{ ...styles.centered, gap: 0, maxWidth: 360, margin: '0 auto', width: '100%' }}>
+          <span style={{ fontSize: 18, fontWeight: 900, letterSpacing: '4px', color: '#a78bfa' }}>TITAN</span>
+          <h2 style={{ color: '#fff', margin: '14px 0 6px', fontSize: 22, fontWeight: 800, textAlign: 'center' }}>Вход в кошелёк</h2>
+          <p style={{ color: '#94A3B8', margin: 0, fontSize: 14, textAlign: 'center', lineHeight: 1.5, maxWidth: 300 }}>
+            Откройте бота кошелька в Telegram и отправьте ему этот код:
+          </p>
+
+          {/* 4-значный код — крупно, с возможностью выделить/скопировать */}
+          <div className="selectable" onClick={copyCode} style={styles.codeBox}>
+            {loginCode.split('').map((d, i) => (
+              <span key={i} style={styles.codeDigit}>{d}</span>
+            ))}
+          </div>
+
+          <button onClick={copyCode} style={styles.codeCopyBtn}>{codeCopied ? 'Скопировано ✓' : 'Скопировать код'}</button>
+
+          {botUsername && (
+            <a href={`https://t.me/${botUsername}`} target="_blank" rel="noreferrer" style={styles.codeTgBtn}>
+              💬 Открыть бота в Telegram
+            </a>
+          )}
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 22 }}>
+            <div style={styles.spinnerSmall} />
+            <span style={{ color: '#94A3B8', fontSize: 13 }}>Ждём подтверждения…</span>
+          </div>
+
+          <p style={{ color: '#64748B', fontSize: 12, textAlign: 'center', margin: '24px 0 0', lineHeight: 1.5, maxWidth: 300 }}>
+            Совет: добавьте кошелёк на экран «Домой» — и открывайте его как приложение. Код нужен только один раз на устройстве.
+          </p>
         </div>
       </div>
     )
@@ -403,9 +517,34 @@ export default function WalletPage() {
 
 // ─── Styles ──────────────────────────────────────────────────────────────────
 const styles = {
-  root: { minHeight: '100vh', backgroundColor: '#15121b', display: 'flex', flexDirection: 'column' as const, padding: '16px 16px 40px', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' },
-  centered: { display: 'flex', flexDirection: 'column' as const, alignItems: 'center', justifyContent: 'center', flex: 1, minHeight: '100vh' },
+  // Safe-area: в полноэкранном PWA контент не должен уходить под «остров»/чёлку iPhone
+  // (сверху) и под home-indicator (снизу). env(safe-area-inset-*) даёт ненулевые
+  // значения благодаря viewport-fit=cover (см. layout.tsx).
+  root: {
+    minHeight: '100dvh', backgroundColor: '#15121b', display: 'flex', flexDirection: 'column' as const,
+    padding: 'calc(16px + env(safe-area-inset-top)) calc(16px + env(safe-area-inset-right)) calc(40px + env(safe-area-inset-bottom)) calc(16px + env(safe-area-inset-left))',
+    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+  },
+  centered: { display: 'flex', flexDirection: 'column' as const, alignItems: 'center', justifyContent: 'center', flex: 1, minHeight: '70dvh' },
   spinner: { width: 48, height: 48, borderRadius: '50%', border: '3px solid rgba(139,92,246,0.2)', borderTopColor: '#8B5CF6', animation: 'spin 0.8s linear infinite' } as React.CSSProperties,
+  spinnerSmall: { width: 18, height: 18, borderRadius: '50%', border: '2px solid rgba(139,92,246,0.2)', borderTopColor: '#8B5CF6', animation: 'spin 0.8s linear infinite' } as React.CSSProperties,
+
+  // Экран входа по коду
+  codeBox: { display: 'flex', gap: 10, margin: '22px 0 14px', cursor: 'pointer' },
+  codeDigit: {
+    width: 56, height: 72, display: 'flex', alignItems: 'center', justifyContent: 'center',
+    fontSize: 36, fontWeight: 800, color: '#fff', fontVariantNumeric: 'tabular-nums' as const,
+    background: 'rgba(139,92,246,0.12)', border: '1px solid rgba(139,92,246,0.35)', borderRadius: 16,
+  } as React.CSSProperties,
+  codeCopyBtn: {
+    background: 'transparent', border: 'none', color: '#a78bfa', fontSize: 14, fontWeight: 600,
+    padding: '6px 10px', cursor: 'pointer',
+  } as React.CSSProperties,
+  codeTgBtn: {
+    marginTop: 12, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+    background: 'linear-gradient(135deg,#8B5CF6,#6d28d9)', color: '#fff', fontSize: 15, fontWeight: 700,
+    padding: '13px 22px', borderRadius: 14, textDecoration: 'none', boxShadow: '0 10px 28px rgba(109,40,217,0.4)',
+  } as React.CSSProperties,
 
   card: {
     position: 'relative' as const, height: 200, borderRadius: 22, overflow: 'hidden',

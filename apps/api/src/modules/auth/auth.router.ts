@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
-import { profiles, transactions, bonusLots, bonusHistory, checks, checkItems, checkPayments, checkDiscounts, inventory, spaces, eq, ne, and, isNull, inArray, desc, gt, ilike, sql } from '@titan/database'
+import { profiles, transactions, bonusLots, bonusHistory, checks, checkItems, checkPayments, checkDiscounts, inventory, spaces, walletLoginCodes, eq, ne, and, isNull, inArray, desc, gt, lt, ilike, sql } from '@titan/database'
 import { visitProgress } from '../../lib/loyalty.js'
 // @ts-ignore
 import { passkeys } from '@titan/database'
@@ -20,6 +20,7 @@ import type { AuthenticatorTransportFuture } from '@simplewebauthn/server'
 import type { AppEnv } from '../../types.js'
 import { z } from 'zod'
 import { isoBase64URL, isoUint8Array } from '@simplewebauthn/server/helpers'
+import { randomInt } from 'node:crypto'
 
 const RP_NAME = process.env['WEBAUTHN_RP_NAME'] ?? 'Titan HUB'
 const RP_ID = process.env['WEBAUTHN_RP_ID'] ?? 'localhost'
@@ -46,6 +47,21 @@ function allowedOrigins(c: any): string[] {
 
 function getRedis() {
   return new Redis(process.env['REDIS_URL'] ?? 'redis://redis:6379', { lazyConnect: true })
+}
+
+// @username бота-кошелька для подсказки/диплинка на экране входа из браузера.
+// Из env (WALLET_BOT_USERNAME), иначе через getMe (кэшируем). Без '@'.
+let walletBotUsername: string | null = process.env['WALLET_BOT_USERNAME']?.replace(/^@/, '') ?? null
+async function getWalletBotUsername(): Promise<string | null> {
+  if (walletBotUsername) return walletBotUsername
+  const token = process.env['WALLET_BOT_TOKEN']
+  if (!token) return null
+  try {
+    const r = await fetch(`https://api.telegram.org/bot${token}/getMe`)
+    const j = (await r.json()) as { result?: { username?: string } }
+    walletBotUsername = j?.result?.username ?? null
+  } catch { /* недоступно — вернём null, экран покажет инструкцию без ссылки */ }
+  return walletBotUsername
 }
 
 export const authRouter = new Hono<AppEnv>()
@@ -391,6 +407,71 @@ authRouter.post('/login/telegram', zValidator('json', LoginTelegramSchema), asyn
   if (!profile) return c.json({ error: 'Not linked' }, 404)
   const token = await signToken({ sub: profile.id, role: profile.role, nickname: profile.nickname })
   return c.json({ token, user: { id: profile.id, nickname: profile.nickname, role: profile.role, photoUrl: profile.photoUrl } })
+})
+
+// ── Вход в кошелёк ИЗ БРАУЗЕРА/PWA (вне Telegram Mini App) по 4-значному коду ──
+// 1) PWA → POST /wallet-code/start: выдаём код + ticket (одноразовый, TTL 5 мин).
+// 2) Клиент шлёт код боту-кошельку; бот метит строку claimed + profile_id.
+// 3) PWA опрашивает GET /wallet-code/status?ticket: при claimed выдаём JWT (30д).
+// Общий стор API↔бот — таблица wallet_login_codes в БД клуба (та же БД, что у бота).
+const WALLET_CODE_TTL_MS = 5 * 60 * 1000
+
+authRouter.post('/wallet-code/start', async (c) => {
+  const db = c.var.db
+  // Лёгкий троттлинг по доверенному IP: не плодим коды бесконтрольно.
+  const ip = clientIp(c)
+  const rlKey = `walletcode:start:${ip}`
+  const redis = getRedis()
+  try {
+    await redis.connect()
+    const n = parseInt((await redis.get(rlKey)) ?? '0')
+    if (n >= 15) {
+      const ttl = await redis.ttl(rlKey)
+      return c.json({ error: `Слишком много попыток. Попробуйте через ${Math.ceil(Math.max(ttl, 0) / 60)} мин.` }, 429)
+    }
+    await redis.incr(rlKey); await redis.expire(rlKey, 600)
+  } catch { /* без Redis — продолжаем, троттлинг необязателен */ } finally {
+    redis.disconnect()
+  }
+
+  // Чистим истёкшие (оппортунистически).
+  try { await db.delete(walletLoginCodes).where(lt(walletLoginCodes.expiresAt, new Date())) } catch { /* noop */ }
+
+  // Уникальный среди активных pending-кодов 4-значный код (несколько попыток).
+  let code = ''
+  for (let i = 0; i < 8; i++) {
+    code = String(randomInt(1000, 10000))
+    const [clash] = await db.select({ id: walletLoginCodes.id }).from(walletLoginCodes)
+      .where(and(eq(walletLoginCodes.code, code), eq(walletLoginCodes.status, 'pending'), gt(walletLoginCodes.expiresAt, new Date())))
+      .limit(1)
+    if (!clash) break
+  }
+  const expiresAt = new Date(Date.now() + WALLET_CODE_TTL_MS)
+  const [row] = await db.insert(walletLoginCodes).values({ code, expiresAt }).returning({ ticket: walletLoginCodes.ticket })
+  const botUsername = await getWalletBotUsername()
+  return c.json({ code, ticket: row?.ticket ?? null, botUsername, expiresAt: expiresAt.toISOString() })
+})
+
+authRouter.get('/wallet-code/status', async (c) => {
+  const db = c.var.db
+  const ticket = c.req.query('ticket') ?? ''
+  // ticket — uuid; на мусоре eq бросил бы «invalid input syntax for uuid».
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(ticket)) {
+    return c.json({ status: 'expired' })
+  }
+  const [row] = await db.select().from(walletLoginCodes).where(eq(walletLoginCodes.ticket, ticket)).limit(1)
+  if (!row) return c.json({ status: 'expired' })
+  if (new Date(row.expiresAt).getTime() < Date.now()) {
+    await db.delete(walletLoginCodes).where(eq(walletLoginCodes.id, row.id)).catch(() => {})
+    return c.json({ status: 'expired' })
+  }
+  if (row.status !== 'claimed' || !row.profileId) return c.json({ status: 'pending' })
+  // Подтверждён ботом → выдаём JWT. Строку удаляем (одноразовый тикет).
+  const [profile] = await db.select().from(profiles).where(and(eq(profiles.id, row.profileId), isNull(profiles.deletedAt)))
+  await db.delete(walletLoginCodes).where(eq(walletLoginCodes.id, row.id)).catch(() => {})
+  if (!profile) return c.json({ status: 'expired' })
+  const token = await signToken({ sub: profile.id, role: profile.role, nickname: profile.nickname }, '30d')
+  return c.json({ status: 'ok', token, user: { id: profile.id, nickname: profile.nickname, role: profile.role, photoUrl: profile.photoUrl } })
 })
 
 authRouter.post('/pin/set', requireAuth, zValidator('json', SetPinSchema), async (c) => {

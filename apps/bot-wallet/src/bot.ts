@@ -1,5 +1,5 @@
 import { Bot, InlineKeyboard } from 'grammy'
-import { profiles, tgLinkRequests, transactions, clientTiers, appSettings, eq, desc, type Database } from '@titan/database'
+import { profiles, tgLinkRequests, transactions, clientTiers, appSettings, walletLoginCodes, eq, and, gt, desc, type Database } from '@titan/database'
 import { createHmac, timingSafeEqual } from 'node:crypto'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -245,6 +245,35 @@ export function createWalletBot(ctx: WalletBotCtx): Bot {
     ).join('\n')
 
     await ctx2.reply(`📋 *Последние транзакции*\n\n${text}`, { parse_mode: 'Markdown' })
+  })
+
+  // Вход в кошелёк из браузера/PWA: клиент присылает 4-значный код, показанный в
+  // открытом приложении. Привязываем pending-строку wallet_login_codes к профилю —
+  // PWA увидит это через /auth/wallet-code/status и получит токен. Регистрируем
+  // ПОСЛЕ command('start'): обычный текст «1234» сюда и попадает (команды — нет).
+  bot.on('message:text', async (ctx2) => {
+    const text = (ctx2.message?.text ?? '').trim()
+    if (!/^\d{4}$/.test(text)) return // реагируем только на 4-значный код
+    const tgId = String(ctx2.from?.id)
+    const profile = await resolveProfileByTg(tgId)
+    if (!profile) {
+      await ctx2.reply('👋 Чтобы войти в кошелёк, сначала привяжите аккаунт — обратитесь к администратору клуба.')
+      return
+    }
+    // Активный (pending, не истёкший) код. Берём самый свежий — на случай повторов.
+    const [row] = await db.select().from(walletLoginCodes)
+      .where(and(eq(walletLoginCodes.code, text), eq(walletLoginCodes.status, 'pending'), gt(walletLoginCodes.expiresAt, new Date())))
+      .orderBy(desc(walletLoginCodes.createdAt))
+      .limit(1)
+    if (!row) {
+      await ctx2.reply('❌ Код неверный или истёк. Откройте кошелёк в браузере и пришлите свежий 4-значный код.')
+      return
+    }
+    await db.update(walletLoginCodes).set({ status: 'claimed', profileId: profile.id }).where(eq(walletLoginCodes.id, row.id))
+    await ctx2.reply(
+      `✅ Готово, *${escapeMd(profile.nickname)}*! Кошелёк открыт на устройстве — вернитесь в приложение.`,
+      { parse_mode: 'Markdown', reply_markup: walletKeyboard },
+    )
   })
 
   bot.catch((err) => {

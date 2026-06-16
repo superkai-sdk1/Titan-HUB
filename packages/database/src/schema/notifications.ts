@@ -55,7 +55,22 @@ export const appSettings = pgTable('app_settings', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 })
 
+// Одноразовые коды входа в кошелёк ИЗ БРАУЗЕРА/PWA (вне Telegram Mini App). PWA
+// показывает 4-значный код, клиент шлёт его боту кошелька, бот помечает строку
+// claimed+profileId, PWA опрашивает /auth/wallet-code/status и получает JWT.
+// Общий стор между API (создание+поллинг) и ботом (claim) — одна БД клуба.
+export const walletLoginCodes = pgTable('wallet_login_codes', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  code: text('code').notNull(),
+  ticket: uuid('ticket').notNull().defaultRandom().unique(),
+  profileId: uuid('profile_id').references(() => profiles.id),
+  status: text('status').notNull().default('pending'), // 'pending' | 'claimed'
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+})
+
 export type TgLinkRequest = typeof tgLinkRequests.$inferSelect
 export type Notification = typeof notifications.$inferSelect
 export type AppSetting = typeof appSettings.$inferSelect
 export type PushSubscription = typeof pushSubscriptions.$inferSelect
+export type WalletLoginCode = typeof walletLoginCodes.$inferSelect

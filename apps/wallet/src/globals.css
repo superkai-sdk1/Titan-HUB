@@ -10,6 +10,19 @@ body {
   color: var(--color-foreground);
   margin: 0;
   padding: 0;
+  /* Нативное ощущение PWA: запрещаем выделение текста удержанием и iOS-«callout»
+     (меню Копировать/Поиск по долгому тапу), убираем серую вспышку при тапе. */
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Точечно разрешаем выделение там, где это осмысленно (напр. код входа). */
+.selectable {
+  -webkit-user-select: text;
+  user-select: text;
+  -webkit-touch-callout: default;
 }
 
 @keyframes spin {
