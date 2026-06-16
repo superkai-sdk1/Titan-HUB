@@ -17,6 +17,8 @@ interface PayCfg {
   sbpProviderLabel: string
   sbpConfigured: boolean
   fiscalProvider: string
+  fiscalLabel: string
+  fiscalStandalone: boolean
   testMode: boolean
   vatCode: number
   defaultPhone: string
@@ -69,23 +71,34 @@ export function PaymentConfig() {
             <span style={{ fontSize: 13.5 }}>Тестовый режим <span style={{ color: 'var(--on-surface-variant)', fontSize: 12 }}>— песочница эквайера (без реальных денег)</span></span>
             <input type="checkbox" checked={data.testMode} disabled={save.isPending} onChange={(e) => save.mutate({ testMode: e.target.checked })} style={{ width: 18, height: 18, accentColor: '#8B5CF6' }} />
           </label>
+        </>
+      )}
 
-          {isYooKassa && (
-            <>
-              <div style={divider} />
-              <span style={{ ...LBL, margin: '8px 0 2px' }}>Настройки ЮKassa</span>
-              <label style={toggleRow}>
-                <span style={{ fontSize: 13.5 }}>Чеки 54-ФЗ <span style={{ color: 'var(--on-surface-variant)', fontSize: 12 }}>— ЮKassa сама пробивает фискальный чек</span></span>
-                <input type="checkbox" checked={data.fiscalProvider === 'yookassa'} disabled={save.isPending} onChange={(e) => save.mutate({ fiscalProvider: e.target.checked ? 'yookassa' : '' })} style={{ width: 18, height: 18, accentColor: '#8B5CF6' }} />
-              </label>
-              {data.fiscalProvider === 'yookassa' && (
-                <p style={{ fontSize: 11.5, color: 'var(--on-surface-variant)', margin: '2px 0 0', lineHeight: 1.5 }}>
-                  Чек уходит, если у гостя в карточке есть телефон. Для гостей без телефона укажите запасной контакт в кабинете ЮKassa.
-                </p>
-              )}
-            </>
+      {/* Фискализация 54-ФЗ применяется ко ВСЕМ продажам (включая наличные). */}
+      <div style={{ ...divider, margin: '10px 0 0' }} />
+      <span style={{ ...LBL, margin: '8px 0 2px' }}>Фискализация 54-ФЗ</span>
+      {data.fiscalStandalone ? (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px', borderRadius: 12, background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.28)' }}>
+          <Icon name="check_circle" size={18} color="#10B981" />
+          <span style={{ fontSize: 14, fontWeight: 700 }}>{data.fiscalLabel}</span>
+          <span style={{ fontSize: 12, color: 'var(--on-surface-variant)' }}>— чек по каждой продаже</span>
+        </div>
+      ) : isYooKassa ? (
+        <>
+          <label style={toggleRow}>
+            <span style={{ fontSize: 13.5 }}>Чеки через ЮKassa <span style={{ color: 'var(--on-surface-variant)', fontSize: 12 }}>— ЮKassa сама пробивает чек при оплате</span></span>
+            <input type="checkbox" checked={data.fiscalProvider === 'yookassa'} disabled={save.isPending} onChange={(e) => save.mutate({ fiscalProvider: e.target.checked ? 'yookassa' : '' })} style={{ width: 18, height: 18, accentColor: '#8B5CF6' }} />
+          </label>
+          {data.fiscalProvider === 'yookassa' && (
+            <p style={{ fontSize: 11.5, color: 'var(--on-surface-variant)', margin: '2px 0 0', lineHeight: 1.5 }}>
+              Чек уходит, если у гостя в карточке есть телефон (фискализируются только оплаты через ЮKassa).
+            </p>
           )}
         </>
+      ) : (
+        <p style={{ fontSize: 11.5, color: 'var(--on-surface-variant)', margin: '2px 0 0', lineHeight: 1.5 }}>
+          Подключите кассу 54-ФЗ (АТОЛ Онлайн) во вкладке «Интеграции» — она пробивает чек по каждой продаже, включая наличные.
+        </p>
       )}
     </div>
   )

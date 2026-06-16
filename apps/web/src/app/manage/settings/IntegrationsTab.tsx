@@ -121,10 +121,22 @@ const CATALOG: Product[] = [
       { key: 'alfa_password', label: 'API-пароль', type: 'password', placeholder: 'Введите API-пароль', hint: 'Пароль того же API-пользователя.' },
     ],
   },
+  // ─── Фискализация 54-ФЗ (отдельные кассы — пробивают чек на ЛЮБУЮ оплату) ──────
+  {
+    id: 'atol', name: 'АТОЛ Онлайн', icon: 'receipt_long', color: '#4cd7f6', kind: 'keys',
+    blurb: 'Облачная касса 54-ФЗ',
+    about: 'Фискализация чеков по 54-ФЗ через облачную кассу АТОЛ Онлайн — без своего кассового аппарата. После подключения система сама пробивает чек по каждой закрытой продаже (включая наличные). Данные берутся из кабинета АТОЛ Онлайн.',
+    fields: [
+      { key: 'atol_login', label: 'Логин интеграции', type: 'text', placeholder: 'Логин API', hint: 'Кабинет АТОЛ Онлайн → Интеграция → логин (не логин входа в ЛК, а логин API).' },
+      { key: 'atol_password', label: 'Пароль интеграции', type: 'password', placeholder: 'Пароль API', hint: 'Там же → пароль API интеграции.' },
+      { key: 'atol_group_code', label: 'Код группы ККТ', type: 'text', placeholder: 'Напр. ABC_group', hint: 'Кабинет АТОЛ → группы ККТ → код группы, к которой привязана касса.' },
+      { key: 'atol_inn', label: 'ИНН', type: 'text', placeholder: 'ИНН организации', hint: 'ИНН вашей организации/ИП (как в кассе).' },
+      { key: 'atol_payment_address', label: 'Адрес расчётов', type: 'text', placeholder: 'titanpos.ru или адрес точки', hint: 'Место расчётов: сайт или физический адрес точки (как зарегистрировано в ФНС).' },
+      { key: 'atol_company_email', label: 'E-mail компании', type: 'text', placeholder: 'shop@example.ru', hint: 'E-mail отправителя чеков (для копий чеков от ОФД).' },
+      { key: 'atol_sno', label: 'СНО (режим налогообложения)', type: 'text', placeholder: 'usn_income', hint: 'Один из: osn, usn_income, usn_income_outcome, envd, esn, patent. Если не уверены — usn_income (УСН «доходы»).', optional: true },
+    ],
+  },
   // ─── Витрина «Скоро» (в разработке) ──────────────────────────────────────────
-  // Фискализация 54-ФЗ (отдельные ОФД/кассы — пробивают чек на любую оплату)
-  { id: 'atol', name: 'АТОЛ Онлайн', icon: 'receipt_long', color: '#4cd7f6', kind: 'keys', fields: [], comingSoon: true,
-    blurb: 'Облачная касса 54-ФЗ', about: 'Фискализация чеков по 54-ФЗ через облачную кассу АТОЛ Онлайн — без покупки своего кассового аппарата.' },
   { id: 'evotor', name: 'Эвотор', icon: 'point_of_sale', color: '#F59E0B', kind: 'keys', fields: [], comingSoon: true,
     blurb: 'Смарт-терминалы Эвотор', about: 'Интеграция со смарт-терминалами Эвотор для печати фискальных чеков 54-ФЗ на кассе.' },
   { id: 'platform_ofd', name: 'Платформа ОФД', icon: 'receipt', color: '#3B82F6', kind: 'keys', fields: [], comingSoon: true,

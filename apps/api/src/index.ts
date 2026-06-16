@@ -4,6 +4,7 @@ import { app } from './app.js'
 import { checkBirthdays } from './cron/birthdays.js'
 import { auditBalances } from './cron/balance-audit.js'
 import { runPollsForDb } from './cron/polls.js'
+import { fiscalizePendingForDb } from './cron/fiscalize.js'
 import { getCronTargets } from './cron/targets.js'
 import { runMigrations } from './migrations/runner.js'
 import { getSharedRedis } from './lib/redis.js'
@@ -138,3 +139,15 @@ function schedulePollsCron() {
 }
 
 schedulePollsCron()
+
+// Фискализация 54-ФЗ: тик КАЖДУЮ МИНУТУ по всем клубам. Идемпотентно (один ряд
+// fiscal_receipts на чек), клубы без фискального провайдера пропускаются. НЕ трогает
+// денежные пути закрытия чека → нулевой риск для продаж.
+function scheduleFiscalizeCron() {
+  setInterval(() => {
+    runForAllClubs('fiscalize', fiscalizePendingForDb).catch(console.error)
+  }, 60_000)
+  console.log('🧾 Fiscalize cron scheduled (тик раз в минуту)')
+}
+
+scheduleFiscalizeCron()

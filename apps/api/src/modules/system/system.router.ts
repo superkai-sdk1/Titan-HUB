@@ -10,6 +10,7 @@ import { updatesChannel } from '../../lib/realtime.js'
 import { createBackup, listBackups, lastBackup, restoreNamed, restoreFromUpload, rcloneConfigured } from '../../lib/backup.js'
 import { encryptSecret, decryptSecret, maskSecret, getClubIntegration } from '../../lib/secrets.js'
 import { getActiveSbpProvider } from '../pay/registry.js'
+import { getActiveFiscalProvider } from '../pay/fiscal/registry.js'
 import { readPollConfigs, writePollConfigs, postPollConfig, type PollConfig } from '../../lib/polls.js'
 import { recordPollPosted } from '../../lib/pollState.js'
 import { setTelegramWebhook, deleteTelegramWebhook, getTelegramWebhookInfo, getChatAdministrators, getTelegramChat } from '../../lib/telegram.js'
@@ -221,6 +222,14 @@ const INTEGRATION_KEYS: Record<string, string> = {
   sber_password: 'СберБизнес: API-пароль',
   alfa_username: 'Альфа/Точка: API-логин',
   alfa_password: 'Альфа/Точка: API-пароль',
+  // Фискализация 54-ФЗ — АТОЛ Онлайн (облачная касса).
+  atol_login: 'АТОЛ Онлайн: логин',
+  atol_password: 'АТОЛ Онлайн: пароль',
+  atol_group_code: 'АТОЛ Онлайн: код группы ККТ',
+  atol_inn: 'АТОЛ Онлайн: ИНН',
+  atol_payment_address: 'АТОЛ Онлайн: адрес расчётов',
+  atol_company_email: 'АТОЛ Онлайн: e-mail компании',
+  atol_sno: 'АТОЛ Онлайн: режим налогообложения (СНО)',
 }
 
 const isAllowedKey = (key: string): boolean =>
@@ -297,11 +306,16 @@ const FISCAL_PROVIDERS = ['', 'yookassa'] as const
 const SBP_LABELS: Record<string, string> = {
   platega: 'Platega', tbank: 'Т-Банк', yookassa: 'ЮKassa', sber: 'СберБизнес', alfa: 'Точка / Альфа',
 }
+const FISCAL_LABELS: Record<string, string> = {
+  yookassa: 'ЮKassa (встроенная)', atol: 'АТОЛ Онлайн',
+}
+// Самостоятельные кассы (по введённым ключам) — выбор не ручной, как и эквайер.
+const FISCAL_STANDALONE = ['atol']
 
 systemRouter.get('/payment-config', requireAuth, requireRole('owner'), async (c) => {
   const db = c.var.db
   const rows = await db.select().from(appSettings)
-    .where(inArray(appSettings.key, ['fiscal_provider', 'payment_test_mode', 'fiscal_vat_code', 'fiscal_default_phone']))
+    .where(inArray(appSettings.key, ['payment_test_mode', 'fiscal_vat_code', 'fiscal_default_phone']))
   const map = Object.fromEntries(rows.map((r) => [r.key, r.value]))
 
   // Активный эквайер выводим из введённых ключей. «Настроен» = либо новый эквайер,
@@ -310,11 +324,17 @@ systemRouter.get('/payment-config', requireAuth, requireRole('owner'), async (c)
   const plategaConfigured = !!((await getClubIntegration(db, 'platega_merchant_id')) ?? process.env['PLATEGA_MERCHANT_ID'])
   const sbpConfigured = sbpProvider !== 'platega' || plategaConfigured
 
+  // Активный фискальный провайдер выводим так же. fiscalStandalone — настроена своя
+  // касса (54-ФЗ на любую оплату); иначе тумблер ЮKassa (встроенная) при эквайере ЮKassa.
+  const fiscalProvider = await getActiveFiscalProvider(db)
+
   return c.json({
     sbpProvider,
     sbpProviderLabel: SBP_LABELS[sbpProvider] ?? sbpProvider,
     sbpConfigured,
-    fiscalProvider: map['fiscal_provider'] || '',
+    fiscalProvider,
+    fiscalLabel: FISCAL_LABELS[fiscalProvider] ?? '',
+    fiscalStandalone: FISCAL_STANDALONE.includes(fiscalProvider),
     testMode: map['payment_test_mode'] === 'true',
     vatCode: Number(map['fiscal_vat_code']) || 1,
     defaultPhone: map['fiscal_default_phone'] || '',
