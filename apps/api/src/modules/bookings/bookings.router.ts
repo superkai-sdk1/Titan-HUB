@@ -59,6 +59,25 @@ bookingsPublicRouter.get('/config', async (c) => {
   })
 })
 
+// Узнавание клиента по номеру телефона: возвращает его брони (по цифрам, последние
+// 10 — без привязки к устройству). Регистрируется ДО /:token, чтобы не перехватился.
+bookingsPublicRouter.get('/lookup', async (c) => {
+  const db = c.var.db
+  const tail = (c.req.query('phone') || '').replace(/\D/g, '').slice(-10)
+  if (tail.length < 10) return c.json({ bookings: [] })
+  const res = await db.execute(sql`
+    SELECT b.id, b.status, b.location, b.address, b.title, s.name AS zone_name, b.tariff_hours, b.guests,
+           b.starts_at, b.name, b.phone, b.comment, b.created_at, b.claim_token, e.status AS event_status
+    FROM bookings b
+    LEFT JOIN spaces s ON s.id = b.space_id
+    LEFT JOIN events e ON e.id = b.event_id
+    WHERE right(regexp_replace(coalesce(b.phone, ''), '[^0-9]', '', 'g'), 10) = ${tail}
+    ORDER BY b.starts_at DESC
+    LIMIT 20
+  `)
+  return c.json({ bookings: rows(res) })
+})
+
 const CreateSchema = z.object({
   location: z.enum(['titan', 'exit']),
   title: z.string().max(160).optional(),

@@ -50,6 +50,8 @@ function fmtWhen(iso: string): string {
 }
 function loadTokens(): string[] { try { return JSON.parse(localStorage.getItem(TOKENS_KEY) || '[]') } catch { return [] } }
 function saveToken(t: string) { try { const a = loadTokens(); if (!a.includes(t)) localStorage.setItem(TOKENS_KEY, JSON.stringify([t, ...a])) } catch { /* */ } }
+const PHONE_KEY = 'titan_book_phone'
+function savePhone(p: string) { try { if (p) localStorage.setItem(PHONE_KEY, p) } catch { /* */ } }
 
 // ── shared styles ──
 const wrap: React.CSSProperties = { minHeight: '100dvh', display: 'flex', flexDirection: 'column', alignItems: 'center', padding: 'max(18px, env(safe-area-inset-top)) 16px calc(96px + env(safe-area-inset-bottom))' }
@@ -67,7 +69,8 @@ export default function BookPage() {
   const [cfg, setCfg] = useState<Config | null>(null)
   const [loading, setLoading] = useState(true)
   const [mine, setMine] = useState<{ token: string; b: MyBooking }[]>([])
-  const [view, setView] = useState<'mine' | 'wizard'>('wizard')
+  const [view, setView] = useState<'phone' | 'mine' | 'wizard'>('phone')
+  const [entryPhone, setEntryPhone] = useState('')
 
   const [fixedLoc, setFixedLoc] = useState<'titan' | 'exit' | null>(null)
   const [step, setStep] = useState(0)
@@ -89,24 +92,48 @@ export default function BookPage() {
   const date = dd.length === 2 && mm.length === 2 && yyyy.length === 4 ? `${yyyy}-${mm}-${dd}` : ''
   const time = hh.length === 2 && mi.length === 2 ? `${hh}:${mi}` : ''
 
+  // Узнавание клиента: по телефону (кросс-устройство, lookup) + по токенам localStorage
+  // (то же устройство). Возвращает объединённый список броней, сохраняет токены/телефон.
+  const recognize = async (rawPhone: string): Promise<{ token: string; b: MyBooking }[]> => {
+    const list: { token: string; b: MyBooking }[] = []
+    const seen = new Set<string>()
+    if (rawPhone.replace(/\D/g, '').length >= 10) {
+      try {
+        const r = await api.get<{ bookings: (MyBooking & { claim_token?: string })[] }>(`/bookings/public/lookup?phone=${encodeURIComponent(rawPhone)}`)
+        for (const b of r.bookings ?? []) if (b.claim_token && !seen.has(b.id)) { list.push({ token: b.claim_token, b }); seen.add(b.id) }
+      } catch { /* */ }
+    }
+    for (const t of loadTokens()) {
+      if (list.some((x) => x.token === t)) continue
+      const b = await api.get<{ booking: MyBooking }>(`/bookings/public/${t}`).then((r) => r.booking).catch(() => null)
+      if (b && !seen.has(b.id)) { list.push({ token: t, b }); seen.add(b.id) }
+    }
+    list.forEach((x) => saveToken(x.token))
+    if (rawPhone) savePhone(rawPhone)
+    return list
+  }
+
   useEffect(() => {
     (async () => {
       try {
         const c = await api.get<Config>('/bookings/public/config'); setCfg(c)
-        // Локация из ссылки: 2 отдельные ссылки для клиентов (?loc=titan|exit).
-        const p = new URLSearchParams(window.location.search).get('loc')
-        if (p === 'titan' || p === 'exit') { setFixedLoc(p); setLocation(p); setStep(1) }
-        const tokens = loadTokens()
-        if (tokens.length) {
-          const got = await Promise.all(tokens.map((t) =>
-            api.get<{ booking: MyBooking }>(`/bookings/public/${t}`).then((r) => ({ token: t, b: r.booking })).catch(() => null)))
-          const list = got.filter(Boolean) as { token: string; b: MyBooking }[]
-          setMine(list)
-          if (list.length) setView('mine')
-        }
-      } catch { setCfg({ enabled: false }) } finally { setLoading(false) }
+        const params = new URLSearchParams(window.location.search)
+        const p = params.get('loc'); if (p === 'titan' || p === 'exit') { setFixedLoc(p); setLocation(p); setStep(1) }
+        const savedPhone = params.get('phone') || localStorage.getItem(PHONE_KEY) || ''
+        if (savedPhone) { setEntryPhone(savedPhone); setPhone(savedPhone) }
+        const list = await recognize(savedPhone)
+        if (list.length) { setMine(list); setView('mine') } else setView('phone')
+      } catch { setCfg({ enabled: false }); setView('phone') } finally { setLoading(false) }
     })()
   }, [])
+
+  const continueFromPhone = async () => {
+    const ph = entryPhone.trim()
+    setPhone(ph)
+    const list = await recognize(ph)
+    setMine(list)
+    setView(list.length ? 'mine' : 'wizard')
+  }
 
   const tariffs = cfg?.tariffs ?? []
   const cabins = cfg?.cabins ?? []
@@ -125,10 +152,7 @@ export default function BookPage() {
   }, [tariffs])
 
   const refreshMine = async () => {
-    const tokens = loadTokens()
-    const got = await Promise.all(tokens.map((t) =>
-      api.get<{ booking: MyBooking }>(`/bookings/public/${t}`).then((r) => ({ token: t, b: r.booking })).catch(() => null)))
-    setMine(got.filter(Boolean) as { token: string; b: MyBooking }[])
+    setMine(await recognize(entryPhone || phone))
   }
 
   const resetWizard = () => { setStep(fixedLoc ? 1 : 0); setLocation(fixedLoc ?? ''); setTitle(''); setAddress(''); setCabinId(''); setHours(null); setDd(''); setMm(''); setYyyy(''); setHh(''); setMi(''); setGuests(''); setComment(''); setError('') }
@@ -164,6 +188,28 @@ export default function BookPage() {
     <div style={{ ...wrap, justifyContent: 'center' }}><div style={{ ...glass, padding: 24, textAlign: 'center', ...shell }}>
       <p style={{ fontSize: 17, fontWeight: 800, margin: 0 }}>Онлайн-бронирование недоступно</p>
       <p style={{ fontSize: 14, color: 'var(--on-surface-variant)', marginTop: 8 }}>Свяжитесь с заведением напрямую.</p>
+    </div></div>
+  )
+
+  // ── Экран ввода телефона (первый шаг) ──
+  if (view === 'phone') return (
+    <div style={{ ...wrap, justifyContent: 'center' }}><div style={shell}>
+      <Header clubName={cfg.clubName} sub={fixedLoc === 'exit' ? 'Бронь выезда' : fixedLoc === 'titan' ? 'Бронь в Штабе' : 'Бронирование'} />
+      <div style={{ ...glass, padding: 20, marginTop: 18 }}>
+        <p style={{ fontSize: 14, color: 'var(--on-surface-variant)', margin: '0 0 14px', lineHeight: 1.55 }}>
+          Введите номер телефона — продолжим бронь и покажем ваши прошлые заявки, если они есть.
+        </p>
+        <form onSubmit={(e) => { e.preventDefault(); if (entryPhone.replace(/\D/g, '').length >= 10) continueFromPhone() }}>
+          <input style={{ ...inp, fontSize: 19, textAlign: 'center', letterSpacing: '0.02em' }}
+            type="tel" inputMode="tel" autoComplete="tel" name="phone" enterKeyHint="go"
+            value={entryPhone} onChange={(e) => setEntryPhone(e.target.value)} placeholder="+7 (___) ___-__-__" maxLength={30} autoFocus />
+          <button type="submit" disabled={entryPhone.replace(/\D/g, '').length < 10}
+            style={{ ...cta(), marginTop: 16, opacity: entryPhone.replace(/\D/g, '').length < 10 ? 0.4 : 1 }}>Продолжить</button>
+        </form>
+        <p style={{ fontSize: 11.5, color: 'var(--on-surface-variant)', textAlign: 'center', margin: '12px 0 0', lineHeight: 1.5 }}>
+          По номеру вы сможете открыть свои брони с любого устройства.
+        </p>
+      </div>
     </div></div>
   )
 
