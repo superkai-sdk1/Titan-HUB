@@ -11,6 +11,7 @@ import { useToast } from '@/components/Toast'
 import { IntegrationsTab } from './IntegrationsTab'
 import { PaymentConfig } from './PaymentConfig'
 import { WhatsAppConfig } from './WhatsAppConfig'
+import { ReviewsConfig } from './ReviewsConfig'
 
 function SectionCard({ title, icon, color, children }: { title: string; icon: string; color: string; children: React.ReactNode }) {
   return (
@@ -199,6 +200,9 @@ export default function SettingsPage() {
                   {/* Приём оплат: активный СБП-эквайер (по введённым ключам) + 54-ФЗ.
                       Сохраняется отдельно (собственный API /system/payment-config). */}
                   <PaymentConfig />
+
+                  {/* Отзывы: ссылка-приглашение + QR (Яндекс/2ГИС). Свой API. */}
+                  <ReviewsConfig />
                 </>
               )}
 

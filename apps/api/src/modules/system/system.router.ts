@@ -453,6 +453,58 @@ systemRouter.post(
   },
 )
 
+// ─── Отзывы: ссылка-приглашение + QR (Яндекс.Карты / 2ГИС) ───────────────────────
+// API на постинг отзывов у площадок нет — храним ссылку на страницу отзыва заведения
+// и рендерим QR, который гость сканирует. Ссылки — не секреты (app_settings).
+
+systemRouter.get('/reviews-config', requireAuth, requireRole('owner'), async (c) => {
+  const db = c.var.db
+  const rows = await db.select().from(appSettings)
+    .where(inArray(appSettings.key, ['reviews_yandex_url', 'reviews_2gis_url', 'reviews_invite_text']))
+  const m = Object.fromEntries(rows.map((r) => [r.key, r.value]))
+  return c.json({
+    yandexUrl: m['reviews_yandex_url'] || '',
+    twogisUrl: m['reviews_2gis_url'] || '',
+    inviteText: m['reviews_invite_text'] || '',
+  })
+})
+
+systemRouter.put(
+  '/reviews-config',
+  requireAuth,
+  requireRole('owner'),
+  zValidator('json', z.object({
+    yandexUrl: z.string().max(500).optional(),
+    twogisUrl: z.string().max(500).optional(),
+    inviteText: z.string().max(500).optional(),
+  })),
+  async (c) => {
+    const db = c.var.db
+    const b = c.req.valid('json')
+    const updates: Array<[string, string]> = []
+    if (b.yandexUrl !== undefined) updates.push(['reviews_yandex_url', b.yandexUrl.trim()])
+    if (b.twogisUrl !== undefined) updates.push(['reviews_2gis_url', b.twogisUrl.trim()])
+    if (b.inviteText !== undefined) updates.push(['reviews_invite_text', b.inviteText])
+    for (const [key, value] of updates) {
+      await db.insert(appSettings).values({ key, value })
+        .onConflictDoUpdate({ target: appSettings.key, set: { value } })
+    }
+    return c.json({ ok: true })
+  },
+)
+
+// QR на ссылку отзыва (SVG data-url). platform=yandex|2gis. Пусто, если ссылка не задана.
+systemRouter.get('/reviews/qr', requireAuth, requireRole('owner'), async (c) => {
+  const db = c.var.db
+  const key = c.req.query('platform') === '2gis' ? 'reviews_2gis_url' : 'reviews_yandex_url'
+  const [row] = await db.select().from(appSettings).where(eq(appSettings.key, key)).limit(1)
+  const url = row?.value
+  if (!url) return c.json({ qrDataUrl: null })
+  const QRCode = await import('qrcode')
+  const svg = await QRCode.toString(url, { type: 'svg', width: 240, margin: 1 })
+  return c.json({ qrDataUrl: `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`, url })
+})
+
 // ─── Регулярные опросы Telegram (бот опросов) ───────────────────────────────────
 // Только owner. Токен бота — отдельная интеграция poll_bot_token (маска как у
 // прочих секретов). Конфиги опросов — JSON в app_settings (poll_configs).

@@ -162,8 +162,6 @@ const CATALOG: Product[] = [
       { key: 'whatsapp_token', label: 'Постоянный токен', type: 'password', placeholder: 'EAAB…', hint: 'Постоянный (System User) access token с правом whatsapp_business_messaging. Временный 24-часовой не подойдёт.' },
     ],
   },
-  { id: 'reviews', name: 'Отзывы 2ГИС / Яндекс', icon: 'star', color: '#FBBF24', kind: 'keys', fields: [], comingSoon: true,
-    blurb: 'Сбор отзывов и карточка заведения', about: 'Сбор отзывов и управление карточкой заведения в 2ГИС и Яндекс.Картах — приглашать гостей оставить отзыв после визита.' },
   // Прочее
   { id: 'booking', name: 'Онлайн-бронирование', icon: 'event', color: '#A78BFA', kind: 'keys', fields: [], comingSoon: true,
     blurb: 'Виджет брони зон/столов на сайт', about: 'Виджет онлайн-бронирования зон и столов для сайта → бронь автоматически создаёт мероприятие/чек в системе.' },
