@@ -40,6 +40,9 @@ packages/config/
 | `sourceMap` | `true` | Source maps для отладки |
 | `isolatedModules` | `true` | Совместим с esbuild/swc |
 | `resolveJsonModule` | `true` | Импорт `.json`-файлов |
+| `skipLibCheck` | `true` | Пропуск проверки типов `.d.ts` библиотек |
+| `esModuleInterop` | `true` | Совместимость CommonJS/ESM импортов |
+| `forceConsistentCasingInFileNames` | `true` | Единый регистр имён файлов |
 
 Исключает: `node_modules`, `dist`.
 
@@ -80,7 +83,7 @@ packages/config/
 | `incremental` | `true` | Инкрементальная компиляция |
 | `plugins` | `[{ "name": "next" }]` | Языковой сервер Next.js |
 | `paths` | `{ "@/*": ["./src/*"] }` | Алиас `@/` → `src/` |
-| `include` | next-env + `**/*.ts/tsx` + `.next/types/**/*.ts` | |
+| `include` | `next-env.d.ts`, `**/*.ts`, `**/*.tsx`, `.next/types/**/*.ts` | |
 
 Подходит для: `apps/web`, `apps/wallet`.
 

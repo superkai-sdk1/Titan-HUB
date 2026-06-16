@@ -39,7 +39,7 @@
 ## Зависимости
 
 Компоненты построены на базе:
-- [`@radix-ui/*`](https://www.radix-ui.com/) — `dialog`, `toast`, `slot` и др.
+- [`@radix-ui/*`](https://www.radix-ui.com/) — `dialog`, `dropdown-menu`, `label`, `popover`, `select`, `separator`, `slot`, `switch`, `tabs`, `toast`, `tooltip`
 - [`class-variance-authority`](https://cva.style/) — варианты компонентов
 - [`clsx`](https://github.com/lukeed/clsx) + [`tailwind-merge`](https://github.com/danbrown/tailwind-merge) — утилита `cn`
 - `lucide-react` — объявлена зависимостью, но в текущих компонентах не используется
@@ -57,6 +57,9 @@ pnpm --filter @titan/ui dev
 
 # Проверка типов без сборки
 pnpm --filter @titan/ui type-check
+
+# Очистка артефактов сборки
+pnpm --filter @titan/ui clean
 ```
 
 Сборка выполняется через `tsc` (TypeScript compiler), результат в `dist/`.

@@ -50,7 +50,7 @@
 - клиенты копят бонусы, растут по тирам лояльности, пополняют депозит через Telegram;
 - планшеты в зонах работают как киоски (`/tablet`) с IDOR-защитой на уровне зоны;
 - владелец видит склад, зарплаты, депозиты/долги и аналитику в реальном времени;
-- AI-ассистент отвечает на вопросы по данным заведения (read-only SQL).
+- ИИ-ассистент Tai отвечает на вопросы по данным заведения (read-only SQL).
 
 Интерфейс адаптирован под iPhone/планшеты: тач-таргеты >= 44 px, зум отключён, тёмная premium-тема (glassmorphism, акцент violet).
 
@@ -61,6 +61,15 @@
 ### Касса (POS) — `/pos`
 
 Открытие и закрытие чеков. Добавление позиций меню и тарифов. Применение скидок, бонусных баллов и сертификатов. Смешанная оплата: наличные, безнал, депозит, бонусы, сертификат. Полноэкранный планшет-киоск на маршруте `/tablet`.
+
+**Сетка открытых чеков** построена по принципу masonry (компонент `MasonryColumns`, `apps/web/src/app/pos/page.tsx`): flex-колонки со смещением нечётных колонок на 34 px. Количество колонок определяется по ширине контейнера через `ResizeObserver` (не по ширине окна — это важно для split-layout): пороги ≥ 980 px → 4 колонки, ≥ 620 px → 3, ≥ 280 px → 2, иначе 1. На десктопе (≥ 1024 px) новый чек открывается в правой панели сплита (`setActiveCheckId`), на телефоне — через роут `/pos/[checkId]`.
+
+**Карточка смены** (`ShiftCard`) занимает предпоследнюю ячейку masonry-сетки перед «Новым чеком» и заменила полноэкранный оверлей «смена не открыта». Поведение:
+- смена закрыта → «Открыть смену»;
+- смена открыта, есть открытые чеки → три суммы (открыто чеков / **ПРОГНОЗ ВЕЧЕРА с логотипом Tai** / в кассе) + тап открывает `ShiftDetailSheet`;
+- смена открыта, чеков нет → «Закрыть смену» + остаток кассы.
+
+**ИИ-прогноз смены (Tai)** — эндпоинт `GET /pos/shift-summary` возвращает `{ shift, openChecks, cashInRegister, forecast }`. Логика прогноза в `apps/api/src/lib/shiftForecast.ts` (`computeShiftForecast`): для каждого открытого чека смены берётся история закрытых чеков игрока за 120 дней (до 40 записей), при наличии ≥ 3 записей за тот же день недели применяется поправка на день; `projected = max(текущая сумма чека, средний чек)`. Гость или игрок без истории — прогноз равен текущей сумме. Итоговый прогноз: `amount` (сумма спроецированных), `currentTotal` (факт), `additional` (разница), `perCheck[]` (по каждому чеку).
 
 ### Склад — иммутабельный леджер
 
@@ -75,6 +84,15 @@
 ### Депозиты и долги
 
 Авторитетное поле баланса: `profiles.balance` (> 0 — депозит, < 0 — долг). Пополнение и списание — только через `POST /clients/:id/balance` с блокировкой `FOR UPDATE`, идемпотентностью (`idempotencyKey`, миграция `045_tx_idempotency.sql`) и проверкой лимита долга `app_settings.max_client_debt`. Фильтрация клиентов: `GET /clients?filter=balances|deposits|debtors`. Транзакции хранятся в таблице `transactions` (типы: `deposit`, `withdrawal`, `payment`, `refund`, `bonus_*`).
+
+### Сбор средств — `/manage/collections`
+
+Взносы резидентов мимо кассы (Фонд клуба и разовые сборы). Таблицы: `collections`, `collection_periods`, `collection_contributions`, `collection_members` (миграция `053_collections.sql`).
+
+- **Виды сборов:** `recurring` (ежемесячный, период = `YYYY-MM`) и `oneoff` (разовый, период = `single`).
+- **Способы взноса:** `cash`, `transfer`, `sbp` — копилка мимо баланса; `deposit` и `debt` — изменяют `profiles.balance` и создают запись в `transactions` (видно в истории игрока).
+- **Ростер:** только резиденты (тиры `resident`, `student`, `newbie`). Исключения: 1 мес / 3 мес / навсегда; персональная сумма взноса.
+- **API:** `GET|POST /api/collections`, `GET /api/collections/:id`, `POST /api/collections/:id/pay`, `DELETE /api/collections/:id/contributions/:contribId`, `POST /api/collections/:id/exclude|include|member-amount`. Роутер использует `requireAuth` перед `requireRole` (иначе 500 вместо 401).
 
 ### Смены и касса / инкассация
 
@@ -94,6 +112,10 @@
 
 Модуль `pricing` (`/pricing/tariffs`, `/pricing/evening-types`, `/pricing/event-rates`) + `spaces` (`/spaces` CRUD, soft-delete через `isActive = false`, `/spaces/:id/tablet-link-code`).
 
+### Клиенты — счётчик посещений для новичков
+
+На вкладке транзакций карточки клиента счётчик «Новичок → Резидент» (`visits / threshold`) отображается **только** для тира `newbie`. При достижении порога (по умолчанию 10 посещений) статус повышается до «Резидент». Ручная правка счётчика — кнопками +1 / −1 (`POST /clients/:id/visits/adjust`). У прочих тиров (резидент, студент, гость) счётчик не показывается.
+
 ### Права сотрудников
 
 Поле `profiles.permissions` — jsonb `Record<string, boolean>`. Ключи разрешений: `menu`, `inventory`, `clients`, `debtors` и другие. Выдаются владельцем (роль `owner`) через `/staff` (owner-only CRUD, `/staff/:id/reset-pin`, `/staff/:id/telegram-link`, `/staff/:id/passkeys`). Фронт `ManageMenu.tsx` скрывает пункты меню на основе ролей и разрешений.
@@ -106,15 +128,42 @@
 
 Настройки типов уведомлений: `GET/PUT /notifications/settings` (таблица `user_notification_settings`). Поддерживаемые типы: `staff_call`, `request_bill`, `low_stock`, `supply_received`, `deposit_topup`, `debt_created`, `shift_open`, `shift_close` и другие.
 
-### TITAN AI
+### Опросы явки и @-команды — `/manage/polls`
 
-Экран `/ai` (файлы `apps/web/src/app/ai/page.tsx` и `TitanAiChat.tsx`). Точки входа в навигации: мобильный FAB на `/dashboard` и кнопка в `Sidebar`. Иконка `titan_ai` реализована как собственная SVG-запись в `components/Icon.tsx` (не иконочный шрифт).
+Бот опросов (интеграция `poll_bot`) публикует опросы в Telegram-чате клуба и разбирает входящие сообщения. Поддерживаемые команды:
+- **`@all`** — упоминание всех известных участников чата.
+- **`@tvari`** / **`@твари`** — упоминание тех, кто не проголосовал или выбрал «Думаю» в последнем опросе.
+
+Команды доступны только администраторам чата; ответ бота подставляет ники клиентов из профилей (поле `nickname`). Голоса хранятся в Redis (`apps/api/src/lib/pollState.ts`). Настройка прав команд: `POST /system/polls/commands`.
+
+### Tai (ИИ-ассистент) — `/ai`
+
+Экран `/ai` (файлы `apps/web/src/app/ai/page.tsx`; компонент `TaiLogo` — `apps/web/src/components/TaiLogo.tsx`). Точки входа в навигации: мобильный FAB на `/dashboard` и кнопка в `Sidebar`. Название экрана — **Tai** («Ассистент Titan AI на данных клуба»).
 
 Бэкенд: `POST /ai/chat` (`apps/api/src/modules/ai/ai.router.ts`). Провайдер Polza (`POLZA_*` из окружения), модель `anthropic/claude-sonnet-4.6`. Режим работы: text-to-SQL по схеме БД в READ ONLY транзакции (DDL и DML заблокированы) плюс набор готовых аналитических отчётов.
 
 ### Аналитика
 
-Маршрут `/dashboard`. Дашборд: выручка, средний чек, топ позиций, расходы по вкладкам, период день/неделя/месяц. Детальная аналитика смены — `/shifts/:id/analytics`.
+Маршрут `/dashboard`. Дашборд: выручка, средний чек (только по клубным чекам, без мероприятий), топ позиций, расходы по вкладкам, период день/неделя/месяц. Детальная аналитика смены — `/shifts/:id/analytics`.
+
+**Вкладка «Мероприятия»** (`GET /analytics/events?from=YYYY-MM-DD&to=YYYY-MM-DD`): окно фильтрации — по календарной дате события (`events.date`), а не по бизнес-дню. Возвращает: кол-во, общие часы, кол-во дней с событиями, выручку, гостей, средние (длительность / чек / выручка за час), отменённые, разбивку по категориям (Титан / Выезд / Миникап), загрузку по дням недели (Пн–Вс), топ-8 заказчиков, топ-6 зон.
+
+### Интеграции — `/manage/settings` (вкладка «Интеграции»)
+
+Экран интеграций доступен в настройках (`/manage/settings?tab=integrations`). Логика: установленные интеграции отображаются карточками (иконка + имя, статус, маскированный ключ `••••XXXX`), кнопка «Добавить интеграцию» открывает **каталог** доступных интеграций с кратким описанием (`blurb`) и пошаговым мастером настройки.
+
+Каталог интеграций (`apps/web/src/app/manage/settings/IntegrationsTab.tsx`):
+
+| Интеграция | Назначение |
+|---|---|
+| Бот опросов (`poll_bot`) | Опросы явки в Telegram-чате; `@all` / `@tvari` упоминания ников клиентов |
+| Админ-бот (`admin_bot`) | Уведомления сотрудникам в Telegram |
+| Бот-кошелёк (`wallet_bot`) | Telegram-кошелёк для клиентов (баланс, бонусы) |
+| Tai — ИИ-ассистент (`ai`) | Прогноз смены, аналитика (ключ Polza.ai) |
+| Platega — СБП (`platega`) | Приём оплат по СБП (QR) на кассе |
+| GoMafia.pro (`gomafia`) | Подбор игроков при создании клиента |
+
+Эндпоинты: `GET /system/integrations`, `PATCH /system/integrations/:key`, `DELETE /system/integrations/:key`.
 
 ---
 
@@ -180,45 +229,50 @@ Next.js 15 App Router, сборка standalone. Корневой маршрут 
 ```
 apps/web/src/
 ├── app/
-│   ├── ai/               # TITAN AI — чат с ассистентом
+│   ├── ai/               # Tai — ИИ-ассистент
 │   ├── dashboard/        # аналитика, расходы (вкладки)
-│   ├── events/           # мероприятия (маршрут живёт, пункт меню скрыт)
+│   ├── events/           # мероприятия (свой PullToRefreshContainer, сегмент-вкладки Предстоящие/Прошедшие)
 │   ├── login/            # вход (PIN, пароль, Telegram, passkey)
 │   ├── manage/           # раздел «Управление» (split-layout на десктопе)
 │   │   ├── about/          # о системе, бэкап из интерфейса
 │   │   ├── balances/       # депозиты и долги (вкладки: Все / Депозиты / Долги)
-│   │   ├── clients/        # клиенты
+│   │   ├── clients/        # клиенты (счётчик посещений только для новичков)
+│   │   ├── collections/    # сбор средств (Фонд клуба и разовые сборы)
 │   │   ├── customers/      # заказчики
 │   │   ├── inventory/      # склад (вкладки: Остатки / Поставки / Ревизия)
 │   │   ├── loyalty/        # лояльность (вкладки: Скидки / Бонусы / Сертификаты)
 │   │   ├── menu/           # позиции меню
+│   │   ├── polls/          # опросы явки (owner-only)
 │   │   ├── pricing/        # тарифы, типы вечеров, зоны/аренда, мероприятия
 │   │   ├── salary/         # зарплата
-│   │   ├── settings/       # настройки системы
+│   │   ├── settings/       # настройки системы (вкладки: заведение / поведение / интеграции)
 │   │   ├── shifts/         # смена и касса (split-layout)
 │   │   ├── spaces/         # зоны и столы
 │   │   └── staff/          # Пользователи (owner) / Мой профиль (staff); уведомления + passkey
-│   ├── pos/              # касса
+│   ├── pos/              # касса (masonry-сетка чеков, ShiftCard, ShiftDetailSheet)
 │   ├── reports/          # отчёты
 │   ├── shifts/           # история смен
+│   ├── superadmin/       # панель суперадмина (мультитенантность)
 │   └── tablet/           # планшет-киоск
 ├── components/
 │   ├── BottomNav.tsx               # мобильная навигация
 │   ├── Sidebar.tsx                 # боковое меню десктоп/планшет
 │   ├── GlobalPullToRefresh.tsx     # pull-to-refresh (.layout-content, не перехватывает Sheet/Modal)
+│   ├── PullToRefreshContainer.tsx  # изолированный PTR для страниц с собственным скроллом (events, pos)
+│   ├── TaiLogo.tsx                 # анимированный логотип Tai (ИИ-ассистент)
 │   ├── Icon.tsx                    # SVG-спрайт (собственная иконка titan_ai и др.)
 │   └── manage/
 │       ├── ManageMenu.tsx          # меню «Управление» с gate по ролям и разрешениям
 │       └── DesignSystem.tsx        # общие UI-компоненты раздела управления
-└── lib/
-    ├── nav.ts              # описание пунктов навигации
-    └── store/
-        └── auth.store.ts   # Zustand — состояние аутентификации
+├── lib/
+│   └── nav.ts              # описание пунктов навигации
+└── store/
+    └── auth.store.ts   # Zustand — состояние аутентификации
 ```
 
 ### apps/api — бэкенд
 
-Hono v4 на Node.js >= 22. Порт `3001` (настраивается через `API_PORT`). Миграции применяются **автоматически** при старте через `src/migrations/runner.ts` (таблица `_migrations`, SQL-файлы `src/migrations/sql/001_*.sql` … `046_*.sql`, идемпотентно в транзакции). Сервер стартует только после успешного завершения миграций.
+Hono v4 на Node.js >= 22. Порт `3001` (настраивается через `API_PORT`). Миграции применяются **автоматически** при старте через `src/migrations/runner.ts` (таблица `_migrations`, SQL-файлы `src/migrations/sql/001_*.sql` … `053_*.sql`, идемпотентно в транзакции). Сервер стартует только после успешного завершения миграций.
 
 ```
 apps/api/src/
@@ -226,34 +280,38 @@ apps/api/src/
 ├── app.ts               # Hono-приложение, монтирование роутеров
 ├── middleware/
 │   └── auth.ts          # requireAuth / requireRole
-├── modules/             # 24 бизнес-модуля (<name>/<name>.router.ts + <name>.service.ts)
+├── modules/             # бизнес-модули (<name>/<name>.router.ts + <name>.service.ts)
 │   ├── ai/              # POST /ai/chat
-│   ├── analytics/       # GET /analytics/*
+│   ├── analytics/       # GET /analytics/* (dashboard, overview, revenue, events, tariffs, clients, …)
 │   ├── auth/            # /auth/login/pin|telegram|passkey; /auth/me; /auth/pin/set
 │   ├── cashops/         # /cashops
 │   ├── certificates/    # /certificates
 │   ├── clients/         # /clients
+│   ├── collections/     # /collections (сборы средств, взносы резидентов)
 │   ├── customers/       # /customers
 │   ├── discounts/       # /discounts
 │   ├── events/          # /events
 │   ├── expenses/        # /expenses
+│   ├── gomafia/         # /gomafia (поиск игроков)
 │   ├── inventory/       # /inventory; ledger.ts (recordMovement)
 │   ├── menu/            # /menu
 │   ├── notifications/   # /notifications/push/*; /notifications/tg-link; /notifications/settings
-│   ├── platega/         # платёжный шлюз
-│   ├── pos/             # /pos (чеки, оплата)
+│   ├── platega/         # платёжный шлюз (СБП)
+│   ├── pos/             # /pos (чеки, оплата, /pos/shift-summary)
 │   ├── pricing/         # /pricing/tariffs|evening-types|event-rates
 │   ├── refunds/         # /refunds
 │   ├── salary/          # /salary
 │   ├── shifts/          # /shifts/*
 │   ├── spaces/          # /spaces
 │   ├── staff/           # /staff
+│   ├── superadmin/      # /superadmin (мультитенантность)
 │   ├── supplies/        # /supplies
-│   ├── system/          # /system (настройки, бэкап, здоровье)
+│   ├── system/          # /system (настройки, интеграции, бэкап, здоровье)
+│   ├── tg/              # /tg (вебхук бота, @all/@tvari команды)
 │   └── upload/          # /upload (MinIO)
 └── migrations/
     ├── runner.ts
-    └── sql/             # 001_*.sql … 046_*.sql
+    └── sql/             # 001_*.sql … 053_*.sql
 ```
 
 ### packages/database — схема и клиент БД
@@ -272,6 +330,7 @@ Drizzle ORM + `postgres` (pg-wire). Файлы схемы в `src/schema/*.ts`. 
 | Смены | `shifts` |
 | Мероприятия | `evening_types`, `event_hourly_rates`, `events` |
 | Клиенты | `customers` |
+| Сборы средств | `collections`, `collection_periods`, `collection_contributions`, `collection_members` |
 
 ### packages/auth — аутентификационные хелперы
 
@@ -300,10 +359,10 @@ Shared `tsconfig/*.json` и конфигурация ESLint 9 + typescript-eslin
 | `/pos` | Касса |
 | `/events` | Мероприятия |
 | `/dashboard` | Аналитика (расходы на отдельной вкладке) |
-| `/ai` | TITAN AI |
+| `/ai` | Tai — ИИ-ассистент |
 | `/manage` | Раздел управления |
 
-Мобильная навигация — `BottomNav.tsx`. Десктопная/планшетная — `Sidebar.tsx`. Pull-to-refresh на основном контенте — `GlobalPullToRefresh.tsx` (цепляется к `.layout-content`, не перехватывает Sheet и Modal).
+Мобильная навигация — `BottomNav.tsx`. Десктопная/планшетная — `Sidebar.tsx`. Pull-to-refresh на основном контенте — `GlobalPullToRefresh.tsx` (цепляется к `.layout-content`, не перехватывает Sheet и Modal). Страницы `/events` и `/pos` используют собственный `PullToRefreshContainer` и исключены из глобального PTR.
 
 ### Меню «Управление» (4 группы, `ManageMenu.tsx`)
 
@@ -313,10 +372,11 @@ Shared `tsconfig/*.json` и конфигурация ESLint 9 + typescript-eslin
 - `/manage/pricing` — тарифы, типы вечеров, зоны/аренда, мероприятия
 
 **Клиенты**
-- `/manage/clients` — клиенты
+- `/manage/clients` — клиенты (счётчик посещений только для новичков → Резидент)
 - `/manage/customers` — заказчики
 - `/manage/balances` — депозиты и долги (вкладки: Все / Депозиты / Долги)
 - `/manage/loyalty` — лояльность (вкладки: Скидки / Бонусы / Сертификаты)
+- `/manage/collections` — сбор средств (Фонд клуба / разовые взносы резидентов)
 
 **Персонал и смены**
 - `/manage/staff` — Пользователи (owner) / Мой профиль (staff); внутри: уведомления и passkey
@@ -324,10 +384,15 @@ Shared `tsconfig/*.json` и конфигурация ESLint 9 + typescript-eslin
 - `/manage/salary` — зарплата
 
 **Система**
-- `/manage/settings` — настройки системы
+- `/manage/settings` — настройки системы (вкладки: заведение / поведение / интеграции)
+- `/manage/polls` — опросы явки, `@all`/`@tvari` (только owner)
 - `/manage/about` — о системе (бэкап БД из интерфейса)
 
 Пункты «Управление» скрываются по ролям и разрешениям через gate в `ManageMenu.tsx`. Раздел `/manage` на десктопе использует split-layout (`apps/web/src/app/manage/layout.tsx`).
+
+### Страница мероприятий (`/events`)
+
+Сегмент-вкладки **Предстоящие** / **Прошедшие** (иконка над подписью). Прошедшие: события текущего месяца — плоским списком; события прошлых месяцев — папками (`folder_open`, раскрытие по клику). Свой `PullToRefreshContainer` (глобальный PTR на `/events` отключён).
 
 ---
 
@@ -345,9 +410,13 @@ Shared `tsconfig/*.json` и конфигурация ESLint 9 + typescript-eslin
 
 Документы хранятся в статусе `draft` с сериализованными данными в колонке `draft_data` (`046_drafts.sql`). Применение черновика атомарно создаёт позиции и движения склада.
 
+### Сборы средств
+
+Взносы резидентов хранятся в `collections` / `collection_periods` / `collection_contributions` / `collection_members` (миграция `053_collections.sql`). Методы `deposit` и `debt` изменяют `profiles.balance` атомарно через `FOR UPDATE` с проверкой лимита долга (`max_client_debt`). Ключ: `requireAuth` монтируется на `collectionsRouter.use('*', ...)` перед `requireRole`, иначе 500 вместо 401.
+
 ### Миграции БД
 
-`apps/api/src/migrations/runner.ts` применяет SQL-файлы из `src/migrations/sql/` по возрастанию номера в единой транзакции. Имена применённых файлов записываются в таблицу `_migrations`. Запускается до старта HTTP-сервера. Текущий максимум: `046_drafts.sql`.
+`apps/api/src/migrations/runner.ts` применяет SQL-файлы из `src/migrations/sql/` по возрастанию номера в единой транзакции. Имена применённых файлов записываются в таблицу `_migrations`. Запускается до старта HTTP-сервера. Текущий максимум: `053_collections.sql`.
 
 ### Планшет-киоск
 

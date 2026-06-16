@@ -27,7 +27,7 @@
 
 #### `signToken(payload, expiresIn?): Promise<string>`
 
-Создаёт подписанный JWT.
+Создаёт подписанный JWT для стандартных клубных токенов.
 
 | Параметр | Тип | Описание |
 |---|---|---|
@@ -47,6 +47,28 @@ const token = await signToken({ sub: '42', role: 'staff', nickname: 'Иван' }
 ```ts
 const payload = await verifyToken(bearerToken)
 console.log(payload.role) // 'owner' | 'staff' | 'tablet' | 'client'
+```
+
+#### `signJwt(claims, expiresIn): Promise<string>`
+
+Низкоуровневая подпись JWT с произвольными клеймами — для отдельных контуров авторизации (например, суперадмин со scope). Тот же секрет и алгоритм `HS256`, что и у клубных токенов: разделение контуров обеспечивается клеймом `scope`, а не отдельным ключом.
+
+| Параметр | Тип | Описание |
+|---|---|---|
+| `claims` | `Record<string, unknown>` | Произвольные клеймы для вставки в токен |
+| `expiresIn` | `string` | Срок жизни токена, напр. `"1h"` |
+
+```ts
+const token = await signJwt({ sub: 'system', scope: 'superadmin' }, '1h')
+```
+
+#### `verifyJwt(token): Promise<Record<string, unknown>>`
+
+Низкоуровневая проверка JWT — возвращает сырые клеймы без приведения к `JwtPayload`. Вызывающий сам валидирует нужные поля (scope и т.п.). Бросает при неверной подписи или истёкшем сроке.
+
+```ts
+const claims = await verifyJwt(token)
+if (claims['scope'] !== 'superadmin') throw new Error('Forbidden')
 ```
 
 #### Тип `JwtPayload`
@@ -202,6 +224,12 @@ pnpm --filter @titan/auth build
 
 # Режим watch (разработка)
 pnpm --filter @titan/auth dev
+
+# Проверка типов без вывода файлов
+pnpm --filter @titan/auth type-check
+
+# Очистка скомпилированных файлов
+pnpm --filter @titan/auth clean
 ```
 
 Скомпилированные файлы попадают в `dist/`. TypeScript-типы экспортируются из `dist/index.d.ts`.

@@ -7,7 +7,8 @@ Titan HUB — PWA-кассовая система для игрового клу
 цикл посещения: открытие чека → продажа товаров и аренда зон → начисление бонусов → оплата
 различными способами → закрытие чека. Параллельно ведёт складской учёт по принципу
 immutable ledger, управляет клиентскими депозитами и долгами, сменами и кассой, лояльностью,
-персоналом, событиями и аналитикой.
+персоналом, событиями, аналитикой, сборами взносов с резидентов и интеграциями с внешними
+сервисами (GoMafia, Platega, Telegram-боты, AI).
 
 Архитектурный стиль: монолитный REST API (один Hono-сервис, модульная структура) +
 Next.js App Router PWA-фронтенд. Данные хранятся в PostgreSQL (Drizzle ORM). Redis
@@ -45,7 +46,7 @@ AI-ответов. MinIO — объектное хранилище для изо
 | Приложение | Технология | Назначение |
 |---|---|---|
 | `apps/api` | Hono + @hono/node-server | REST API, порт 3001 |
-| `apps/web` | Next.js 14 App Router (standalone) | PWA, порт 3000 |
+| `apps/web` | Next.js 15 App Router (standalone) | PWA, порт 3000 |
 | `apps/wallet` | Next.js (standalone, basePath `/wallet`) | Telegram WebApp кошелёк, порт 3002 |
 | `apps/bot-admin` | Telegram Bot API | Уведомления персоналу, команды |
 | `apps/bot-wallet` | Telegram Bot API | Клиентский бот (баланс, лоты бонусов) |
@@ -75,17 +76,18 @@ nginx (titanpos.ru:443)
   └── /* → titan-web:3000
 
 titan-api (Hono)
-  ├── Модули: auth, pos, shifts, menu, clients, events, customers,
+  ├── Модули: auth, pos, shifts, menu, clients, collections, events, customers,
   │           spaces, analytics, supplies, expenses, certificates,
   │           salary, refunds, notifications, ai, system, upload,
-  │           staff, cashops, discounts, inventory, platega, pricing
+  │           staff, cashops, discounts, inventory, platega, pricing,
+  │           gomafia, club, tg, internal, superadmin
   ├── packages/database → PostgreSQL 16
   ├── packages/auth (JWT, PIN, passkey)
   ├── Redis (rate-limit, token revocation, SSE Pub/Sub, AI cache)
   └── MinIO (S3-совместимый, /api/upload)
 
 PostgreSQL ← единственный источник истины
-  └── все таблицы схемы
+  └── все таблицы схемы (миграции 001..053)
 
 Redis
   ├── Pub/Sub: titan:staff-notifications (SSE уведомления)
@@ -103,8 +105,9 @@ apps/bot-wallet → PostgreSQL напрямую (DATABASE_URL)
 
 TITAN AI → Polza AI (POLZA_BASE_URL, POLZA_API_KEY, POLZA_MODEL)
 Platega → /api/platega/webhook (СБП-платежи)
+GoMafia → gomafia.pro API (/api/gomafia/*, поиск/резиденты/стат)
 Web Push → browser push service (VAPID)
-Telegram → Bot API (ADMIN_BOT_TOKEN, WALLET_BOT_TOKEN)
+Telegram → Bot API (ADMIN_BOT_TOKEN, WALLET_BOT_TOKEN, poll_bot_token)
 ```
 
 ### Типичный поток: открытие чека и продажа
@@ -129,7 +132,7 @@ Telegram → Bot API (ADMIN_BOT_TOKEN, WALLET_BOT_TOKEN)
 
 ### Стек и ключевые библиотеки
 
-- **Next.js 14 App Router** (Server/Client компоненты, `'use client'` везде где нужен React-state)
+- **Next.js 15 App Router** (Server/Client компоненты, `'use client'` везде где нужен React-state)
 - **React Query** (`@tanstack/react-query`) — единственный слой кэша и синхронизации серверных данных
 - **Zustand** (`store/auth.store`) — глобальное состояние авторизации (JWT, user)
 - **framer-motion** — анимации
@@ -157,9 +160,11 @@ app/
 │   ├── customers/         → заказчики
 │   ├── balances/          → Депозиты и долги (вкладки Все · Депозиты · Долги)
 │   ├── loyalty/           → Скидки · Бонусы · Сертификаты (вкладки)
+│   ├── collections/       → Сбор средств (Фонд клуба и разовые сборы)
 │   ├── staff/             → Пользователи (owner) / Мой профиль (staff) + passkey/уведомления
 │   ├── shifts/            → Смена и касса (инкассация встроена)
 │   ├── salary/            → зарплаты
+│   ├── polls/             → Опросы (Telegram-бот опросов)
 │   ├── settings/          → настройки системы
 │   └── about/             → о системе (версия, бэкап БД)
 ├── shifts/                → страница смен (отдельный маршрут, deep-link из уведомлений)
@@ -208,6 +213,7 @@ export const NAV_PRIMARY = [
   /manage/customers
   /manage/balances      perm: 'debtors'
   /manage/loyalty
+  /manage/collections   perm: 'debtors'  ← Сбор средств (новый)
 
 Персонал и смены
   /manage/staff         labelStaff: 'Мой профиль' (role-aware подпись)
@@ -216,14 +222,36 @@ export const NAV_PRIMARY = [
 
 Система
   /manage/settings      только owner
+  /manage/polls         только owner
   /manage/about         только owner
 ```
 
 Гейтинг: пункт скрыт, если `perm` задан И `permissions[perm] === false` у staff. Владельцу права не ограничивают.
 
+### POS: Masonry-сетка и карточка смены
+
+**Компонент `MasonryColumns`** (`apps/web/src/app/pos/page.tsx`) — flex-колонки, раздача элементов по `i % cols`, нечётные колонки смещены вниз на `marginTop: 34px`. Количество колонок определяется по **ширине контейнера** (ResizeObserver на `.pos-cards-grid`), а не по `window.innerWidth` — корректно работает в узкой левой панели сплита:
+
+| Ширина контейнера | Колонок |
+|---|---|
+| ≥980 px | 4 |
+| ≥620 px | 3 |
+| ≥280 px | 2 |
+| < 280 px | 1 |
+
+**ShiftCard** — предпоследняя ячейка сетки перед «Новый чек». Если смена не открыта — показывает кнопку «Открыть смену». Если открыта и есть чеки — три суммы: открыто чеков / ПРОГНОЗ ВЕЧЕРА (с анимированным лого Tai) / в кассе; тап → `ShiftDetailSheet`.
+
+**Прогноз смены (`/pos/shift-summary`)** — `GET /api/pos/shift-summary` (owner/staff). Вызывает `computeShiftForecast` (`apps/api/src/lib/shiftForecast.ts`): для каждого открытого чека проецирует итог до среднего чека резидента за 120 дней (поправка на день недели при ≥3 семплах). Ответ: `{ shift, openChecks: {count, total}, cashInRegister, forecast: {amount, currentTotal, additional, perCheck[]} }`.
+
+### Страница «Мероприятия» (/events)
+
+- Собственный `PullToRefreshContainer` (глобальный PTR на этом маршруте отключён)
+- Сегмент-вкладки **Предстоящие / Прошедшие** (иконка над подписью)
+- **Прошедшие**: текущий месяц — плоский список; прошлые месяцы — папки по названию месяца (раскрытие по клику)
+
 ### Pull-to-refresh
 
-`components/GlobalPullToRefresh.tsx` — цепляется к `.layout-content`. Срабатывает только при тяге основного контента (игнорирует касания вне контейнера, во вложенных скроллерах и Sheet). Отключён на `/pos`, `/dashboard`, `/login`, `/tablet`.
+`components/GlobalPullToRefresh.tsx` — цепляется к `.layout-content`. Срабатывает только при тяге основного контента (игнорирует касания вне контейнера, во вложенных скроллерах и Sheet). Отключён на `/pos`, `/dashboard`, `/login`, `/tablet`, `/events` (последний использует собственный PTR-контейнер).
 
 ---
 
@@ -270,18 +298,19 @@ rateLimit               ← /api/*   (src/middleware/rateLimit.ts)
 | Путь | Модуль | Описание |
 |---|---|---|
 | `/api/auth` | auth | PIN/пароль/passkey/Telegram вход, logout, SSE-тикет, /me |
-| `/api/pos` | pos | Чеки (CRUD, добавление позиций, скидки, оплата, SSE) |
+| `/api/pos` | pos | Чеки (CRUD, добавление позиций, скидки, оплата, SSE, shift-summary) |
 | `/api/shifts` | shifts | Смены (открытие, закрытие, остаток кассы, история, аналитика) |
 | `/api/cashops` | cashops | Кассовые операции (внесение/изъятие/зарплата наличными) |
 | `/api/menu` | menu | Меню (категории, позиции, модификаторы) |
 | `/api/inventory` | inventory | Склад (остатки, ревизии — draft/apply, движения) |
 | `/api/supplies` | supplies | Поставки (posted/draft, apply, корректировки) |
 | `/api/clients` | clients | Клиенты (CRUD, баланс, статусы/тиры) |
+| `/api/collections` | collections | Сбор средств (Фонд клуба и разовые сборы, взносы резидентов) |
 | `/api/customers` | customers | Заказчики мероприятий |
 | `/api/spaces` | spaces | Зоны (CRUD, soft delete, tablet-link-code) |
 | `/api/pricing` | pricing | Тарифы, типы вечеров, почасовые ставки мероприятий |
 | `/api/events` | events | Мероприятия (CRM + связь с чеком) |
-| `/api/analytics` | analytics | Аналитика (дашборд, отчёты) |
+| `/api/analytics` | analytics | Аналитика (дашборд, отчёты, /events витрина мероприятий) |
 | `/api/expenses` | expenses | Расходы |
 | `/api/salary` | salary | Выплаты зарплат |
 | `/api/refunds` | refunds | Возвраты по чекам |
@@ -289,10 +318,15 @@ rateLimit               ← /api/*   (src/middleware/rateLimit.ts)
 | `/api/discounts` | discounts | Скидки и правила по статусу клиента |
 | `/api/notifications` | notifications | Web-push, Telegram-привязка, настройки типов, SSE-стрим |
 | `/api/ai` | ai | TITAN AI (POST /chat, POST /action) |
-| `/api/system` | system | Настройки (`app_settings`), бэкап БД |
+| `/api/system` | system | Настройки (`app_settings`), бэкап БД, секреты интеграций |
 | `/api/staff` | staff | Управление персоналом (owner-only), passkeys по staff |
 | `/api/upload` | upload | Загрузка изображений в MinIO |
 | `/api/platega` | platega | Webhook СБП-платежей (Platega) |
+| `/api/gomafia` | gomafia | Интеграция GoMafia.pro (поиск игроков, резиденты клуба) |
+| `/api/club` | club | Управление клубом (мультитенантность, control-plane) |
+| `/api/tg` | tg | Telegram webhook / чаты |
+| `/api/internal` | internal | Внутренние сервисные эндпоинты |
+| `/api/superadmin` | superadmin | Суперадмин (управление всеми клубами) |
 
 ---
 
@@ -310,7 +344,7 @@ profiles
 ├── nickname     text UNIQUE NOT NULL
 ├── fullName     text
 ├── role         enum('owner','staff','tablet','client')
-├── clientTier   text (ссылка на client_tiers.key, дефолт 'newbie')
+├── clientTier   text (ссылка на tariffs.key, дефолт 'newbie')
 ├── balance      numeric(12,2)  ← депозит(>0) / долг(<0) клиента
 ├── bonusPoints  numeric(12,2)  ← текущий баланс бонусных баллов
 ├── pin          text (bcrypt hash)
@@ -319,7 +353,8 @@ profiles
 ├── tgUsername   text
 ├── phone        text
 ├── birthday     text           ← формат 'YYYY-MM-DD'
-├── photoUrl     text
+├── photoUrl     text           ← загружено сотрудником
+├── tgPhotoUrl   text           ← из Telegram (миграция 051)
 ├── permissions  jsonb          ← Record<string,boolean> (права staff)
 ├── linkedSpaceId uuid          ← для role='tablet': привязанная зона
 ├── searchTags   text[]
@@ -331,10 +366,9 @@ profiles
 └── deletedAt    timestamptz    ← soft delete
 ```
 
-### client_tiers (profiles.ts)
+### tariffs / client_tiers (миграция 052)
 
-Справочник статусов клиента (динамический, управляется владельцем):
-`key(PK), label, color, sortOrder, isSystem, createdAt`
+Начиная с миграции 052 **статус клиента и тариф объединены**: таблица `tariffs` хранит как тарифы (backing-позиции меню), так и статусы (иерархия: `resident > student > newbie > guest`). Поле `tariffs.key` — слаг статуса; `profiles.clientTier` ссылается на него.
 
 ### Таблицы меню и склада (menu.ts)
 
@@ -346,7 +380,7 @@ inventory:        id, name, category→menu_categories, price, costPrice (WAC),
                   trackStock, isService, isActive, isTabletVisible,
                   deletedAt (soft delete — FK RESTRICT из check_items)
 modifiers:        id, name, price, productId→inventory
-tariffs:          id, name, price, color, sortOrder, isActive,
+tariffs:          id, key, name, price, color, sortOrder, isActive,
                   itemId→inventory (backing-позиция категории «Тарифы»)
 ```
 
@@ -360,7 +394,8 @@ checks:           id, playerId→profiles, staffId→profiles, shiftId→shifts,
                   spaceId→spaces, spaceStartAt, spaceEndAt,
                   guestNames[], excludedDiscountIds[],
                   linkedEventId, eventBaseAmount, prepaidAmount, tipAmount,
-                  plategaTxId (реконсиляция СБП)
+                  plategaTxId (реконсиляция СБП),
+                  acquiringSurcharge (миграция 047: эквайринговая надбавка СБП)
 check_items:      id, checkId→checks, itemId→inventory, quantity, priceAtTime
 check_item_modifiers: id, checkItemId, modifierId, priceAtTime
 check_payments:   id, checkId, method(enum), amount
@@ -432,11 +467,40 @@ events:          id, type(titan/exit), title, location, spaceId, date, startTime
                  maxGuests, attendeesCount, format(regular/minicap),
                  participationFee, prizeFund, lunchCost, otherCost,
                  status(text: planned/needs_clarification/active/completed/cancelled),
-                 responsibleStaffId, checkId, createdBy
+                 responsibleStaffId, checkId, createdBy,
+                 customerName, customerPhone
 event_participants: id, eventId, profileId, role, prepaid, checkId
 event_hourly_rates: hours PK, price (цена за весь период, не за 1 час)
 customers:          id, name, phone  ← заказчики (отдельно от profiles)
 ```
+
+### Сборы взносов (миграция 053)
+
+```
+collections:              id, name, description, kind(recurring/oneoff),
+                          isMandatory, defaultAmount, isActive, createdBy, createdAt
+collection_periods:       id, collectionId→collections, periodKey (YYYY-MM | 'single'),
+                          label, amount, status(open/closed), openedAt, closedAt
+                          UNIQUE(collectionId, periodKey)
+collection_contributions: id, collectionId, periodId, playerId→profiles, amount,
+                          method(cash/transfer/sbp/deposit/debt),
+                          balanceTxId, note, paidAt, createdBy
+                          UNIQUE(periodId, playerId)
+collection_members:       id, collectionId, playerId→profiles, amountOverride,
+                          excludedUntil, excludedForever, note, createdAt, updatedAt
+                          UNIQUE(collectionId, playerId)
+```
+
+Метод `deposit`/`debt` — меняет `profiles.balance` и записывает в `transactions`; видно в истории игрока. Методы `cash`/`transfer`/`sbp` — копилка мимо баланса.
+
+### Секреты интеграций (миграция 050)
+
+```
+integrations: id, key UNIQUE, valueEnc (AES-256-GCM: v1:<iv>:<tag>:<cipher>),
+              updatedAt, updatedBy
+```
+
+Управляется через `apps/api/src/lib/secrets.ts` (`encryptSecret` / `decryptSecret` / `maskSecret` / `getClubIntegration`). Мастер-ключ — `SECRETS_MASTER_KEY` (32 байта hex или base64). Разрешённые ключи: `admin_bot_token`, `wallet_bot_token`, `ai_api_key`, `platega_merchant_id`, `platega_secret`, `poll_bot_token`, `gomafia_login`, `gomafia_password`, `gomafia_club_id`. Наружу отдаётся только маска (`••••` + последние 4 символа).
 
 ### Уведомления (notifications.ts + passkeys.ts)
 
@@ -543,7 +607,51 @@ getShiftCashBalance(shiftId, tx?):
 - Считает `getShiftCashBalance` под блокировкой
 - Расхождение → `cashOperation`; notify fire-and-forget
 
-### 4. Черновики поставок и ревизий (миграция 046)
+### 4. Прогноз смены (Tai)
+
+**Файл:** `apps/api/src/lib/shiftForecast.ts`, эндпоинт `GET /api/pos/shift-summary`
+
+```
+computeShiftForecast(db, shiftId):
+  1. Открытые чеки смены + профиль плательщика
+  2. История закрытых чеков этих игроков за 120 дней (до 40 чеков на игрока)
+  3. Для каждого открытого чека:
+       - Если игрок с историей ≥1 чека: avg = среднее (по выбранной выборке)
+         Если по дню недели ≥3 семплов → weekday-поправка; иначе — общая средняя
+       - projected = max(current, avg)
+       - Гость без истории: projected = current (не раздуваем догадками)
+  4. amount = SUM(projected), currentTotal = SUM(current)
+     additional = amount − currentTotal
+```
+
+### 5. Аналитика мероприятий
+
+**Эндпоинт:** `GET /api/analytics/events?from=YYYY-MM-DD&to=YYYY-MM-DD`
+
+Окно — по **календарной дате события** (`events.date`), а не бизнес-дню. Агрегации считаются в JS после единственного SELECT:
+
+- Итого: `count`, `hours`, `days`, `revenue`, `attendees`, `cancelled`, `avgDuration`, `avgCheck`, `revenuePerHour`, `avgAttendees`
+- `byStatus` — разбивка по статусу
+- `byCategory` — Титан / Выезд / Миникап (по `format` и `type`)
+- `byWeekday` — загрузка по дням недели (Пн..Вс)
+- `topCustomers` — топ-8 заказчиков по выручке
+- `topZones` — топ-6 зон по выручке
+
+### 6. Сбор средств (collections)
+
+**Модуль:** `apps/api/src/modules/collections/collections.router.ts`, таблицы из миграции 053.
+
+Сборы бывают двух видов:
+- `recurring` — Фонд клуба: автоматически создаёт период `YYYY-MM` на каждый месяц
+- `oneoff` — разовый сбор: единственный период `'single'`
+
+Взнос (`collection_contributions`) записывается на связку `(periodId, playerId)` — один взнос на период. Способы оплаты:
+- `cash` / `transfer` / `sbp` — копилка мимо баланса
+- `deposit` / `debt` — меняет `profiles.balance` и вставляет в `transactions` (видно в истории игрока)
+
+Исключения резидента (`collection_members`): персональная сумма (`amountOverride`), временное исключение (`excludedUntil`), постоянное исключение (`excludedForever`).
+
+### 7. Черновики поставок и ревизий (миграция 046)
 
 **Поставки:**
 - `POST /api/supplies/draft` — сохраняет рабочее состояние в `supplies.draft_data` (status='draft'), остатки не трогает
@@ -554,7 +662,7 @@ getShiftCashBalance(shiftId, tx?):
 - `POST /api/inventory/revisions/draft` — сохраняет позиции + введённые факты в `revisions.draft_data` (status='draft')
 - `POST /api/inventory/revisions/:id/apply` — для каждой позиции вычисляет дельту (actual − expected → `count` движение), status → 'applied'
 
-### 5. Права сотрудников
+### 8. Права сотрудников
 
 `profiles.permissions` — `jsonb` объект `Record<string, boolean>`. Ключи соответствуют разделам меню: `menu`, `inventory`, `clients`, `debtors`, `salary`, и др.
 
@@ -564,7 +672,7 @@ getShiftCashBalance(shiftId, tx?):
 
 **Дополнительные owner-only операции:** `/api/staff/:id/reset-pin`, `/api/staff/:id/telegram-link`, `/api/staff/:id/passkeys`.
 
-### 6. Аутентификация
+### 9. Аутентификация
 
 **Пакет:** `packages/auth` (JWT через `jose`, PIN/пароль через `bcrypt`)
 
@@ -585,7 +693,7 @@ getShiftCashBalance(shiftId, tx?):
 
 **SSE-тикет:** `POST /api/auth/sse-ticket` — одноразовый UUID, TTL 60 сек, потребляется при подключении EventSource.
 
-### 7. Уведомления
+### 10. Уведомления
 
 **Файл:** `apps/api/src/modules/notifications/push.ts`
 
@@ -609,7 +717,7 @@ notifyClient(profileId, text): шлёт через WALLET_BOT_TOKEN (тольк�
 
 **SSE-стрим:** `GET /api/notifications/stream?ticket=<uuid>` — Hono SSE (streamSSE), подписывается на Redis Pub/Sub канал `titan:staff-notifications`.
 
-### 8. Лояльность
+### 11. Лояльность
 
 **Бонусные баллы:**
 - `profiles.bonusPoints` — источник истины баланса
@@ -626,11 +734,12 @@ notifyClient(profileId, text): шлёт через WALLET_BOT_TOKEN (тольк�
 **Сертификаты:**
 - `certificates` — уникальный `code`, `nominal`, `balance` (частичное погашение)
 
-**Статусы клиентов:**
-- `client_tiers` — динамический справочник (владелец создаёт/удаляет)
-- Базовый статус: `newbie` (isSystem=true, не удаляется)
+**Статусы клиентов (миграция 052):**
+- Унифицированы с тарифами через таблицу `tariffs` (поле `key`)
+- Иерархия: `resident > student > newbie > guest`
+- Базовый статус: `newbie` (isSystem=true)
 
-### 9. Тарифы и аренда зон
+### 12. Тарифы и аренда зон
 
 **Тарифы** (`tariffs`): каждый тариф привязан к скрытой backing-позиции меню (`itemId → inventory`, категория «Тарифы», `isService=true`, `trackStock=false`). Через эту позицию тариф попадает в `check_items` стандартным путём — денежный маршрут унифицирован.
 
@@ -638,7 +747,9 @@ notifyClient(profileId, text): шлёт через WALLET_BOT_TOKEN (тольк�
 
 **Аренда зоны в чеке:** `checks.spaceStartAt/spaceEndAt` → расчёт стоимости `computeRental()` (`apps/api/src/lib/money.ts`).
 
-### 10. TITAN AI
+**Запрет двух одновременных аренд одной зоны (миграция 048):** уникальный частичный индекс на уровне БД.
+
+### 13. TITAN AI (Tai)
 
 **Файл:** `apps/api/src/modules/ai/ai.router.ts`
 
@@ -663,9 +774,24 @@ notifyClient(profileId, text): шлёт через WALLET_BOT_TOKEN (тольк�
 
 **Доступ:** `requireAuth + requireRole('owner', 'staff')`. Клиенты и планшеты не имеют доступа.
 
-**Фронт:** `apps/web/src/app/ai/page.tsx` + `TitanAiChat.tsx`. Кнопки быстрых действий соответствуют 14 action-типам. Composer прикреплён снизу; сообщения скроллятся внутри flex-контейнера.
+**Фронт:** `apps/web/src/app/ai/page.tsx` + `TitanAiChat.tsx`. Кнопки быстрых действий соответствуют 15 action-типам. Composer прикреплён снизу; сообщения скроллятся внутри flex-контейнера.
 
-### 11. Планшет-кабинки
+### 14. Интеграция GoMafia
+
+**Модуль:** `apps/api/src/modules/gomafia/gomafia.router.ts`
+
+Подбор игроков при создании клиента. Учётные данные клуба (`gomafia_login`, `gomafia_password`, `gomafia_club_id`) хранятся в таблице `integrations` зашифрованно; фолбэк — env-переменные `GOMAFIA_LOGIN` / `GOMAFIA_PASSWORD`.
+
+**Эндпоинты:**
+- `GET /api/gomafia/status` — проверка подключения и данные клуба
+- `POST /api/gomafia/connect` — логин в GoMafia (сохраняет `gomafia_club_id`)
+- `POST /api/gomafia/set-club` — установка клуба по ссылке `gomafia.pro/club/N`
+- `DELETE /api/gomafia/disconnect` — удаление credentials (owner-only)
+- `GET /api/gomafia/search?q=` — поиск игроков (объединяет резидентов клуба + глобальный getTop)
+- `GET /api/gomafia/club/residents` — список резидентов клуба
+- `GET /api/gomafia/player/:id` — детали игрока по GoMafia ID
+
+### 15. Планшет-кабинки
 
 Планшет — роль `tablet` в `profiles` с `linkedSpaceId`. Его JWT выдаётся на 30 дней.
 
@@ -679,7 +805,7 @@ notifyClient(profileId, text): шлёт через WALLET_BOT_TOKEN (тольк�
 
 ## Миграции
 
-**Файлы:** `apps/api/src/migrations/sql/*.sql` (01..046)
+**Файлы:** `apps/api/src/migrations/sql/*.sql` (001..053)
 **Раннер:** `apps/api/src/migrations/runner.ts`
 
 ### Алгоритм раннера
@@ -718,6 +844,13 @@ runMigrations():
 | `044_stock_ledger.sql` | Immutable stock_movements ledger + WAC + инвариант |
 | `045_tx_idempotency.sql` | Идемпотентность транзакций (transactions.idempotency_key) |
 | `046_drafts.sql` | Черновики поставок и ревизий (status+draft_data) |
+| `047_acquiring_surcharge.sql` | Эквайринговая надбавка СБП (checks.acquiring_surcharge) |
+| `048_one_open_rental_per_space.sql` | Запрет двух аренд одной зоны одновременно |
+| `049_fk_perf_indexes.sql` | Индексы на FK/горячих фильтрах (аудит H4) |
+| `050_integrations.sql` | Зашифрованное хранилище секретов (integrations, AES-256-GCM) |
+| `051_client_photo_sources.sql` | Раздельные поля photoUrl / tgPhotoUrl |
+| `052_status_tariff_unify.sql` | Объединение статусов клиента и тарифов (tariffs.key) |
+| `053_collections.sql` | Сборы взносов резидентов (collections + 3 таблицы) |
 
 ---
 

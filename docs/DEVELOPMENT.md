@@ -10,10 +10,11 @@
 5. [Как добавить миграцию и новую таблицу](#как-добавить-миграцию-и-новую-таблицу)
 6. [Как добавить новый экран / вкладку на фронте](#как-добавить-новый-экран--вкладку-на-фронте)
 7. [Как добавить пункт меню «Управление»](#как-добавить-пункт-меню-управление)
-8. [Ключевые паттерны проекта](#ключевые-паттерны-проекта)
-9. [Дизайн-система и UI-компоненты](#дизайн-система-и-ui-компоненты)
-10. [Иконки](#иконки)
-11. [Конвенции](#конвенции)
+8. [Как добавить новую интеграцию](#как-добавить-новую-интеграцию)
+9. [Ключевые паттерны проекта](#ключевые-паттерны-проекта)
+10. [Дизайн-система и UI-компоненты](#дизайн-система-и-ui-компоненты)
+11. [Иконки](#иконки)
+12. [Конвенции](#конвенции)
 
 ---
 
@@ -148,7 +149,7 @@ apps/api/src/
 │   └── birthdays.ts          # checkBirthdays() — ежедневный cron 09:00 МСК
 ├── migrations/
 │   ├── runner.ts             # runMigrations() — применяет SQL-файлы на старте
-│   └── sql/                  # 001_*.sql … 046_drafts.sql (нумерация сквозная)
+│   └── sql/                  # 001_*.sql … 053_collections.sql (нумерация сквозная)
 └── modules/
     ├── ai/           ai.router.ts
     ├── analytics/    analytics.router.ts
@@ -156,10 +157,14 @@ apps/api/src/
     ├── cashops/      cashops.router.ts
     ├── certificates/ certificates.router.ts
     ├── clients/      clients.router.ts
+    ├── club/         club.router.ts
+    ├── collections/  collections.router.ts
     ├── customers/    customers.router.ts
     ├── discounts/    discounts.router.ts
     ├── events/       events.router.ts
     ├── expenses/     expenses.router.ts
+    ├── gomafia/      gomafia.router.ts
+    ├── internal/     internal.router.ts
     ├── inventory/    inventory.router.ts  ← + ledger.ts (recordMovement)
     ├── menu/         menu.router.ts
     ├── notifications/notifications.router.ts
@@ -171,8 +176,10 @@ apps/api/src/
     ├── shifts/       shifts.router.ts  ← + shifts.service.ts (getShiftCashBalance)
     ├── spaces/       spaces.router.ts
     ├── staff/        staff.router.ts
+    ├── superadmin/   index.ts
     ├── supplies/     supplies.router.ts
-    ├── system/       system.router.ts
+    ├── system/       system.router.ts  ← интеграции (INTEGRATION_KEYS)
+    ├── tg/           tg.router.ts
     └── upload/       upload.router.ts
 ```
 
@@ -196,7 +203,7 @@ apps/web/src/
 │   ├── pos/                  # POS-касса
 │   ├── events/               # События/мероприятия
 │   ├── dashboard/            # Аналитика
-│   ├── ai/                   # TITAN AI (TitanAiChat.tsx)
+│   ├── ai/                   # Tai AI (TitanAiChat.tsx)
 │   ├── shifts/               # Смены (legacy-роут, основной теперь /manage/shifts)
 │   └── manage/
 │       ├── layout.tsx        # Split-layout: слева ManageMenu, справа content (≥1024px)
@@ -208,10 +215,12 @@ apps/web/src/
 │       ├── customers/        # Заказчики
 │       ├── balances/         # Депозиты и долги
 │       ├── loyalty/          # Лояльность (Скидки · Бонусы · Сертификаты)
+│       ├── collections/      # Сбор средств (Фонд клуба / разовые сборы)
 │       ├── staff/            # Пользователи (owner) / Мой профиль (staff)
 │       ├── shifts/           # Смены и касса (split-layout)
 │       ├── salary/           # Зарплата
-│       ├── settings/         # Настройки системы
+│       ├── polls/            # Опросы явки
+│       ├── settings/         # Настройки системы + IntegrationsTab
 │       └── about/            # О системе
 ├── components/
 │   ├── manage/
@@ -220,7 +229,7 @@ apps/web/src/
 │   │   │                     #   SectionGroup, FormField, ToggleRow, StatChip, Chip
 │   │   ├── ManageMenu.tsx    # Навигационное меню «Управления» (4 группы, role/perm гейт)
 │   │   └── UnsavedGuard.tsx  # Контекст защиты несохранённых черновиков
-│   ├── Icon.tsx              # Компонент иконки (собственная SVG-карта)
+│   ├── Icon.tsx              # Компонент иконки (собственная SVG-карта, ~1200 строк)
 │   ├── BottomNav.tsx         # Нижняя навигация (мобильная)
 │   ├── Sidebar.tsx           # Боковая панель (десктоп/планшет)
 │   ├── GlobalPullToRefresh.tsx
@@ -298,7 +307,7 @@ import { requireAuth, requireRole } from '../../middleware/auth.js'
 
 export const myRouter = new Hono<AppEnv>()
 
-// Защита всего роутера (или отдельных эндпоинтов)
+// ВАЖНО: requireAuth всегда ставьте ДО requireRole — иначе 500 вместо 401.
 myRouter.use('*', requireAuth, requireRole('owner', 'staff'))
 
 // GET /api/my-route
@@ -362,24 +371,24 @@ await db.transaction(async (tx) => {
 3. Применяет только те файлы, которых ещё нет в `_migrations`.
 4. Каждая миграция выполняется в транзакции — при ошибке откатывается, сервер не стартует.
 
-Текущая последняя миграция: `046_drafts.sql`. Следующий номер — `047`.
+Текущая последняя миграция: `053_collections.sql`. Следующий номер — `054`.
 
 ### Шаг 1. Создать SQL-файл
 
 ```bash
 # Имя файла: NNN_описание.sql
-touch apps/api/src/migrations/sql/047_my_feature.sql
+touch apps/api/src/migrations/sql/054_my_feature.sql
 ```
 
-SQL должен быть идемпотентным (`IF NOT EXISTS`, `IF NOT EXISTS` для колонок):
+SQL должен быть идемпотентным (`IF NOT EXISTS` для таблиц и колонок):
 
 ```sql
--- apps/api/src/migrations/sql/047_my_feature.sql
+-- apps/api/src/migrations/sql/054_my_feature.sql
 ALTER TABLE some_table ADD COLUMN IF NOT EXISTS new_col text;
 CREATE INDEX IF NOT EXISTS idx_some_table_new_col ON some_table(new_col);
 ```
 
-Нумерация трёхзначная, сквозная (`047`, `048`, …). Пробелы в нумерации не допускаются —
+Нумерация трёхзначная, сквозная (`054`, `055`, …). Пробелы в нумерации не допускаются —
 раннер читает файлы в алфавитном порядке.
 
 ### Шаг 2. Обновить Drizzle-схему
@@ -498,6 +507,8 @@ const setTab = (t: string) => router.replace(`?tab=${t}`, { scroll: false })
 | Посещения клиента | `['clients', clientId, 'visit']` |
 | Зоны | `['spaces']` |
 | Категории меню | `['menu', 'categories']` |
+| Интеграции | `['integrations']` |
+| Статус GoMafia | `['gomafia-status']` |
 
 После мутации инвалидируйте связанные ключи через `qc.invalidateQueries`:
 
@@ -539,9 +550,9 @@ qc.invalidateQueries({ queryKey: ['inventory-overview'] })
 ### Четыре существующие группы
 
 1. **Меню и склад** — `/manage/menu`, `/manage/inventory`, `/manage/pricing`
-2. **Клиенты** — `/manage/clients`, `/manage/customers`, `/manage/balances`, `/manage/loyalty`
+2. **Клиенты** — `/manage/clients`, `/manage/customers`, `/manage/balances`, `/manage/loyalty`, `/manage/collections`
 3. **Персонал и смены** — `/manage/staff`, `/manage/shifts`, `/manage/salary`
-4. **Система** — `/manage/settings`, `/manage/about`
+4. **Система** — `/manage/settings`, `/manage/polls`, `/manage/about`
 
 Добавьте пункт в существующую группу или создайте новую группу в массиве `NAV`.
 
@@ -562,13 +573,96 @@ qc.invalidateQueries({ queryKey: ['inventory-overview'] })
 | `discounts` | true | Скидки (лояльность) |
 | `bonus` | true | Бонусы (лояльность) |
 | `expenses` | false | Расходы (аналитика) |
-| `debtors` | false | Депозиты и долги |
+| `debtors` | false | Депозиты и долги (+ «Сбор средств» использует тот же ключ) |
 | `staff` | false | Персонал |
 | `salary` | false | Зарплата |
 | `about` | true | О заведении |
 
 Чтобы добавить новое право: добавьте ключ в `DEFAULT_PERMISSIONS` и `PERMISSION_LABELS`
 в `apps/web/src/app/manage/staff/page.tsx`, и укажите `perm: 'new_key'` в пункте меню.
+
+---
+
+## Как добавить новую интеграцию
+
+Интеграции — шифрованное хранилище ключей/токенов сторонних сервисов. Система состоит
+из двух частей: каталог на фронте (`IntegrationsTab.tsx`) и белый список ключей на
+бэкенде (`system.router.ts → INTEGRATION_KEYS`).
+
+### Шаг 1. Добавить ключи в белый список на бэкенде
+
+Откройте `apps/api/src/modules/system/system.router.ts` и добавьте ключи в объект
+`INTEGRATION_KEYS`:
+
+```typescript
+const INTEGRATION_KEYS: Record<string, string> = {
+  // ... существующие ключи ...
+  my_service_token: 'MyService: токен API',  // добавить
+}
+```
+
+Ключи строго из белого списка — любое значение `key` вне списка вернёт 400 (защита от
+записи произвольных данных в таблицу).
+
+**Текущие зарегистрированные ключи:**
+
+| Ключ | Описание |
+|---|---|
+| `admin_bot_token` | Токен админ-бота Telegram |
+| `wallet_bot_token` | Токен бота-кошелька Telegram |
+| `ai_api_key` | API-ключ TITAN AI (Polza.ai) |
+| `platega_merchant_id` | Platega: Merchant ID |
+| `platega_secret` | Platega: секретный ключ |
+| `poll_bot_token` | Токен бота опросов Telegram |
+
+### Шаг 2. Добавить интеграцию в каталог фронта
+
+Откройте `apps/web/src/app/manage/settings/IntegrationsTab.tsx` и добавьте объект в
+массив `CATALOG`:
+
+```typescript
+const CATALOG: Product[] = [
+  // ... существующие интеграции ...
+  {
+    id: 'my_service',
+    name: 'MyService',
+    icon: 'icon_name',      // из Icon.tsx
+    color: '#F59E0B',
+    blurb: 'Краткое описание для магазина интеграций',
+    about: 'Детальное описание: что даёт интеграция и как работает.',
+    kind: 'keys',           // 'keys' для обычных API-ключей, 'gomafia' для спецпотока
+    fields: [
+      {
+        key: 'my_service_token',  // должен совпадать с ключом в INTEGRATION_KEYS
+        label: 'Токен API',
+        type: 'password',
+        placeholder: 'Введите токен',
+        hint: 'Инструкция где найти токен (личный кабинет, команда бота и т.д.)',
+      },
+    ],
+  },
+]
+```
+
+**Поля `Product`:**
+- `kind: 'keys'` — стандартный путь: ключи сохраняются через `PATCH /system/integrations/:key`
+- `kind: 'gomafia'` — специальный потока GoMafia (POST `/gomafia/connect` + `/gomafia/club`); для нестандартных интеграций реализуйте отдельный роутер и добавьте аналогичную ветку в `save.mutationFn`
+
+### Шаг 3. Использовать секрет на бэкенде
+
+Для чтения сохранённого секрета в своём модуле:
+
+```typescript
+import { integrations } from '@titan/database'
+import { decryptSecret } from '../system/system.router.js' // или выделить в lib/integrations.ts
+
+const row = await db.select().from(integrations).where(eq(integrations.key, 'my_service_token')).limit(1)
+if (!row[0]) throw new Error('Интеграция не настроена')
+const token = decryptSecret(row[0].valueEnc)
+```
+
+**Безопасность:** секрет никогда не отдаётся наружу — только маскированное значение
+(`••••XXXX`). Замена ключа происходит через отдельное поле ввода (не префиллится).
 
 ---
 
@@ -685,10 +779,10 @@ useEffect(() => {
 
 ```javascript
 // apps/web/public/sw.js
-const CACHE_VERSION = 'v212'  // увеличить на 1
+const CACHE_VERSION = 'v264'  // увеличить на 1 → 'v265'
 ```
 
-Текущая версия: `v211`. SW зарегистрирован через
+Текущая версия: `v264`. SW зарегистрирован через
 `apps/web/src/components/ServiceWorkerRegister.tsx`.
 
 ---
@@ -775,8 +869,24 @@ import { Icon } from '@/components/Icon'
 <Icon name="titan_ai" size={24} />       // кастомная иконка Titan AI
 ```
 
-Добавление новой иконки: вставьте SVG-путь в константу `ICONS` в `Icon.tsx`.
-viewBox всегда `0 0 24 24`, stroke-based, `strokeWidth 1.75`.
+### Добавление новой иконки
+
+1. Откройте `apps/web/src/components/Icon.tsx`.
+2. Вставьте SVG-путь в объект `ICONS` под новым ключом:
+
+```typescript
+const ICONS: Record<string, React.ReactNode> = {
+  // ... существующие иконки ...
+  my_icon: (
+    <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
+  ),
+}
+```
+
+**Обязательные правила:**
+- viewBox всегда `0 0 24 24` (задан в SVG-обёртке компонента, не в `ICONS`)
+- stroke-based, `strokeWidth 1.75` — без `fill` (используется `currentColor`)
+- Имена ключей — snake_case, аналогично Material Icons (можно брать SVG-пути с materialdesignicons.com)
 
 ---
 
@@ -801,8 +911,8 @@ fix(ui): исправление бага
 refactor(api): рефакторинг
 ```
 
-Примеры из истории: `feat(ai): редизайн чата TITAN AI`, `fix(ux): pull-to-refresh не
-перехватывает прокрутку модалок`.
+Примеры из истории: `feat(events): свайп-обновление, сегмент-вкладки, папки прошлых месяцев`,
+`fix(pos): карточка смены пересчитывается при удалении/изменении чека`.
 
 ### Тестирование
 
@@ -825,6 +935,7 @@ pnpm build        # полная сборка (включая tsc для api/dat
 
 - [ ] `apps/api/src/modules/<name>/<name>.router.ts` создан
 - [ ] Роутер экспортирован как именованный `export const <name>Router`
+- [ ] `requireAuth` стоит ДО `requireRole` в цепочке middleware
 - [ ] Подключён в `apps/api/src/app.ts` через `app.route('/api/<path>', <name>Router)`
 - [ ] Все публичные маршруты документированы комментарием над обработчиком
 - [ ] Мутирующие операции обёрнуты в `db.transaction`

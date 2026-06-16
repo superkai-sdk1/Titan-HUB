@@ -21,7 +21,8 @@
    - [pnpm-workspace.yaml](#24-pnpm-workspaceyaml)
    - [packages/config/tsconfig/\*](#25-packagesconfigtsconfig)
 3. [Рантайм-настройки в БД (`app_settings`)](#3-рантайм-настройки-в-бд-app_settings)
-4. [Service Worker (versioning)](#4-service-worker-versioning)
+4. [Зашифрованные интеграции (`integrations`)](#4-зашифрованные-интеграции-integrations)
+5. [Service Worker (versioning)](#5-service-worker-versioning)
 
 ---
 
@@ -47,6 +48,7 @@
 | Переменная | Обязательная | Умолчание | Описание |
 |---|---|---|---|
 | `DATABASE_URL` | **Да** | — | PostgreSQL DSN вида `postgresql://titan:<POSTGRES_PASSWORD>@postgres:5432/titan_hub`. В docker-compose собирается автоматически из `POSTGRES_PASSWORD`. |
+| `CONTROL_DATABASE_URL` | Нет | — | DSN контрольной БД реестра клубов (SaaS Фаза 1). Задаётся заранее в compose (`postgresql://titan:<POSTGRES_PASSWORD>@postgres:5432/titan_control`); рантаймом API пока не используется — подхватывается инструментами провижининга. |
 | `REDIS_URL` | Нет | `redis://redis:6379` | URL подключения к Redis. Используется для rate-limit, кэша WebAuthn-challenge, PubSub (`titan:updates`), SSE-потока и кэша связки планшет-зона. |
 
 #### JWT и аутентификация
@@ -55,6 +57,7 @@
 |---|---|---|---|
 | `JWT_SECRET` | **Да** | — | Ключ подписи JWT (≥ 32 символов). Fail-fast при старте API (`apps/api/src/index.ts`). |
 | `FRONTEND_URL` | Нет | `http://localhost:3000` | Разрешённый CORS-origin (`apps/api/src/app.ts`). В prod: `https://titanpos.ru`. |
+| `ROOT_DOMAIN` | Нет | `titanpos.ru` | Корневой домен платформы. Используется в `clubResolver.ts` для определения tenant по поддомену (`<slug>.<ROOT_DOMAIN>`) и в `tgWebhook.ts` для формирования URL вебхуков Telegram-ботов. |
 
 #### WebAuthn / Passkey
 
@@ -65,6 +68,15 @@
 | `WEBAUTHN_RP_NAME` | Нет | `Titan HUB` | Человекочитаемое имя Relying Party, отображаемое в диалоге браузера при регистрации passkey. |
 | `WEBAUTHN_RP_ID` | Нет | `localhost` | Домен Relying Party — должен совпадать с `Origin` без протокола/порта. В prod: `titanpos.ru`. |
 | `WEBAUTHN_ORIGIN` | Нет | `http://localhost:3000` | Полный Origin для верификации ответов. В prod: `https://titanpos.ru`. |
+
+#### WebAuthn суперадмина
+
+Источник: `apps/api/src/modules/superadmin/auth.router.ts`. Отдельные настройки для панели суперадмина на поддомене `admin.titanpos.ru`. Если не заданы, суперадмин фоллбэкает на клубные `WEBAUTHN_*`.
+
+| Переменная | Обязательная | Умолчание | Описание |
+|---|---|---|---|
+| `SUPERADMIN_WEBAUTHN_ORIGIN` | Нет | `https://admin.titanpos.ru` | Origin панели суперадмина. Задаётся явно в compose. |
+| `SUPERADMIN_WEBAUTHN_RP_ID` | Нет | фолбэк `WEBAUTHN_RP_ID` → `titanpos.ru` | RP ID для регистрации passkey суперадмина. Задаётся явно в compose как `titanpos.ru`. |
 
 #### Web Push / VAPID
 
@@ -110,28 +122,60 @@
 
 Бакет для загрузок: `titan-uploads`. Создаётся автоматически при первой загрузке. Максимальный размер файла — 2 МБ. Разрешённые типы: `image/jpeg`, `image/png`, `image/webp`, `image/gif` (проверяются по magic-bytes).
 
-#### AI (TITAN AI / Polza)
+#### Шифрование секретов интеграций
+
+Источник: `apps/api/src/lib/secrets.ts`.
+
+| Переменная | Обязательная | Описание |
+|---|---|---|
+| `SECRETS_MASTER_KEY` | Нет* | Мастер-ключ для AES-256-GCM шифрования секретов интеграций (таблица `integrations`). Формат: 32 байта в hex (64 hex-символа) или base64. При отсутствии ошибка бросается **лениво** — только при первой операции шифрования/расшифровки (модуль импортируется без краша). |
+
+\* Фактически обязательна для работы раздела «Интеграции» в «О системе» и для GoMafia, AI, Platega через пер-клубные ключи.
+
+> Генерация мастер-ключа:
+> ```bash
+> openssl rand -hex 32
+> ```
+
+#### AI (TITAN AI / Tai)
 
 Источник: `apps/api/src/modules/ai/ai.router.ts`.
 
+API-ключ для AI может быть задан двумя способами (приоритет: пер-клубный ключ в таблице `integrations` → переменная окружения):
+
 | Переменная | Обязательная | Умолчание | Описание |
 |---|---|---|---|
-| `POLZA_API_KEY` | Нет | — | API-ключ провайдера Polza (OpenAI-совместимый endpoint). Без ключа `/api/ai/chat` вернёт ошибку. <!-- VERIFY: актуальный prod-ключ --> |
+| `POLZA_API_KEY` | Нет | — | Платформенный API-ключ провайдера Polza (OpenAI-совместимый endpoint). Используется как фолбэк, если в таблице `integrations` клуба нет ключа `ai_api_key`. Без ключа `/api/ai/chat` вернёт ошибку. <!-- VERIFY: актуальный prod-ключ --> |
 | `POLZA_BASE_URL` | Нет | `https://polza.ai/api/v1` | Базовый URL Polza API. Совместим с OpenAI `chat/completions`. |
-| `POLZA_MODEL` | Нет | `google/gemini-3.1-flash-lite` | Идентификатор модели. Формат: `<provider>/<model>`. В production используется `anthropic/claude-sonnet-4.6`. |
+| `POLZA_MODEL` | Нет | `google/gemini-3.1-flash-lite` | Идентификатор модели. Формат: `<provider>/<model>`. |
 
 Логика: `POST /api/ai/chat` вызывает `callAI()` → `${POLZA_BASE}/chat/completions` с bearer-авторизацией. Ответ — text-to-SQL по схеме БД (READ ONLY транзакция) или готовые аналитические отчёты.
 
 #### Платёжный провайдер Platega (эквайринг / СБП QR)
 
-Источник: `apps/api/src/modules/pos/pos.router.ts`, `apps/api/src/modules/platega/platega.router.ts`.
+Источник: `apps/api/src/modules/pos/pos.router.ts`, `apps/api/src/modules/platega/platega.router.ts`, `apps/api/src/modules/superadmin/clubs.router.ts`.
+
+Platega-реквизиты могут быть заданы на уровне платформы или через пер-клубную таблицу `integrations` (ключи `platega_merchant_id`, `platega_secret`):
 
 | Переменная | Обязательная | Описание |
 |---|---|---|
-| `PLATEGA_MERCHANT_ID` | Нет* | Идентификатор мерчанта в Platega. Используется в заголовке `X-MerchantId` при запросах к `https://app.platega.io`. Также проверяется в webhook-хендлере `POST /api/platega/webhook` для валидации входящих запросов (timing-safe compare). |
-| `PLATEGA_SECRET` | Нет* | Секрет мерчанта Platega. Используется в заголовке `X-Secret`. Проверяется в webhook-хендлере. <!-- VERIFY: актуальные prod-значения --> |
+| `PLATEGA_MERCHANT_ID` | Нет* | Идентификатор мерчанта Platega (платформенный фолбэк). Используется в заголовке `X-MerchantId` при запросах к `https://app.platega.io`. Проверяется в `POST /api/platega/webhook` (timing-safe compare). |
+| `PLATEGA_SECRET` | Нет* | Секрет мерчанта Platega (платформенный фолбэк). Используется в заголовке `X-Secret`. <!-- VERIFY: актуальные prod-значения --> |
+| `PLATFORM_PLATEGA_MERCHANT_ID` | Нет | — | Отдельный платформенный аккаунт Platega для суперадмина (SaaS-режим). Если задан — имеет приоритет над `PLATEGA_MERCHANT_ID` при вызовах из `superadmin/clubs.router.ts`. |
+| `PLATFORM_PLATEGA_SECRET` | Нет | — | Секрет платформенного аккаунта Platega. Используется вместе с `PLATFORM_PLATEGA_MERCHANT_ID`. |
 
 \* Если не заданы — эндпоинт `POST /api/checks/:id/qr` возвращает `503 Platega не настроен`.
+
+#### GoMafia (подбор игроков)
+
+Источник: `apps/api/src/modules/gomafia/gomafia.router.ts`.
+
+Учётные данные GoMafia могут быть заданы как пер-клубные интеграции (таблица `integrations`, ключи `gomafia_login`, `gomafia_password`, `gomafia_club_id`) или через переменные окружения (платформенный фолбэк):
+
+| Переменная | Обязательная | Описание |
+|---|---|---|
+| `GOMAFIA_LOGIN` | Нет | Логин «проектного» аккаунта GoMafia (фолбэк, если у клуба нет своей интеграции). |
+| `GOMAFIA_PASSWORD` | Нет | Пароль «проектного» аккаунта GoMafia (фолбэк). <!-- VERIFY: актуальные prod-значения --> |
 
 #### Rate Limiting (Hono-middleware)
 
@@ -232,6 +276,21 @@
 **Volumes:** `postgres-data`, `redis-data`, `minio-data`, `nginx-cache`.
 
 **Зависимости запуска:** `nginx` → `api` (healthy) + `web` (healthy) + `wallet` (healthy). `api` → `postgres` (healthy) + `redis` (healthy). Это закрывает окно 502 при холодном старте хоста, когда API ещё прогоняет миграции.
+
+**Переменные, задаваемые явно в compose (не из `.env`):**
+
+| Сервис | Переменная | Значение |
+|---|---|---|
+| `api` | `DATABASE_URL` | `postgresql://titan:${POSTGRES_PASSWORD}@postgres:5432/titan_hub` |
+| `api` | `CONTROL_DATABASE_URL` | `postgresql://titan:${POSTGRES_PASSWORD}@postgres:5432/titan_control` |
+| `api` | `SUPERADMIN_WEBAUTHN_ORIGIN` | `https://admin.titanpos.ru` |
+| `api` | `SUPERADMIN_WEBAUTHN_RP_ID` | `titanpos.ru` |
+| `api` | `REDIS_URL` | `redis://redis:6379` |
+| `api` | `BACKUP_DIR` | `/backups` |
+| `api` | `RCLONE_CONFIG` | `/root/.config/rclone/rclone.conf` |
+| `web` | `NEXT_PUBLIC_API_URL` | `/api` |
+| `bot-admin` | `DATABASE_URL` | `postgresql://titan:${POSTGRES_PASSWORD}@postgres:5432/titan_hub` |
+| `bot-wallet` | `DATABASE_URL` | `postgresql://titan:${POSTGRES_PASSWORD}@postgres:5432/titan_hub` |
 
 ### 2.2 `nginx/nginx.conf`
 
@@ -351,7 +410,12 @@ CREATE TABLE app_settings (
 );
 ```
 
-Хранит строковые значения (числа, булевы — как строки). Читается через хелперы `getNumericSetting(key, fallback)` и `getBoolSetting(key, fallback)` из `apps/api/src/lib/appSettings.ts`. Функции никогда не бросают исключений — при ошибке возвращают fallback.
+Хранит строковые значения (числа, булевы — как строки). Читается через хелперы:
+- `getNumericSetting(key, fallback, db)` — парсит float, возвращает fallback при ошибке/отсутствии.
+- `getBoolSetting(key, fallback, db)` — значения `'1'`, `'true'`, `'on'`, `'yes'` → `true`; прочее → `false`.
+- `getBusinessDayStartHour(db)` — специализированный хелпер для `business_day_start_hour`.
+
+Все три функции находятся в `apps/api/src/lib/appSettings.ts` и никогда не бросают исключений — при ошибке возвращают fallback.
 
 **API управления:**
 - `GET /api/system/settings` — прочитать все настройки (роли: `owner`, `staff`).
@@ -361,11 +425,13 @@ CREATE TABLE app_settings (
 
 | Ключ | Тип | Умолчание | Где используется | Описание |
 |---|---|---|---|---|
-| `max_client_debt` | число | `0` (без лимита) | `clients.router.ts`, `pos.router.ts` | Максимальный долг клиента (рублей). `> 0` — ограничение активно. `0` или пусто — без лимита. Применяется при пополнении/снятии баланса и при оплате чека «в долг». |
+| `max_client_debt` | число | `0` (без лимита) | `clients.router.ts`, `pos.router.ts`, `collections.router.ts` | Максимальный долг клиента (рублей). `> 0` — ограничение активно. `0` или пусто — без лимита. |
 | `large_check_threshold` | число | `3000` | `pos.router.ts` (константа `LARGE_CHECK_KEY`) | Порог суммы чека для отправки уведомления «Крупный чек» (`large_check`). |
 | `large_refund_threshold` | число | `3000` | `refunds.router.ts` (константа `LARGE_REFUND_KEY`) | Порог суммы возврата для уведомления «Крупный возврат» (`large_refund`). |
 | `staff_discount_enabled` | булево | `false` | `pos.router.ts` (константа `STAFF_DISCOUNT_KEY`) | Включить ли скидку для сотрудников при закрытии чека. |
-| `bonus_enabled` | булево | `true`* | `pos.router.ts`, `platega.router.ts`, `birthdays.ts` | Глобальное включение/выключение бонусной программы. |
+| `staff_max_discount_percent` | число | `50` | `pos.router.ts` (константа `STAFF_MAX_DISCOUNT_KEY`) | Максимальная суммарная скидка в % от суммы позиций, которую может дать сотрудник (`staff`). `0` = скидки запрещены. Owner — без лимита. |
+| `business_day_start_hour` | число (0–23) | `9` | `appSettings.ts`, `salary.router.ts`, `analytics.router.ts` | Час начала бизнес-дня (МСК). Граница операционных суток: `9` → бизнес-день 09:00–09:00 следующего. |
+| `bonus_enabled` | булево | `true`* | `pos.router.ts`, `platega.router.ts`, `cron/birthdays.ts` | Глобальное включение/выключение бонусной программы. |
 | `bonus_accrual_rate` | число (%) | `5` | `pos.router.ts`, `platega.router.ts`, `refunds.router.ts` | Процент начисления бонусов от суммы чека. Например, `5` = 5%. |
 | `bonus_min_purchase` | число | `0` | `pos.router.ts`, `platega.router.ts` | Минимальная сумма покупки для начисления бонусов. |
 | `bonus_max_spend` | число | — | `pos.router.ts` | Максимальная сумма бонусов, которую можно списать за один чек. |
@@ -373,19 +439,49 @@ CREATE TABLE app_settings (
 | `bonus_expiry_days` | число | — | `bonusLots.ts` (функция `getBonusExpiryDays`) | Срок сгорания бонусов (дни). Если не задан или 0 — бонусы не сгорают. |
 | `birthday_bonus_enabled` | булево | `false` | `cron/birthdays.ts` | Включить автоматическое начисление бонусов в день рождения клиента. |
 | `birthday_bonus_amount` | число | `0` | `cron/birthdays.ts` | Сумма бонусов, начисляемых в день рождения. |
+| `poll_configs` | JSON | — | `lib/polls.ts` (константа `POLL_CONFIGS_KEY`), `cron/polls.ts` | JSON-массив конфигов регулярных Telegram-опросов. Хранится как строка без отдельной таблицы. |
+| `poll_commands_admin_only` | булево | `true` | `system.router.ts`, `tg.router.ts` | Ограничить ли команды бота опросов только для admins. |
+| `venue_name` | строка | `''` | `superadmin/clubs.router.ts` (ключ в `PROFILE_KEYS`) | Название заведения. Управляется суперадмином через профиль клуба. |
+| `venue_address` | строка | `''` | `superadmin/clubs.router.ts` (ключ в `PROFILE_KEYS`) | Адрес заведения. Управляется суперадмином через профиль клуба. |
 
-\* `bonus_enabled` — считается `true` если значение отличается от строки `'false'`.
+\* `bonus_enabled` — значение `'false'` считается отключённым; любое другое (включая отсутствие) — включённым.
 
 > **Cron дней рождения.** `apps/api/src/cron/birthdays.ts` запускается ежедневно в 09:00 МСК (06:00 UTC). Если `bonus_enabled` и `birthday_bonus_enabled` оба активны — начисляет `birthday_bonus_amount` бонусов всем клиентам с днём рождения сегодня.
 
+> **Cron опросов.** `apps/api/src/cron/polls.ts` тикает каждую минуту по всем клубам. Читает конфиги из `poll_configs` и токен бота из `integrations.poll_bot_token`.
+
 ---
 
-## 4. Service Worker (versioning)
+## 4. Зашифрованные интеграции (`integrations`)
+
+Таблица `integrations` хранит зашифрованные пер-клубные секреты. Шифрование: AES-256-GCM, мастер-ключ из `SECRETS_MASTER_KEY`. Формат значения: `v1:<ivB64>:<tagB64>:<cipherB64>`.
+
+Источник: `apps/api/src/lib/secrets.ts`.
+
+API управления: `GET/PATCH /api/system/integrations` (роль: `owner`). Наружу возвращается только маска (`••••` + последние 4 символа).
+
+### Известные ключи интеграций
+
+| Ключ | Описание |
+|---|---|
+| `admin_bot_token` | Токен Telegram-бота персонала (пер-клубная альтернатива `ADMIN_BOT_TOKEN`). |
+| `wallet_bot_token` | Токен Telegram-бота кошелька клиентов (пер-клубная альтернатива `WALLET_BOT_TOKEN`). |
+| `poll_bot_token` | Токен Telegram-бота опросов. Используется `cron/polls.ts` и `system.router.ts`. |
+| `ai_api_key` | API-ключ TITAN AI (приоритет над переменной окружения `POLZA_API_KEY`). |
+| `platega_merchant_id` | Merchant ID Platega (пер-клубный, приоритет над переменной окружения). |
+| `platega_secret` | Секретный ключ Platega (пер-клубный). |
+| `gomafia_login` | Логин аккаунта GoMafia (приоритет над `GOMAFIA_LOGIN`). |
+| `gomafia_password` | Пароль аккаунта GoMafia (приоритет над `GOMAFIA_PASSWORD`). |
+| `gomafia_club_id` | ID клуба GoMafia для фильтрации игроков. |
+
+---
+
+## 5. Service Worker (versioning)
 
 Расположение: `apps/web/public/sw.js`.
 
 ```javascript
-const CACHE_VERSION = 'v211'
+const CACHE_VERSION = 'v264'
 const STATIC_CACHE  = `titan-static-${CACHE_VERSION}`   // /_next/static/*
 const RUNTIME_CACHE = `titan-runtime-${CACHE_VERSION}`  // прочие GET-запросы
 ```
@@ -409,6 +505,6 @@ API-запросы намеренно не кэшируются, чтобы ак
 2. `self.skipWaiting()` при `install` гарантирует немедленную активацию нового SW.
 3. `self.clients.claim()` при `activate` переключает все открытые вкладки на новый SW без перезагрузки.
 
-**Как бампать:** изменить строку `CACHE_VERSION` в `apps/web/public/sw.js` (например, `v211` → `v212`) при каждом деплое, затрагивающем фронтенд. В `scripts/deploy.sh` это делается вручную перед коммитом.
+**Как бампать:** изменить строку `CACHE_VERSION` в `apps/web/public/sw.js` (например, `v264` → `v265`) при каждом деплое, затрагивающем фронтенд. В `scripts/deploy.sh` это делается вручную перед коммитом.
 
-> **Текущая версия в репозитории:** `v211`.
+> **Текущая версия в репозитории:** `v264`.

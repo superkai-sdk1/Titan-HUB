@@ -15,24 +15,26 @@
 6. [Модуль inventory — склад и ревизии](#модуль-inventory)
 7. [Модуль supplies — поставки](#модуль-supplies)
 8. [Модуль clients — клиенты](#модуль-clients)
-9. [Модуль shifts — смены](#модуль-shifts)
-10. [Модуль cashops — кассовые операции](#модуль-cashops)
-11. [Модуль salary — зарплата](#модуль-salary)
-12. [Модуль pricing — тарифы и типы вечеров](#модуль-pricing)
-13. [Модуль spaces — пространства (зоны/столы)](#модуль-spaces)
-14. [Модуль discounts — скидки](#модуль-discounts)
-15. [Модуль certificates — сертификаты](#модуль-certificates)
-16. [Модуль refunds — возвраты](#модуль-refunds)
-17. [Модуль notifications — уведомления](#модуль-notifications)
-18. [Модуль ai — AI-ассистент](#модуль-ai)
-19. [Модуль analytics — аналитика](#модуль-analytics)
-20. [Модуль expenses — расходы](#модуль-expenses)
-21. [Модуль system — системные настройки](#модуль-system)
-22. [Модуль staff — сотрудники](#модуль-staff)
-23. [Модуль events — мероприятия](#модуль-events)
-24. [Модуль customers — заказчики](#модуль-customers)
-25. [Модуль platega — платёжный вебхук](#модуль-platega)
-26. [Модуль upload — загрузка файлов](#модуль-upload)
+9. [Модуль collections — сбор взносов](#модуль-collections)
+10. [Модуль shifts — смены](#модуль-shifts)
+11. [Модуль cashops — кассовые операции](#модуль-cashops)
+12. [Модуль salary — зарплата](#модуль-salary)
+13. [Модуль pricing — тарифы и типы вечеров](#модуль-pricing)
+14. [Модуль spaces — пространства (зоны/столы)](#модуль-spaces)
+15. [Модуль discounts — скидки](#модуль-discounts)
+16. [Модуль certificates — сертификаты](#модуль-certificates)
+17. [Модуль refunds — возвраты](#модуль-refunds)
+18. [Модуль notifications — уведомления](#модуль-notifications)
+19. [Модуль ai — AI-ассистент](#модуль-ai)
+20. [Модуль analytics — аналитика](#модуль-analytics)
+21. [Модуль expenses — расходы](#модуль-expenses)
+22. [Модуль system — системные настройки](#модуль-system)
+23. [Модуль staff — сотрудники](#модуль-staff)
+24. [Модуль events — мероприятия](#модуль-events)
+25. [Модуль customers — заказчики](#модуль-customers)
+26. [Модуль platega — платёжный вебхук](#модуль-platega)
+27. [Модуль upload — загрузка файлов](#модуль-upload)
+28. [Модуль gomafia — интеграция GoMafia](#модуль-gomafia)
 
 ---
 
@@ -61,7 +63,7 @@
 | `tablet` | Планшет-киоск. Привязан к конкретному `linkedSpaceId`. Доступ только к своему чеку/пространству (IDOR-защита). |
 | `client` | Клиент (Telegram WebApp / кошелёк). Ограниченный доступ к своему профилю и балансу. |
 
-Публичные (без авторизации) эндпоинты: `GET /health`, `GET /api/health`, `GET /api/menu/categories`, `GET /api/menu/items`, `GET /api/menu/items/:id`, `GET /api/menu/items/:id/modifiers`, `GET /api/events/active-for-space/:spaceId`, `POST /api/platega/webhook`.
+Публичные (без авторизации) эндпоинты: `GET /health`, `GET /api/health`, `GET /api/health/ready`, `GET /api/menu/categories`, `GET /api/menu/items`, `GET /api/menu/items/:id`, `GET /api/menu/items/:id/modifiers`, `GET /api/events/active-for-space/:spaceId`, `POST /api/platega/webhook`.
 
 ### Получение токена
 
@@ -87,7 +89,8 @@ Content-Type: application/json
 | CORS | Разрешён origin из переменной `FRONTEND_URL` |
 | Rate limiting | PIN/пароль: 5 попыток за 15 мин на IP+userId; глобальный backstop: 50 неуспешных PIN-попыток за окно |
 | Ошибки сервера | Всегда `{ "error": "Internal error" }` — стек-трейс не раскрывается |
-| Health-check | `GET /health` и `GET /api/health` — `{ "ok": true }`, без авторизации |
+| Health-check (liveness) | `GET /health` и `GET /api/health` — `{ "ok": true, "ts": <timestamp> }`, без авторизации |
+| Health-check (readiness) | `GET /api/health/ready` — `{ "ready": true, "ts": <timestamp> }` или 503, без авторизации |
 
 ---
 
@@ -115,7 +118,7 @@ Content-Type: application/json
 | Метод | Путь | Роль | Описание |
 |-------|------|------|----------|
 | `GET` | `/auth/me` | auth | Текущий пользователь: `{ user: Profile }`. |
-| `PATCH` | `/auth/me` | auth | Обновить свой профиль (никнейм, телефон, fullName, imageUrl). |
+| `PATCH` | `/auth/me` | auth | Обновить свой профиль (nickname, fullName, phone). |
 | `POST` | `/auth/pin/set` | auth | Установить/сменить PIN. Тело: `{ pin: string }` (4–8 цифр). |
 
 ### Планшет-сессия
@@ -144,15 +147,31 @@ Content-Type: application/json
 
 Все маршруты требуют авторизации (`requireAuth`). Планшет (`tablet`) может работать только с чеком/пространством своего `linkedSpaceId`.
 
+### Вспомогательные эндпоинты
+
+| Метод | Путь | Роль | Описание |
+|-------|------|------|----------|
+| `GET` | `/pos/players/search` | owner, staff | Поиск игрока по никнейму/тегу. `?q=` — строка запроса (транслитерация, раскладка). До 20 результатов. |
+| `GET` | `/pos/players/:id` | owner, staff, tablet | Профиль игрока: баланс, бонусы, тир, фото. |
+| `GET` | `/pos/spaces` | auth | Список активных пространств (зон). |
+| `GET` | `/pos/prechecks` | owner, staff, tablet | Предчеки — виртуальные карточки для игроков, подтвердивших участие в опросе вечера. |
+
+### Сводка смены (карточка кассы)
+
+| Метод | Путь | Роль | Описание |
+|-------|------|------|----------|
+| `GET` | `/pos/shift-summary` | owner, staff | Сводка текущей смены: `{ shift, openChecks: { count, total }, cashInRegister, forecast }`. `forecast` содержит прогноз выручки Tai (`amount`, `currentTotal`, `additional`, `perCheck[]`). Возвращает `{ shift: null }` если смена не открыта. |
+
 ### Чеки
 
 | Метод | Путь | Роль | Описание |
 |-------|------|------|----------|
-| `GET` | `/pos/checks` | owner, staff, tablet | Список открытых чеков. Планшет видит только свой. |
+| `GET` | `/pos/checks` | owner, staff, tablet | Список открытых чеков текущей смены. Обогащён: `items[]` (до 5 названий позиций с ×количеством), `guestName`, `guestPhotoUrl`, `spaceName`, `spaceHourlyRate`, `hasRental`, `itemCount`. Планшет видит только чеки своей зоны. |
+| `GET` | `/pos/checks/closed` | owner, staff | Недавно закрытые чеки (до 50, `?limit=`). Для выбора при оформлении возврата. |
 | `POST` | `/pos/checks` | owner, staff | Открыть новый чек. |
-| `GET` | `/pos/checks/:id` | owner, staff, tablet | Получить чек с позициями и оплатами. |
+| `GET` | `/pos/checks/:id` | owner, staff, tablet | Получить чек с позициями, модификаторами, оплатами, скидками, pending-заказами. |
 | `PATCH` | `/pos/checks/:id` | owner, staff | Обновить поле чека (note, guestNames, playerId, spaceId, спейс-аренда). |
-| `DELETE` | `/pos/checks/:id` | owner, staff | Отменить открытый чек. |
+| `DELETE` | `/pos/checks/:id` | owner, staff | Отменить открытый чек. Возвращает сток списанных позиций. |
 
 **Открыть чек** (`POST /pos/checks`):
 ```json
@@ -171,6 +190,7 @@ Content-Type: application/json
 |-------|------|------|----------|
 | `POST` | `/pos/checks/:id/items` | owner, staff, tablet | Добавить позицию. Тело: `{ itemId, quantity, modifierIds[] }`. |
 | `DELETE` | `/pos/checks/:id/items/:itemId` | owner, staff, tablet | Удалить позицию из чека. |
+| `GET` | `/pos/checks/:id/suggestions` | owner, staff, tablet | Предугаданные позиции (частые заказы резидента) для подсказок Tai. |
 
 ### Оплата
 
@@ -382,10 +402,46 @@ Content-Type: application/json
 |-------|------|------|----------|
 | `GET` | `/clients/tiers` | owner, staff | Список уровней клиентов (`clientTiers`). |
 | `POST` | `/clients/tiers` | owner | Создать уровень. |
-| `PATCH` | `/clients/tiers/:id` | owner | Обновить уровень. |
-| `DELETE` | `/clients/tiers/:id` | owner | Удалить уровень. |
+| `DELETE` | `/clients/tiers/:key` | owner | Удалить уровень. |
 
 > Постоянное удаление клиента (`DELETE /clients/:id`, owner) — каскадирует все FK через pg_constraint introspection; для NOT NULL FK использует sentinel-профиль `__deleted_user__`.
+
+---
+
+## Модуль collections
+
+Базовый путь: `/api/collections`
+
+Сбор взносов резидентов: регулярные (Фонд клуба, recurring=авто-период YYYY-MM) и разовые (oneoff=единственный период `single`). Способы оплаты взноса: `cash`, `transfer`, `sbp`, `deposit`, `debt`. При `deposit`/`debt` атомарно изменяется баланс клиента и создаётся транзакция; при других — только запись взноса.
+
+Все маршруты требуют авторизации (`requireAuth`).
+
+### Сборы
+
+| Метод | Путь | Роль | Описание |
+|-------|------|------|----------|
+| `GET` | `/collections` | owner, staff | Список активных сборов с текущим периодом, итогами и числом оплативших/исключённых. |
+| `POST` | `/collections` | owner, staff | Создать сбор. Тело: `{ name, description?, kind: 'recurring'|'oneoff', isMandatory?, defaultAmount }`. |
+| `PATCH` | `/collections/:id` | owner, staff | Обновить сбор (имя, описание, сумма, isMandatory, isActive). Мягкое архивирование через `isActive=false`. |
+| `DELETE` | `/collections/:id` | owner, staff | Архивировать сбор (`isActive=false`). |
+| `GET` | `/collections/:id` | owner, staff | Детализация сбора за период: ростер резидентов (включая статус оплаты и исключения), итоги по способам. `?period=YYYY-MM` — выбор периода (только для recurring). |
+| `GET` | `/collections/:id/periods` | owner, staff | Список всех периодов сбора (ключ, метка, сумма, статус). |
+| `PATCH` | `/collections/:id/periods/:periodId` | owner, staff | Изменить сумму периода. Тело: `{ amount: number }`. |
+
+### Взносы
+
+| Метод | Путь | Роль | Описание |
+|-------|------|------|----------|
+| `POST` | `/collections/:id/pay` | owner, staff | Отметить оплату взноса. Тело: `{ periodId, playerId, amount?, method, note? }`. Идемпотентен по уникальному индексу period_id+player_id. |
+| `DELETE` | `/collections/:id/contributions/:contribId` | owner, staff | Снять отметку оплаты. При `deposit`/`debt` автоматически возвращает деньги на баланс клиента. |
+
+### Исключения и персональные суммы
+
+| Метод | Путь | Роль | Описание |
+|-------|------|------|----------|
+| `POST` | `/collections/:id/exclude` | owner, staff | Исключить участника из сбора. Тело: `{ playerId, duration: '1m'|'3m'|'forever' }`. |
+| `POST` | `/collections/:id/include` | owner, staff | Вернуть участника в сбор (снять исключение). Тело: `{ playerId }`. |
+| `POST` | `/collections/:id/member-amount` | owner, staff | Задать персональную сумму взноса. Тело: `{ playerId, amount: number|null }`. `null` сбрасывает к умолчанию периода. |
 
 ---
 
@@ -496,15 +552,15 @@ Content-Type: application/json
 |-------|------|------|----------|
 | `GET` | `/pricing/evening-types` | auth | Список всех типов вечеров. |
 | `POST` | `/pricing/evening-types` | owner | Создать тип вечера. Тело: `{ label: string, key?: string }`. `key` автослагируется из `label`, если не задан. Системные типы защищены от удаления. |
-| `PATCH` | `/pricing/evening-types/:id` | owner | Обновить тип вечера. |
-| `DELETE` | `/pricing/evening-types/:id` | owner | Удалить тип (не системный). |
+| `PATCH` | `/pricing/evening-types/:key` | owner | Обновить тип вечера. |
+| `DELETE` | `/pricing/evening-types/:key` | owner | Удалить тип (не системный). |
 
 ### Ставки аренды мероприятий
 
 | Метод | Путь | Роль | Описание |
 |-------|------|------|----------|
 | `GET` | `/pricing/event-rates` | auth | Ставки почасовой аренды для мероприятий. |
-| `PUT` | `/pricing/event-rates` | owner | Upsert ставок. Тело: `{ rates: [{ hours: number, price: number }] }`. |
+| `PATCH` | `/pricing/event-rates/:hours` | owner | Обновить ставку для указанного числа часов. Тело: `{ price: number }`. |
 
 ---
 
@@ -560,8 +616,7 @@ Content-Type: application/json
 | `GET` | `/certificates` | owner, staff | Список сертификатов. |
 | `POST` | `/certificates` | owner, staff | Выпустить сертификат. Тело: `{ nominal: number, code?: string }`. Если `code` не задан — генерируется автоматически (10 символов, без похожих букв, crypto.randomInt). |
 | `GET` | `/certificates/validate/:code` | auth | Проверить сертификат: активен ли, баланс. |
-| `PATCH` | `/certificates/:id` | owner, staff | Обновить сертификат (баланс, описание). |
-| `POST` | `/certificates/:id/deactivate` | owner | Деактивировать сертификат (`isUsed=true`). |
+| `PUT` | `/certificates/:id/deactivate` | owner | Деактивировать сертификат (`isUsed=true`). |
 
 ---
 
@@ -622,7 +677,7 @@ Content-Type: application/json
 | Метод | Путь | Роль | Описание |
 |-------|------|------|----------|
 | `POST` | `/notifications/push/subscribe` | auth | Подписать браузер. Тело: PushSubscription объект. |
-| `DELETE` | `/notifications/push/unsubscribe` | auth | Отписать браузер. Тело: `{ endpoint: string }`. |
+| `POST` | `/notifications/push/unsubscribe` | auth | Отписать браузер. Тело: `{ endpoint: string }`. |
 | `POST` | `/notifications/push/test` | auth | Отправить тестовое push-уведомление. |
 
 ### Telegram
@@ -674,9 +729,15 @@ Content-Type: application/json
 
 Базовый путь: `/api/analytics`
 
-Все маршруты требуют авторизации. Бизнес-день: 09:00 МСК → 09:00 следующего дня. Часовой пояс: UTC+3.
+Все маршруты требуют авторизации. Бизнес-день: 09:00 МСК → 09:00 следующего дня (настраивается через `business_day_start_hour`). Часовой пояс: UTC+3.
 
 Параметры дат: `from` и `to` в формате `YYYY-MM-DD`.
+
+### Телеметрия
+
+| Метод | Путь | Роль | Описание |
+|-------|------|------|----------|
+| `POST` | `/analytics/track` | owner, staff | Fire-and-forget UX-событие (открытие раздела, смена периода). Тело: `{ event: string, props?: object }`. Ошибки игнорируются — не блокирует UI. |
 
 ### Основные отчёты
 
@@ -688,6 +749,12 @@ Content-Type: application/json
 | `GET` | `/analytics/payments` | owner, staff | Разбивка по методам оплаты. `?from=&to=`. |
 | `GET` | `/analytics/products` | owner, staff | ABC-анализ позиций. `?from=&to=`. |
 | `GET` | `/analytics/tariffs` | owner, staff | Выручка по тарифам + по типам вечеров + количество игровых вечеров + количество миникапов. `?from=&to=`. |
+
+### Мероприятия
+
+| Метод | Путь | Роль | Описание |
+|-------|------|------|----------|
+| `GET` | `/analytics/events` | owner, staff | Аналитика мероприятий за период. `?from=&to=`. Окно — по **календарной дате события** (`events.date`), а не по бизнес-дню. Возвращает: `totals` (кол-во, часы, дни, выручка, средние), `byStatus`, `byCategory` (Титан/Выезд/Миникап), `byWeekday` (загрузка Пн–Вс), `topCustomers` (до 8), `topZones` (до 6). |
 
 ### Клиенты
 
@@ -720,7 +787,7 @@ Content-Type: application/json
 **Структура `netBreakdown`** (возвращается в dashboard, overview, revenue, checks):
 - `gross` — валовая выручка
 - `refunds` — возвраты
-- `sbpCommission` — комиссия СБП (8% от оплат методом `transfer`)
+- `sbpCommission` — комиссия СБП (8% от оплат методом `transfer`, только чеки без `acquiringSurcharge`)
 - `cogs` — себестоимость
 - `opex` — операционные расходы (без категории `salary`)
 - `salary` — зарплата (из `salaryPayments`)
@@ -770,7 +837,7 @@ Content-Type: application/json
 | Метод | Путь | Роль | Описание |
 |-------|------|------|----------|
 | `GET` | `/system/info` | owner | Версия приложения, текущая смена, название вечера (из `eveningTypes`). |
-| `GET` | `/system/settings` | owner | Все настройки из `app_settings` (key-value). |
+| `GET` | `/system/settings` | owner, staff | Все настройки из `app_settings` (key-value). |
 | `PATCH` | `/system/settings` | owner | Обновить настройки. Тело: `{ [key: string]: value }`. |
 
 **Ключевые настройки:** `bonus_accrual_rate` (% начисления бонусов), `bonus_max_spend` (макс. % оплаты бонусами), `max_client_debt` (лимит долга), `birthday_bonus` (бонус в день рождения).
@@ -779,17 +846,17 @@ Content-Type: application/json
 
 | Метод | Путь | Роль | Описание |
 |-------|------|------|----------|
-| `GET` | `/system/update` | auth | SSE-поток обновлений (Redis канал `titan:updates`). Требует `?ticket=<uuid>`. |
+| `GET` | `/system/update` | owner, staff | SSE-поток обновлений (Redis канал `titan:updates`). Требует `?ticket=<uuid>`. |
 
 ### Резервные копии
 
 | Метод | Путь | Роль | Описание |
 |-------|------|------|----------|
 | `GET` | `/system/backups` | owner | Список резервных копий. |
-| `GET` | `/system/backups/last` | owner | Последняя резервная копия. |
-| `POST` | `/system/backups` | owner | Создать резервную копию (`createBackup()`). |
-| `POST` | `/system/backups/:name/restore` | owner | Восстановить именованную копию. |
-| `POST` | `/system/backups/restore-upload` | owner | Восстановить из загруженного файла. |
+| `GET` | `/system/backup/status` | owner, staff | Статус последней резервной копии. |
+| `POST` | `/system/backup` | owner | Создать резервную копию (`createBackup()`). |
+| `POST` | `/system/restore` | owner | Восстановить именованную копию. Тело: `{ name: string }`. |
+| `POST` | `/system/restore-upload` | owner | Восстановить из загруженного файла. |
 
 ---
 
@@ -806,7 +873,7 @@ Content-Type: application/json
 | `PATCH` | `/staff/:id` | owner | Обновить сотрудника. |
 | `DELETE` | `/staff/:id` | owner | Мягкое удаление (`deletedAt`) + удаление passkeys. |
 | `POST` | `/staff/:id/reset-pin` | owner | Сбросить PIN сотрудника. |
-| `GET` | `/staff/:id/telegram-link` | owner | Получить подписанную HMAC deep-link на admin-бота для привязки Telegram. |
+| `POST` | `/staff/:id/telegram-link` | owner | Получить подписанную HMAC deep-link на admin-бота для привязки Telegram. |
 | `GET` | `/staff/:id/passkeys` | owner | Список passkeys сотрудника. |
 | `DELETE` | `/staff/:id/passkeys/:passkeyId` | owner | Удалить passkey сотрудника. |
 
@@ -925,3 +992,21 @@ Content-Type: application/json
 ```
 
 <!-- VERIFY: Публичный URL MinIO в продакшне зависит от конфигурации переменной MINIO_PUBLIC_URL на сервере -->
+
+---
+
+## Модуль gomafia
+
+Базовый путь: `/api/gomafia`
+
+Интеграция с платформой GoMafia (gomafia.pro) для подбора игроков при создании клиента. Все маршруты требуют авторизации.
+
+| Метод | Путь | Роль | Описание |
+|-------|------|------|----------|
+| `GET` | `/gomafia/status` | owner, staff | Статус подключения: подключён ли клуб к GoMafia, маскированный логин, название клуба. |
+| `POST` | `/gomafia/connect` | owner | Подключить интеграцию. Тело: `{ login, password, clubUrl? }`. Определяет клуб автоматически по аккаунту; `clubUrl` — если нужно указать вручную (ссылка вида `gomafia.pro/club/49`). |
+| `POST` | `/gomafia/club` | owner | Сменить/указать клуб вручную. Тело: `{ clubUrl: string }`. |
+| `DELETE` | `/gomafia/disconnect` | owner | Отключить интеграцию (удалить учётные данные). |
+| `GET` | `/gomafia/search` | owner, staff | Поиск игрока на GoMafia по нику. `?q=` — строка поиска. |
+| `GET` | `/gomafia/club/residents` | owner, staff | Список резидентов клуба с GoMafia (с кешированием). |
+| `GET` | `/gomafia/player/:id` | owner, staff | Карточка игрока GoMafia по id (статистика, фото). |

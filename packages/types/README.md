@@ -71,7 +71,7 @@ export type UserPermissions                   // Partial<Record<Permission, bool
 | `CreateInventoryItemSchema` | Создание позиции меню/склада |
 | `OpenShiftSchema` | Открытие смены (`cashStart`, `eveningType`) |
 | `CloseShiftSchema` | Закрытие смены (`cashEnd`, опциональная заметка) |
-| `AiActionSchema` | Действие TITAN AI (15 типов действий + payload) |
+| `AiActionSchema` | Действие Tai AI (16 типов действий + payload) |
 
 Для каждой схемы экспортируется выведенный тип (`LoginPinInput`, `CreateCheckInput` и т. д.).
 

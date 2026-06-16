@@ -23,6 +23,8 @@ Drizzle ORM — схема базы данных и клиент PostgreSQL дл
   - [passkeys.ts](#passkeysts)
   - [events.ts](#eventsts)
   - [customers.ts](#customersts)
+  - [integrations.ts](#integrationsts)
+  - [collections.ts](#collectionsts)
 - [Публичный API (index.ts)](#публичный-api-indexts)
 - [Как пакет используется в монорепо](#как-пакет-используется-в-монорепо)
 - [Сборка](#сборка)
@@ -72,7 +74,10 @@ packages/database/
         │                    # tgLinkRequests, appSettings
         ├── passkeys.ts    # passkeys
         ├── events.ts      # events, eventHourlyRates, eventParticipants
-        └── customers.ts   # customers
+        ├── customers.ts   # customers
+        ├── integrations.ts # integrations
+        └── collections.ts # collections, collectionPeriods, collectionContributions,
+                           # collectionMembers
 ```
 
 ---
@@ -507,6 +512,92 @@ WebAuthn/passkey-учётные данные пользователей.
 
 ---
 
+### `integrations.ts`
+
+Пер-клубное хранилище зашифрованных секретов заведения (токены ботов, AI, Platega). Лежит в БД клуба (database-per-club).
+
+#### `integrations`
+
+| Колонка | Тип | Описание |
+|---|---|---|
+| `id` | `uuid` PK | |
+| `key` | `text` UNIQUE | Идентификатор секрета (например, `platega_token`, `openai_key`) |
+| `valueEnc` | `text` | Шифртекст AES-256-GCM формата `v1:<iv>:<tag>:<cipher>` |
+| `updatedAt` | `timestamptz` | |
+| `updatedBy` | `uuid` | ID пользователя, обновившего секрет |
+
+Plaintext в БД **не хранится** и через API **не отдаётся** (только маска). Шифрование/дешифрование — `apps/api/src/lib/secrets.ts`. Upsert выполняется через `ON CONFLICT (key)`.
+
+---
+
+### `collections.ts`
+
+Сборы взносов с резидентов — операции вне кассы (миграция 053). Деньги учитываются в собственной «копилке» сбора, не смешиваясь с кассой заведения. Взнос можно списать с депозита клиента или записать в долг (`deposit`/`debt` создают запись в `transactions` и меняют `profiles.balance`); наличные/перевод/СБП проходят мимо баланса.
+
+#### `collections`
+
+Тема сбора: регулярный ежемесячный (`kind = 'recurring'`, авто-период YYYY-MM) или разовый (`kind = 'oneoff'`, единственный период `'single'`).
+
+| Колонка | Тип | Описание |
+|---|---|---|
+| `id` | `uuid` PK | |
+| `name` | `text` | Название сбора (например, «Фонд клуба») |
+| `description` | `text` | Описание (необязательно) |
+| `kind` | `text` | `recurring` — ежемесячный / `oneoff` — разовый |
+| `isMandatory` | `boolean` | Обязательный (ожидается со всех резидентов) vs добровольный |
+| `defaultAmount` | `numeric(12,2)` | Единая сумма взноса по умолчанию |
+| `isActive` | `boolean` | Активен ли сбор |
+| `createdBy` | `uuid` FK → `profiles.id` | |
+| `createdAt` | `timestamptz` | |
+
+#### `collectionPeriods`
+
+Период сбора. Для `recurring` — один на месяц (`period_key = 'YYYY-MM'`); для `oneoff` — единственный (`period_key = 'single'`).
+
+| Колонка | Тип | Описание |
+|---|---|---|
+| `id` | `uuid` PK | |
+| `collectionId` | `uuid` FK → `collections.id` CASCADE | |
+| `periodKey` | `text` | `'YYYY-MM'` или `'single'` |
+| `label` | `text` | Отображаемое название периода |
+| `amount` | `numeric(12,2)` | Сумма взноса за период (по умолчанию = `collections.defaultAmount`) |
+| `status` | `text` | `open` / `closed` |
+| `openedAt` / `closedAt` | `timestamptz` | |
+
+#### `collectionContributions`
+
+Факт оплаты взноса игроком за период. Уникальность: (период, игрок).
+
+| Колонка | Тип | Описание |
+|---|---|---|
+| `id` | `uuid` PK | |
+| `collectionId` | `uuid` FK → `collections.id` CASCADE | |
+| `periodId` | `uuid` FK → `collectionPeriods.id` CASCADE | |
+| `playerId` | `uuid` FK → `profiles.id` | |
+| `amount` | `numeric(12,2)` | Фактически уплаченная сумма |
+| `method` | `text` | `cash` / `transfer` / `sbp` / `deposit` / `debt` |
+| `balanceTxId` | `uuid` | Ссылка на `transactions` (только для `deposit`/`debt`, для реверса) |
+| `note` | `text` | |
+| `paidAt` | `timestamptz` | |
+| `createdBy` | `uuid` FK → `profiles.id` | |
+
+#### `collectionMembers`
+
+Персональные настройки участника в рамках сбора: своя сумма взноса и/или исключение (на срок или навсегда). Отсутствие строки = участник включён, сумма по умолчанию.
+
+| Колонка | Тип | Описание |
+|---|---|---|
+| `id` | `uuid` PK | |
+| `collectionId` | `uuid` FK → `collections.id` CASCADE | |
+| `playerId` | `uuid` FK → `profiles.id` | |
+| `amountOverride` | `numeric(12,2)` | Персональная сумма (переопределяет период/дефолт; NULL = по умолчанию) |
+| `excludedUntil` | `timestamptz` | Временное исключение до даты (1 / 3 мес) |
+| `excludedForever` | `boolean` | Бессрочное исключение |
+| `note` | `text` | |
+| `createdAt` / `updatedAt` | `timestamptz` | |
+
+---
+
 ## Публичный API (index.ts)
 
 `src/index.ts` реэкспортирует всё необходимое для потребителей пакета:
@@ -588,7 +679,7 @@ pnpm clean        # rm -rf dist/
 > **Важно:** `db:generate`, `db:migrate`, `db:push`, `db:studio` — вспомогательные команды для локальной разработки и генерации. В продакшне они **не применяются**.
 
 **В продакшне** миграции применяет раннер `apps/api/src/migrations/runner.ts`:
-- SQL-файлы хранятся в `apps/api/src/migrations/sql/` (файлы вида `001_*.sql` … `046_*.sql`)
+- SQL-файлы хранятся в `apps/api/src/migrations/sql/` (файлы вида `001_*.sql` … `053_*.sql`)
 - Раннер применяет их по порядку при каждом старте API-контейнера
 - Учёт выполненных файлов — таблица `_migrations` в БД
 - Миграции выполняются до открытия HTTP-сервера

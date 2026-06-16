@@ -20,7 +20,7 @@
 Запуск проверки по всем воркспейсам через Turborepo:
 
 ```bash
-pnpm -r type-check
+pnpm type-check
 ```
 
 Что ловит: несоответствие типов в аргументах и возвращаемых значениях роутеров Hono, неверные поля при формировании объектов Drizzle, несовместимость типов между `@titan/types`, `@titan/database` и потребителями.
@@ -64,6 +64,14 @@ pnpm build
 ```
 
 Turborepo запускает пакеты в правильном порядке с учётом зависимостей (`"dependsOn": ["^build"]`): сначала `@titan/config` → `@titan/types`, `@titan/auth`, `@titan/database` → приложения.
+
+### Линтинг
+
+```bash
+pnpm lint
+```
+
+`next lint` (ESLint, встроенный в Next.js) проверяет `apps/web`. В `apps/api` отдельного ESLint-скрипта нет — типовые ошибки покрываются `type-check`.
 
 ### Форматирование
 
@@ -199,9 +207,10 @@ Playwright поддерживает мобильную эмуляцию (`iPhone
 
 | Инструмент | Статус | Команда |
 |---|---|---|
-| TypeScript strict | Работает | `pnpm -r type-check` |
+| TypeScript strict | Работает | `pnpm type-check` |
 | `@titan/api` tsc build | Работает | `pnpm --filter @titan/api build` |
 | `@titan/web` next build | Работает | `pnpm --filter @titan/web build` |
+| Lint (next lint) | Работает | `pnpm lint` |
 | Юнит-тесты (vitest) | Не реализовано | — |
 | e2e-тесты (Playwright) | Не реализовано | — |
 | CI-пайплайн (GitHub Actions) | Не настроен | — |

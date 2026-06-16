@@ -1,7 +1,7 @@
 <!-- generated-by: gsd-doc-writer -->
 # @titan/api
 
-REST API бэкенд кассовой системы Titan HUB. Построен на [Hono](https://hono.dev/) + `@hono/node-server`, TypeScript, Drizzle ORM. Реализует полный цикл работы игрового клуба/антикафе: кассовые операции (POS), склад, клиенты, смены/касса, аналитика, TITAN AI-ассистент и вспомогательные сервисы.
+REST API бэкенд кассовой системы Titan HUB. Построен на [Hono](https://hono.dev/) + `@hono/node-server`, TypeScript, Drizzle ORM. Реализует полный цикл работы игрового клуба/антикафе: кассовые операции (POS), склад, клиенты, смены/касса, аналитика, TITAN AI-ассистент, сборы резидентов и вспомогательные сервисы.
 
 ---
 
@@ -43,7 +43,7 @@ REST API бэкенд кассовой системы Titan HUB. Построе�
 
 Дополнительно: по расписанию (09:00 МСК = 06:00 UTC) запускается крон `checkBirthdays` — рассылает уведомления о днях рождения клиентов.
 
-Сам роутер приложения живёт в **`src/app.ts`**: там настроены CORS, `secureHeaders`, `bodyLimit`, глобальный rate-limiting, логгер запросов с маскированием токенов в URL, и смонтированы все модульные роутеры.
+Сам роутер приложения живёт в **`src/app.ts`**: там настроены CORS, `secureHeaders`, `bodyLimit`, глобальный rate-limiting, логгер запросов с маскированием токенов в URL, энфорсмент подписки клуба и смонтированы все модульные роутеры.
 
 ---
 
@@ -61,7 +61,7 @@ src/
 │   └── rateLimit.ts          — rate-limiting через Redis
 ├── migrations/
 │   ├── runner.ts             — раннер миграций
-│   └── sql/                  — SQL-файлы 001_…046_ (в алфавитном порядке)
+│   └── sql/                  — SQL-файлы 001_…053_ (в алфавитном порядке)
 ├── lib/
 │   ├── appSettings.ts        — кэш настроек приложения из БД
 │   ├── backup.ts             — утилиты резервного копирования
@@ -70,33 +70,41 @@ src/
 │   ├── dateFmt.ts            — форматирование дат по МСК
 │   ├── loyalty.ts            — прогресс лояльности (visitProgress)
 │   ├── money.ts              — round2 — округление до 2 знаков
-│   └── redis.ts              — shared Redis-клиент
+│   ├── redis.ts              — shared Redis-клиент
+│   ├── shiftForecast.ts      — прогноз выручки смены (computeShiftForecast)
+│   └── subscription.ts       — статус подписки клуба
 ├── cron/
 │   └── birthdays.ts          — крон поздравлений
 └── modules/
     ├── ai/                   — TITAN AI-ассистент
-    ├── analytics/            — аналитика и дашборд
+    ├── analytics/            — аналитика: дашборд, выручка, оплаты, товары, тарифы, мероприятия
     ├── auth/                 — аутентификация, passkeys, self-профиль
     ├── cashops/              — кассовые операции смены
     ├── certificates/         — подарочные сертификаты
     ├── clients/              — клиенты (profiles с role=client)
+    ├── club/                 — подписка клуба, статус (control-plane)
+    ├── collections/          — сборы резидентов (Фонд клуба и разовые взносы)
     ├── customers/            — заказчики мероприятий
     ├── discounts/            — скидки и правила скидок по тирам
     ├── events/               — мероприятия
     ├── expenses/             — расходы
+    ├── gomafia/              — интеграция GoMafia (подбор игроков)
+    ├── internal/             — внутренний межсервисный роутер
     ├── inventory/            — склад (остатки, ревизии, движения)
     ├── menu/                 — меню: категории, позиции, модификаторы
     ├── notifications/        — push + Telegram уведомления
     ├── platega/              — webhook эквайринга Platega
-    ├── pos/                  — кассовые чеки, заказы, чат
+    ├── pos/                  — кассовые чеки, заказы, прогноз смены, чат
     ├── pricing/              — тарифы, типы вечеров, аренда почасово
     ├── refunds/              — возвраты по чекам
     ├── salary/               — расчёт и выплата зарплаты
     ├── shifts/               — смены
     ├── spaces/               — зоны/столы
     ├── staff/                — сотрудники (owner-only CRUD)
+    ├── superadmin/           — control-plane суперадмина (auth, клубы, биллинг)
     ├── supplies/             — поставки
     ├── system/               — системные настройки, бэкапы, обновления
+    ├── tg/                   — Telegram-бот межсервисный роутер
     └── upload/               — загрузка изображений в MinIO
 ```
 
@@ -110,15 +118,16 @@ src/
 |---|---|---|
 | `GET /api/health` | — | Health-check, возвращает `{ ok: true, ts }` |
 | `/api/auth` | `auth` | Вход по PIN/паролю/Telegram, passkey/WebAuthn, self-профиль, logout, SSE-тикет |
-| `/api/pos` | `pos` | Кассовые чеки, добавление позиций, заказы, чат кассира ↔ гость |
+| `/api/pos` | `pos` | Кассовые чеки, добавление позиций, заказы, прогноз смены (`shift-summary`), чат кассира ↔ гость |
 | `/api/shifts` | `shifts` | Текущая смена, открытие/закрытие, аналитика смены, остаток кассы, дни рождения |
 | `/api/cashops` | `cashops` | Внесения и изъятия наличных в рамках открытой смены |
 | `/api/menu` | `menu` | Категории и позиции меню, модификаторы, переупорядочивание |
 | `/api/inventory` | `inventory` | Остатки, ревизии (draft/apply), история движений, статистика позиции |
 | `/api/supplies` | `supplies` | Поставки (создание, черновик, применение), последняя цена позиции |
 | `/api/clients` | `clients` | Клиенты: CRUD, баланс (депозит/долг), бонусы, транзакции, тиры, Telegram-связка |
+| `/api/collections` | `collections` | Сборы резидентов: Фонд клуба (recurring) и разовые взносы (oneoff), оплата, исключения, периоды |
 | `/api/customers` | `customers` | Заказчики мероприятий: CRUD |
-| `/api/events` | `events` | Мероприятия: CRUD, участники, аналитика |
+| `/api/events` | `events` | Мероприятия: CRUD, участники |
 | `/api/spaces` | `spaces` | Зоны/столы: CRUD, soft delete, код для планшета |
 | `/api/pricing` | `pricing` | Тарифы, типы вечеров, почасовые ставки мероприятий |
 | `/api/discounts` | `discounts` | Скидки, правила скидок по клиентским тирам |
@@ -128,11 +137,16 @@ src/
 | `/api/expenses` | `expenses` | Расходы: CRUD, сводка, каталог статей |
 | `/api/notifications` | `notifications` | SSE-поток, push-подписка (VAPID), Telegram-связка, настройки типов |
 | `/api/ai` | `ai` | `POST /chat` и `POST /action` — TITAN AI-ассистент |
-| `/api/analytics` | `analytics` | Дашборд, обзор, выручка, оплаты, товары, тарифы, клиенты, сегменты |
+| `/api/analytics` | `analytics` | Дашборд, обзор, выручка, оплаты, товары, тарифы, клиенты, сегменты, мероприятия |
 | `/api/system` | `system` | Информация о версии, настройки приложения, бэкапы, SSE-обновление |
 | `/api/upload` | `upload` | `POST /image` — загрузка изображения в MinIO |
 | `/api/staff` | `staff` | Сотрудники: CRUD (owner-only), сброс PIN, passkeys, Telegram-связка |
 | `/api/platega` | `platega` | `POST /webhook` — коллбэк эквайринга Platega |
+| `/api/gomafia` | `gomafia` | Интеграция GoMafia: поиск игроков, резиденты клуба, статистика |
+| `/api/club` | `club` | Статус подписки клуба (control-plane, проверка грейс/блок) |
+| `/api/superadmin` | `superadmin` | Суперадмин control-plane: auth, управление клубами, биллинг |
+| `/api/tg` | `tg` | Межсервисный Telegram-роутер (внутренние события от ботов) |
+| `/api/internal` | `internal` | Внутренний межсервисный роутер (shared secret) |
 
 ### Примеры ключевых эндпоинтов
 
@@ -144,6 +158,16 @@ POST /api/auth/login/pin
 # Открытие чека
 POST /api/pos/checks
 { "spaceId": "...", "playerIds": [...] }
+
+# Прогноз выручки текущей смены
+GET /api/pos/shift-summary
+
+# Аналитика мероприятий
+GET /api/analytics/events?from=2025-01-01&to=2025-01-31
+
+# Сборы резидентов — оплата взноса
+POST /api/collections/:id/pay
+{ "playerId": "...", "method": "deposit", "periodId": "..." }
 
 # Пополнение баланса клиента
 POST /api/clients/:id/balance
@@ -195,7 +219,7 @@ Rate-limiting через Redis. Лимиты настраиваются чере
 
 ### Файлы миграций: `src/migrations/sql/`
 
-46 файлов, формат `NNN_описание.sql`. Ключевые:
+53 файла, формат `NNN_описание.sql`. Ключевые:
 
 | Файл | Что вводит |
 |---|---|
@@ -206,10 +230,15 @@ Rate-limiting через Redis. Лимиты настраиваются чере
 | `024_push_subscriptions.sql` | Push-подписки (VAPID) |
 | `025_tariffs_evening_types.sql` | Тарифы и типы вечеров |
 | `035_supply_corrections.sql` | Корректировки поставок |
+| `036_analytics_events.sql` | Аналитика мероприятий |
 | `043_revisions.sql` | Ревизии склада |
 | `044_stock_ledger.sql` | Ledger движений склада (`stock_movements`) |
 | `045_tx_idempotency.sql` | Идемпотентность транзакций баланса |
 | `046_drafts.sql` | Черновики поставок и ревизий (`draft_data`) |
+| `047_acquiring_surcharge.sql` | Доплата за эквайринг |
+| `050_integrations.sql` | Таблица интеграций (GoMafia и др.) |
+| `052_status_tariff_unify.sql` | Унификация статусов тарифов |
+| `053_collections.sql` | Сборы резидентов: таблицы `collections`, `collection_periods`, `collection_contributions`, `collection_members` |
 
 SQL-файлы должны быть идемпотентны (использовать `CREATE TABLE IF NOT EXISTS`, `ADD COLUMN IF NOT EXISTS` и т.п.) — это гарантирует безопасное повторное применение.
 
@@ -241,6 +270,30 @@ SQL-файлы должны быть идемпотентны (использо�
 **Поставки** (`/api/supplies`): документ `supplies` со статусами `draft → posted`. Черновик создаётся через `POST /api/supplies/draft` (поля в `draft_data` jsonb). Применение `POST /api/supplies/:id/apply` создаёт `supply_items` и проводит движения типа `receipt` через `recordMovement` для каждой позиции.
 
 **Ревизии** (`/api/inventory/revisions`): документ `revisions` со статусами `draft → applied`. Аналогичная схема: `POST /api/inventory/revisions/draft` для черновика, `POST /api/inventory/revisions/:id/apply` для применения (движение типа `count`, `delta = фактический_остаток − текущий_остаток`).
+
+### Сборы резидентов (`/api/collections`)
+
+Модуль `collections` реализует регулярные и разовые взносы резидентов клуба, не проходящие через кассу.
+
+**Типы сборов:** `recurring` (Фонд клуба — авто-период раз в месяц) и `oneoff` (разовый сбор).
+
+**Способы оплаты:**
+- `deposit` / `debt` — изменяют `profiles.balance`, создают запись в `transactions`, отображаются в истории игрока.
+- `cash` / `transfer` / `sbp` — фиксируются в `collection_contributions` без изменения баланса (копилка мимо кассы).
+
+**Исключения:** участник может быть исключён из периода на 1 месяц, 3 месяца, навсегда, либо с персональной суммой взноса.
+
+**Важно:** роутер требует `requireAuth` через `.use` до `requireRole` — иначе возникнет 500.
+
+### Прогноз выручки смены (`GET /api/pos/shift-summary`)
+
+Реализован в `src/lib/shiftForecast.ts` (`computeShiftForecast`). Логика: для каждого открытого чека вычисляется projected = max(текущая сумма, средний чек резидента за 120 дней). При наличии ≥ 3 посещений применяется поправка на день недели. Гость без истории — берётся текущая сумма чека.
+
+Ответ: `{ shift, openChecks: { count, total }, cashInRegister, forecast: { amount, currentTotal, additional, perCheck[] } }`.
+
+### Аналитика мероприятий (`GET /api/analytics/events`)
+
+Параметры: `?from=YYYY-MM-DD&to=YYYY-MM-DD`. Возвращает: количество мероприятий и часов, выручку, среднюю длительность/чек/выручку-за-час/гостей, разбивки по формату (Титан/Выезд/Миникап), загрузку по дням недели, топ заказчиков и зон. Окно фильтрации — по календарной дате события.
 
 ### Балансы клиентов — депозиты и долги
 

@@ -146,7 +146,7 @@ cp .env.example .env
 
 - `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` — Web Push-уведомления. Без них push отключается, SSE-уведомления работают.
 - `ADMIN_BOT_TOKEN`, `WALLET_BOT_TOKEN` — Telegram-боты. Без них боты не запускаются, остальное работает.
-- `POLZA_API_KEY`, `POLZA_BASE_URL`, `POLZA_MODEL` — TITAN AI (LLM-ассистент). Без них экран `/ai` недоступен.
+- `ANTHROPIC_API_KEY`, `AI_MODEL` — Tai (LLM-ассистент на базе Claude). Без них экран `/ai` недоступен.
 - `PLATEGA_MERCHANT_ID`, `PLATEGA_SECRET` — интеграция с платёжным шлюзом Platega.
 
 Полное описание всех переменных — в [`docs/CONFIGURATION.md`](CONFIGURATION.md).
@@ -193,7 +193,7 @@ docker compose up -d
 3. Применяет только те, которых ещё нет в `_migrations` (идемпотентно).
 4. Каждую миграцию оборачивает в транзакцию — откат при ошибке.
 
-Текущий набор миграций: `001_event_payment_type.sql` … `046_drafts.sql`.
+Текущий набор миграций: `001_event_payment_type.sql` … `053_collections.sql`.
 
 При запуске `pnpm --filter @titan/api dev` миграции применяются автоматически до старта HTTP-сервера. Дополнительных команд не нужно.
 

@@ -11,11 +11,13 @@
 2. [Первоначальная настройка сервера](#первоначальная-настройка-сервера)
 3. [Процесс деплоя](#процесс-деплоя)
 4. [Миграции базы данных](#миграции-базы-данных)
-5. [Резервные копии](#резервные-копии)
-6. [Точечная пересборка одного сервиса](#точечная-пересборка-одного-сервиса)
-7. [Операционные нюансы и известные ловушки](#операционные-нюансы-и-известные-ловушки)
-8. [Мониторинг и проверка работоспособности](#мониторинг-и-проверка-работоспособности)
-9. [Откат](#откат)
+5. [Провижининг нового клуба (database-per-club)](#провижининг-нового-клуба-database-per-club)
+6. [Резервные копии](#резервные-копии)
+7. [TLS-сертификаты](#tls-сертификаты)
+8. [Точечная пересборка одного сервиса](#точечная-пересборка-одного-сервиса)
+9. [Операционные нюансы и известные ловушки](#операционные-нюансы-и-известные-ловушки)
+10. [Мониторинг и проверка работоспособности](#мониторинг-и-проверка-работоспособности)
+11. [Откат](#откат)
 
 ---
 
@@ -28,8 +30,10 @@
 | Хостинг | VPS <!-- VERIFY: провайдер и характеристики сервера (RAM, CPU) --> |
 | Директория проекта | `/opt/titan-hub` |
 | Директория бэкапов | `/opt/backups` |
-| Домен | `titanpos.ru` |
-| TLS-сертификаты | `/opt/titan-hub/nginx/ssl/fullchain.pem` и `privkey.pem` <!-- VERIFY: способ получения и обновления сертификатов (Let's Encrypt / ручной) --> |
+| Основной домен | `titanpos.ru` |
+| Суперадмин-панель | `admin.titanpos.ru` |
+| Клуб-поддомены | `*.titanpos.ru` (напр. `kbr.titanpos.ru`) |
+| TLS-сертификаты | `/opt/titan-hub/nginx/ssl/` (fullchain.pem + privkey.pem — основной; admin-fullchain.pem + admin-privkey.pem — admin-поддомен; wildcard-fullchain.pem + wildcard-privkey.pem — *.titanpos.ru) |
 
 ### Сервисы Docker Compose
 
@@ -60,19 +64,45 @@
 
 ### Схема проксирования nginx
 
-nginx слушает порты 80/443 на хосте, редиректит HTTP → HTTPS и проксирует запросы по следующим правилам:
+nginx слушает порты 80/443 на хосте и обслуживает три виртуальных хоста:
+
+**`titanpos.ru` (основное клубное приложение):**
 
 ```
 titanpos.ru/              → web:3000     (Next.js, HTML no-cache)
 titanpos.ru/api/          → api:3001     (rate limit 30 r/s, burst 50)
-titanpos.ru/api/auth/login → api:3001    (жёсткий rate limit 5 r/min, burst 10)
+titanpos.ru/api/auth/login → api:3001   (жёсткий rate limit 5 r/min, burst 10)
 titanpos.ru/api/system/update → api:3001 (SSE, no-buffering, timeout 600s)
-titanpos.ru/media/        → minio:9000   (runtime-resolver, бакет titan-hub, кеш 30d)
-titanpos.ru/wallet/       → wallet:3002  (^~ приоритет над regex, basePath /wallet)
-titanpos.ru/wallet         → wallet:3002 (точный match)
-/_next/static/            → web:3000     (immutable cache)
-/wallet/_next/static/     → wallet:3002  (immutable cache)
+titanpos.ru/media/        → minio:9000  (runtime-resolver, бакет titan-hub, кеш 30d)
+titanpos.ru/wallet/       → wallet:3002 (^~ приоритет над regex, basePath /wallet)
+titanpos.ru/wallet        → wallet:3002 (точный match)
+titanpos.ru/_next/static/ → web:3000   (immutable cache)
+/wallet/_next/static/     → wallet:3002 (immutable cache)
+/superadmin               → 301 → admin.titanpos.ru
 ```
+
+**`admin.titanpos.ru` (суперадмин-панель — изолированный контур):**
+
+```
+admin.titanpos.ru/            → 301 → /superadmin
+admin.titanpos.ru/superadmin  → web:3000  (HTML no-cache)
+admin.titanpos.ru/api/superadmin/ → api:3001 (rate limit 30 r/s)
+admin.titanpos.ru/_next/static/ → web:3000 (immutable cache)
+admin.titanpos.ru/* (прочее)  → 301 → /superadmin
+```
+
+Клубное приложение (POS, /dashboard, /media и т.п.) на `admin.titanpos.ru` недоступно — весь посторонний трафик редиректится на панель.
+
+**`*.titanpos.ru` (клуб-поддомены арендаторов):**
+
+```
+*.titanpos.ru/api/          → api:3001  (Host $host → tenantContext резолвит клуб)
+*.titanpos.ru/api/auth/login → api:3001 (жёсткий rate limit 5 r/min)
+*.titanpos.ru/media/        → minio:9000 (runtime-resolver)
+*.titanpos.ru/              → web:3000   (HTML no-cache)
+```
+
+Критично: `proxy_set_header Host $host` пробрасывается во все proxy_pass на api — по поддомену tenantContext определяет, данными какого клуба оперировать.
 
 Конфигурация nginx: `nginx/nginx.conf` (bind-mount `ro` в контейнер).
 
@@ -110,8 +140,10 @@ nano .env
 
 # 3. Разместить TLS-сертификаты
 mkdir -p nginx/ssl
-# Скопировать fullchain.pem и privkey.pem в nginx/ssl/
-# <!-- VERIFY: способ получения сертификатов (certbot, ручной) -->
+# Получить и скопировать сертификаты (см. раздел «TLS-сертификаты»):
+#   nginx/ssl/fullchain.pem + privkey.pem         (основной домен)
+#   nginx/ssl/admin-fullchain.pem + admin-privkey.pem  (admin.titanpos.ru)
+#   nginx/ssl/wildcard-fullchain.pem + wildcard-privkey.pem  (*.titanpos.ru)
 
 # 4. Создать директорию для бэкапов
 mkdir -p /opt/backups
@@ -120,7 +152,9 @@ mkdir -p /opt/backups
 docker compose build
 docker compose up -d
 
-# 6. Настроить cron для ежедневных бэкапов (см. раздел «Резервные копии»)
+# 6. Настроить cron для ежедневных бэкапов и обновления сертификатов:
+# 0 3 * * * cd /opt/titan-hub && bash scripts/backup-db.sh >> /var/log/titan-backup.log 2>&1
+# 0 3 * * * bash /opt/titan-hub/scripts/renew-ssl.sh >> /var/log/titan-ssl.log 2>&1
 ```
 
 ---
@@ -214,9 +248,8 @@ tail -f /opt/titan-hub/deploy.log
 apps/api/src/migrations/sql/
   001_init.sql
   ...
-  044_stock_ledger.sql
-  045_tx_idempotency.sql
-  046_drafts.sql          ← текущая последняя
+  052_status_tariff_unify.sql
+  053_collections.sql          ← текущая последняя
 ```
 
 Формат имени: `NNN_description.sql` (трёхзначный номер + описание). Порядок применения — алфавитный, что совпадает с числовым.
@@ -232,10 +265,58 @@ apps/api/src/migrations/sql/
 
 ```bash
 # Создать файл с следующим номером в последовательности
-touch apps/api/src/migrations/sql/047_my_change.sql
+touch apps/api/src/migrations/sql/054_my_change.sql
 # Написать идемпотентный SQL (IF NOT EXISTS, IF EXISTS, ADD COLUMN IF NOT EXISTS и т.д.)
 # Закоммитить и запушить — раннер применит при следующем деплое
 ```
+
+---
+
+## Провижининг нового клуба (database-per-club)
+
+Titan HUB переходит на архитектуру database-per-club: каждый арендатор получает отдельную PostgreSQL-базу (`club_<slug>`) и поддомен (`<slug>.titanpos.ru`). Контрольный реестр клубов хранится в `titan_control`.
+
+### Состояние
+
+Провижининг **ещё не подключён к рантайму** — существующий одноклубный прод работает как прежде. `apps/api/src/provisioning/` содержит фундамент для Фазы 1:
+
+- **`baseline.sql`** — полный снимок схемы прод-БД (`pg_dump --schema-only`, Postgres 16). Создаёт все типы/таблицы/индексы/constraints на пустой БД. Это «squash» всех миграций 001..049 в одном файле. Прогоняется через `psql` (не через раннер — файл содержит psql-метакоманды).
+
+### Процедура провижининга нового клуба (целевая, реализуется в Фазе 1)
+
+```bash
+# 1. Создать БД клуба
+docker compose exec postgres psql -U titan -c "CREATE DATABASE club_<slug>;"
+
+# 2. Применить baseline-схему
+docker compose exec -T postgres psql -U titan -d club_<slug> < \
+  apps/api/src/provisioning/baseline.sql
+
+# 3. Пометить все baseline-миграции (001..049) как уже применённые,
+#    чтобы раннер не прогонял их повторно на новой БД:
+#    (конкретные команды реализуются провижинером Фазы 1)
+
+# 4. Будущие миграции (050+) раннер применит штатно — на всех БД, включая новую.
+
+# 5. Сидинг: вечерние типы, дефолтные app_settings, bootstrap-владелец.
+# 6. Записать клуб в control-plane (titan_control).
+# 7. Добавить DNS A-запись <slug>.titanpos.ru → IP сервера.
+#    nginx wildcard-блок (*.titanpos.ru) подхватит поддомен автоматически.
+```
+
+### Обновление baseline.sql
+
+При накоплении новых миграций baseline периодически обновляется (squash-точки):
+
+```bash
+# Снять снимок с эталонной БД (или прода после прогона всех миграций):
+docker compose exec postgres pg_dump -U titan -d titan_hub --schema-only \
+  --clean --if-exists --no-owner --no-privileges \
+  > apps/api/src/provisioning/baseline.sql
+# Обновить в README список «уже применённых» миграций для шага 3.
+```
+
+**Не кладите `baseline.sql` в `apps/api/src/migrations/sql/`** — тот каталог авто-применяется на старте на существующей прод-БД; baseline там не нужен и опасен.
 
 ---
 
@@ -251,11 +332,12 @@ bash /opt/titan-hub/scripts/backup-db.sh
 
 1. Создаёт `/opt/backups/` если не существует.
 2. Запускает `pg_dump` через `docker compose exec -T postgres` — без публикации порта postgres на хост.
-3. Сохраняет дамп в `/opt/backups/titan_YYYYMMDD_HHMMSS.sql.gz` (gzip-сжатие).
+3. Сохраняет дамп `titan_hub` в `/opt/backups/titan_YYYYMMDD_HHMMSS.sql.gz` (gzip-сжатие).
 4. Флаги дампа: `--clean --if-exists --no-owner --no-privileges` — дамп можно восстановить поверх существующей БД (DROP+CREATE таблиц).
 5. Проверяет, что файл больше 1024 байт (защита от пустого дампа при недоступной БД).
-6. Удаляет дампы старше `BACKUP_KEEP_DAYS` дней (по умолчанию: `14`).
+6. Удаляет дампы `titan_*.sql.gz` старше `BACKUP_KEEP_DAYS` дней (по умолчанию: `14`).
 7. **Офсайт-копия в Google Drive через rclone** — активируется автоматически при наличии настроенного remote `gdrive`. Если rclone не настроен — шаг тихо пропускается.
+8. **Мультиклуб (best-effort):** дополнительно делает отдельные дампы для `titan_control` и каждой `club_*`-базы. Сбой по любой из них логируется, но не роняет скрипт. Файлы: `<db>_<ts>.sql.gz`, своя ротация и выгрузка в Drive.
 
 ### Переменные окружения
 
@@ -300,6 +382,36 @@ docker exec titan-nginx nginx -s reload
 ```
 
 Восстановление также доступно через кнопку «О системе → Восстановить» в интерфейсе (API вызывает `psql` изнутри контейнера `api`, который имеет доступ к `/backups`).
+
+---
+
+## TLS-сертификаты
+
+Сертификаты получаются через **certbot (Let's Encrypt)** и обновляются скриптом `scripts/renew-ssl.sh`:
+
+```bash
+#!/bin/bash
+certbot renew --quiet
+cp /etc/letsencrypt/live/titanpos.ru/fullchain.pem /opt/titan-hub/nginx/ssl/
+cp /etc/letsencrypt/live/titanpos.ru/privkey.pem /opt/titan-hub/nginx/ssl/
+docker compose -f /opt/titan-hub/docker-compose.yml restart nginx
+```
+
+Добавить в cron (обновление раз в сутки, certbot пропустит если до истечения > 30 дней):
+
+```bash
+0 3 * * * bash /opt/titan-hub/scripts/renew-ssl.sh >> /var/log/titan-ssl.log 2>&1
+```
+
+nginx поддерживает ACME-вызов через `/.well-known/acme-challenge/` на HTTP-блоке `admin.titanpos.ru` и `*.titanpos.ru` (webroot — `/var/www/certbot`). На `titanpos.ru` HTTP-блок делает прямой `301 → HTTPS` без ACME-поддержки <!-- VERIFY: подтвердить, нужен ли webroot для основного домена или renewal идёт без webroot -->.
+
+В `nginx/ssl/` должны находиться три пары сертификатов:
+
+| Файлы | Для домена |
+|-------|-----------|
+| `fullchain.pem` / `privkey.pem` | `titanpos.ru` |
+| `admin-fullchain.pem` / `admin-privkey.pem` | `admin.titanpos.ru` |
+| `wildcard-fullchain.pem` / `wildcard-privkey.pem` | `*.titanpos.ru` |
 
 ---
 
@@ -388,6 +500,24 @@ docker system prune -af  # без --volumes — данные целы
 ### 7. Redis с AOF-журналом
 
 Redis запущен с `--appendonly yes` — переживает перезагрузку хоста без потери состояния (rate-limit зоны, blacklist токенов). При `docker compose restart redis` состояние восстанавливается из AOF.
+
+### 8. Клуб-поддомены и Host-заголовок
+
+API резолвит клуба по поддомену из `Host`-заголовка (`tenantContext`). **Критично:** все proxy_pass на api в блоке `*.titanpos.ru` должны содержать `proxy_set_header Host $host;`. Без этого заголовка все поддомены обращались бы к данным одного клуба.
+
+### 9. Логи Docker ограничены по размеру
+
+В `docker-compose.yml` для всех сервисов настроена ротация json-логов:
+
+```yaml
+logging:
+  driver: "json-file"
+  options:
+    max-size: "10m"
+    max-file: "3"
+```
+
+Максимум ~30 МБ на сервис. API пишет строку на каждый запрос — без этого лимита диск VPS переполнился бы.
 
 ---
 
@@ -480,7 +610,7 @@ docker exec titan-nginx nginx -s reload
 Общий порядок:
 1. Развернуть новый VPS, клонировать репозиторий в `/opt/titan-hub`.
 2. Скопировать `.env` с секретами.
-3. Разместить TLS-сертификаты в `nginx/ssl/`.
+3. Разместить TLS-сертификаты в `nginx/ssl/` (все три пары — основной, admin, wildcard).
 4. Скопировать последний дамп БД в `/opt/backups/`.
 5. Запустить `docker compose up -d`.
 6. После старта восстановить БД из дампа (см. выше).
