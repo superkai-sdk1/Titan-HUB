@@ -29,6 +29,7 @@ interface Product {
   about: string // что даёт интеграция (детально)
   kind: 'keys' | 'gomafia'
   fields: Field[]
+  comingSoon?: boolean // карточка-витрина «Скоро» (без установки)
 }
 
 const CATALOG: Product[] = [
@@ -81,6 +82,36 @@ const CATALOG: Product[] = [
       { key: 'clubUrl', label: 'Ссылка на клуб', type: 'text', placeholder: 'gomafia.pro/club/49', hint: 'Необязательно: ссылка на ваш клуб, если он не определится автоматически.', optional: true },
     ],
   },
+
+  // ─── Витрина «Скоро» (в разработке; кнопка «Установить» → «Скоро») ───────────
+  // Платежи и эквайринг
+  { id: 'tbank', name: 'Т-Банк (СБП)', icon: 'credit_card', color: '#FFDD2D', kind: 'keys', fields: [], comingSoon: true,
+    blurb: 'СБП и эквайринг от Т-Банка', about: 'Приём оплат по СБП (QR) и интернет-эквайринг через Т-Банк (Тинькофф). Альтернатива Platega для приёма платежей на кассе.' },
+  { id: 'yookassa', name: 'ЮKassa', icon: 'account_balance_wallet', color: '#8B5CF6', kind: 'keys', fields: [], comingSoon: true,
+    blurb: 'СБП, карты и 54-ФЗ-чеки', about: 'ЮKassa (ЮMoney): приём по СБП и картам + фискальные чеки 54-ФЗ из коробки. Одно из самых распространённых решений в РФ.' },
+  { id: 'sberbusiness', name: 'СберБизнес', icon: 'account_balance', color: '#21A038', kind: 'keys', fields: [], comingSoon: true,
+    blurb: 'Эквайринг и СБП от Сбера', about: 'Приём оплат по СБП и картам через эквайринг Сбербанка для бизнес-клиентов Сбера.' },
+  { id: 'tochka_alfa', name: 'Точка / Альфа', icon: 'credit_card', color: '#EF3124', kind: 'keys', fields: [], comingSoon: true,
+    blurb: 'Эквайринг Точки и Альфа-Банка', about: 'Дополнительные банки-эквайеры (Точка-банк, Альфа-Банк) — чтобы клиент мог выбрать привычный банк для приёма оплат.' },
+  // Фискализация 54-ФЗ
+  { id: 'atol', name: 'АТОЛ Онлайн', icon: 'receipt_long', color: '#4cd7f6', kind: 'keys', fields: [], comingSoon: true,
+    blurb: 'Облачная касса 54-ФЗ', about: 'Фискализация чеков по 54-ФЗ через облачную кассу АТОЛ Онлайн — без покупки своего кассового аппарата.' },
+  { id: 'evotor', name: 'Эвотор', icon: 'point_of_sale', color: '#F59E0B', kind: 'keys', fields: [], comingSoon: true,
+    blurb: 'Смарт-терминалы Эвотор', about: 'Интеграция со смарт-терминалами Эвотор для печати фискальных чеков 54-ФЗ на кассе.' },
+  { id: 'platform_ofd', name: 'Платформа ОФД', icon: 'receipt', color: '#3B82F6', kind: 'keys', fields: [], comingSoon: true,
+    blurb: 'Оператор фискальных данных', about: 'Передача фискальных чеков в ФНС через ОФД (Платформа ОФД) — обязательное звено 54-ФЗ.' },
+  { id: 'kontur_ofd', name: 'Бизнес.Ру / Контур.ОФД', icon: 'receipt_long', color: '#10B981', kind: 'keys', fields: [], comingSoon: true,
+    blurb: 'Альтернативные ОФД/кассы', about: 'Альтернативные операторы фискальных данных и кассовые сервисы (Бизнес.Ру, Контур.ОФД) на выбор.' },
+  // Маркетинг и коммуникации
+  { id: 'whatsapp', name: 'WhatsApp Business', icon: 'chat', color: '#25D366', kind: 'keys', fields: [], comingSoon: true,
+    blurb: 'Уведомления и рассылки в WhatsApp', about: 'WhatsApp Business API: уведомления и рассылки клиентам и заказчикам мероприятий (подтверждения, акции, дни рождения).' },
+  { id: 'reviews', name: 'Отзывы 2ГИС / Яндекс', icon: 'star', color: '#FBBF24', kind: 'keys', fields: [], comingSoon: true,
+    blurb: 'Сбор отзывов и карточка заведения', about: 'Сбор отзывов и управление карточкой заведения в 2ГИС и Яндекс.Картах — приглашать гостей оставить отзыв после визита.' },
+  // Прочее
+  { id: 'booking', name: 'Онлайн-бронирование', icon: 'event', color: '#A78BFA', kind: 'keys', fields: [], comingSoon: true,
+    blurb: 'Виджет брони зон/столов на сайт', about: 'Виджет онлайн-бронирования зон и столов для сайта → бронь автоматически создаёт мероприятие/чек в системе.' },
+  { id: 'music', name: 'Музыка для бизнеса', icon: 'campaign', color: '#EC4899', kind: 'keys', fields: [], comingSoon: true,
+    blurb: 'Лицензионная фоновая музыка', about: 'Лицензионная фоновая музыка для зала (Звук Бизнес / Я.Музыка для бизнеса) — без рисков по авторским правам.' },
 ]
 
 type GmStatus = { connected: boolean; source: string | null; clubId: string | null; clubTitle: string | null; loginMasked: string | null }
@@ -217,13 +248,21 @@ export function IntegrationsTab() {
               </div>
             </div>
             <p style={{ fontSize: 14, color: 'var(--on-surface)', lineHeight: 1.55, margin: 0 }}>{storeProduct.about}</p>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '12px 14px', borderRadius: 12, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
-              <span style={{ ...LBL, margin: 0 }}>Что понадобится</span>
-              {storeProduct.fields.map(f => (
-                <p key={f.key} style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: 0, lineHeight: 1.4 }}>• {f.label}{f.optional ? ' (необязательно)' : ''}</p>
-              ))}
-            </div>
-            <Button variant="primary" fullWidth icon="add" onClick={() => startWizard(storeProduct)}>Установить</Button>
+            {!storeProduct.comingSoon && storeProduct.fields.length > 0 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '12px 14px', borderRadius: 12, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
+                <span style={{ ...LBL, margin: 0 }}>Что понадобится</span>
+                {storeProduct.fields.map(f => (
+                  <p key={f.key} style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: 0, lineHeight: 1.4 }}>• {f.label}{f.optional ? ' (необязательно)' : ''}</p>
+                ))}
+              </div>
+            )}
+            {storeProduct.comingSoon ? (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '14px 0', borderRadius: 14, background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.3)', color: '#F59E0B', fontSize: 14, fontWeight: 700 }}>
+                <Icon name="schedule" size={18} color="#F59E0B" /> Скоро
+              </div>
+            ) : (
+              <Button variant="primary" fullWidth icon="add" onClick={() => startWizard(storeProduct)}>Установить</Button>
+            )}
           </div>
         ) : available.length === 0 ? (
           <StateView state="empty" icon="check_circle" title="Все интеграции установлены" description="Доступных к установке интеграций больше нет." />
@@ -231,7 +270,10 @@ export function IntegrationsTab() {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 12 }}>
             {available.map(p => (
               <button key={p.id} onClick={() => setStoreProduct(p)} className="glass-l2"
-                style={{ textAlign: 'left', borderRadius: 16, padding: 14, border: '1px solid rgba(255,255,255,0.08)', cursor: 'pointer', color: 'var(--on-surface)', display: 'flex', flexDirection: 'column', gap: 10 }}>
+                style={{ textAlign: 'left', borderRadius: 16, padding: 14, border: '1px solid rgba(255,255,255,0.08)', cursor: 'pointer', color: 'var(--on-surface)', display: 'flex', flexDirection: 'column', gap: 10, position: 'relative', opacity: p.comingSoon ? 0.94 : 1 }}>
+                {p.comingSoon && (
+                  <span style={{ position: 'absolute', top: 10, right: 10, fontSize: 9, fontWeight: 800, padding: '2px 7px', borderRadius: 6, background: 'rgba(245,158,11,0.18)', color: '#F59E0B', border: '1px solid rgba(245,158,11,0.35)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Скоро</span>
+                )}
                 <div style={{ width: 40, height: 40, borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', background: `${p.color}1f`, border: `1px solid ${p.color}3a` }}>
                   <Icon name={p.icon} size={21} color={p.color} />
                 </div>
@@ -239,7 +281,9 @@ export function IntegrationsTab() {
                   <p style={{ fontSize: 14, fontWeight: 700, margin: 0 }}>{p.name}</p>
                   <p style={{ fontSize: 11.5, color: 'var(--on-surface-variant)', margin: '3px 0 0', lineHeight: 1.4 }}>{p.blurb}</p>
                 </div>
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 12, fontWeight: 700, color: '#a78bfa', marginTop: 'auto' }}>Подробнее <Icon name="chevron_right" size={14} color="#a78bfa" /></span>
+                {p.comingSoon
+                  ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 12, fontWeight: 700, color: '#F59E0B', marginTop: 'auto' }}><Icon name="schedule" size={13} color="#F59E0B" /> Скоро</span>
+                  : <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 12, fontWeight: 700, color: '#a78bfa', marginTop: 'auto' }}>Подробнее <Icon name="chevron_right" size={14} color="#a78bfa" /></span>}
               </button>
             ))}
           </div>
