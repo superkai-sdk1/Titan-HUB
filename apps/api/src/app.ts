@@ -8,7 +8,7 @@ import { db, sql } from '@titan/database'
 import { rateLimit } from './middleware/rateLimit.js'
 import { tenantContext } from './middleware/tenant.js'
 import { requireActiveSubscription } from './middleware/subscription.js'
-import { requireModule } from './middleware/module.js'
+import { requireModule, requireAiPaid } from './middleware/module.js'
 import { clubRouter } from './modules/club/club.router.js'
 import { internalRouter } from './modules/internal/internal.router.js'
 import { tgRouter } from './modules/tg/tg.router.js'
@@ -138,7 +138,8 @@ app.use('/api/*', requireActiveSubscription)
 
 // Фиче-гейты модулей: 403, если модуль явно выключен у клуба. На основном домене
 // и при отсутствии флага — пропуск (fail-open). Гейтим опциональные модули.
-app.use('/api/ai/*', requireModule('ai'))
+// Tai (ИИ) — ПЛАТНЫЙ: fail-closed для арендаторов (нужна подписка/модуль 'ai').
+app.use('/api/ai/*', requireAiPaid())
 app.use('/api/platega/*', requireModule('platega'))
 app.use('/api/events/*', requireModule('events'))
 app.use('/api/certificates/*', requireModule('certificates'))

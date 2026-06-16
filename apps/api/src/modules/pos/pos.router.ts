@@ -13,6 +13,7 @@ import { recordMovement } from '../inventory/ledger.js'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
 import { getCurrentShift, getShiftCashBalance } from '../shifts/shifts.service.js'
 import { computeShiftForecast } from '../../lib/shiftForecast.js'
+import { aiAllowed } from '../../middleware/module.js'
 import { notify, notifyClient } from '../notifications/push.js'
 import { maybePromoteToResident } from '../../lib/loyalty.js'
 import { profileNameCondition, profileTagCondition } from '../../lib/searchVariants.js'
@@ -464,11 +465,14 @@ posRouter.get('/shift-summary', requireRole('owner', 'staff'), async (c) => {
     getShiftCashBalance(shift.id, db),
     computeShiftForecast(db, shift.id),
   ])
+  // ИИ-прогноз вечера (Tai) — только при подписке; открытые чеки и касса доступны всегда.
+  const tai = aiAllowed(c.var.club)
   return c.json({
     shift: { id: shift.id, openedAt: shift.openedAt, eveningType: shift.eveningType },
     openChecks: { count: forecast.perCheck.length, total: forecast.currentTotal },
     cashInRegister: expected,
-    forecast,
+    taiEnabled: tai,
+    forecast: tai ? forecast : null,
   })
 })
 
@@ -589,6 +593,8 @@ posRouter.get('/checks', requireRole('owner', 'staff', 'tablet'), async (c) => {
 
 // ПРЕДЧЕКИ: виртуальные карточки для отметившихся «Да»/«Опоздаю» в опросе вечера.
 posRouter.get('/prechecks', requireRole('owner', 'staff', 'tablet'), async (c) => {
+  // Предчеки — функция Tai: без подписки отдаём пусто (UI деградирует тихо).
+  if (!aiAllowed(c.var.club)) return c.json({ prechecks: [] })
   // Планшету предчеки не нужны, но роль допускаем (вернёт по смене/данным клуба).
   const prechecks = await getPrecheckCandidates(c.var.db)
   return c.json({ prechecks })
@@ -596,6 +602,7 @@ posRouter.get('/prechecks', requireRole('owner', 'staff', 'tablet'), async (c) =
 
 // ПРЕДУГАДАННЫЕ ПОЗИЦИИ: частые заказы клиента-резидента (Tai). Пусто для не-резидентов.
 posRouter.get('/checks/:id/suggestions', requireRole('owner', 'staff', 'tablet'), async (c) => {
+  if (!aiAllowed(c.var.club)) return c.json({ suggestions: [] }) // функция Tai — по подписке
   const suggestions = await getCheckSuggestions(c.var.db, c.req.param('id'))
   return c.json({ suggestions })
 })

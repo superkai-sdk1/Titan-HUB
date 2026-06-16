@@ -19,3 +19,21 @@ export function requireModule(moduleKey: string) {
     return next()
   })
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tai (ИИ-функции: ассистент, прогнозы смены, предчеки, предугадывание позиций) —
+// ПЛАТНЫЙ модуль 'ai'. В отличие от requireModule (fail-open), здесь fail-CLOSED
+// для клубов-арендаторов: доступно ТОЛЬКО при ЯВНО включённом модуле 'ai'
+// (подписка 399 ₽/мес включается суперадмином). На основном домене (club=null —
+// инстанс оператора/флагман) — открыто, чтобы не ломать текущее использование.
+// ─────────────────────────────────────────────────────────────────────────────
+export function aiAllowed(club: { modules?: Record<string, boolean> } | null | undefined): boolean {
+  if (!club) return true
+  return club.modules?.['ai'] === true
+}
+export function requireAiPaid() {
+  return createMiddleware<AppEnv>(async (c, next) => {
+    if (aiAllowed(c.var.club)) return next()
+    return c.json({ error: 'ai_subscription_required', module: 'ai' }, 403)
+  })
+}

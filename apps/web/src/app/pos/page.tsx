@@ -61,7 +61,8 @@ interface ShiftSummary {
   shift: { id: string; openedAt: string; eveningType: string } | null
   openChecks: { count: number; total: number }
   cashInRegister: number
-  forecast: { amount: number; currentTotal: number; additional: number; perCheck: ShiftForecastCheck[] }
+  taiEnabled?: boolean
+  forecast: { amount: number; currentTotal: number; additional: number; perCheck: ShiftForecastCheck[] } | null
 }
 
 // Игрок GoMafia в подборе (из /gomafia/search).
@@ -1628,16 +1629,18 @@ function ShiftCard({ shift, summary, onOpen, onCloseShift, onDetail }: {
         <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 2, fontSize: 10, color: 'var(--on-surface-variant)' }}>Подробнее<Icon name="chevron_right" size={13} color="var(--on-surface-variant)" /></span>
       </div>
       <ShiftMiniStat label={`Открыто · ${summary.openChecks.count}`} value={fmtRub(summary.openChecks.total)} />
-      {/* Прогноз — подпись не влезает на телефоне: вместо неё бегущая ИИ-искра Tai
-          по строке (не доходит до суммы). Что это — поясняет шторка по тапу. */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }} aria-label="Прогноз вечера от Tai">
-        <div style={{ position: 'relative', flex: 1, height: 18, minWidth: 0, overflow: 'hidden' }}>
-          <span style={{ position: 'absolute', top: '50%', marginTop: -8, animation: 'tai-run 2.6s ease-in-out infinite' }}>
-            <TaiLogo size={16} thinking float={false} />
-          </span>
+      {/* Прогноз вечера (Tai) — только при подписке. Подпись не влезает на телефоне:
+          вместо неё бегущая ИИ-искра по строке (не доходит до суммы); пояснение — в шторке. */}
+      {summary.forecast && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }} aria-label="Прогноз вечера от Tai">
+          <div style={{ position: 'relative', flex: 1, height: 18, minWidth: 0, overflow: 'hidden' }}>
+            <span style={{ position: 'absolute', top: '50%', marginTop: -8, animation: 'tai-run 2.6s ease-in-out infinite' }}>
+              <TaiLogo size={16} thinking float={false} />
+            </span>
+          </div>
+          <span style={{ flexShrink: 0, fontSize: 17, fontWeight: 800, fontVariantNumeric: 'tabular-nums', color: '#A78BFA' }}>{fmtRub(summary.forecast.amount)}</span>
         </div>
-        <span style={{ flexShrink: 0, fontSize: 17, fontWeight: 800, fontVariantNumeric: 'tabular-nums', color: '#A78BFA' }}>{fmtRub(summary.forecast.amount)}</span>
-      </div>
+      )}
       <ShiftMiniStat label="В кассе" value={fmtRub(summary.cashInRegister)} />
       <style>{`@keyframes tai-shift-bar{0%{background-position:0% 0}100%{background-position:300% 0}}@keyframes tai-run{0%{left:0}50%{left:calc(100% - 16px)}100%{left:0}}`}</style>
     </button>
@@ -1659,7 +1662,7 @@ function ShiftMiniStat({ label, value, accent, tai }: { label: string; value: st
 /* ─── Детализация сводки смены ────────────────────────────────────────────── */
 function ShiftDetailSheet({ open, onClose, summary }: { open: boolean; onClose: () => void; summary?: ShiftSummary }) {
   if (!open || !summary) return null
-  const perCheck = [...summary.forecast.perCheck].sort((a, b) => b.projected - a.projected)
+  const perCheck = summary.forecast ? [...summary.forecast.perCheck].sort((a, b) => b.projected - a.projected) : []
   return (
     <div onClick={e => { if (e.target === e.currentTarget) onClose() }} style={{
       position: 'fixed', inset: 0, zIndex: 60, background: 'rgba(13,21,38,0.85)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
@@ -1674,11 +1677,14 @@ function ShiftDetailSheet({ open, onClose, summary }: { open: boolean; onClose: 
         {/* Три цифры с пояснениями */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 18 }}>
           <DetailRow icon="receipt_long" color="#4cd7f6" title="Открыто чеков" hint={`${summary.openChecks.count} активных · уже набрано`} value={fmtRub(summary.openChecks.total)} />
-          <DetailRow icon="auto_awesome" color="#A78BFA" tai title="Прогноз вечера" hint="Сколько ожидается к закрытию смены" value={fmtRub(summary.forecast.amount)} accent
-            extra={summary.forecast.additional > 0 ? `+${fmtRub(summary.forecast.additional)} к текущему` : undefined} />
+          {summary.forecast && (
+            <DetailRow icon="auto_awesome" color="#A78BFA" tai title="Прогноз вечера" hint="Сколько ожидается к закрытию смены" value={fmtRub(summary.forecast.amount)} accent
+              extra={summary.forecast.additional > 0 ? `+${fmtRub(summary.forecast.additional)} к текущему` : undefined} />
+          )}
           <DetailRow icon="account_balance_wallet" color="#10B981" title="В кассе сейчас" hint="Наличные с начала смены (касса)" value={fmtRub(summary.cashInRegister)} />
         </div>
 
+        {summary.forecast && (<>
         {/* Пояснение прогноза — упор на ИИ */}
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '12px 14px', borderRadius: 12, background: 'rgba(139,92,246,0.1)', border: '1px solid rgba(139,92,246,0.25)', marginBottom: 16 }}>
           <TaiLogo size={24} thinking float={false} />
@@ -1710,6 +1716,7 @@ function ShiftDetailSheet({ open, onClose, summary }: { open: boolean; onClose: 
             )
           })}
         </div>
+        </>)}
       </div>
     </div>
   )

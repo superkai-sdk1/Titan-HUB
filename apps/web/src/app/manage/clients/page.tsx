@@ -721,13 +721,11 @@ export default function ClientsPage() {
                     )}
 
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 10 }}>
-                      {/* «Сопоставить из чата» — для тех, кто бывает в чате клуба:
-                          резиденты, студенты, новички. */}
-                      {['resident', 'student', 'newbie'].includes(editForm.clientTier) && (
-                        <Button variant="secondary" fullWidth icon="forum" onClick={() => setTgRosterOpen(true)}>
-                          Сопоставить из чата
-                        </Button>
-                      )}
+                      {/* «Сопоставить из чата» — доступно для ВСЕХ статусов
+                          (резидент/студент/новичок/гость и любые кастомные). */}
+                      <Button variant="secondary" fullWidth icon="forum" onClick={() => setTgRosterOpen(true)}>
+                        Сопоставить из чата
+                      </Button>
                       {tgQr ? (
                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, padding: 12, borderRadius: 14, background: 'rgba(255,255,255,0.04)' }}>
                           {/* eslint-disable-next-line @next/next/no-img-element */}
