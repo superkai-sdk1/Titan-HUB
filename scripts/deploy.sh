@@ -45,11 +45,14 @@ docker compose up -d --remove-orphans
 echo "⏳ Ожидание готовности сервисов..."
 sleep 10
 
-# Пересозданные контейнеры (api/web/wallet) получают новые IP в docker-сети.
-# nginx кеширует upstream-IP, поэтому после up -d его нужно перезагрузить,
-# иначе прокси будет бить по старому (несуществующему) адресу. reload — zero-downtime.
-echo "🔁 Перезагрузка nginx (обновление upstream-IP)..."
-docker exec titan-nginx nginx -s reload 2>/dev/null || docker compose restart nginx
+# Пересозданные контейнеры (api/web/wallet) получают новые IP в docker-сети —
+# nginx нужно подхватить их. И ГЛАВНОЕ: nginx.conf бинд-маунтится как ОДИН ФАЙЛ,
+# а `git reset --hard` подменяет файл новым inode. Docker single-file mount держит
+# СТАРЫЙ inode, поэтому `nginx -s reload` перечитывал бы УСТАРЕВШИЙ конфиг и правки
+# маршрутов (напр. /residents) не применялись бы. Пересоздание контейнера заново
+# привязывает mount к актуальному файлу И обновляет upstream-IP. Простой ~1-2с.
+echo "🔁 Пересоздание nginx (свежий конфиг + upstream-IP)..."
+docker compose up -d --force-recreate nginx || docker compose restart nginx
 
 echo "🏥 Проверка health (через nginx)..."
 # Порт api не публикуется на хост — проверяем публичный endpoint через nginx.
