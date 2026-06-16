@@ -21,6 +21,8 @@ export interface FiscalReceiptInput {
   payment: FiscalPaymentKind
   customerPhone?: string
   customerEmail?: string
+  /** Доп. реквизит чека (подпись/текст внизу), tag 1192/1085. */
+  footer?: string
 }
 
 export interface FiscalProvider {

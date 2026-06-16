@@ -61,6 +61,8 @@ export const atolProvider: FiscalProvider = {
       external_id: receipt.checkId,
       receipt: {
         client,
+        // Доп. реквизит чека (подпись), tag 1192.
+        ...(receipt.footer ? { additional_check_props: receipt.footer.slice(0, 256) } : {}),
         company: {
           email: creds['atol_company_email'] ?? '',
           sno,

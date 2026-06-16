@@ -320,8 +320,10 @@ const FISCAL_STANDALONE = ['atol', 'platform_ofd']
 systemRouter.get('/payment-config', requireAuth, requireRole('owner'), async (c) => {
   const db = c.var.db
   const rows = await db.select().from(appSettings)
-    .where(inArray(appSettings.key, ['payment_test_mode', 'fiscal_vat_code', 'fiscal_default_phone']))
+    .where(inArray(appSettings.key, ['payment_test_mode', 'fiscal_vat_code', 'fiscal_default_phone', 'fiscal_itemized', 'fiscal_methods', 'receipt_footer']))
   const map = Object.fromEntries(rows.map((r) => [r.key, r.value]))
+  let fiscalMethods: string[] = ['cash', 'card', 'transfer', 'split']
+  if (map['fiscal_methods']) { try { const a = JSON.parse(map['fiscal_methods']); if (Array.isArray(a)) fiscalMethods = a.map(String) } catch { /* default */ } }
 
   // Активный эквайер выводим из введённых ключей. «Настроен» = либо новый эквайер,
   // либо Platega с заданным merchant id (integrations или env основного инстанса).
@@ -343,6 +345,9 @@ systemRouter.get('/payment-config', requireAuth, requireRole('owner'), async (c)
     testMode: map['payment_test_mode'] === 'true',
     vatCode: Number(map['fiscal_vat_code']) || 1,
     defaultPhone: map['fiscal_default_phone'] || '',
+    itemized: map['fiscal_itemized'] === 'true',
+    fiscalMethods,
+    receiptFooter: map['receipt_footer'] || '',
   })
 })
 
@@ -355,6 +360,9 @@ systemRouter.put(
     testMode: z.boolean().optional(),
     vatCode: z.number().int().min(1).max(6).optional(),
     defaultPhone: z.string().max(20).optional(),
+    itemized: z.boolean().optional(),
+    fiscalMethods: z.array(z.enum(['cash', 'card', 'transfer', 'bonus', 'deposit', 'debt', 'split', 'certificate'])).optional(),
+    receiptFooter: z.string().max(256).optional(),
   })),
   async (c) => {
     const db = c.var.db
@@ -364,6 +372,9 @@ systemRouter.put(
     if (b.testMode !== undefined) updates.push(['payment_test_mode', String(b.testMode)])
     if (b.vatCode !== undefined) updates.push(['fiscal_vat_code', String(b.vatCode)])
     if (b.defaultPhone !== undefined) updates.push(['fiscal_default_phone', b.defaultPhone])
+    if (b.itemized !== undefined) updates.push(['fiscal_itemized', String(b.itemized)])
+    if (b.fiscalMethods !== undefined) updates.push(['fiscal_methods', JSON.stringify(b.fiscalMethods)])
+    if (b.receiptFooter !== undefined) updates.push(['receipt_footer', b.receiptFooter])
     for (const [key, value] of updates) {
       await db.insert(appSettings).values({ key, value })
         .onConflictDoUpdate({ target: appSettings.key, set: { value } })

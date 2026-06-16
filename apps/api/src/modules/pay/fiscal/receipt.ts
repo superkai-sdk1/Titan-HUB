@@ -7,14 +7,15 @@
  * чека (фискализацию делает отдельный CCT/ОФД-провайдер или она выключена).
  *
  * ВАЖНО: ЮKassa требует контакт покупателя (телефон/почта) и сходимость суммы
- * чека с суммой платежа. Поэтому строим единую строку на сумму платежа (детальная
- * разбивка по позициям со скидками/арендой — отдельный шаг), а при отсутствии
- * контакта чек НЕ прикладываем (чтобы не уронить оплату), о чём пишем в лог.
+ * чека с суммой платежа. Позиции строит общий buildReceiptLines (детально или одной
+ * строкой — по настройке fiscal_itemized). При отсутствии контакта чек НЕ
+ * прикладываем (чтобы не уронить оплату), о чём пишем в лог. Оплата по СБП = метод
+ * 'transfer' — если он исключён из fiscal_methods, чек не шлём.
  */
 import { appSettings, profiles, eq } from '@titan/database'
 import type { Database } from '@titan/database'
-import { round2 } from '../../../lib/money.js'
 import type { ReceiptData } from '../types.js'
+import { buildReceiptLines, getFiscalMethods } from './buildReceipt.js'
 
 async function getSetting(db: Database, key: string): Promise<string | null> {
   const [row] = await db.select().from(appSettings).where(eq(appSettings.key, key)).limit(1)
@@ -36,6 +37,8 @@ export async function buildCheckReceipt(
   totalAmount: number,
 ): Promise<ReceiptData | undefined> {
   if ((await getSetting(db, 'fiscal_provider')) !== 'yookassa') return undefined
+  // СБП-оплата = метод 'transfer'; уважаем фильтр способов оплаты.
+  if (!(await getFiscalMethods(db)).has('transfer')) return undefined
 
   const vatCode = Number(await getSetting(db, 'fiscal_vat_code')) || 1
   const fallbackPhone = (await getSetting(db, 'fiscal_default_phone')) || undefined
@@ -50,15 +53,9 @@ export async function buildCheckReceipt(
     return undefined
   }
 
+  const lines = await buildReceiptLines(db, check.id, totalAmount, vatCode)
   return {
-    items: [
-      {
-        description: `Оплата по чеку №${check.id.slice(0, 8)}`,
-        quantity: 1,
-        amount: round2(totalAmount),
-        vatCode,
-      },
-    ],
+    items: lines.map((l) => ({ description: l.name, quantity: l.quantity, amount: l.price, vatCode: l.vatCode })),
     customerPhone: phone,
   }
 }

@@ -13,7 +13,7 @@
 import { sql } from '@titan/database'
 import type { Database } from '@titan/database'
 import { getActiveFiscalProvider, getFiscalProvider, resolveFiscalCreds } from '../modules/pay/fiscal/registry.js'
-import { buildFiscalReceipt, type FiscalCheckRow } from '../modules/pay/fiscal/buildReceipt.js'
+import { buildFiscalReceipt, getFiscalMethods, type FiscalCheckRow } from '../modules/pay/fiscal/buildReceipt.js'
 import { getPaymentTestMode } from '../modules/pay/registry.js'
 
 const MAX_ATTEMPTS = 5
@@ -27,6 +27,7 @@ export async function fiscalizePendingForDb(db: Database): Promise<void> {
   const creds = await resolveFiscalCreds(db, provider)
   if (provider.requiredKeys.some((k) => !creds[k])) return // ключи неполные
   const test = await getPaymentTestMode(db)
+  const allowedMethods = await getFiscalMethods(db) // какие способы оплаты фискализируем
 
   // Закрытые чеки за последний час без отправленного чека + ретраи failed(<5).
   const res: unknown = await db.execute(sql`
@@ -45,10 +46,16 @@ export async function fiscalizePendingForDb(db: Database): Promise<void> {
   for (const r of rows) {
     const checkId = String(r['id'])
     try {
+      const method = (r['payment_method'] as string | null) ?? null
+      // Способ оплаты исключён из фискализации (напр. наличные/депозит/долг скрыты).
+      if (!method || !allowedMethods.has(method)) {
+        await markStatus(db, checkId, providerId, 'skipped', null, `Способ оплаты «${method ?? '—'}» не фискализируется`)
+        continue
+      }
       const check: FiscalCheckRow = {
         id: checkId,
         totalAmount: String(r['total_amount'] ?? '0'),
-        paymentMethod: (r['payment_method'] as string | null) ?? null,
+        paymentMethod: method,
         playerId: (r['player_id'] as string | null) ?? null,
       }
       const receipt = await buildFiscalReceipt(db, check)
@@ -68,7 +75,7 @@ export async function fiscalizePendingForDb(db: Database): Promise<void> {
 
 async function markStatus(
   db: Database, checkId: string, provider: string,
-  status: 'sent' | 'failed', externalId: string | null, error: string | null,
+  status: 'sent' | 'failed' | 'skipped', externalId: string | null, error: string | null,
 ): Promise<void> {
   await db.execute(sql`
     INSERT INTO fiscal_receipts (check_id, provider, status, external_id, attempts, last_error, updated_at)

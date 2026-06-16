@@ -62,6 +62,8 @@ export const fermaProvider: FiscalProvider = {
     }
     if (receipt.customerEmail) customerReceipt['Email'] = receipt.customerEmail
     if (receipt.customerPhone) customerReceipt['Phone'] = receipt.customerPhone
+    // Доп. реквизит пользователя (подпись), tag 1085/1086.
+    if (receipt.footer) customerReceipt['CustomUserProperty'] = { Name: 'Подпись', Value: receipt.footer.slice(0, 256) }
 
     const body = {
       Request: {
