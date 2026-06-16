@@ -230,6 +230,11 @@ const INTEGRATION_KEYS: Record<string, string> = {
   atol_payment_address: 'АТОЛ Онлайн: адрес расчётов',
   atol_company_email: 'АТОЛ Онлайн: e-mail компании',
   atol_sno: 'АТОЛ Онлайн: режим налогообложения (СНО)',
+  // Фискализация 54-ФЗ — Платформа ОФД (ИС Ferma).
+  ferma_login: 'Платформа ОФД: логин',
+  ferma_password: 'Платформа ОФД: пароль',
+  ferma_inn: 'Платформа ОФД: ИНН',
+  ferma_taxation: 'Платформа ОФД: система налогообложения',
 }
 
 const isAllowedKey = (key: string): boolean =>
@@ -307,10 +312,10 @@ const SBP_LABELS: Record<string, string> = {
   platega: 'Platega', tbank: 'Т-Банк', yookassa: 'ЮKassa', sber: 'СберБизнес', alfa: 'Точка / Альфа',
 }
 const FISCAL_LABELS: Record<string, string> = {
-  yookassa: 'ЮKassa (встроенная)', atol: 'АТОЛ Онлайн',
+  yookassa: 'ЮKassa (встроенная)', atol: 'АТОЛ Онлайн', platform_ofd: 'Платформа ОФД',
 }
 // Самостоятельные кассы (по введённым ключам) — выбор не ручной, как и эквайер.
-const FISCAL_STANDALONE = ['atol']
+const FISCAL_STANDALONE = ['atol', 'platform_ofd']
 
 systemRouter.get('/payment-config', requireAuth, requireRole('owner'), async (c) => {
   const db = c.var.db

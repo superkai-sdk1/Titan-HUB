@@ -11,14 +11,16 @@ import type { Database } from '@titan/database'
 import { getClubIntegration } from '../../../lib/secrets.js'
 import type { FiscalProvider } from './types.js'
 import { atolProvider } from './providers/atol.js'
+import { fermaProvider } from './providers/ferma.js'
 
 export const FISCAL_PROVIDERS: Record<string, FiscalProvider> = {
   atol: atolProvider,
+  platform_ofd: fermaProvider,
 }
 
 /** Самостоятельные кассы (вызываются воркером). 'yookassa' сюда НЕ входит — она
  * пробивает чек вместе с платежом, воркер её не трогает. */
-const STANDALONE_ORDER = ['atol'] as const
+const STANDALONE_ORDER = ['atol', 'platform_ofd'] as const
 
 export function getFiscalProvider(id: string): FiscalProvider | null {
   return FISCAL_PROVIDERS[id] ?? null

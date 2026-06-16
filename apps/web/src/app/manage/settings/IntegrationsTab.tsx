@@ -136,11 +136,20 @@ const CATALOG: Product[] = [
       { key: 'atol_sno', label: 'СНО (режим налогообложения)', type: 'text', placeholder: 'usn_income', hint: 'Один из: osn, usn_income, usn_income_outcome, envd, esn, patent. Если не уверены — usn_income (УСН «доходы»).', optional: true },
     ],
   },
+  {
+    id: 'platform_ofd', name: 'Платформа ОФД', icon: 'receipt', color: '#3B82F6', kind: 'keys',
+    blurb: 'Облачная касса 54-ФЗ (Ferma)',
+    about: 'Фискализация по 54-ФЗ через облачную кассу Платформы ОФД (ИС «Ferma») — без своего кассового аппарата. После подключения система сама пробивает чек по каждой закрытой продаже (включая наличные). Данные — из личного кабинета ОФД.',
+    fields: [
+      { key: 'ferma_login', label: 'Логин', type: 'text', placeholder: 'Логин ОФД', hint: 'Личный кабинет Платформы ОФД → доступ к API → логин.' },
+      { key: 'ferma_password', label: 'Пароль', type: 'password', placeholder: 'Пароль ОФД', hint: 'Там же → пароль для API.' },
+      { key: 'ferma_inn', label: 'ИНН', type: 'text', placeholder: 'ИНН организации', hint: 'ИНН вашей организации/ИП (как в кассе).' },
+      { key: 'ferma_taxation', label: 'Система налогообложения', type: 'text', placeholder: 'SimpleIn', hint: 'Один из: Common, SimpleIn, SimpleInOut, Unified, UnifiedAgricultural, Patent. Если не уверены — SimpleIn (УСН «доходы»).', optional: true },
+    ],
+  },
   // ─── Витрина «Скоро» (в разработке) ──────────────────────────────────────────
   { id: 'evotor', name: 'Эвотор', icon: 'point_of_sale', color: '#F59E0B', kind: 'keys', fields: [], comingSoon: true,
-    blurb: 'Смарт-терминалы Эвотор', about: 'Интеграция со смарт-терминалами Эвотор для печати фискальных чеков 54-ФЗ на кассе.' },
-  { id: 'platform_ofd', name: 'Платформа ОФД', icon: 'receipt', color: '#3B82F6', kind: 'keys', fields: [], comingSoon: true,
-    blurb: 'Оператор фискальных данных', about: 'Передача фискальных чеков в ФНС через ОФД (Платформа ОФД) — обязательное звено 54-ФЗ.' },
+    blurb: 'Смарт-терминалы Эвотор', about: 'Эвотор — это физические смарт-терминалы: чек печатается на самом устройстве (не через облако), поэтому интеграция отличается от облачных касс и появится отдельно.' },
   { id: 'kontur_ofd', name: 'Бизнес.Ру / Контур.ОФД', icon: 'receipt_long', color: '#10B981', kind: 'keys', fields: [], comingSoon: true,
     blurb: 'Альтернативные ОФД/кассы', about: 'Альтернативные операторы фискальных данных и кассовые сервисы (Бизнес.Ру, Контур.ОФД) на выбор.' },
   // Маркетинг и коммуникации
