@@ -32,8 +32,9 @@ geoRouter.get('/suggest', async (c) => {
   } catch { /* нет Redis — лимит не критичен, продолжаем */ }
 
   try {
+    // types=geo,biz — адреса/топонимы И организации (поиск по названиям заведений).
     const url = `https://suggest-maps.yandex.ru/v1/suggest?apikey=${encodeURIComponent(key)}`
-      + `&text=${encodeURIComponent(text)}&lang=ru_RU&results=7&types=geo&print_address=1`
+      + `&text=${encodeURIComponent(text)}&lang=ru_RU&results=7&types=geo,biz&print_address=1`
     const res = await fetch(url)
     if (!res.ok) return c.json({ enabled: true, suggestions: [] })
     const data = (await res.json()) as { results?: any[] }
@@ -52,7 +53,14 @@ geoRouter.get('/suggest', async (c) => {
       const formatted = r?.address?.formatted_address
         ?? (comps.length ? comps.map((x) => x?.name).filter(Boolean).join(', ') : '')
       const value = formatted || [subtitle, title].filter(Boolean).join(', ') || title
-      return { title, subtitle, value, short }
+      // Что подставить в поле после выбора: для ОРГАНИЗАЦИИ — «Название, улица дом»
+      // (title — имя заведения); для АДРЕСА — «улица, дом».
+      const tags: string[] = Array.isArray(r?.tags) ? r.tags : []
+      const isOrg = tags.includes('business')
+      const pickValue = isOrg
+        ? [title, short].filter(Boolean).join(', ')
+        : (short || title || value)
+      return { title, subtitle, value, short, pickValue }
     }).filter((s) => s.value)
     return c.json({ enabled: true, suggestions })
   } catch (e) {

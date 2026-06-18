@@ -9,7 +9,7 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { api } from '@/lib/api'
 
-interface Sug { title: string; subtitle: string; value: string; short?: string }
+interface Sug { title: string; subtitle: string; value: string; short?: string; pickValue?: string }
 
 interface Props {
   value: string
@@ -49,10 +49,10 @@ export function AddressAutocomplete({ value, onChange, placeholder, style, maxLe
     return () => document.removeEventListener('mousedown', h)
   }, [])
 
-  // После выбора в поле — только «улица, дом» (short из структурных компонентов;
-  // запасные варианты — title Яндекса, затем полный value). Регион/город (subtitle)
-  // в значение не попадает — он остаётся только подсказкой в списке.
-  const pick = (s: Sug) => { skipRef.current = true; onChange(s.short || s.title || s.value); setOpen(false); setSugs([]) }
+  // После выбора в поле — значение от сервера (pickValue): для адреса «улица, дом»,
+  // для организации «Название, улица дом». Регион/город (subtitle) в значение не
+  // попадает — он остаётся только подсказкой в списке. Запасные варианты — на старый ответ.
+  const pick = (s: Sug) => { skipRef.current = true; onChange(s.pickValue || s.short || s.title || s.value); setOpen(false); setSugs([]) }
 
   return (
     <div ref={boxRef} style={{ position: 'relative' }}>
