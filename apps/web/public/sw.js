@@ -8,13 +8,25 @@
  *
  * Версионирование: при изменении CACHE_VERSION пересоздаём кэш.
  */
-const CACHE_VERSION = 'v283'
+const CACHE_VERSION = 'v284'
 const STATIC_CACHE = `titan-static-${CACHE_VERSION}`
 const RUNTIME_CACHE = `titan-runtime-${CACHE_VERSION}`
 
 self.addEventListener('install', (event) => {
-  // Не предзагружаем — кэшируем по факту использования
-  self.skipWaiting()
+  // НЕ вызываем skipWaiting() безусловно: иначе новый воркер мгновенно
+  // перехватывал бы открытую вкладку кассира со старым JS → переход на роут
+  // со старым lazy-чанком → 404 → ChunkLoadError → сброс активного чека во
+  // время обслуживания. Новый воркер встаёт в waiting и активируется ТОЛЬКО
+  // когда страница пришлёт {type:'SKIP_WAITING'} (кассир сам нажал «Обновить»).
+  // Не предзагружаем — кэшируем по факту использования.
+})
+
+// Страница (ServiceWorkerRegister) шлёт это сообщение по подтверждению
+// пользователя, чтобы waiting-воркер активировался управляемо.
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SKIP_WAITING') {
+    self.skipWaiting()
+  }
 })
 
 self.addEventListener('activate', (event) => {
@@ -27,6 +39,9 @@ self.addEventListener('activate', (event) => {
           .filter((k) => !k.endsWith(`-${CACHE_VERSION}`))
           .map((k) => caches.delete(k))
       )
+      // claim() оставляем: к моменту activate пользователь уже подтвердил
+      // обновление (мы скипнули waiting только по его SKIP_WAITING), и страница
+      // тут же перезагрузится по controllerchange — перехвата «вживую» нет.
       await self.clients.claim()
     })()
   )
@@ -126,10 +141,22 @@ async function networkFirst(request, cacheName, timeoutMs) {
   } catch (e) {
     const cached = await cache.match(request)
     if (cached) return cached
-    // Для HTML — отдаём fallback страницу (если есть)
+    // Для HTML-навигации — отдаём любую закэшированную оболочку приложения как
+    // fallback. Отдельного роута /offline в app/ нет, поэтому пробуем корень '/'
+    // (он попадает в RUNTIME_CACHE при первом онлайн-визите), затем — первую
+    // попавшуюся закэшированную HTML-страницу. Это даёт рабочую PWA-оболочку
+    // оффлайн вместо сырого 503 JSON.
     if (request.headers.get('accept')?.includes('text/html')) {
-      const offlinePage = await cache.match('/offline')
-      if (offlinePage) return offlinePage
+      const root =
+        (await cache.match('/')) || (await caches.match('/', { ignoreSearch: true }))
+      if (root) return root
+      const keys = await cache.keys()
+      for (const req of keys) {
+        if (new URL(req.url).pathname !== '/_next/static' && req.url.endsWith('/')) {
+          const fallback = await cache.match(req)
+          if (fallback) return fallback
+        }
+      }
     }
     return new Response(JSON.stringify({ error: 'Offline' }), {
       status: 503,

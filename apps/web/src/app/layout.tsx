@@ -8,6 +8,11 @@ import { Sidebar } from '@/components/Sidebar'
 import { SessionLock } from '@/components/SessionLock'
 import { ServiceWorkerRegister } from '@/components/ServiceWorkerRegister'
 
+// Google Fonts только для Inter + JetBrains Mono (Material Symbols удалён).
+// Грузим НЕ render-blocking — см. <head> ниже.
+const FONTS_HREF =
+  'https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400;0,500;0,600;0,700;0,800;0,900;1,700;1,800;1,900&family=JetBrains+Mono:wght@400;500;600;700&display=swap'
+
 export const metadata: Metadata = {
   title: 'Titan HUB',
   description: 'Кассовая система',
@@ -52,7 +57,37 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="ru" className="dark">
-      <head />
+      <head>
+        {/*
+          Шрифты (Inter + JetBrains Mono) грузятся НЕ render-blocking. Раньше
+          globals.css тянул их через @import (блокирует первый рендер) вместе с
+          тяжёлым вариативным Material Symbols Outlined (сотни КБ), который нигде
+          не использовался — иконки рисуются инлайн-SVG (components/Icon.tsx).
+          Теперь: preconnect для быстрого TLS + preload as=style (ранняя
+          незаблокированная загрузка), а сам stylesheet применяется асинхронно
+          крошечным инлайн-скриптом (rel='stylesheet' в onload). Текст рисуется
+          сразу системным шрифтом, при готовности Inter/JetBrains подменяются
+          (display=swap) — без удара по LCP/FCP. <noscript> — фолбэк без JS.
+        */}
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <link
+          rel="preload"
+          as="style"
+          href={FONTS_HREF}
+          id="titan-fonts-preload"
+        />
+        <script
+          dangerouslySetInnerHTML={{
+            __html:
+              "(function(){var l=document.getElementById('titan-fonts-preload');if(l){l.rel='stylesheet';}})();",
+          }}
+        />
+        <noscript>
+          {/* eslint-disable-next-line @next/next/no-css-tags */}
+          <link rel="stylesheet" href={FONTS_HREF} />
+        </noscript>
+      </head>
       <body className="bg-mesh" style={{ color: 'var(--on-surface)', overflow: 'hidden', maxWidth: '100vw', overscrollBehavior: 'none' }}>
         <Providers>
           <SessionLock />

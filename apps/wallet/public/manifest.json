@@ -1,16 +1,20 @@
 {
+  "id": "/residents/",
   "name": "Titan Resident",
   "short_name": "Resident",
   "description": "Ваш баланс и бонусы",
-  "start_url": ".",
-  "scope": ".",
+  "lang": "ru",
+  "dir": "ltr",
+  "start_url": "/residents/",
+  "scope": "/residents/",
   "display": "standalone",
   "background_color": "#15121b",
   "theme_color": "#15121b",
   "orientation": "portrait",
   "icons": [
-    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
-    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
-    { "src": "icon-512-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+    { "src": "/residents/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/residents/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/residents/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "/residents/icon-512-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
   ]
 }

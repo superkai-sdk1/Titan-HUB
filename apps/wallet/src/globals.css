@@ -29,8 +29,11 @@ body {
   -webkit-tap-highlight-color: transparent;
 }
 
-/* Точечно разрешаем выделение там, где это осмысленно (напр. код входа). */
-.selectable {
+/* Точечно разрешаем выделение там, где это осмысленно (код входа, сумма, телефон,
+   позиции чека). Инпуты — всегда выделяемы, чтобы можно было редактировать/копировать. */
+.selectable,
+input,
+textarea {
   -webkit-user-select: text;
   user-select: text;
   -webkit-touch-callout: default;
@@ -38,4 +41,17 @@ body {
 
 @keyframes spin {
   to { transform: rotate(360deg); }
+}
+
+/* Доступность: уважаем системную настройку «уменьшить движение» — гасим
+   бесконечные анимации (голо-градиент карты, спиннеры, наклон, плавающие). */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
 }

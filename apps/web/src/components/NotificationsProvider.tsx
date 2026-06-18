@@ -156,7 +156,12 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
   const isTablet = pathname?.startsWith('/tablet') ?? false
   const isStaff = !!token && !!user && ['owner', 'staff'].includes(user.role) && !isTablet
 
-  // ── Загрузка истории + открытие SSE-потока ──────────────────────────────
+  // ── Загрузка истории + открытие SSE-потока с авто-реконнектом ────────────
+  // SSE-тикет одноразовый (TTL 60с): встроенный авто-реконнект EventSource по
+  // тому же URL бесполезен — ?ticket= уже сгорел, поток молча мёртв. После блипа
+  // сети или блокировки экрана iPhone заказы переставали приходить. Поэтому при
+  // каждом обрыве сами запрашиваем СВЕЖИЙ тикет (openSse делает POST /auth/sse-ticket)
+  // и открываем поток заново — с экспоненциальным бэкоффом + джиттер (1с→2с→…→cap 30с).
   useEffect(() => {
     if (!isStaff) {
       setNotifications([])
@@ -167,6 +172,77 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
 
     let cancelled = false
     let es: EventSource | null = null
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+    let attempt = 0            // счётчик подряд идущих неудач — основа бэкоффа
+    let connecting = false     // не плодим параллельные подключения
+
+    const clearTimer = () => {
+      if (reconnectTimer) { clearTimeout(reconnectTimer) ; reconnectTimer = null }
+    }
+    const closeStream = () => {
+      if (es) { es.onmessage = null; es.onerror = null; es.onopen = null; es.close(); es = null }
+    }
+
+    // Планируем реконнект с бэкоффом: 1с,2с,4с,…,cap 30с + до ±30% джиттера
+    // (разводим одновременные переподключения нескольких вкладок).
+    const scheduleReconnect = () => {
+      if (cancelled || reconnectTimer) return
+      const base = Math.min(30_000, 1000 * 2 ** Math.min(attempt, 5))
+      const jitter = base * (0.7 + Math.random() * 0.3)
+      reconnectTimer = setTimeout(() => { reconnectTimer = null; connect() }, jitter)
+    }
+
+    const connect = () => {
+      if (cancelled || connecting) return
+      connecting = true
+      closeStream()           // на всякий случай: один активный EventSource
+      // openSse сам берёт новый одноразовый тикет → старый сгоревший не мешает.
+      openSse('/notifications/stream').then((stream) => {
+        connecting = false
+        if (cancelled) { stream.close(); return }
+        es = stream
+        stream.onopen = () => { attempt = 0 }   // успешное соединение сбрасывает бэкофф
+        stream.onmessage = (e) => {
+          try {
+            const data = JSON.parse(e.data) as AppNotification
+            const incoming: AppNotification = { ...data, isRead: false }
+            // Upsert по id: при группировке «по объекту» сервер обновляет ту же запись
+            // (тот же id, новый count) — заменяем её на месте и поднимаем наверх,
+            // а не плодим дубль.
+            setNotifications((prev) => [incoming, ...prev.filter((n) => n.id !== incoming.id)])
+            setToasts((prev) => [...prev.filter((t) => t.id !== incoming.id), { ...incoming, shownAt: Date.now() }])
+            playChime()
+          } catch {}
+        }
+        stream.onerror = () => {
+          // Обрыв потока (сеть/сгоревший тикет): закрываем и переоткрываем сами
+          // со свежим тикетом — встроенный реконнект EventSource нам не подходит.
+          if (cancelled) return
+          closeStream()
+          attempt += 1
+          scheduleReconnect()
+        }
+      }).catch(() => {
+        // Нет тикета/сети — повторим позже с бэкоффом.
+        connecting = false
+        if (cancelled) return
+        attempt += 1
+        scheduleReconnect()
+      })
+    }
+
+    // Возврат видимости (разблокировка экрана iPhone рвёт поток молча) или
+    // восстановление сети → форсируем немедленный реконнект, сбросив бэкофф.
+    const onVisible = () => {
+      if (cancelled || document.visibilityState !== 'visible') return
+      clearTimer()
+      attempt = 0
+      connect()
+    }
+    const onOnline = () => { if (!cancelled) onVisible() }
+
+    document.addEventListener('visibilitychange', onVisible)
+    window.addEventListener('online', onOnline)
 
     // 1) История
     api.get<{ notifications: AppNotification[] }>('/notifications')
@@ -179,27 +255,14 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
       .catch(() => { /* нет сети — список останется пустым */ })
 
     // 2) Живой поток
-    openSse('/notifications/stream').then((stream) => {
-      if (cancelled) { stream.close(); return }
-      es = stream
-      stream.onmessage = (e) => {
-        try {
-          const data = JSON.parse(e.data) as AppNotification
-          const incoming: AppNotification = { ...data, isRead: false }
-          // Upsert по id: при группировке «по объекту» сервер обновляет ту же запись
-          // (тот же id, новый count) — заменяем её на месте и поднимаем наверх,
-          // а не плодим дубль.
-          setNotifications((prev) => [incoming, ...prev.filter((n) => n.id !== incoming.id)])
-          setToasts((prev) => [...prev.filter((t) => t.id !== incoming.id), { ...incoming, shownAt: Date.now() }])
-          playChime()
-        } catch {}
-      }
-      stream.onerror = () => { /* EventSource реконнектится сам */ }
-    }).catch(() => { /* нет тикета/сети — поток не открываем */ })
+    connect()
 
     return () => {
       cancelled = true
-      es?.close()
+      clearTimer()
+      closeStream()
+      document.removeEventListener('visibilitychange', onVisible)
+      window.removeEventListener('online', onOnline)
     }
   }, [isStaff])
 
