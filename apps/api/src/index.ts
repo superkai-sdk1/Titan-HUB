@@ -5,6 +5,7 @@ import { checkBirthdays } from './cron/birthdays.js'
 import { auditBalances } from './cron/balance-audit.js'
 import { runPollsForDb } from './cron/polls.js'
 import { fiscalizePendingForDb } from './cron/fiscalize.js'
+import { purgeOldAnalyticsEvents } from './cron/analytics-retention.js'
 import { getCronTargets } from './cron/targets.js'
 import { runMigrations, runMigrationsOn } from './migrations/runner.js'
 import { listActiveClubDbNames, buildClubConnString } from './lib/clubResolver.js'
@@ -184,6 +185,26 @@ function scheduleBalanceAuditCron() {
 }
 
 scheduleBalanceAuditCron()
+
+// Ежедневная ретенция analytics_events в 03:00 по Москве (по всем клубам).
+// MSK = UTC+3 → 00:00 UTC. Тихий час. purgeOldAnalyticsEvents сама обёрнута в
+// try/catch и НИКОГДА не бросает — .catch лишь страхует сам вызов.
+function scheduleAnalyticsRetentionCron() {
+  const now = new Date()
+  const next = new Date()
+  next.setUTCHours(0, 0, 0, 0)
+  if (next <= now) next.setUTCDate(next.getUTCDate() + 1)
+  const msUntil = next.getTime() - now.getTime()
+
+  setTimeout(async () => {
+    await runForAllClubs('analytics-retention', purgeOldAnalyticsEvents).catch(console.error)
+    setInterval(() => runForAllClubs('analytics-retention', purgeOldAnalyticsEvents).catch(console.error), 24 * 60 * 60 * 1000)
+  }, msUntil)
+
+  console.log(`🧹 Analytics-retention cron scheduled (03:00 MSK), next run in ${Math.round(msUntil / 60000)} min`)
+}
+
+scheduleAnalyticsRetentionCron()
 
 // Регулярные опросы Telegram: тик КАЖДУЮ МИНУТУ по всем клубам. Постинг
 // идемпотентен (isPollDue: один раз в слот по lastPostedAt), поэтому частый тик

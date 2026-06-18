@@ -12,8 +12,17 @@ import { StateView } from '@/components/StateView'
 import { Chip } from '@/components/manage/DesignSystem'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-type MainTab = 'overview' | 'finance' | 'events' | 'expenses' | 'games' | 'bar' | 'players' | 'staff'
+// ВНИМАНИЕ: 'expenses' здесь нет — вкладка «Расходы» переехала в /manage/inventory.
+// Раньше тип содержал её ошибочно (рассинхрон с TABS/TAB_KEYS), что путало.
+type MainTab = 'overview' | 'finance' | 'events' | 'games' | 'bar' | 'players' | 'staff'
 type ReportRange = '7d' | '30d' | 'month' | 'custom'
+
+// Визуально-скрытая (для глаз) текстовая альтернатива — доступна скринридерам.
+// Используем для табличного дублирования графиков-баров (a11y).
+const SR_ONLY: React.CSSProperties = {
+  position: 'absolute', width: 1, height: 1, padding: 0, margin: -1,
+  overflow: 'hidden', clip: 'rect(0 0 0 0)', whiteSpace: 'nowrap', border: 0,
+}
 
 const PAY_COLORS: Record<string, string> = {
   cash: '#10B981', card: '#3B82F6', transfer: '#8B5CF6',
@@ -37,6 +46,28 @@ function payLabel(m: string) { return PAY_LABELS_FULL[m] ?? m }
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function parseNum(v: unknown) { return parseFloat(String(v ?? 0)) || 0 }
 function fmt(n: number) { return n.toLocaleString('ru', { maximumFractionDigits: 0 }) }
+
+// Полный непрерывный ряд дат [from..to] (YYYY-MM-DD, включительно).
+// TZ-безопасно: считаем по UTC-полуночи дат-строк (без локального часового пояса),
+// поэтому сдвига дня не случается. Нужен, чтобы достроить нулевые дни в бар-чарте
+// «по дням» — день без выручки рисуется видимым нулём, а не пропускается.
+function dateRange(from: string, to: string): string[] {
+  if (!from || !to) return []
+  const start = Date.parse(`${from}T00:00:00Z`)
+  const end = Date.parse(`${to}T00:00:00Z`)
+  if (Number.isNaN(start) || Number.isNaN(end) || end < start) return []
+  // Защита от слишком длинного периода (на всякий случай — не строим тысячи баров).
+  if ((end - start) / 86400000 > 800) return []
+  const out: string[] = []
+  for (let t = start; t <= end; t += 86400000) {
+    out.push(new Date(t).toISOString().slice(0, 10))
+  }
+  return out
+}
+// Подпись даты YYYY-MM-DD → «d MMM» (TZ-безопасно, полдень чтобы не «съехать» на день).
+function dayLabel(day: string): string {
+  try { return format(new Date(`${day}T12:00:00`), 'd MMM', { locale: ru }) } catch { return day }
+}
 
 // Телеметрия аналитики (fire-and-forget): какие разделы/метрики реально смотрят.
 function track(event: string, props?: Record<string, unknown>) {
@@ -232,29 +263,16 @@ function DeltaBadge({ delta }: { delta: number }) {
   )
 }
 
-function MiniBarChart({ data, color = '#8B5CF6', height = 60 }: { data: { date: string; revenue: string | number }[]; color?: string; height?: number }) {
-  if (!data.length) return null
-  const values = data.map(d => parseNum(d.revenue))
-  const max = Math.max(...values, 1)
-  return (
-    <div style={{ display: 'flex', alignItems: 'flex-end', gap: 3, height }}>
-      {data.map((d, i) => (
-        <div key={d.date} title={`${d.date}: ${fmt(values[i])} ₽`}
-          style={{ flex: 1, minWidth: 4, height: `${Math.max((values[i] / max) * 100, 4)}%`, background: color, borderRadius: '3px 3px 0 0', opacity: 0.6 + (i / data.length) * 0.4, cursor: 'default' }}
-          onMouseEnter={e => { e.currentTarget.style.opacity = '1' }}
-          onMouseLeave={e => { e.currentTarget.style.opacity = String(0.6 + (i / data.length) * 0.4) }}
-        />
-      ))}
-    </div>
-  )
-}
-
 function PayBreakdown({ data }: { data: { method: string; total: string | number }[] }) {
   const total = data.reduce((s, p) => s + parseNum(p.total), 0)
   if (!data.length) return <p style={{ fontSize: 12, color: 'rgba(204,195,216,0.4)', textAlign: 'center', padding: '20px 0' }}>Нет данных</p>
+  const payAria = 'Методы оплаты: ' + data.map(p => {
+    const pct = total > 0 ? (parseNum(p.total) / total) * 100 : 0
+    return `${payLabel(p.method)} ${fmt(parseNum(p.total))} рублей (${pct.toFixed(0)}%)`
+  }).join(', ')
   return (
     <>
-      <div style={{ height: 18, borderRadius: 9999, display: 'flex', overflow: 'hidden', marginBottom: 14, gap: 2 }}>
+      <div role="img" aria-label={payAria} style={{ height: 18, borderRadius: 9999, display: 'flex', overflow: 'hidden', marginBottom: 14, gap: 2 }}>
         {data.map(p => {
           const pct = total > 0 ? (parseNum(p.total) / total) * 100 : 0
           return <div key={p.method} style={{ width: `${pct}%`, minWidth: pct > 0 ? 3 : 0, background: PAY_COLORS[p.method] ?? '#8B5CF6' }} title={`${payLabel(p.method)}: ${pct.toFixed(1)}%`} />
@@ -660,33 +678,73 @@ function OverviewTab({ overview, periodText }: { overview: any; periodText: stri
   const eventCosts = parseNum(cur.eventCosts)
   const margin = cur.margin
   const outflow = cogs + expenses + commission + refundsV
-  const profitColor = net >= 0 ? '#10B981' : '#F43F5E'
+  const isLoss = net < 0
+  const profitColor = isLoss ? '#F43F5E' : '#10B981'
   const lossDriver = expenses >= cogs && expenses > 0 ? 'расходы и ЗП' : cogs > 0 ? 'себестоимость' : 'возвраты и эквайринг'
-  const healthLine = net >= 0 ? 'бизнес в плюсе за период' : `в минусе — основная статья: ${lossDriver}`
-  const seg = (v: number) => (gross > 0 ? `${Math.min(100, Math.max(0, (v / gross) * 100))}%` : '0%')
+  const healthLine = isLoss ? `в минусе — основная статья: ${lossDriver}` : 'бизнес в плюсе за период'
+
+  // Сегменты полосы «куда ушла выручка». База = max(gross, outflow): в плюсе
+  // это gross (остаток = зелёная прибыль), в убытке — outflow (расходы больше
+  // выручки, поэтому нормируем к фактическому оттоку, иначе доли «съезжали» бы
+  // под Math.min(100%) и искажали смысл). Зелёный сегмент прибыли рисуем ТОЛЬКО
+  // когда прибыль реально есть (net>=0) — раньше он дорисовывался всегда и врал.
+  const segBase = Math.max(gross, outflow, 1)
+  const acqRefunds = commission + refundsV
+  const segPct = (v: number) => `${Math.max(0, (v / segBase) * 100)}%`
+  const profitRemainder = isLoss ? 0 : Math.max(0, gross - outflow)
+  // Текстовая сводка полосы для скринридера / тач-устройств (заменяет hover-title).
+  const barAria = isLoss
+    ? `Финансовое здоровье за период ${periodText}: убыток ${fmt(Math.abs(net))} рублей. `
+      + `Выручка ${fmt(gross)}, расходы превысили её. Себестоимость ${fmt(cogs)}, `
+      + `расходы и ЗП ${fmt(expenses)}, эквайринг и возвраты ${fmt(acqRefunds)} рублей.`
+    : `Финансовое здоровье за период ${periodText}: прибыль ${fmt(net)} рублей. `
+      + `Выручка ${fmt(gross)}, себестоимость ${fmt(cogs)}, расходы и ЗП ${fmt(expenses)}, `
+      + `эквайринг и возвраты ${fmt(acqRefunds)}, осталось прибыли ${fmt(profitRemainder)} рублей.`
+  // Легенда полосы (видимая, тач-доступная — вместо hover-only title).
+  const barLegend: { label: string; color: string; value: number }[] = [
+    { label: 'Себестоимость', color: '#F59E0B', value: cogs },
+    { label: 'Расходы + ЗП', color: '#F43F5E', value: expenses },
+    { label: 'Эквайринг + возвраты', color: '#a855f7', value: acqRefunds },
+    ...(isLoss
+      ? [{ label: 'Убыток', color: '#F43F5E', value: Math.abs(net) }]
+      : [{ label: 'Прибыль', color: '#10B981', value: profitRemainder }]),
+  ]
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       {/* HERO — финансовое здоровье */}
       <div className="glass-l2" role="button" tabIndex={0}
+        aria-label={`Прибыль за период ${periodText}: ${isLoss ? 'убыток ' : ''}${fmt(Math.abs(net))} рублей. Нажмите для раскладки.`}
         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setModal({ title: `Прибыль · ${periodText}`, subtitle: 'раскладка валовая → чистая', b: cur }) } }}
         onClick={() => setModal({ title: `Прибыль · ${periodText}`, subtitle: 'раскладка валовая → чистая', b: cur })}
         style={{ borderRadius: 20, padding: 22, cursor: 'pointer', position: 'relative', overflow: 'hidden' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'relative' }}>
-          <span style={{ ...LBL, margin: 0 }}>Прибыль за период · {periodText}</span>
+          <span style={{ ...LBL, margin: 0 }}>{isLoss ? 'Убыток' : 'Прибыль'} за период · {periodText}</span>
           <Icon name="chevron_right" size={16} color="rgba(204,195,216,0.55)" />
         </div>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, margin: '8px 0 4px', flexWrap: 'wrap' }}>
-          <span style={{ fontSize: 40, fontWeight: 800, color: profitColor, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{net >= 0 ? '' : '−'}{fmt(Math.abs(net))} ₽</span>
-          <span style={{ fontSize: 12, fontWeight: 700, padding: '3px 10px', borderRadius: 9999, background: `${profitColor}22`, color: profitColor }}>маржа {margin == null ? '—' : `${margin}%`}</span>
+          <span style={{ fontSize: 40, fontWeight: 800, color: profitColor, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{isLoss ? '−' : ''}{fmt(Math.abs(net))} ₽</span>
+          {/* Явная текстовая подпись «Прибыль/Убыток» — смысл не только цветом. */}
+          <span style={{ fontSize: 12, fontWeight: 700, padding: '3px 10px', borderRadius: 9999, background: `${profitColor}22`, color: profitColor }}>{isLoss ? 'Убыток' : 'Прибыль'} · маржа {margin == null ? '—' : `${margin}%`}</span>
           {typeof deltas.profit === 'number' && <DeltaBadge delta={deltas.profit} />}
         </div>
         <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: '0 0 14px' }}>{healthLine}</p>
-        <div style={{ height: 12, borderRadius: 9999, overflow: 'hidden', display: 'flex', background: 'rgba(255,255,255,0.06)' }}>
-          <div title="Себестоимость" style={{ width: seg(cogs), background: '#F59E0B' }} />
-          <div title="Расходы + ЗП" style={{ width: seg(expenses), background: '#F43F5E' }} />
-          <div title="Эквайринг + возвраты" style={{ width: seg(commission + refundsV), background: '#a855f7' }} />
-          <div title="Прибыль" style={{ flex: 1, background: net >= 0 ? '#10B981' : 'transparent' }} />
+        {/* Полоса «куда ушла выручка». role=img + aria-label = тач/скринридер-доступна. */}
+        <div role="img" aria-label={barAria} style={{ height: 12, borderRadius: 9999, overflow: 'hidden', display: 'flex', background: 'rgba(255,255,255,0.06)' }}>
+          <div style={{ width: segPct(cogs), background: '#F59E0B' }} />
+          <div style={{ width: segPct(expenses), background: '#F43F5E' }} />
+          <div style={{ width: segPct(acqRefunds), background: '#a855f7' }} />
+          {/* Прибыль (зелёный) — ТОЛЬКО при net>=0. В убытке зелёного хвоста нет. */}
+          {!isLoss && <div style={{ width: segPct(profitRemainder), background: '#10B981' }} />}
+        </div>
+        {/* Видимая легенда с подписью и суммой — без зависимости от hover/цвета (a11y, iPhone). */}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 12px', marginTop: 10 }}>
+          {barLegend.map(l => (
+            <span key={l.label} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10.5, color: 'var(--on-surface-variant)' }}>
+              <span aria-hidden style={{ width: 8, height: 8, borderRadius: 2, background: l.color, flexShrink: 0 }} />
+              {l.label} {fmt(l.value)} ₽
+            </span>
+          ))}
         </div>
         <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8, fontSize: 11, color: 'var(--on-surface-variant)' }}>
           <span>+{fmt(gross)} ₽ пришло</span>
@@ -816,6 +874,17 @@ function ReportsTab({ from, to }: { from: string; to: string }) {
   const avgCheck      = checksCount ? totalRevenue / checksCount : 0
   const maxDayRev     = revRows.length ? Math.max(...revRows.map((d: any) => parseNum(d.revenue))) : 1
 
+  // Полный непрерывный ряд дней периода: дни без чеков = 0 (видимый нулевой бар),
+  // а не пропуск. Иначе провалы выручки невидимы и регулярность завышена (P1).
+  // Сервер отдаёт только дни с чеками → достраиваем недостающие через Map по дате.
+  const revByDate = new Map<string, number>(revRows.map((d: any) => [String(d.date).slice(0, 10), parseNum(d.revenue)]))
+  const fullDays = dateRange(from, to)
+  // Если период не распарсился (пусто/слишком длинный) — откатываемся на сырой ряд.
+  const revSeries: { date: string; revenue: number }[] = fullDays.length
+    ? fullDays.map(date => ({ date, revenue: revByDate.get(date) ?? 0 }))
+    : revRows.map((d: any) => ({ date: String(d.date).slice(0, 10), revenue: parseNum(d.revenue) }))
+  const zeroDays = revSeries.filter(d => d.revenue === 0).length
+
   // /analytics/products → { products: [...], totalRev }
   const products: any[] = prodData?.products ?? []
   const totalProdRev: number = parseNum(prodData?.totalRev)
@@ -874,25 +943,35 @@ function ReportsTab({ from, to }: { from: string; to: string }) {
       {/* Revenue bar chart */}
       {subTab === 'revenue' && (
         <div className="glass-l2" style={{ borderRadius: 16, padding: 20 }}>
-          <span style={LBL}>Выручка по дням · {format(new Date(from), 'd MMM', { locale: ru })} — {format(new Date(to), 'd MMM yyyy', { locale: ru })}</span>
-          {revRows.length === 0 ? <p style={{ fontSize: 13, color: 'rgba(204,195,216,0.4)', textAlign: 'center', padding: '20px 0' }}>Нет данных</p> : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-              {revRows.map((d: any) => {
-                const rev = parseNum(d.revenue)
+          <span style={LBL}>Выручка по дням · {dayLabel(from)} — {format(new Date(`${to}T12:00:00`), 'd MMM yyyy', { locale: ru })}</span>
+          {revSeries.length === 0 ? <p style={{ fontSize: 13, color: 'rgba(204,195,216,0.4)', textAlign: 'center', padding: '20px 0' }}>Нет данных</p> : (
+            <>
+            {/* role=img + aria-label: график доступен скринридеру/на тач (без hover). */}
+            <div role="img" aria-label={`Выручка по дням за период ${dayLabel(from)} — ${dayLabel(to)}: всего ${fmt(totalRevenue)} рублей за ${revSeries.length} дней, из них ${zeroDays} дней без выручки.`} style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+              {revSeries.map((d) => {
+                const rev = d.revenue
                 const pct = maxDayRev > 0 ? (rev / maxDayRev) * 100 : 0
-                let dateLabel = d.date
-                try { dateLabel = format(new Date(d.date), 'd MMM', { locale: ru }) } catch {}
+                const isZero = rev === 0
                 return (
                   <div key={d.date} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <span style={{ fontSize: 11, color: 'var(--on-surface-variant)', width: 50, flexShrink: 0, textAlign: 'right' }}>{dateLabel}</span>
-                    <div style={{ flex: 1, height: 22, borderRadius: 6, background: 'rgba(255,255,255,0.04)', overflow: 'hidden' }}>
+                    <span style={{ fontSize: 11, color: 'var(--on-surface-variant)', width: 50, flexShrink: 0, textAlign: 'right' }}>{dayLabel(d.date)}</span>
+                    {/* Нулевой день: видимая пустая дорожка (а не пропуск) — провал выручки заметен. */}
+                    <div style={{ flex: 1, height: 22, borderRadius: 6, background: 'rgba(255,255,255,0.04)', overflow: 'hidden', border: isZero ? '1px dashed rgba(244,63,94,0.3)' : 'none', boxSizing: 'border-box' }}>
                       <div style={{ height: '100%', width: `${pct}%`, background: 'linear-gradient(90deg, #8B5CF6, #4cd7f6)', borderRadius: 6, transition: 'width 0.4s' }} />
                     </div>
-                    <span style={{ fontSize: 11, fontWeight: 700, width: 80, textAlign: 'right', flexShrink: 0 }}>{fmt(rev)} ₽</span>
+                    <span style={{ fontSize: 11, fontWeight: 700, width: 80, textAlign: 'right', flexShrink: 0, color: isZero ? 'rgba(244,63,94,0.7)' : 'var(--on-surface)' }}>{isZero ? '0 ₽' : `${fmt(rev)} ₽`}</span>
                   </div>
                 )
               })}
             </div>
+            {zeroDays > 0 && <p style={{ fontSize: 10.5, color: 'rgba(204,195,216,0.5)', margin: '8px 0 0' }}>Пунктиром — дни без выручки ({zeroDays} из {revSeries.length})</p>}
+            {/* Визуально-скрытая таблица данных — полная текстовая альтернатива графику. */}
+            <table style={SR_ONLY}>
+              <caption>Выручка по дням за период</caption>
+              <thead><tr><th>Дата</th><th>Выручка, ₽</th></tr></thead>
+              <tbody>{revSeries.map(d => <tr key={d.date}><td>{d.date}</td><td>{fmt(d.revenue)}</td></tr>)}</tbody>
+            </table>
+            </>
           )}
 
           {/* Summary table */}
@@ -1050,8 +1129,12 @@ function ProductsTab({ products, from, to }: { products: any; from: string; to: 
 
       {cats.length > 0 && (
         <div className="glass-l2" style={{ borderRadius: 16, padding: 20 }}>
-          <span style={LBL}>По категориям</span>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8 }}>
+            <span style={{ ...LBL, margin: 0 }}>По категориям</span>
+            {/* Подпись масштаба: бары нормированы к этому максимуму (несравнимы между блоками). */}
+            <span style={{ fontSize: 10, color: 'rgba(204,195,216,0.5)' }}>шкала до {fmt(catMax)} ₽</span>
+          </div>
+          <div role="img" aria-label={`Выручка по категориям: ${cats.map(([c, r]) => `${c} ${fmt(r)} рублей`).join(', ')}`} style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 12 }}>
             {cats.map(([cat, rev]) => (
               <div key={cat} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                 <span style={{ fontSize: 12, color: 'var(--on-surface-variant)', width: 80, flexShrink: 0, textAlign: 'right', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{cat}</span>
@@ -1156,7 +1239,7 @@ function PlayersTab({ clients }: { clients: any }) {
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) minmax(0,2fr)', gap: 16 }} className="dash-row">
         <div className="glass-l2" style={{ borderRadius: 16, padding: 20 }}>
           <span style={LBL}>Уровни</span>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div role={tierDist.length ? 'img' : undefined} aria-label={tierDist.length ? `Распределение по уровням лояльности: ${tierDist.map((t: any) => `${TIER_LABELS[t.tier ?? 'null'] ?? t.tier} ${t.count}`).join(', ')}` : undefined} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {tierDist.length === 0 ? <p style={{ fontSize: 12, color: 'rgba(204,195,216,0.4)', textAlign: 'center' }}>Нет данных</p> : tierDist.map((t: any) => {
               const tier = t.tier ?? 'null'
               const pct = Math.round((t.count / tierTotal) * 100)
@@ -1529,7 +1612,7 @@ function EventsTab({ from, to }: { from: string; to: string }) {
       {/* По формату */}
       {byCategory.length > 0 && (
         <EvSection title="По формату">
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12, paddingTop: 6 }}>
+          <div role="img" aria-label={`Выручка по формату мероприятий: ${byCategory.map(c => `${c.label} ${fmt(parseNum(c.revenue))} рублей, ${c.count} заказов`).join('; ')}`} style={{ display: 'flex', flexDirection: 'column', gap: 12, paddingTop: 6 }}>
             {byCategory.map(c => (
               <div key={c.label}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
@@ -1547,7 +1630,7 @@ function EventsTab({ from, to }: { from: string; to: string }) {
 
       {/* Загрузка по дням недели */}
       <EvSection title="Загрузка по дням недели">
-        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, height: 116, paddingTop: 8 }}>
+        <div role="img" aria-label={`Заказы по дням недели: ${byWeekday.map(w => `${w.label} ${w.count}`).join(', ')}`} style={{ display: 'flex', alignItems: 'flex-end', gap: 6, height: 116, paddingTop: 8 }}>
           {byWeekday.map(w => (
             <div key={w.label} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, height: '100%', justifyContent: 'flex-end' }}>
               <span style={{ fontSize: 11, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{w.count}</span>
@@ -1665,9 +1748,13 @@ function TariffsTab({ from, to }: { from: string; to: string }) {
 
           {/* По тарифам — кликабельные строки */}
           <div className="glass-l2" style={{ borderRadius: 16, overflow: 'hidden' }}>
-            <div style={{ padding: '14px 18px', borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ padding: '14px 18px', borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
               <span style={{ ...LBL, margin: 0 }}>По тарифам</span>
-              <ExportBtn onClick={exportCsv} />
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                {/* Бары нормированы к локальному максимуму — подписываем шкалу. */}
+                {byTariff.length > 0 && <span style={{ fontSize: 10, color: 'rgba(204,195,216,0.5)' }}>шкала до {fmt(maxTariffRev)} ₽</span>}
+                <ExportBtn onClick={exportCsv} />
+              </div>
             </div>
             {byTariff.length === 0 ? <p style={{ padding: 24, textAlign: 'center', fontSize: 13, color: 'var(--on-surface-variant)' }}>Нет данных за период</p>
               : byTariff.map((t: any, i: number) => {
@@ -1718,10 +1805,13 @@ function TariffsTab({ from, to }: { from: string; to: string }) {
 
           {/* По типам вечеров */}
           <div className="glass-l2" style={{ borderRadius: 16, padding: 20 }}>
-            <span style={LBL}>По типам вечеров</span>
+            <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8 }}>
+              <span style={{ ...LBL, margin: 0 }}>По типам вечеров</span>
+              {byEvening.length > 0 && <span style={{ fontSize: 10, color: 'rgba(204,195,216,0.5)' }}>шкала до {fmt(maxEveningRev)} ₽</span>}
+            </div>
             {byEvening.length === 0 ? <p style={{ fontSize: 13, color: 'var(--on-surface-variant)', textAlign: 'center', padding: '12px 0' }}>Нет данных</p>
               : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 12 }}>
                   {byEvening.map((e: any, i: number) => {
                     const rev = parseNum(e.revenue)
                     const pct = maxEveningRev > 0 ? (rev / maxEveningRev) * 100 : 0

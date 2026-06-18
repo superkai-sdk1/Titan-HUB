@@ -165,6 +165,9 @@ app.use('/api/ai/*', requireAiPaid())
 app.use('/api/events/*', requireModule('events'))
 app.use('/api/certificates/*', requireModule('certificates'))
 app.use('/api/discounts/*', requireModule('discounts'))
+// Аналитика — фиче-модуль: арендатор с выключенным 'analytics' не получает витрины.
+// fail-open на основном домене (оператор всегда видит).
+app.use('/api/analytics/*', requireModule('analytics'))
 
 app.route('/api/auth', authRouter)
 app.route('/api/pos', posRouter)

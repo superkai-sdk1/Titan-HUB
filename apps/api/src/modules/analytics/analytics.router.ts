@@ -35,6 +35,54 @@ function parseNum(v: unknown) {
   return parseFloat(String(v ?? 0)) || 0
 }
 
+// ─── Возвраты и net-выручка ────────────────────────────────────────────────────
+// ПОЧЕМУ вычитаем возвраты ВЕЗДЕ, где показывается «выручка» (P0):
+// при полном/частичном возврате исходный чек НЕ трогается — `status` остаётся
+// 'closed', а `total_amount` полным (см. refunds.router.ts: возврат пишет строку в
+// `refunds` + проводку `transactions`, но чек не меняет). Поэтому «грязная»
+// (gross) выручка sum(checks.total_amount) завышена на сумму возвратов. Net-ветка
+// (netBreakdown) это уже учитывала; здесь выносим ту же логику в переиспользуемые
+// SQL-фрагменты, чтобы привести ВСЕ витрины выручки (overview/revenue/shifts/
+// players/top-spenders/dashboard) к net-of-refunds.
+//
+// КОНСИСТЕНТНОСТЬ ОКНА: возвраты вычитаются по ДАТЕ ВОЗВРАТА (refunds.created_at)
+// в том же окне, что и выручка чека — ровно как netBreakdown (:124-127). Это даёт
+// «чистую кассу периода»: возврат, оформленный в периоде, уменьшает выручку периода,
+// даже если сам чек был пробит раньше.
+
+// Коррелированный under-select: сумма возвратов по чеку `checkRef`, чья дата
+// возврата попала в окно [start, end). Используется как `total_amount − refunds`
+// прямо в SELECT-выражении выручки конкретной витрины (player/top-spenders).
+function refundedInWindow(checkRef: any, start: Date, end: Date) {
+  return sql<number>`coalesce((
+    select sum(r.total_amount) from refunds r
+    where r.check_id = ${checkRef}
+      and r.created_at >= ${start.toISOString()}::timestamptz
+      and r.created_at <  ${end.toISOString()}::timestamptz
+  ), 0)`
+}
+
+// Суммарные возвраты за окно [start, end) по дате возврата (как в netBreakdown).
+// Отдаём отдельной цифрой `refundsTotal`, чтобы фронт мог показать «возвраты»
+// строкой, а основную выручку — уже net.
+async function refundsTotalInWindow(database: Database, start: Date, end: Date): Promise<number> {
+  const [row] = await database
+    .select({ total: sum(refunds.totalAmount) })
+    .from(refunds)
+    .where(and(gte(refunds.createdAt, start), lt(refunds.createdAt, end)))
+  return parseNum(row?.total)
+}
+
+// ─── Доступ owner-only к финблоку и ПДн ────────────────────────────────────────
+// ПОЧЕМУ режем поля для staff (P1): рядовой кассир (role='staff') не должен видеть
+// коммерческую тайну (прибыль/COGS/ФОТ/себестоимость) и ПДн клиентов (телефон/ФИО).
+// Роутер пускает обе роли (выручка смены нужна staff), поэтому чувствительные поля
+// вырезаем/обнуляем точечно внутри хендлеров по факту роли, а на чисто финансовых
+// эндпоинтах (/staff — ФОТ-комплименты с себестоимостью) отдаём 403.
+function isOwner(c: any): boolean {
+  return c.get('user')?.role === 'owner'
+}
+
 // ─── Date-range query validation ───────────────────────────────────────────────
 // from/to — необязательные строки YYYY-MM-DD. Раньше значения из query шли прямо в
 // new Date()/границы окна без проверки, и мусор («», «abc», «2026-13-99») давал
@@ -187,6 +235,10 @@ async function netBreakdown(database: Database, start: Date, end: Date, expFrom:
   const net = gross - refundsTotal - commission - cogs - opex - salary
   return {
     gross,
+    // Выручка за вычетом возвратов (по дате возврата в окне). Это «чистая касса
+    // оборота» периода — фронт показывает её как основную «Выручку», а gross
+    // остаётся для справки/переключателя «без учёта возвратов».
+    revenueNet: Math.round((gross - refundsTotal) * 100) / 100,
     checks: cnt,
     // Средний чек — только по клубным чекам (без мероприятий), чтобы база
     // мероприятия не раздувала показатель.
@@ -219,7 +271,13 @@ analyticsRouter.get('/dashboard', async (c) => {
   const thirtyDaysAgo = bizDayBounds(bizDayStr(30, h), h).start  // начало бизнес-дня 30 дней назад
   const sixtyDaysAgo = bizDayBounds(bizDayStr(60, h), h).start   // начало бизнес-дня 60 дней назад
 
-  // Today revenue (бизнес-день: с 09:00 текущего бизнес-дня)
+  // Конец текущего бизнес-дня (для окон возвратов «сегодня»).
+  const { end: todayEndBound } = bizDayBounds(todayBizStr, h)
+
+  // Today revenue (бизнес-день: с 09:00 текущего бизнес-дня).
+  // ВЫРУЧКА = NET-OF-REFUNDS: из gross вычитаем возвраты за то же окно по дате
+  // возврата (см. refundedInWindow/комментарий выше). gross остаётся под капотом
+  // (netToday.gross), но видимая «Выручка дня» теперь сходится с кассой.
   const [todayStats] = await db
     .select({ revenue: sum(checks.totalAmount), count: count() })
     .from(checks)
@@ -250,6 +308,12 @@ analyticsRouter.get('/dashboard', async (c) => {
       gte(checks.createdAt, sixtyDaysAgo),
       lt(checks.createdAt, thirtyDaysAgo),
     ))
+
+  // Возвраты по окнам (по дате возврата) — для приведения выручки к net.
+  const refundsToday = await refundsTotalInWindow(db, todayStart, todayEndBound)
+  const refundsYesterday = await refundsTotalInWindow(db, yesterdayStart, todayStart)
+  const refundsMonth = await refundsTotalInWindow(db, thirtyDaysAgo, todayEndBound)
+  const refundsPrevMonth = await refundsTotalInWindow(db, sixtyDaysAgo, thirtyDaysAgo)
 
   // COGS this month — себестоимость ПРОДАННОГО (продажа МИНУС возврат), а не
   // стоимость поставок. Зафиксированная себестоимость на момент списания
@@ -315,12 +379,17 @@ analyticsRouter.get('/dashboard', async (c) => {
     .where(and(eq(profiles.role, 'client'), isNull(profiles.deletedAt), gte(profiles.createdAt, thirtyDaysAgo)))
 
   // Net-разбивка (с учётом расходов/комиссий/возвратов) для дня и месяца.
-  const { end: todayEnd } = bizDayBounds(todayBizStr, h)
-  const netToday = await netBreakdown(db, todayStart, todayEnd, todayBizStr, todayBizStr)
-  const netMonth = await netBreakdown(db, thirtyDaysAgo, todayEnd, bizDayStr(30, h), bizDayStr(0, h))
+  // Используем уже вычисленную границу бизнес-дня (todayEndBound).
+  const netToday = await netBreakdown(db, todayStart, todayEndBound, todayBizStr, todayBizStr)
+  const netMonth = await netBreakdown(db, thirtyDaysAgo, todayEndBound, bizDayStr(30, h), bizDayStr(0, h))
 
-  const monthRev = parseNum(monthStats?.revenue)
-  const prevMonthRev = parseNum(prevMonthStats?.revenue)
+  // ВЫРУЧКА = NET-OF-REFUNDS (P0): из gross вычитаем возвраты соответствующего окна
+  // (по дате возврата). Это приводит «Выручку дня/месяца» к фактической кассе.
+  // gross остаётся доступен фронту через netToday.gross/netMonth.gross.
+  const todayRev = parseNum(todayStats?.revenue) - refundsToday
+  const yesterdayRev = parseNum(yesterdayStats?.revenue) - refundsYesterday
+  const monthRev = parseNum(monthStats?.revenue) - refundsMonth
+  const prevMonthRev = parseNum(prevMonthStats?.revenue) - refundsPrevMonth
   const cogs = parseNum(cogsRow?.total)
   // Операционные расходы БЕЗ зарплаты (см. правило выше).
   const opExpenses = parseNum(expensesRow?.total)
@@ -328,12 +397,19 @@ analyticsRouter.get('/dashboard', async (c) => {
   const salary = parseNum(salaryRow?.total)
   // Совокупные расходы для прибыли = операционные (без ЗП) + ФОТ из salaryPayments.
   const totalExpenses = opExpenses + salary
+  // Прибыль считаем от выручки УЖЕ за вычетом возвратов (monthRev), чтобы прибыль
+  // не была завышена на сумму возвращённых денег.
   const profit = monthRev - cogs - totalExpenses
   const monthRevDelta = prevMonthRev > 0 ? Math.round(((monthRev - prevMonthRev) / prevMonthRev) * 100) : 0
 
+  // Финблок (прибыль/COGS/ФОТ) показываем ТОЛЬКО владельцу. Для staff выручка смены/
+  // дня нужна, но коммерческая тайна — нет, поэтому финансовые поля вырезаем (P1).
+  const owner = isOwner(c)
+
   return c.json({
     today: {
-      revenue: parseNum(todayStats?.revenue),
+      revenue: Math.round(todayRev * 100) / 100,
+      refundsTotal: refundsToday,
       checks: todayStats?.count ?? 0,
       // Средний — клубный (без мероприятий), берём из net-разбивки.
       avgCheck: netToday.avgCheck,
@@ -341,19 +417,20 @@ analyticsRouter.get('/dashboard', async (c) => {
       eventRevenue: netToday.eventRevenue,
     },
     yesterday: {
-      revenue: parseNum(yesterdayStats?.revenue),
+      revenue: Math.round(yesterdayRev * 100) / 100,
+      refundsTotal: refundsYesterday,
       checks: yesterdayStats?.count ?? 0,
     },
     month: {
-      revenue: monthRev,
+      revenue: Math.round(monthRev * 100) / 100,
+      refundsTotal: refundsMonth,
       checks: monthStats?.count ?? 0,
       // Средний — клубный (без мероприятий), берём из net-разбивки.
       avgCheck: netMonth.avgCheck,
       eventChecks: netMonth.eventChecks,
       eventRevenue: netMonth.eventRevenue,
-      cogs,
-      expenses: totalExpenses,
-      profit,
+      // Финблок — только owner.
+      ...(owner ? { cogs, expenses: totalExpenses, profit } : {}),
       delta: monthRevDelta,
     },
     newClients: newClients.count,
@@ -361,10 +438,9 @@ analyticsRouter.get('/dashboard', async (c) => {
     paymentBreakdown,
     // Бизнес-день, к которому относятся «итоги дня» (09:00→06:00).
     businessDay: todayBizStr,
-    // Чистые показатели с учётом расходов/комиссий/возвратов (день и месяц).
-    // Фронт показывает «без учёта» (gross) и «с учётом» (net) по переключателю.
-    netToday,
-    netMonth,
+    // Чистые показатели с учётом расходов/комиссий/возвратов (день и месяц) —
+    // содержат COGS/ФОТ/прибыль, поэтому отдаём ТОЛЬКО владельцу.
+    ...(owner ? { netToday, netMonth } : {}),
   })
 })
 
@@ -411,21 +487,38 @@ analyticsRouter.get('/overview', zValidator('query', dateRangeQuerySchema), asyn
   const today = await netBreakdown(db, tb.start, tb.end, todayBizStr, todayBizStr)
 
   const pct = (cur: number, prev: number) => (prev > 0 ? Math.round(((cur - prev) / prev) * 100) : (cur > 0 ? 100 : 0))
-  const margin = current.gross > 0 ? Math.round((current.net / current.gross) * 100) : null
+  // Маржу считаем от выручки за вычетом возвратов (revenueNet), а не от gross —
+  // иначе при возвратах знаменатель завышен и маржа занижена непоследовательно.
+  const margin = current.revenueNet > 0 ? Math.round((current.net / current.revenueNet) * 100) : null
+  const owner = isOwner(c)
+
+  // Финблок (COGS/ФОТ/прибыль/маржа) — ТОЛЬКО владельцу. Для staff из net-разбивки
+  // вырезаем коммерческую тайну, оставляя выручку (gross/net-of-refunds/возвраты),
+  // число чеков, средний чек и блок мероприятий (P1, ПДн тут нет).
+  const sanitizeBreakdown = (b: typeof current) => owner ? b : {
+    gross: b.gross, revenueNet: b.revenueNet, refunds: b.refunds,
+    checks: b.checks, avgCheck: b.avgCheck,
+    eventRevenue: b.eventRevenue, eventChecks: b.eventChecks, clubChecks: b.clubChecks,
+  }
 
   return c.json({
     period: { from, to, days },
-    current: { ...current, margin },
-    previous,
+    // margin — финансовый показатель, добавляем только владельцу.
+    current: owner ? { ...current, margin } : sanitizeBreakdown(current),
+    previous: sanitizeBreakdown(previous),
     deltas: {
-      revenue: pct(current.gross, previous.gross),
-      profit: pct(current.net, previous.net),
+      // Дельта выручки — по net-of-refunds (как и показываемая «Выручка»).
+      revenue: pct(current.revenueNet, previous.revenueNet),
       checks: pct(current.checks, previous.checks),
-      cogs: pct(current.cogs, previous.cogs),
-      expenses: pct(current.expenses, previous.expenses),
+      // Финансовые дельты (прибыль/COGS/расходы) — только владельцу.
+      ...(owner ? {
+        profit: pct(current.net, previous.net),
+        cogs: pct(current.cogs, previous.cogs),
+        expenses: pct(current.expenses, previous.expenses),
+      } : {}),
     },
     paymentBreakdown,
-    today,
+    today: sanitizeBreakdown(today),
     businessDay: todayBizStr,
   })
 })
@@ -467,6 +560,33 @@ analyticsRouter.get('/revenue', zValidator('query', dateRangeQuerySchema), async
     .groupBy(sql`(${bizShift})::date`)
     .orderBy(asc(sql`(${bizShift})::date`))
 
+  // Возвраты по бизнес-дню ВОЗВРАТА (refunds.created_at), та же группировка/окно,
+  // что и выручка. Нужны, чтобы привести дневную «Выручку» графика к net-of-refunds
+  // (P0): возврат уменьшает столбец того дня, когда он оформлен (консистентно с
+  // /overview, /dashboard). Отдаём и отдельной серией `refunds`, чтобы фронт мог
+  // показать «возвраты» под графиком.
+  const refShift = sql`(${refunds.createdAt} AT TIME ZONE 'Europe/Moscow') - interval '${sql.raw(String(h))} hours'`
+  const refRows = await db
+    .select({
+      date: sql<string>`(${refShift})::date::text`,
+      total: sum(refunds.totalAmount),
+    })
+    .from(refunds)
+    .where(and(
+      gte(refunds.createdAt, fromStart),
+      lt(refunds.createdAt, toEndExclusive),
+    ))
+    .groupBy(sql`(${refShift})::date`)
+  const refundByDay = new Map<string, number>(refRows.map((r: any) => [r.date, parseNum(r.total)]))
+  // Приводим дневную выручку к net: revenue − возвраты этого бизнес-дня (не ниже 0
+  // не зажимаем — возврат может относиться к чеку прошлого периода и формально
+  // «утянуть» день в минус; это корректное отражение факта на дате возврата).
+  const revRows = rows.map((r: any) => ({
+    date: r.date,
+    revenue: Math.round((parseNum(r.revenue) - (refundByDay.get(r.date) ?? 0)) * 100) / 100,
+    count: r.count,
+  }))
+
   // Expenses by day. expenseDate — text-дата в местном времени; сравниваем как
   // строки YYYY-MM-DD (от and до включительно), без каста ::date vs timestamptz,
   // который давал сдвиг на сутки относительно UTC-границы.
@@ -501,7 +621,9 @@ analyticsRouter.get('/revenue', zValidator('query', dateRangeQuerySchema), async
     ))
     .groupBy(sql`(${smShift})::date`)
 
-  return c.json({ revenue: rows, expenses: expRows, cogs: cogsRows })
+  // revenue — уже net-of-refunds по дню; refunds — отдельная серия для фронта.
+  const refundsSeries = refRows.map((r: any) => ({ date: r.date, total: parseNum(r.total) }))
+  return c.json({ revenue: revRows, refunds: refundsSeries, expenses: expRows, cogs: cogsRows })
 })
 
 // ─── Payments by method (period) ───────────────────────────────────────────────
@@ -635,7 +757,19 @@ analyticsRouter.get('/events', zValidator('query', dateRangeQuerySchema), async 
     }
     return planned ?? 0
   }
-  const eventRevenue = (r: any) => r.checkTotal != null ? n(r.checkTotal) : (n(r.manualAmount) || n(r.fixedAmount) || 0)
+  // ВЫРУЧКА МЕРОПРИЯТИЯ — РАЗДЕЛЯЕМ ФАКТ И ПЛАН (P1):
+  // - есть привязанный чек → ФАКТ: берём checkTotal (полный total_amount чека, уже
+  //   включает eventBase+аренду). ВАЖНО: эта сумма УЖЕ входит в общий gross клуба
+  //   (/dashboard, /overview считают тот же чек). Значит «Выручка мероприятий» —
+  //   это ПОДМНОЖЕСТВО общей выручки, а НЕ добавка: складывать её с «Выручкой
+  //   клуба» нельзя (будет двойной счёт). См. поле revenueNote ниже.
+  // - чека нет → ПЛАН: manualAmount/fixedAmount. Это НЕ факт оплаты и в общий gross
+  //   НЕ входит — помечаем отдельно (plannedRevenue), не смешивая с фактом.
+  const eventActual = (r: any) => r.checkTotal != null ? n(r.checkTotal) : 0
+  const eventPlanned = (r: any) => r.checkTotal != null ? 0 : (n(r.manualAmount) || n(r.fixedAmount) || 0)
+  // Совокупная «выручка» строки для разбивок (факт, если есть; иначе план) —
+  // прежнее поведение для сортировок/топов, но факт и план считаем ещё и раздельно.
+  const eventRevenue = (r: any) => eventActual(r) || eventPlanned(r)
   const categoryOf = (r: any) => r.format === 'minicap' ? 'Миникап' : r.type === 'exit' ? 'Выезд' : 'Титан'
   // Пн..Вс (в России неделя с понедельника). Date.getUTCDay(): 0=вс..6=сб.
   const WD = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс']
@@ -646,6 +780,9 @@ analyticsRouter.get('/events', zValidator('query', dateRangeQuerySchema), async 
   for (const r of rows as any[]) byStatus[r.status] = (byStatus[r.status] ?? 0) + 1
 
   let hours = 0, revenue = 0, attendees = 0
+  // Раздельно: ФАКТ (выручка по чекам — подмножество общей выручки клуба) и ПЛАН
+  // (события без чека — manualAmount/fixedAmount, в общий gross НЕ входят).
+  let actualRevenue = 0, plannedRevenue = 0
   const days = new Set<string>()
   const catMap = new Map<string, { count: number; revenue: number; hours: number }>()
   const wdCount = [0, 0, 0, 0, 0, 0, 0]
@@ -656,6 +793,7 @@ analyticsRouter.get('/events', zValidator('query', dateRangeQuerySchema), async 
     const dur = durHours(r.startTime, r.endTime, r.plannedHours)
     const rev = eventRevenue(r)
     hours += dur; revenue += rev; attendees += (r.attendeesCount ?? 0)
+    actualRevenue += eventActual(r); plannedRevenue += eventPlanned(r)
     if (r.date) { days.add(r.date); wdCount[wdIndex(r.date)]++ }
     const cat = categoryOf(r)
     const cm = catMap.get(cat) ?? { count: 0, revenue: 0, hours: 0 }
@@ -678,7 +816,16 @@ analyticsRouter.get('/events', zValidator('query', dateRangeQuerySchema), async 
       count: cnt,
       hours: Math.round(hours * 10) / 10,
       days: days.size,
+      // revenue = факт+план (как раньше, для совместимости со средними). Раздельно
+      // отдаём actualRevenue (по чекам — ВХОДИТ в общий gross клуба) и
+      // plannedRevenue (события без чека — план, в gross НЕ входит).
       revenue,
+      actualRevenue: Math.round(actualRevenue * 100) / 100,
+      plannedRevenue: Math.round(plannedRevenue * 100) / 100,
+      // Подсказка фронту: «Выручку мероприятий» (actualRevenue) НЕЛЬЗЯ складывать с
+      // «Выручкой клуба» — это её подмножество (двойной счёт). plannedRevenue —
+      // план по событиям без чека, не факт.
+      revenueNote: 'actualRevenue входит в общую выручку клуба (подмножество, не добавка); plannedRevenue — план событий без чека',
       attendees,
       cancelled: byStatus['cancelled'] ?? 0,
       avgDuration: cnt ? Math.round((hours / cnt) * 10) / 10 : 0,
@@ -922,25 +1069,38 @@ analyticsRouter.get('/clients', zValidator('query', dateRangeQuerySchema), async
   // Top spenders ЗА ПЕРИОД — ТОЛЬКО реальные игроки (playerId задан). Обезличенные
   // продажи («Гость», playerId IS NULL) НЕ участвуют в рейтинге, иначе они
   // перебивали бы реальных игроков (§9.4). Их сумму отдаём отдельной строкой.
+  // Траты топ-спендеров — NET-OF-REFUNDS (P0): из суммы чеков игрока вычитаем его
+  // возвраты, попавшие в окно по дате возврата (refundedInWindow). Иначе полностью
+  // возвращённый чек продолжал раздувать «топ по тратам». refundsTotal по игроку
+  // отдаём отдельным полем — фронт может показать «возвраты» в карточке строки.
+  const spendNet = sql<number>`sum(${checks.totalAmount}::numeric - ${refundedInWindow(checks.id, pStart, pEnd)}::numeric)`
   const topSpenders = await db
     .select({
       playerId: checks.playerId,
       nickname: profiles.nickname,
       clientTier: profiles.clientTier,
       photoUrl: sql<string | null>`coalesce(${profiles.photoUrl}, ${profiles.tgPhotoUrl}, ${profiles.gomafiaPhotoUrl})`,
-      total: sum(checks.totalAmount),
+      total: spendNet,
+      grossTotal: sum(checks.totalAmount),
       visits: count(),
     })
     .from(checks)
     .leftJoin(profiles, eq(profiles.id, checks.playerId))
     .where(and(eq(checks.status, 'closed'), gte(checks.createdAt, pStart), lt(checks.createdAt, pEnd), isNotNull(checks.playerId)))
     .groupBy(checks.playerId, profiles.nickname, profiles.clientTier, profiles.photoUrl, profiles.tgPhotoUrl, profiles.gomafiaPhotoUrl)
-    .orderBy(desc(sum(checks.totalAmount)))
+    .orderBy(desc(spendNet))
     .limit(10)
+  // Нормализуем числа и добавляем refundsTotal = gross − net по строке.
+  const topSpendersOut = topSpenders.map((r: any) => {
+    const net = parseNum(r.total)
+    const gross = parseNum(r.grossTotal)
+    return { playerId: r.playerId, nickname: r.nickname, clientTier: r.clientTier, photoUrl: r.photoUrl, total: net, refundsTotal: Math.round((gross - net) * 100) / 100, visits: r.visits }
+  })
 
   // Обезличенные продажи (без игрока) за период — отдельной строкой «Без игрока».
+  // Тоже net-of-refunds: возвраты обезличенных чеков вычитаем по дате возврата.
   const [guestRow] = await db
-    .select({ total: sum(checks.totalAmount), visits: count() })
+    .select({ total: sql<number>`sum(${checks.totalAmount}::numeric - ${refundedInWindow(checks.id, pStart, pEnd)}::numeric)`, visits: count() })
     .from(checks)
     .where(and(eq(checks.status, 'closed'), gte(checks.createdAt, pStart), lt(checks.createdAt, pEnd), isNull(checks.playerId)))
   const guestSales = { total: parseNum(guestRow?.total), visits: guestRow?.visits ?? 0 }
@@ -952,7 +1112,7 @@ analyticsRouter.get('/clients', zValidator('query', dateRangeQuerySchema), async
     tierDist,
     retentionRate,
     segments,
-    topSpenders,
+    topSpenders: topSpendersOut,
     guestSales,
   })
 })
@@ -1003,6 +1163,10 @@ analyticsRouter.get('/segment-members', zValidator('query', z.object({ segment: 
 // сумма (сколько бы стоило в рознице) и себестоимость («как бы оплатил»).
 analyticsRouter.get('/staff', zValidator('query', dateRangeQuerySchema), async (c) => {
   const db = c.var.db
+  // ДОСТУП: /staff — чисто финансовая витрина (себестоимость comp-списаний на
+  // сотрудников = коммерческая тайна, фактически «сколько съели в деньгах»). Для
+  // staff отдаём 403 (P1): рядовой кассир не должен видеть себестоимость/маржу.
+  if (!isOwner(c)) return c.json({ error: 'forbidden' }, 403)
   const q = c.req.valid('query')
   // Окно — по БИЗНЕС-ДНЮ (по умолч. 09:00→06:00), как и весь остальной дашборд.
   // Раньше тут были календарные сутки (mskBoundary = 00:00 МСК), из-за чего
@@ -1014,44 +1178,82 @@ analyticsRouter.get('/staff', zValidator('query', dateRangeQuerySchema), async (
   const { start: pStart } = bizDayBounds(from, h)
   const { end: pEnd } = bizDayBounds(to, h)
 
-  const rows = await db.select({
+  // СЕБЕСТОИМОСТЬ ПО ЗАФИКСИРОВАННОЙ ЦЕНЕ (P1): раньше cost считался по ТЕКУЩЕМУ
+  // inventory.cost_price (WAC карточки), из-за чего себестоимость прошлых comp-
+  // списаний «плыла» после каждой новой закупки и расходилась с общим COGS
+  // (netBreakdown/dashboard уже используют stock_movements.unit_cost). Теперь берём
+  // ту же зафиксированную на момент продажи себестоимость из движений склада
+  // (stock_movements.unit_cost, фолбэк на текущий WAC для исторических NULL).
+  //
+  // ВАЖНО про фан-аут: cost считаем ОТДЕЛЬНЫМ запросом по stock_movements (тип
+  // 'sale', source_type='check', source_id=checks.id), а НЕ в одном join с
+  // checkItems — иначе сумма помножилась бы на число позиций/строк. retail (по
+  // позициям) и cost (по движениям) собираем двумя запросами и сшиваем в JS.
+  const costExpr = sql<number>`sum((0 - ${stockMovements.delta})::numeric * coalesce(${stockMovements.unitCost}, ${inventory.costPrice}, 0)::numeric)`
+
+  // (1) Розничная сумма и число чеков на сотрудника — по позициям (checkItems).
+  const retailRows = await db.select({
     staffId: checks.staffCompId,
     nickname: profiles.nickname,
     clientTier: profiles.clientTier,
     photoUrl: sql<string | null>`coalesce(${profiles.photoUrl}, ${profiles.tgPhotoUrl}, ${profiles.gomafiaPhotoUrl})`,
     checksCount: sql<number>`count(distinct ${checks.id})`,
     retail: sql<number>`sum(${checkItems.quantity}::numeric * ${checkItems.priceAtTime})`,
-    cost: sql<number>`sum(${checkItems.quantity}::numeric * coalesce(${inventory.costPrice}, 0)::numeric)`,
   })
     .from(checks)
     .innerJoin(checkItems, eq(checkItems.checkId, checks.id))
-    .leftJoin(inventory, eq(inventory.id, checkItems.itemId))
     .leftJoin(profiles, eq(profiles.id, checks.staffCompId))
     .where(and(eq(checks.status, 'closed'), isNotNull(checks.staffCompId), gte(checks.createdAt, pStart), lt(checks.createdAt, pEnd)))
     .groupBy(checks.staffCompId, profiles.nickname, profiles.clientTier, profiles.photoUrl, profiles.tgPhotoUrl, profiles.gomafiaPhotoUrl)
-    .orderBy(desc(sql`sum(${checkItems.quantity}::numeric * coalesce(${inventory.costPrice}, 0)::numeric)`))
 
-  const staff = rows.map((r: any) => ({ staffId: r.staffId, nickname: r.nickname ?? '—', clientTier: r.clientTier, photoUrl: r.photoUrl ?? null, checksCount: r.checksCount ?? 0, retail: parseNum(r.retail), cost: parseNum(r.cost) }))
+  // (2) Зафиксированная себестоимость на сотрудника — по движениям склада comp-чеков.
+  const costRows = await db.select({
+    staffId: checks.staffCompId,
+    cost: costExpr,
+  })
+    .from(stockMovements)
+    .innerJoin(checks, eq(stockMovements.sourceId, checks.id))
+    .leftJoin(inventory, eq(inventory.id, stockMovements.itemId))
+    .where(and(
+      eq(stockMovements.sourceType, 'check'), eq(stockMovements.type, 'sale'),
+      eq(checks.status, 'closed'), isNotNull(checks.staffCompId),
+      gte(checks.createdAt, pStart), lt(checks.createdAt, pEnd),
+    ))
+    .groupBy(checks.staffCompId)
+  const costByStaff = new Map<string, number>(costRows.map((r: any) => [r.staffId, parseNum(r.cost)]))
+
+  const staffMapped = retailRows.map((r: any) => ({ staffId: r.staffId, nickname: r.nickname ?? '—', clientTier: r.clientTier, photoUrl: r.photoUrl ?? null, checksCount: r.checksCount ?? 0, retail: parseNum(r.retail), cost: costByStaff.get(r.staffId) ?? 0 }))
+  // Сортировка по себестоимости (как раньше) — теперь в JS, т.к. cost из второго запроса.
+  const staff = staffMapped.sort((a, b) => b.cost - a.cost)
   const totals = staff.reduce((a, s) => ({ retail: a.retail + s.retail, cost: a.cost + s.cost, checks: a.checks + (s.checksCount || 0) }), { retail: 0, cost: 0, checks: 0 })
 
   // Отдельные транзакции (каждый comp-чек) — кликабельны в UI → состав чека.
+  // retail — по позициям. cost берём из движений склада per-check (тот же фикс-расчёт).
   const compRows = await db.select({
     id: checks.id,
     createdAt: checks.createdAt,
     staffId: checks.staffCompId,
     nickname: profiles.nickname,
     retail: sql<number>`sum(${checkItems.quantity}::numeric * ${checkItems.priceAtTime})`,
-    cost: sql<number>`sum(${checkItems.quantity}::numeric * coalesce(${inventory.costPrice}, 0)::numeric)`,
   })
     .from(checks)
     .innerJoin(checkItems, eq(checkItems.checkId, checks.id))
-    .leftJoin(inventory, eq(inventory.id, checkItems.itemId))
     .leftJoin(profiles, eq(profiles.id, checks.staffCompId))
     .where(and(eq(checks.status, 'closed'), isNotNull(checks.staffCompId), gte(checks.createdAt, pStart), lt(checks.createdAt, pEnd)))
     .groupBy(checks.id, checks.createdAt, checks.staffCompId, profiles.nickname)
     .orderBy(desc(checks.createdAt))
     .limit(100)
-  const transactions = compRows.map((r: any) => ({ id: r.id, createdAt: r.createdAt, staffId: r.staffId, nickname: r.nickname ?? '—', retail: parseNum(r.retail), cost: parseNum(r.cost) }))
+  // Зафиксированная себестоимость на каждый показанный comp-чек (по движениям склада).
+  const compIds = compRows.map((r: any) => r.id)
+  const compCostRows = compIds.length
+    ? await db.select({ checkId: stockMovements.sourceId, cost: costExpr })
+        .from(stockMovements)
+        .leftJoin(inventory, eq(inventory.id, stockMovements.itemId))
+        .where(and(eq(stockMovements.sourceType, 'check'), eq(stockMovements.type, 'sale'), inArray(stockMovements.sourceId, compIds)))
+        .groupBy(stockMovements.sourceId)
+    : []
+  const compCostByCheck = new Map<string, number>(compCostRows.map((r: any) => [r.checkId, parseNum(r.cost)]))
+  const transactions = compRows.map((r: any) => ({ id: r.id, createdAt: r.createdAt, staffId: r.staffId, nickname: r.nickname ?? '—', retail: parseNum(r.retail), cost: compCostByCheck.get(r.id) ?? 0 }))
 
   return c.json({ staff, totals, transactions, period: { from, to } })
 })
@@ -1071,6 +1273,12 @@ analyticsRouter.get('/players/:id', async (c) => {
   }).from(profiles).where(eq(profiles.id, id)).limit(1)
   if (!prof) return c.json({ error: 'Not found' }, 404)
 
+  // ПДн (телефон/ФИО) — ТОЛЬКО владельцу (P1, 152-ФЗ): рядовой кассир видит карточку
+  // без телефона и полного имени (никнейм/тир/баланс/бонусы остаются — они нужны на
+  // кассе и не являются прямыми идентификаторами личности).
+  const owner = isOwner(c)
+  const profile = owner ? prof : { ...prof, fullName: null, phone: null }
+
   // Час начала бизнес-дня (по умолч. 9 → прежний interval '9 hours' в visitDays).
   const h = await getBusinessDayStartHour(db)
   // Агрегаты за всё время: сумма, число чеков, визит-дни (distinct бизнес-день МСК), первый/последний визит.
@@ -1085,11 +1293,27 @@ analyticsRouter.get('/players/:id', async (c) => {
   const [agg30] = await db.select({ spend: sum(checks.totalAmount), checksCount: count() })
     .from(checks).where(and(eq(checks.status, 'closed'), eq(checks.playerId, id), gte(checks.createdAt, d30)))
 
+  // Возвраты игрока (P0): all-time и за 30д (по дате возврата). Считаем по чекам
+  // ЭТОГО игрока — траты приводим к net-of-refunds, иначе полностью возвращённый
+  // чек продолжал раздувать «потрачено». join refunds→checks по playerId.
+  const [refAll] = await db.select({ total: sum(refunds.totalAmount) })
+    .from(refunds)
+    .innerJoin(checks, eq(checks.id, refunds.checkId))
+    .where(eq(checks.playerId, id))
+  const [ref30] = await db.select({ total: sum(refunds.totalAmount) })
+    .from(refunds)
+    .innerJoin(checks, eq(checks.id, refunds.checkId))
+    .where(and(eq(checks.playerId, id), gte(refunds.createdAt, d30)))
+
   const recentChecks = await db.select({ id: checks.id, createdAt: checks.createdAt, totalAmount: checks.totalAmount })
     .from(checks).where(and(eq(checks.status, 'closed'), eq(checks.playerId, id)))
     .orderBy(desc(checks.createdAt)).limit(10)
 
-  const spend = parseNum(agg?.spend)
+  const refundsAll = parseNum(refAll?.total)
+  const refunds30 = parseNum(ref30?.total)
+  // Траты = выручка чеков − возвраты (net). avgCheck тоже от net-трат.
+  const spend = Math.round((parseNum(agg?.spend) - refundsAll) * 100) / 100
+  const spend30 = Math.round((parseNum(agg30?.spend) - refunds30) * 100) / 100
   const checksCount = agg?.checksCount ?? 0
   const visitDays = Number(agg?.visitDays ?? 0)
   const firstVisit = agg?.firstVisit ?? null
@@ -1099,13 +1323,13 @@ analyticsRouter.get('/players/:id', async (c) => {
   const visitsPerMonth = Math.round((visitDays / tenureDays) * 30 * 10) / 10
 
   return c.json({
-    profile: prof,
+    profile,
     allTime: {
-      spend, checksCount, visitDays,
+      spend, refundsTotal: refundsAll, checksCount, visitDays,
       avgCheck: checksCount > 0 ? Math.round((spend / checksCount) * 100) / 100 : 0,
       firstVisit, lastVisit, daysSinceLast, visitsPerMonth,
     },
-    last30: { spend: parseNum(agg30?.spend), checksCount: agg30?.checksCount ?? 0 },
+    last30: { spend: spend30, refundsTotal: refunds30, checksCount: agg30?.checksCount ?? 0 },
     recentChecks,
   })
 })
@@ -1158,6 +1382,19 @@ analyticsRouter.get('/shifts', async (c) => {
         .groupBy(checks.shiftId, checkPayments.method)
     : []
 
+  // Возвраты на смену (P0): возврат привязываем к смене ЧЕКА возврата (refunds →
+  // checks → shift_id), а не к дате возврата — «выручка смены» должна показывать
+  // фактическую кассу именно этой смены за вычетом всех возвратов по её чекам.
+  const refundRows = shiftIds.length
+    ? await db
+        .select({ shiftId: checks.shiftId, total: sum(refunds.totalAmount) })
+        .from(refunds)
+        .innerJoin(checks, eq(checks.id, refunds.checkId))
+        .where(inArray(checks.shiftId, shiftIds))
+        .groupBy(checks.shiftId)
+    : []
+  const refundByShift = new Map<string, number>(refundRows.map((r: any) => [r.shiftId, parseNum(r.total)]))
+
   // Индексируем агрегаты по shiftId для O(1)-сшивки.
   const statsByShift = new Map<string, { revenue: unknown; cnt: number }>()
   for (const s of statsRows) {
@@ -1175,9 +1412,13 @@ analyticsRouter.get('/shifts', async (c) => {
 
   const enriched = rows.map((r: any) => {
     const stats = statsByShift.get(r.shift.id)
+    const gross = parseNum(stats?.revenue)
+    const refundsTotal = refundByShift.get(r.shift.id) ?? 0
     return {
       ...r,
-      revenue: parseNum(stats?.revenue),
+      // Выручка смены — net-of-refunds (касса смены за вычетом возвратов по её чекам).
+      revenue: Math.round((gross - refundsTotal) * 100) / 100,
+      refundsTotal,
       checksCount: stats?.cnt ?? 0,
       payments: paymentsByShift.get(r.shift.id) ?? [],
     }
@@ -1228,29 +1469,46 @@ analyticsRouter.get('/shifts/:id', async (c) => {
     return { ...r, share: Math.round(share * 10) / 10, abc: cumulative <= 80 ? 'A' : cumulative <= 95 ? 'B' : 'C' }
   })
 
-  const uniquePlayers = new Set(shiftChecks.map((ch: any) => ch.playerId).filter(Boolean)).size
-  const totalRevenue = shiftChecks.reduce((s: number, ch: any) => s + parseNum(ch.totalAmount), 0)
-  const avgCheck = shiftChecks.length > 0 ? totalRevenue / shiftChecks.length : 0
+  // Возвраты этой смены (P0): сумма возвратов по чекам смены (привязка через
+  // refunds.check_id → checks.shift_id), независимо от даты возврата — «выручка
+  // смены» = касса именно этой смены за вычетом возвратов её чеков.
+  const [shiftRefundRow] = await db
+    .select({ total: sum(refunds.totalAmount) })
+    .from(refunds)
+    .innerJoin(checks, eq(checks.id, refunds.checkId))
+    .where(eq(checks.shiftId, shiftId))
+  const refundsTotal = parseNum(shiftRefundRow?.total)
 
-  // Players data for this shift
-  const playerStats = await db
+  const uniquePlayers = new Set(shiftChecks.map((ch: any) => ch.playerId).filter(Boolean)).size
+  const grossRevenue = shiftChecks.reduce((s: number, ch: any) => s + parseNum(ch.totalAmount), 0)
+  // Выручка смены — net-of-refunds. Средний чек считаем от gross/числа чеков
+  // (средний чек — характеристика типичной продажи, возвраты его искусственно
+  // не занижают; net вынесен отдельно как totalRevenue).
+  const totalRevenue = Math.round((grossRevenue - refundsTotal) * 100) / 100
+  const avgCheck = shiftChecks.length > 0 ? grossRevenue / shiftChecks.length : 0
+
+  // Траты игроков смены — net-of-refunds по игроку (вычитаем возвраты его чеков
+  // этой смены). Под-select по refunds, привязанным к чекам этого игрока и смены.
+  const playerStatsRaw = await db
     .select({
       playerId: checks.playerId,
       nickname: profiles.nickname,
       clientTier: profiles.clientTier,
-      total: sum(checks.totalAmount),
+      total: sql<number>`sum(${checks.totalAmount}::numeric - coalesce((select sum(r.total_amount) from refunds r where r.check_id = ${checks.id}), 0)::numeric)`,
       cnt: count(),
     })
     .from(checks)
     .leftJoin(profiles, eq(profiles.id, checks.playerId))
     .where(and(eq(checks.shiftId, shiftId), eq(checks.status, 'closed')))
     .groupBy(checks.playerId, profiles.nickname, profiles.clientTier)
-    .orderBy(desc(sum(checks.totalAmount)))
+    .orderBy(desc(sql`sum(${checks.totalAmount}::numeric - coalesce((select sum(r.total_amount) from refunds r where r.check_id = ${checks.id}), 0)::numeric)`))
     .limit(20)
+  const playerStats = playerStatsRaw.map((r: any) => ({ ...r, total: parseNum(r.total) }))
 
   return c.json({
     overview: {
       totalRevenue,
+      refundsTotal,
       checksCount: shiftChecks.length,
       avgCheck,
       uniquePlayers,
@@ -1385,6 +1643,36 @@ analyticsRouter.get('/checks/:id', async (c) => {
     .leftJoin(inventory, eq(inventory.id, checkItems.itemId))
     .where(eq(checkItems.checkId, id))
 
+  // ЗАФИКСИРОВАННАЯ СЕБЕСТОИМОСТЬ ЧЕКА (P1): раньше lineCost/costTotal считались по
+  // ТЕКУЩЕМУ inventory.cost_price (WAC), который «плывёт» после каждой закупки и
+  // расходится с общим COGS (он на stock_movements.unit_cost). Тянем фактическую
+  // себестоимость на момент продажи из движений склада этого чека (sale,
+  // source_type='check'). На товар: sum((−delta)×unit_cost) с фолбэком на текущий
+  // WAC для исторических NULL. Если по товару движений нет (не учётный/историч.) —
+  // fallback на costPrice×qty ниже.
+  const saleMoves = await db
+    .select({
+      itemId: stockMovements.itemId,
+      cost: sql<number>`sum((0 - ${stockMovements.delta})::numeric * coalesce(${stockMovements.unitCost}, ${inventory.costPrice}, 0)::numeric)`,
+    })
+    .from(stockMovements)
+    .leftJoin(inventory, eq(inventory.id, stockMovements.itemId))
+    .where(and(eq(stockMovements.sourceType, 'check'), eq(stockMovements.sourceId, id), eq(stockMovements.type, 'sale')))
+    .groupBy(stockMovements.itemId)
+  const fixedCostByItem = new Map<string, number>(saleMoves.map((m: any) => [m.itemId, parseNum(m.cost)]))
+  // Суммарное проданное кол-во товара по чеку — чтобы разнести фикс-себестоимость
+  // товара по нескольким строкам пропорционально количеству строки.
+  const qtyByItem = new Map<string, number>()
+  for (const i of items as any[]) qtyByItem.set(i.itemId, (qtyByItem.get(i.itemId) ?? 0) + Number(i.quantity))
+  // Зафиксированная себестоимость строки: доля item-фикс-себестоимости по qty
+  // строки; фолбэк на текущий costPrice×qty, если движений по товару нет.
+  const lineFixedCost = (i: any): number => {
+    const itemCost = fixedCostByItem.get(i.itemId)
+    if (itemCost == null) return parseNum(i.costPrice) * Number(i.quantity)
+    const totalQty = qtyByItem.get(i.itemId) ?? 0
+    return totalQty > 0 ? itemCost * (Number(i.quantity) / totalQty) : itemCost
+  }
+
   const payments = await db
     .select({ method: checkPayments.method, amount: checkPayments.amount })
     .from(checkPayments)
@@ -1410,6 +1698,11 @@ analyticsRouter.get('/checks/:id', async (c) => {
 
   const guestName = player?.nickname || (Array.isArray(check.guestNames) && check.guestNames[0]) || null
 
+  // ПДн (телефон/ФИО игрока) — ТОЛЬКО владельцу (P1, 152-ФЗ). Для staff вырезаем
+  // phone/fullName, оставляя ник/тир (нужны для идентификации чека на кассе).
+  const owner = isOwner(c)
+  const playerOut = player && !owner ? { ...player, fullName: null, phone: null } : player
+
   return c.json({
     check: {
       ...check,
@@ -1423,11 +1716,13 @@ analyticsRouter.get('/checks/:id', async (c) => {
     guestName,
     staffComp: !!check.staffCompId,
     retailTotal: items.reduce((s: number, i: any) => s + parseNum(i.priceAtTime) * Number(i.quantity), 0),
-    costTotal: items.reduce((s: number, i: any) => s + parseNum(i.costPrice) * Number(i.quantity), 0),
-    items: items.map((i: any) => ({ ...i, priceAtTime: parseNum(i.priceAtTime), lineTotal: parseNum(i.priceAtTime) * Number(i.quantity), lineCost: parseNum(i.costPrice) * Number(i.quantity) })),
+    // costTotal/lineCost — по зафиксированной на момент продажи себестоимости (см.
+    // lineFixedCost), а не текущему cost_price; сходится с общим COGS периода.
+    costTotal: Math.round(items.reduce((s: number, i: any) => s + lineFixedCost(i), 0) * 100) / 100,
+    items: items.map((i: any) => ({ ...i, priceAtTime: parseNum(i.priceAtTime), lineTotal: parseNum(i.priceAtTime) * Number(i.quantity), lineCost: Math.round(lineFixedCost(i) * 100) / 100 })),
     payments: payments.map((p: any) => ({ method: p.method, amount: parseNum(p.amount) })),
     discounts: discountRows.map((d: any) => ({ id: d.id, name: d.name, type: d.type, value: parseNum(d.value), amount: parseNum(d.amount), target: d.target, itemId: d.itemId })),
-    player,
+    player: playerOut,
     staff,
     refunds: checkRefunds.map((r: any) => ({ ...r, totalAmount: parseNum(r.totalAmount) })),
   })
