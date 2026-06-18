@@ -22,6 +22,11 @@ import {
   eq,
   desc,
 } from '../../../../packages/database/dist/control/index.js'
+// Пул БД клуба по строке подключения (тот же helper, что использует middleware
+// tenantContext). Нужен для резолва БД клуба из внешнего вебхука по clubId, когда
+// поддомена нет (Platega бьёт в фиксированный URL основного домена).
+import { getClubDb } from '@titan/database'
+import type { Database } from '@titan/database'
 
 // Базовый домен платформы. На нём (и служебных поддоменах) — дефолтный синглтон.
 const ROOT_DOMAIN = (process.env['ROOT_DOMAIN'] || 'titanpos.ru').toLowerCase()
@@ -233,6 +238,25 @@ export async function listActiveClubDbNames(): Promise<string[]> {
     .from(clubs)
     .where(eq(clubs.status, 'active'))
   return rows.map((r) => r.dbName)
+}
+
+/**
+ * Зарезолвить пул app-БД клуба по его id из control-plane. Используется внешними
+ * вебхуками (Platega), которые приходят на фиксированный URL основного домена и не
+ * имеют клуб-поддомена в Host — clubId берётся из payload платежа. Тот же приём,
+ * что в TG-вебхуке (tg.router.ts: clubId в пути → control-БД → getClubDb).
+ *
+ * Возвращает Database клуба, либо null, если клуб не найден (вебхук тогда
+ * фолбэкается на дефолтный синглтон). Бросает только при недоступности control-БД.
+ */
+export async function getClubDbById(clubId: string): Promise<Database | null> {
+  const [club] = await getControlDb()
+    .select({ dbName: clubs.dbName })
+    .from(clubs)
+    .where(eq(clubs.id, clubId))
+    .limit(1)
+  if (!club?.dbName) return null
+  return getClubDb(buildClubConnString(club.dbName))
 }
 
 // Реэкспорт билдера строки подключения — middleware строит её из dbName клуба.

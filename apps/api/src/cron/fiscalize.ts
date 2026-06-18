@@ -15,6 +15,7 @@ import type { Database } from '@titan/database'
 import { getActiveFiscalProvider, getFiscalProvider, resolveFiscalCreds } from '../modules/pay/fiscal/registry.js'
 import { buildFiscalReceipt, getFiscalMethods, type FiscalCheckRow } from '../modules/pay/fiscal/buildReceipt.js'
 import { getPaymentTestMode } from '../modules/pay/registry.js'
+import { round2 } from '../lib/money.js'
 
 const MAX_ATTEMPTS = 5
 const BATCH = 30
@@ -30,8 +31,11 @@ export async function fiscalizePendingForDb(db: Database): Promise<void> {
   const allowedMethods = await getFiscalMethods(db) // какие способы оплаты фискализируем
 
   // Закрытые чеки за последний час без отправленного чека + ретраи failed(<5).
+  // Тянем чаевые и эквайринговую надбавку: фискальный чек обязан сойтись с
+  // ФАКТИЧЕСКИ принятой по эквайрингу суммой (total + tip + surcharge), а не с
+  // голой товарной суммой — иначе расхождение чека с поступлением (риск 54-ФЗ).
   const res: unknown = await db.execute(sql`
-    SELECT c.id, c.total_amount, c.payment_method, c.player_id
+    SELECT c.id, c.total_amount, c.tip_amount, c.acquiring_surcharge, c.payment_method, c.player_id
     FROM checks c
     LEFT JOIN fiscal_receipts fr ON fr.check_id = c.id
     WHERE c.status = 'closed'
@@ -63,6 +67,21 @@ export async function fiscalizePendingForDb(db: Database): Promise<void> {
         await markStatus(db, checkId, providerId, 'failed', null, 'Нет контакта покупателя (телефон)')
         continue
       }
+      // Чек строится на товарную базу (total_amount). Клиент по СБП фактически
+      // заплатил больше: чаевые и эквайринговую надбавку 8% добавляем ОТДЕЛЬНЫМИ
+      // позициями (а не размазываем по товарам) и поднимаем итог чека, чтобы
+      // фискальная сумма = фактически принятой по эквайрингу. vatCode берём из
+      // уже построенных товарных строк (настройка клуба), payment наследуется.
+      const tip = round2(parseFloat(String(r['tip_amount'] ?? '0')) || 0)
+      const surcharge = round2(parseFloat(String(r['acquiring_surcharge'] ?? '0')) || 0)
+      const vatCode = receipt.items[0]?.vatCode ?? 1
+      if (tip > 0) {
+        receipt.items.push({ name: 'Чаевые', price: tip, quantity: 1, vatCode })
+      }
+      if (surcharge > 0) {
+        receipt.items.push({ name: 'Комиссия за эквайринг (СБП)', price: surcharge, quantity: 1, vatCode })
+      }
+      receipt.total = round2(receipt.total + tip + surcharge)
       const { externalId } = await provider.registerReceipt({ creds, receipt, test })
       await markStatus(db, checkId, providerId, 'sent', externalId, null)
     } catch (e: unknown) {

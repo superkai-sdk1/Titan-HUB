@@ -18,6 +18,8 @@ import { sql, events, spaces, appSettings, eventHourlyRates, profiles, customers
 import type { AppEnv } from '../../types.js'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
 import { notify } from '../notifications/push.js'
+import { getSharedRedis } from '../../lib/redis.js'
+import { clientIp } from '../../lib/clientIp.js'
 
 function rows<T = Record<string, unknown>>(res: unknown): T[] {
   return ((res as { rows?: unknown[] }).rows ?? (res as unknown[])) as T[]
@@ -31,6 +33,32 @@ function addHours(time: string, hours: number): string {
 function mskParts(iso: string): { date: string; time: string } {
   const d = new Date(new Date(iso).getTime() + 3 * 3600 * 1000)
   return { date: d.toISOString().slice(0, 10), time: d.toISOString().slice(11, 16) }
+}
+
+// ─── Анти-перебор для публичного lookup ──────────────────────────────────────
+// Отдельный (поверх глобального per-IP) узкий лимит ИМЕННО на /lookup: перебор
+// телефонов жертв для раскрытия их броней. Лимитируем И по IP, И по телефону —
+// чтобы нельзя было ни долбить один номер, ни сканировать диапазон номеров с
+// одного IP. Скоупим ключ по клубу (мультитенант), чтобы лимит одного клуба не
+// влиял на другой. Fail-open при недоступности Redis (как глобальный rateLimit).
+const LOOKUP_MAX_PER_WINDOW = parseInt(process.env['BOOKING_LOOKUP_LIMIT'] ?? '10')
+const LOOKUP_WINDOW_SECONDS = 60
+async function lookupRateLimited(clubId: string, ip: string, phoneTail: string): Promise<boolean> {
+  try {
+    const redis = getSharedRedis()
+    const scope = clubId || 'default'
+    // Два независимых окна: по IP и по телефону. Превышение любого = блок.
+    const keys = [`bl:ip:${scope}:${ip}`, `bl:ph:${scope}:${phoneTail}`]
+    for (const key of keys) {
+      const current = await redis.incr(key)
+      if (current === 1) await redis.expire(key, LOOKUP_WINDOW_SECONDS)
+      if (current > LOOKUP_MAX_PER_WINDOW) return true
+    }
+    return false
+  } catch {
+    // Redis недоступен — не блокируем легитимных гостей (доступность важнее).
+    return false
+  }
 }
 
 // ─── Публичный роутер (без авторизации) ──────────────────────────────────────
@@ -61,13 +89,32 @@ bookingsPublicRouter.get('/config', async (c) => {
 
 // Узнавание клиента по номеру телефона: возвращает его брони (по цифрам, последние
 // 10 — без привязки к устройству). Регистрируется ДО /:token, чтобы не перехватился.
+//
+// БЕЗОПАСНОСТЬ (P1): этот эндпоинт публичный и не подтверждает владение номером.
+// Раньше он отдавал claim_token — секрет УПРАВЛЕНИЯ бронью (PATCH/отмена по токену).
+// Любой, зная 10 цифр телефона жертвы, получал её токен и мог угнать/отменить бронь.
+// Теперь:
+//   1) claim_token из ответа УБРАН — lookup даёт только ПРОСМОТР брони (статус, дата,
+//      зона, число гостей). Управление осталось доступно лишь владельцу токена,
+//      который выдаётся ОДИН раз при создании брони (POST /) и хранится у гостя в
+//      localStorage (то же устройство). Это сохраняет полезную функцию «увидеть свою
+//      бронь по телефону», но не раздаёт управляющий секрет произвольному запросившему.
+//   2) ПДн ужаты: телефон/имя/комментарий из ответа убраны — по чужому номеру нельзя
+//      выкачать персональные данные. Гость и так знает свои имя/телефон.
+//   3) Добавлен узкий per-IP + per-phone rate-limit против перебора номеров.
 bookingsPublicRouter.get('/lookup', async (c) => {
   const db = c.var.db
   const tail = (c.req.query('phone') || '').replace(/\D/g, '').slice(-10)
   if (tail.length < 10) return c.json({ bookings: [] })
+
+  // Анти-перебор: блокируем сканирование диапазона номеров с одного IP и долбёжку
+  // одного номера. Возвращаем 429, а не пустой список, чтобы не маскировать причину.
+  const limited = await lookupRateLimited(c.var.club?.id ?? '', clientIp(c), tail)
+  if (limited) return c.json({ error: 'Слишком много запросов, попробуйте позже' }, 429)
+
   const res = await db.execute(sql`
     SELECT b.id, b.status, b.location, b.address, b.title, s.name AS zone_name, b.tariff_hours, b.guests,
-           b.starts_at, b.name, b.phone, b.comment, b.created_at, b.claim_token, e.status AS event_status
+           b.starts_at, b.created_at, e.status AS event_status
     FROM bookings b
     LEFT JOIN spaces s ON s.id = b.space_id
     LEFT JOIN events e ON e.id = b.event_id

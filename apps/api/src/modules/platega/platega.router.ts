@@ -7,10 +7,12 @@ import {
   residentPayments,
   eq, inArray,
 } from '@titan/database'
+import type { Database } from '@titan/database'
 import { accrueBonusLot, getBonusExpiryDays } from '../../lib/bonusLots.js'
 import { round2, computeRental, computeTotals } from '../../lib/money.js'
 import { publishEvent } from '../../lib/realtime.js'
 import { getClubIntegration } from '../../lib/secrets.js'
+import { getClubDbById } from '../../lib/clubResolver.js'
 import { settleResidentPayment } from '../pay/residentSettle.js'
 // Control-БД (продление подписки клуба по платежу платформы) — относительный путь
 // к dist, как в clubResolver/superadmin (закрытый exports-map @titan/database).
@@ -158,24 +160,60 @@ async function fetchPlategaStatus(
 export const plategaRouter = new Hono<AppEnv>()
 
 plategaRouter.post('/webhook', async (c) => {
-  // Креды Platega — пер-клубные (из integrations БД клуба, резолвится по Host
-  // клуб-поддомена), с фолбэком на env. На основном домене c.var.db = синглтон,
-  // integrations пусты → используется env (поведение одно-клубного прода идентично).
-  const merchantId = (await getClubIntegration(c.var.db, 'platega_merchant_id')) ?? process.env['PLATEGA_MERCHANT_ID']
-  const secret = (await getClubIntegration(c.var.db, 'platega_secret')) ?? process.env['PLATEGA_SECRET']
+  // Тело читаем ПЕРВЫМ: Platega бьёт в фиксированный URL основного домена (без
+  // клуб-поддомена в Host), поэтому целевой клуб определяется не по Host, а по
+  // payload платежа. Из него же выбираем БД клуба и его креды Platega.
+  const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null
+  if (!body) return c.json({ error: 'Bad request' }, 400)
+
+  const transactionId = body['id'] as string | undefined
+  const status = body['status'] as string | undefined
+  const rawPayload = body['payload'] as string | undefined
+
+  // Резолв клуба из payload. Форматы:
+  //   • 'sub:<clubId>:<period>'  — продление подписки платформы (control-plane);
+  //   • 'club:<clubId>:<id>'     — чек/резидент-платёж клуба (id = checks.id|rp.id);
+  //   • '<uuid>' (легаси)        — платёж, созданный ДО фикса clubId в payload →
+  //                                фолбэк на c.var.db (синглтон осн. домена) + warn.
+  // checkId — реальный id записи (без префикса), по нему ищем чек/резидент-платёж.
+  let clubId: string | undefined
+  let checkId = rawPayload
+  if (rawPayload?.startsWith('club:')) {
+    const [, cid, id] = rawPayload.split(':')
+    clubId = cid || undefined
+    checkId = id
+  }
+
+  // БД клуба и его креды Platega. По умолчанию — c.var.db (синглтон осн. домена,
+  // корректно для платежей оператора/легаси). Если payload несёт clubId — резолвим
+  // БД клуба из control-plane (как TG-вебхук), креды читаем из неё (фолбэк на env).
+  let db: Database = c.var.db
+  if (clubId) {
+    try {
+      const clubDb = await getClubDbById(clubId)
+      if (clubDb) db = clubDb
+      else console.warn(`[platega] webhook: клуб ${clubId} не найден в control-plane → фолбэк на синглтон (tx ${transactionId})`)
+    } catch (err) {
+      // Control-БД моргнула — не теряем платёж: 503, Platega повторит вебхук.
+      console.error(`[platega] webhook: резолв клуба ${clubId} не удался (tx ${transactionId}):`, err)
+      return c.json({ error: 'club resolve failed' }, 503)
+    }
+  } else if (rawPayload && !rawPayload.startsWith('sub:')) {
+    // Легаси-платёж (UUID без clubId) — пишем в c.var.db. На клуб-поддомене Host
+    // ещё может дать верную БД; на осн. домене это синглтон (как было до фикса).
+    console.warn(`[platega] webhook: payload без clubId (легаси) → c.var.db (payload=${rawPayload}, tx ${transactionId})`)
+  }
+
+  // Креды Platega целевого клуба (integrations его БД) с фолбэком на env. Проверка
+  // подписи вебхука и серверная сверка статуса идут именно по этим кредам.
+  const merchantId = (await getClubIntegration(db, 'platega_merchant_id')) ?? process.env['PLATEGA_MERCHANT_ID']
+  const secret = (await getClubIntegration(db, 'platega_secret')) ?? process.env['PLATEGA_SECRET']
 
   const merchantOk = safeEqual(c.req.header('X-MerchantId'), merchantId)
   const secretOk = safeEqual(c.req.header('X-Secret'), secret)
   if (!merchantOk || !secretOk) {
     return c.json({ error: 'Unauthorized' }, 401)
   }
-
-  const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null
-  if (!body) return c.json({ error: 'Bad request' }, 400)
-
-  const transactionId = body['id'] as string | undefined
-  const status = body['status'] as string | undefined
-  const checkId = body['payload'] as string | undefined
 
   // Сумма, заявленная провайдером (для сверки). Может прийти в разных полях.
   const rawAmount = body['amount'] ?? (body['paymentDetails'] as Record<string, unknown> | undefined)?.['amount']
@@ -229,7 +267,7 @@ plategaRouter.post('/webhook', async (c) => {
     return c.json({ ok: true })
   }
 
-  const db = c.var.db
+  // db уже выбран выше: БД клуба (если payload нёс clubId) либо c.var.db (легаси/оператор).
 
   // Онлайн-платёж клиента из Titan Resident (payload = resident_payments.id):
   // погашение долга / депозит / Фонд клуба. Применяется идемпотентно, чек не трогаем.

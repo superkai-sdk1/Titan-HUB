@@ -77,20 +77,31 @@ const PIN_WINDOW_SECONDS = 900
 // ЖЁСТКИЙ глобальный потолок для пути БЕЗ userId (перебор по всем staff/owner).
 // Этот путь сверяет один 4-значный PIN со ВСЕМИ профилями staff/owner, поэтому
 // реальное пространство ключей крошечное, а per-IP лимит подделывается (см. ниже).
-// Счётчик висит на фиксированном ключе, который клиент НЕ контролирует, поэтому
-// ограничивает суммарное число неудачных fan-out попыток по всему деплою за окно,
-// независимо от IP. Это и есть настоящий backstop против brute-force PIN.
-const PIN_GLOBAL_FAIL_KEY = 'pin:fail:global'
-// Отдельный глобальный счётчик для планшета-киоска: DoS на /login/pin (слепой
-// fan-out) НЕ должен блокировать вход на киосках и наоборот. Каждая поверхность
-// имеет свой потолок и изолированный blast-radius.
-const PIN_GLOBAL_FAIL_KEY_TABLET = 'pin:fail:global:tablet'
-const PIN_GLOBAL_MAX = 50 // суммарных неудачных попыток без userId за окно
+// Счётчик висит на ключе, который клиент НЕ контролирует, поэтому ограничивает
+// суммарное число неудачных fan-out попыток за окно, независимо от IP. Это и есть
+// настоящий backstop против brute-force PIN.
+//
+// МЕЖТЕНАНТНОСТЬ (P1): Redis общий на весь инстанс (один на все клубы), поэтому
+// ГЛОБАЛЬНЫЙ ключ без префикса клуба означал бы, что лавина неверных PIN у ОДНОГО
+// клуба выбивает потолок и блокирует вход ВСЕМ клубам инстанса (кросс-клубный DoS).
+// Префиксуем ключи лимитов идентификатором клуба: локаут одного клуба не задевает
+// другие, но анти-брутфорс поведение В ПРЕДЕЛАХ клуба сохраняется. На основном
+// домене (club=null) ключ префиксуется 'main' — поведение синглтона прежнее.
+function clubKeyPrefix(c: any): string {
+  return c.var.club?.id ?? 'main'
+}
+// Суффиксы глобальных счётчиков (полный ключ = '<clubId>:pin:fail:global[...]').
+// Отдельный счётчик для планшета-киоска: DoS на /login/pin (слепой fan-out) НЕ
+// должен блокировать вход на киосках и наоборот — каждая поверхность изолирована.
+const PIN_GLOBAL_FAIL_SUFFIX = 'pin:fail:global'
+const PIN_GLOBAL_FAIL_SUFFIX_TABLET = 'pin:fail:global:tablet'
+const PIN_GLOBAL_MAX = 50 // суммарных неудачных попыток без userId за окно (в пределах клуба)
 
 // Реальный IP клиента. nginx ставит X-Real-IP = $remote_addr (подделать нельзя).
 // ДОВЕРИЕ: оба заголовка (X-Real-IP и X-Forwarded-For) в общем случае подделываемы
 // клиентом, поэтому per-IP bucket — лишь "вежливый" троттлинг. Для security-решений
-// на нём НЕ полагаемся: реальную защиту даёт глобальный потолок PIN_GLOBAL_FAIL_KEY.
+// на нём НЕ полагаемся: реальную защиту даёт глобальный потолок (PIN_GLOBAL_FAIL_SUFFIX,
+// префиксованный клубом).
 // clientIp — общий доверенный резолвер (apps/api/src/lib/clientIp.ts).
 
 // ── GET /auth/tablet-spaces — список пространств для выбора на планшете ──────
@@ -117,7 +128,10 @@ authRouter.post('/tablet-session', zValidator('json', z.object({
   const { spaceId, pin } = c.req.valid('json')
   const db = c.var.db
   const ip = clientIp(c)
-  const key = `pin:fail:${ip}:tablet`
+  // Ключи лимитов префиксованы клубом (P1): локаут одного клуба не блокирует другие.
+  const cp = clubKeyPrefix(c)
+  const key = `${cp}:pin:fail:${ip}:tablet`
+  const globalTabletKey = `${cp}:${PIN_GLOBAL_FAIL_SUFFIX_TABLET}`
   const redis = getRedis()
   try {
     await redis.connect()
@@ -126,9 +140,9 @@ authRouter.post('/tablet-session', zValidator('json', z.object({
       const ttl = await redis.ttl(key)
       return c.json({ error: `Слишком много попыток. Попробуйте через ${Math.ceil(ttl / 60)} мин.` }, 429)
     }
-    const globalFails = parseInt((await redis.get(PIN_GLOBAL_FAIL_KEY_TABLET)) ?? '0')
+    const globalFails = parseInt((await redis.get(globalTabletKey)) ?? '0')
     if (globalFails >= PIN_GLOBAL_MAX) {
-      const ttl = await redis.ttl(PIN_GLOBAL_FAIL_KEY_TABLET)
+      const ttl = await redis.ttl(globalTabletKey)
       return c.json({ error: `Слишком много попыток. Попробуйте через ${Math.ceil(Math.max(ttl, 0) / 60)} мин.` }, 429)
     }
 
@@ -145,7 +159,7 @@ authRouter.post('/tablet-session', zValidator('json', z.object({
     }
     if (!staff) {
       await redis.incr(key); await redis.expire(key, PIN_WINDOW_SECONDS)
-      await redis.incr(PIN_GLOBAL_FAIL_KEY_TABLET); await redis.expire(PIN_GLOBAL_FAIL_KEY_TABLET, PIN_WINDOW_SECONDS)
+      await redis.incr(globalTabletKey); await redis.expire(globalTabletKey, PIN_WINDOW_SECONDS)
       return c.json({ error: 'Неверный PIN' }, 401)
     }
     await redis.del(key)
@@ -165,7 +179,7 @@ authRouter.post('/tablet-session', zValidator('json', z.object({
     }
     if (!profile) return c.json({ error: 'Не удалось создать сессию планшета' }, 500)
 
-    const token = await signToken({ sub: profile.id, role: 'tablet', nickname: profile.nickname }, '30d')
+    const token = await signToken({ sub: profile.id, role: 'tablet', nickname: profile.nickname, clubId: c.var.club?.id ?? null }, '30d')
     return c.json({
       token,
       user: { id: profile.id, nickname: profile.nickname, role: 'tablet', photoUrl: profile.photoUrl, linkedSpaceId: spaceId },
@@ -181,9 +195,12 @@ authRouter.post('/login/pin', zValidator('json', LoginPinSchema), async (c) => {
   const { pin, userId } = c.req.valid('json')
   const db = c.var.db
 
-  // Идентификатор для rate-limit: доверенный IP + userId (если указан)
+  // Идентификатор для rate-limit: доверенный IP + userId (если указан).
+  // Ключи префиксованы клубом (P1): локаут одного клуба не блокирует другие.
   const ip = clientIp(c)
-  const key = `pin:fail:${ip}:${userId ?? 'any'}`
+  const cp = clubKeyPrefix(c)
+  const key = `${cp}:pin:fail:${ip}:${userId ?? 'any'}`
+  const globalKey = `${cp}:${PIN_GLOBAL_FAIL_SUFFIX}`
 
   const redis = getRedis()
   try {
@@ -200,11 +217,11 @@ authRouter.post('/login/pin', zValidator('json', LoginPinSchema), async (c) => {
     // ЖЁСТКИЙ глобальный backstop ТОЛЬКО для опасного fan-out пути (без userId):
     // он сверяет один PIN со всеми staff/owner, поэтому per-IP лимит (подделываемый)
     // не защищает. Глобальный счётчик не зависит от заголовков клиента и ограничивает
-    // суммарное число неудачных попыток по всему деплою за окно.
+    // суммарное число неудачных попыток В ПРЕДЕЛАХ клуба за окно.
     if (!userId) {
-      const globalFails = parseInt((await redis.get(PIN_GLOBAL_FAIL_KEY)) ?? '0')
+      const globalFails = parseInt((await redis.get(globalKey)) ?? '0')
       if (globalFails >= PIN_GLOBAL_MAX) {
-        const ttl = await redis.ttl(PIN_GLOBAL_FAIL_KEY)
+        const ttl = await redis.ttl(globalKey)
         return c.json({
           error: `Слишком много попыток. Попробуйте через ${Math.ceil(Math.max(ttl, 0) / 60)} мин.`,
         }, 429)
@@ -224,7 +241,7 @@ authRouter.post('/login/pin', zValidator('json', LoginPinSchema), async (c) => {
       if (ok) {
         // Сбрасываем счётчик при успехе
         await redis.del(key)
-        const token = await signToken({ sub: profile.id, role: profile.role, nickname: profile.nickname })
+        const token = await signToken({ sub: profile.id, role: profile.role, nickname: profile.nickname, clubId: c.var.club?.id ?? null })
         return c.json({ token, user: { id: profile.id, nickname: profile.nickname, role: profile.role, photoUrl: profile.photoUrl } })
       }
     }
@@ -235,8 +252,8 @@ authRouter.post('/login/pin', zValidator('json', LoginPinSchema), async (c) => {
     // Для fan-out пути (без userId) дополнительно бьём ЖЁСТКИЙ глобальный счётчик —
     // это и есть реальный потолок против brute-force 4-значного PIN по всем staff.
     if (!userId) {
-      await redis.incr(PIN_GLOBAL_FAIL_KEY)
-      await redis.expire(PIN_GLOBAL_FAIL_KEY, PIN_WINDOW_SECONDS)
+      await redis.incr(globalKey)
+      await redis.expire(globalKey, PIN_WINDOW_SECONDS)
     }
     const remaining = PIN_MAX_ATTEMPTS - (fails + 1)
     return c.json({
@@ -253,9 +270,10 @@ authRouter.post('/login/password', zValidator('json', LoginPasswordSchema), asyn
   const { nickname, password } = c.req.valid('json')
   const db = c.var.db
 
-  // Rate limit для пароля: 5 попыток / 15 мин (по доверенному IP + нику)
+  // Rate limit для пароля: 5 попыток / 15 мин (по доверенному IP + нику).
+  // Ключ префиксован клубом (P1): локаут одного клуба не задевает другие.
   const ip = clientIp(c)
-  const key = `pwd:fail:${ip}:${nickname}`
+  const key = `${clubKeyPrefix(c)}:pwd:fail:${ip}:${nickname}`
   const redis = getRedis()
   await redis.connect()
   try {
@@ -309,7 +327,7 @@ async function continueLoginPassword(c: any, profile: any) {
   // Check if user has any passkeys registered
   const userPasskeys = await db.select({ id: passkeys.id }).from(passkeys).where(eq(passkeys.userId, profile.id))
   const hasPasskey = userPasskeys.length > 0
-  const token = await signToken({ sub: profile.id, role: profile.role, nickname: profile.nickname })
+  const token = await signToken({ sub: profile.id, role: profile.role, nickname: profile.nickname, clubId: c.var.club?.id ?? null })
   return c.json({ token, needsPinSetup, hasPasskey, user: { id: profile.id, nickname: profile.nickname, role: profile.role, photoUrl: profile.photoUrl } })
 }
 
@@ -327,8 +345,9 @@ authRouter.post(
     const db = c.var.db
 
     // Rate-limit перебора 6-значного кода (как у PIN): по доверенному IP.
+    // Ключ префиксован клубом (P1): локаут одного клуба не задевает другие.
     const ip = clientIp(c)
-    const rlKey = `tabletpair:fail:${ip}`
+    const rlKey = `${clubKeyPrefix(c)}:tabletpair:fail:${ip}`
     const redis = getRedis()
     try {
       await redis.connect()
@@ -368,7 +387,7 @@ authRouter.post(
 
       // JWT с длинным TTL (30 дней)
       const token = await signToken(
-        { sub: profile.id, role: profile.role, nickname: profile.nickname },
+        { sub: profile.id, role: profile.role, nickname: profile.nickname, clubId: c.var.club?.id ?? null },
         '30d',
       )
       return c.json({
@@ -409,7 +428,7 @@ authRouter.post('/login/telegram', zValidator('json', LoginTelegramSchema), asyn
   // Удалённый профиль не должен входить по привязанному Telegram (та же логика, что у passkey).
   const [profile] = await db.select().from(profiles).where(and(eq(profiles.tgId, String(tgUser.id)), isNull(profiles.deletedAt)))
   if (!profile) return c.json({ error: 'Not linked' }, 404)
-  const token = await signToken({ sub: profile.id, role: profile.role, nickname: profile.nickname })
+  const token = await signToken({ sub: profile.id, role: profile.role, nickname: profile.nickname, clubId: c.var.club?.id ?? null })
   return c.json({ token, user: { id: profile.id, nickname: profile.nickname, role: profile.role, photoUrl: profile.photoUrl } })
 })
 
@@ -423,8 +442,9 @@ const WALLET_CODE_TTL_MS = 5 * 60 * 1000
 authRouter.post('/wallet-code/start', async (c) => {
   const db = c.var.db
   // Лёгкий троттлинг по доверенному IP: не плодим коды бесконтрольно.
+  // Ключ префиксован клубом (P1): троттлинг одного клуба не задевает другие.
   const ip = clientIp(c)
-  const rlKey = `walletcode:start:${ip}`
+  const rlKey = `${clubKeyPrefix(c)}:walletcode:start:${ip}`
   const redis = getRedis()
   try {
     await redis.connect()
@@ -474,7 +494,7 @@ authRouter.get('/wallet-code/status', async (c) => {
   const [profile] = await db.select().from(profiles).where(and(eq(profiles.id, row.profileId), isNull(profiles.deletedAt)))
   await db.delete(walletLoginCodes).where(eq(walletLoginCodes.id, row.id)).catch(() => {})
   if (!profile) return c.json({ status: 'expired' })
-  const token = await signToken({ sub: profile.id, role: profile.role, nickname: profile.nickname }, '30d')
+  const token = await signToken({ sub: profile.id, role: profile.role, nickname: profile.nickname, clubId: c.var.club?.id ?? null }, '30d')
   return c.json({ status: 'ok', token, user: { id: profile.id, nickname: profile.nickname, role: profile.role, photoUrl: profile.photoUrl } })
 })
 
@@ -685,7 +705,11 @@ authRouter.post('/me/payments', requireAuth, zValidator('json', z.object({
           paymentMethod: 2,
           paymentDetails: { amount: charged, currency: 'RUB' },
           description: `Titan Resident — ${label}`,
-          payload: rp.id, // orderRef = id онлайн-платежа (вебхук Platega ищет по нему)
+          // orderRef для вебхука Platega. Вебхук бьёт в фиксированный URL основного
+          // домена, поэтому на клуб-поддомене кладём 'club:<clubId>:<rp.id>' — вебхук
+          // по clubId выберет БД нужного клуба (см. platega.router.ts). На основном
+          // домене (club=null) — голый rp.id (фолбэк на синглтон оператора).
+          payload: c.var.club?.id ? `club:${c.var.club.id}:${rp.id}` : rp.id,
         }),
       })
       if (!createRes.ok) {
@@ -761,7 +785,10 @@ authRouter.post('/sse-ticket', requireAuth, async (c) => {
   try {
     await getSharedRedis().set(
       `sse:${ticket}`,
-      JSON.stringify({ sub: user.sub, role: user.role, nickname: user.nickname }),
+      // Привязываем тикет к клубу текущего поддомена (database-per-club): requireAuth
+      // СТРОГО сверит ticket.clubId с clubId домена при потреблении тикета. Тикет
+      // живёт 60с и выпускается на правильном домене — легитимные всегда совпадут.
+      JSON.stringify({ sub: user.sub, role: user.role, nickname: user.nickname, clubId: c.var.club?.id ?? null }),
       'EX', 60,
     )
   } catch {
@@ -1020,7 +1047,7 @@ authRouter.post(
       return c.json({ error: 'User not found' }, 404)
     }
 
-    const token = await signToken({ sub: profile.id, role: profile.role, nickname: profile.nickname })
+    const token = await signToken({ sub: profile.id, role: profile.role, nickname: profile.nickname, clubId: c.var.club?.id ?? null })
     return c.json({ token, user: { id: profile.id, nickname: profile.nickname, role: profile.role, photoUrl: profile.photoUrl } })
   },
 )

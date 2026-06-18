@@ -19,6 +19,60 @@ if (!LINK_SECRET || LINK_SECRET.length < 32) {
 
 const LINK_TTL_SECONDS = 15 * 60
 
+// ── Анти-брутфорс 4-значного кода входа (P0) ─────────────────────────────────
+// Пространство кодов крошечное (1000–9999), поэтому привязанный пользователь мог
+// перебором «гасить»/перехватывать чужие login-сессии. Ограничиваем число НЕВЕРНЫХ
+// попыток на tgId: после CODE_MAX_FAILS промахов — локаут на CODE_LOCKOUT_MS.
+// Счётчик in-memory (Redis в боте нет, доп. зависимости не вводим): каждый клуб =
+// свой долгоживущий процесс бота, и конкретный tgId всегда попадает в один и тот же
+// процесс — Map переживает между сообщениями. На рестарте бота окно обнуляется
+// (приемлемо: рестарт редок и сам по себе обрывает перебор). При успехе — сброс.
+const CODE_MAX_FAILS = 5
+const CODE_WINDOW_MS = 10 * 60 * 1000   // окно подсчёта промахов
+const CODE_LOCKOUT_MS = 10 * 60 * 1000  // длительность локаута после превышения
+
+interface CodeAttempt { fails: number; windowStart: number; lockedUntil: number }
+const codeAttempts = new Map<string, CodeAttempt>()
+
+// Оппортунистическая чистка устаревших записей, чтобы Map не рос неограниченно
+// (важно при большом числе уникальных tgId). Вызывается на каждой проверке —
+// дёшево, размер Map обычно мал.
+function pruneCodeAttempts(now: number): void {
+  if (codeAttempts.size < 1000) return
+  for (const [k, a] of codeAttempts) {
+    if (a.lockedUntil < now && now - a.windowStart > CODE_WINDOW_MS) codeAttempts.delete(k)
+  }
+}
+
+/** Сколько секунд осталось до конца локаута, либо 0 если перебор разрешён. */
+function codeLockedSeconds(tgId: string, now: number): number {
+  const a = codeAttempts.get(tgId)
+  if (a && a.lockedUntil > now) return Math.ceil((a.lockedUntil - now) / 1000)
+  return 0
+}
+
+/** Зафиксировать неверную попытку; вернуть true, если этим включён локаут. */
+function recordCodeFail(tgId: string, now: number): boolean {
+  pruneCodeAttempts(now)
+  let a = codeAttempts.get(tgId)
+  if (!a || now - a.windowStart > CODE_WINDOW_MS) {
+    a = { fails: 0, windowStart: now, lockedUntil: 0 }
+  }
+  a.fails += 1
+  if (a.fails >= CODE_MAX_FAILS) {
+    a.lockedUntil = now + CODE_LOCKOUT_MS
+    a.fails = 0           // окно завершено локаутом; после него счёт с нуля
+    a.windowStart = now
+  }
+  codeAttempts.set(tgId, a)
+  return a.lockedUntil > now
+}
+
+/** Сбросить счётчик промахов (успешный вход). */
+function resetCodeFails(tgId: string): void {
+  codeAttempts.delete(tgId)
+}
+
 function escapeMd(s: string): string {
   return s.replace(/[\\_*[`]/g, '\\$&')
 }
@@ -255,6 +309,16 @@ export function createWalletBot(ctx: WalletBotCtx): Bot {
     const text = (ctx2.message?.text ?? '').trim()
     if (!/^\d{4}$/.test(text)) return // реагируем только на 4-значный код
     const tgId = String(ctx2.from?.id)
+
+    // Анти-брутфорс: при активном локауте код не проверяем (защита от перебора
+    // 9000 кодов и перехвата чужих login-сессий). Не светим точную причину.
+    const now = Date.now()
+    const lockedFor = codeLockedSeconds(tgId, now)
+    if (lockedFor > 0) {
+      await ctx2.reply(`⏳ Слишком много попыток. Попробуйте через ${Math.ceil(lockedFor / 60)} мин.`)
+      return
+    }
+
     const profile = await resolveProfileByTg(tgId)
     if (!profile) {
       await ctx2.reply('👋 Чтобы войти в кошелёк, сначала привяжите аккаунт — обратитесь к администратору клуба.')
@@ -266,10 +330,27 @@ export function createWalletBot(ctx: WalletBotCtx): Bot {
       .orderBy(desc(walletLoginCodes.createdAt))
       .limit(1)
     if (!row) {
-      await ctx2.reply('❌ Код неверный или истёк. Откройте кошелёк в браузере и пришлите свежий 4-значный код.')
+      // Неверный/истёкший код = неудачная попытка → инкремент анти-брутфорс счётчика.
+      const nowFail = Date.now()
+      const nowLocked = recordCodeFail(tgId, nowFail)
+      if (nowLocked) {
+        await ctx2.reply(`⏳ Слишком много неверных кодов. Вход временно заблокирован на ${Math.ceil(CODE_LOCKOUT_MS / 60000)} мин.`)
+      } else {
+        await ctx2.reply('❌ Код неверный или истёк. Откройте кошелёк в браузере и пришлите свежий 4-значный код.')
+      }
       return
     }
-    await db.update(walletLoginCodes).set({ status: 'claimed', profileId: profile.id }).where(eq(walletLoginCodes.id, row.id))
+    // Атомарный claim: клеймим строку ТОЛЬКО пока она всё ещё pending (and status).
+    // Гонка двух сообщений на один код → второй UPDATE ничего не затронет.
+    const claimed = await db.update(walletLoginCodes)
+      .set({ status: 'claimed', profileId: profile.id })
+      .where(and(eq(walletLoginCodes.id, row.id), eq(walletLoginCodes.status, 'pending')))
+      .returning({ id: walletLoginCodes.id })
+    if (!claimed.length) {
+      await ctx2.reply('❌ Код уже использован или истёк. Откройте кошелёк в браузере и пришлите свежий 4-значный код.')
+      return
+    }
+    resetCodeFails(tgId) // успех — сбрасываем счётчик промахов
     await ctx2.reply(
       `✅ Готово, *${escapeMd(profile.nickname)}*! Кошелёк открыт на устройстве — вернитесь в приложение.`,
       { parse_mode: 'Markdown', reply_markup: walletKeyboard },

@@ -53,23 +53,59 @@ cashopsRouter.post('/', requireRole('owner', 'staff'), zValidator('json', z.obje
   // в сверку (shiftId=null) и «потеряются» из ожидаемого остатка.
   if (!shift) return c.json({ error: 'Нет открытой смены' }, 400)
 
-  const [op] = await db.insert(cashOperations).values({
-    type,
-    amount: String(amount),
-    description,
-    shiftId: shift.id,
-    createdBy: user.sub,
-    idempotencyKey,
-  }).onConflictDoNothing({ target: cashOperations.idempotencyKey }).returning()
+  // Изъятия (withdrawal/salary) не должны опускать кассу ниже нуля. Проверку
+  // доступной наличности и саму вставку делаем в ОДНОЙ транзакции под advisory-lock
+  // по смене — иначе два параллельных изъятия оба прочитают старый остаток и оба
+  // пройдут проверку (READ COMMITTED), уведя кассу в минус и замаскировав недостачу.
+  // (Внесение deposit баланс только увеличивает — для него блокировка не нужна,
+  //  но идём общим путём ради единообразия.)
+  type Outcome =
+    | { kind: 'ok'; op: typeof cashOperations.$inferSelect }
+    | { kind: 'duplicate'; op: typeof cashOperations.$inferSelect }
+    | { kind: 'insufficient'; available: number; requested: number }
+    | { kind: 'failed' }
 
-  // Повторный POST с тем же ключом (двойной клик/ретрай) — отдаём существующую.
-  if (!op) {
-    if (idempotencyKey) {
-      const [existing] = await db.select().from(cashOperations).where(eq(cashOperations.idempotencyKey, idempotencyKey))
-      if (existing) return c.json({ operation: existing, duplicate: true })
+  const result: Outcome = await db.transaction(async (tx) => {
+    // Сериализуем конкурентные операции по этой смене: advisory-lock держится до
+    // конца транзакции, поэтому второе изъятие подождёт коммита первого и увидит
+    // уже уменьшенный остаток.
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${'cashops:' + shift.id}, 0))`)
+
+    if (type === 'withdrawal' || type === 'salary') {
+      const { expected } = await getShiftCashBalance(shift.id, tx)
+      if (amount > expected) {
+        return { kind: 'insufficient', available: expected, requested: amount }
+      }
     }
-    return c.json({ error: 'Не удалось сохранить операцию' }, 500)
-  }
 
-  return c.json({ operation: op }, 201)
+    const [op] = await tx.insert(cashOperations).values({
+      type,
+      amount: String(amount),
+      description,
+      shiftId: shift.id,
+      createdBy: user.sub,
+      idempotencyKey,
+    }).onConflictDoNothing({ target: cashOperations.idempotencyKey }).returning()
+
+    // Повторный POST с тем же ключом (двойной клик/ретрай) — отдаём существующую.
+    if (!op) {
+      if (idempotencyKey) {
+        const [existing] = await tx.select().from(cashOperations).where(eq(cashOperations.idempotencyKey, idempotencyKey))
+        if (existing) return { kind: 'duplicate', op: existing }
+      }
+      return { kind: 'failed' }
+    }
+    return { kind: 'ok', op }
+  })
+
+  if (result.kind === 'insufficient') {
+    return c.json({
+      error: `Недостаточно наличных в кассе: доступно ${result.available} ₽, запрошено ${result.requested} ₽`,
+      available: result.available,
+    }, 400)
+  }
+  if (result.kind === 'duplicate') return c.json({ operation: result.op, duplicate: true })
+  if (result.kind === 'failed') return c.json({ error: 'Не удалось сохранить операцию' }, 500)
+
+  return c.json({ operation: result.op }, 201)
 })

@@ -7,7 +7,7 @@ import { requireAuth, requireRole } from '../../middleware/auth.js'
 import { getCurrentShift } from '../shifts/shifts.service.js'
 import { Redis } from 'ioredis'
 import { updatesChannel } from '../../lib/realtime.js'
-import { createBackup, listBackups, lastBackup, restoreNamed, restoreFromUpload, rcloneConfigured } from '../../lib/backup.js'
+import { createBackup, listBackups, lastBackup, restoreNamed, restoreFromUpload, rcloneConfigured, withBackupLock, BackupBusyError, setMaintenance } from '../../lib/backup.js'
 import { encryptSecret, decryptSecret, maskSecret, getClubIntegration } from '../../lib/secrets.js'
 import { getActiveSbpProvider } from '../pay/registry.js'
 import { getActiveFiscalProvider } from '../pay/fiscal/registry.js'
@@ -160,42 +160,78 @@ systemRouter.get('/backups', requireAuth, requireRole('owner'), async (c) => {
 })
 
 // Создать полную копию БД сейчас + выгрузить в Google Drive (если настроен). owner.
+// Под общим mutex с restore: конкурентный запуск → 409 (две операции могут затоптать друг друга).
 systemRouter.post('/backup', requireAuth, requireRole('owner'), async (c) => {
   try {
-    const r = await createBackup()
+    const r = await withBackupLock(() => createBackup())
     return c.json({ ok: true, ...r })
   } catch (e: any) {
+    if (e instanceof BackupBusyError) return c.json({ error: e.message }, 409)
     return c.json({ error: e?.message ?? 'Не удалось создать копию' }, 500)
   }
 })
 
 // Восстановить из выбранной копии (Drive/локальной). СНАЧАЛА авто-бэкап текущей БД.
+// БЕЗОПАСНОСТЬ: операция уровня owner; требует явного confirm:true; идёт под общим
+// mutex backup/restore (конкуренция → 409); на время restore клуб переводится в
+// maintenance (денежные эндпоинты отбивают запись); пишется audit-лог.
 systemRouter.post('/restore', requireAuth, requireRole('owner'), zValidator('json', z.object({
   name: z.string().min(1),
   source: z.enum(['drive', 'local']),
+  confirm: z.literal(true), // явное подтверждение — без него restore не запускается
 })), async (c) => {
   const { name, source } = c.req.valid('json')
+  const user = c.get('user')
+  const clubId = c.var.club?.id ?? null
   try {
-    const safety = await createBackup() // страховочная копия ДО замены
-    await restoreNamed(name, source)
-    return c.json({ ok: true, safetyBackup: safety.name })
+    return await withBackupLock(async () => {
+      // Audit: кто/что/когда инициировал restore (операция деструктивная, нужен след).
+      console.warn(`[audit][restore] start user=${user.sub} club=${clubId ?? 'main'} source=${source} name=${name}`)
+      await setMaintenance(clubId, true) // окно обслуживания: блокируем запись денег
+      try {
+        const safety = await createBackup() // страховочная копия ДО замены (rollback)
+        await restoreNamed(name, source)
+        console.warn(`[audit][restore] done user=${user.sub} club=${clubId ?? 'main'} name=${name} safety=${safety.name}`)
+        return c.json({ ok: true, safetyBackup: safety.name })
+      } finally {
+        await setMaintenance(clubId, false) // снимаем обслуживание в любом исходе
+      }
+    })
   } catch (e: any) {
+    if (e instanceof BackupBusyError) return c.json({ error: e.message }, 409)
+    console.error(`[audit][restore] failed user=${user.sub} club=${clubId ?? 'main'} name=${name}: ${e?.message}`)
     return c.json({ error: e?.message ?? 'Не удалось восстановить' }, 500)
   }
 })
 
 // Восстановить из загруженного с устройства файла (.sql.gz). СНАЧАЛА авто-бэкап.
+// БЕЗОПАСНОСТЬ: те же гарантии, что и у /restore — owner, явное confirm, mutex (409),
+// maintenance на время restore, audit-лог. confirm приходит полем multipart-формы.
 systemRouter.post('/restore-upload', requireAuth, requireRole('owner'), async (c) => {
+  const user = c.get('user')
+  const clubId = c.var.club?.id ?? null
   try {
     const body = await c.req.parseBody()
     const f = body['file']
     if (!(f instanceof File)) return c.json({ error: 'Файл не передан' }, 400)
     if (f.size > 200 * 1024 * 1024) return c.json({ error: 'Файл слишком большой (>200MB)' }, 413)
+    if (body['confirm'] !== 'true') return c.json({ error: 'Требуется явное подтверждение' }, 400)
     const buf = Buffer.from(await f.arrayBuffer())
-    const safety = await createBackup()
-    await restoreFromUpload(buf)
-    return c.json({ ok: true, safetyBackup: safety.name })
+    return await withBackupLock(async () => {
+      console.warn(`[audit][restore-upload] start user=${user.sub} club=${clubId ?? 'main'} size=${f.size}`)
+      await setMaintenance(clubId, true) // окно обслуживания: блокируем запись денег
+      try {
+        const safety = await createBackup()
+        await restoreFromUpload(buf)
+        console.warn(`[audit][restore-upload] done user=${user.sub} club=${clubId ?? 'main'} safety=${safety.name}`)
+        return c.json({ ok: true, safetyBackup: safety.name })
+      } finally {
+        await setMaintenance(clubId, false)
+      }
+    })
   } catch (e: any) {
+    if (e instanceof BackupBusyError) return c.json({ error: e.message }, 409)
+    console.error(`[audit][restore-upload] failed user=${user.sub} club=${clubId ?? 'main'}: ${e?.message}`)
     return c.json({ error: e?.message ?? 'Не удалось восстановить из файла' }, 500)
   }
 })

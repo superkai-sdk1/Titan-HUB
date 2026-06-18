@@ -2,7 +2,7 @@ import type { AppEnv } from '../../types.js'
 import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
-import { refunds, checks, inventory, checkItems, checkPayments, transactions, profiles, bonusHistory, certificates, appSettings, eq, and, like, inArray, desc } from '@titan/database'
+import { refunds, checks, inventory, checkItems, checkPayments, transactions, profiles, bonusHistory, certificates, appSettings, eq, and, like, inArray, desc, sql } from '@titan/database'
 import { recordMovement } from '../inventory/ledger.js'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
 import { accrueBonusLot, spendBonusLots, getBonusExpiryDays } from '../../lib/bonusLots.js'
@@ -71,6 +71,16 @@ refundsRouter.post('/', requireRole('owner', 'staff'), zValidator('json', Refund
 
   try {
     const refund = await db.transaction(async (tx) => {
+      // СЕРИАЛИЗАЦИЯ ВОЗВРАТОВ ПО ЧЕКУ (P0). Возврат НЕ пишет в строку `checks`,
+      // поэтому `checks ... FOR UPDATE` ниже сам по себе НЕ сериализует два
+      // параллельных возврата по одному чеку: лимит «уже возвращено» (prevRefunds)
+      // читается на READ COMMITTED, и оба запроса видят одинаковую сумму прошлых
+      // возвратов → оба проходят проверку лимита и оба исполняются (двойной возврат
+      // денег/склада/кассы). Берём advisory-lock по checkId ПЕРВЫМ в транзакции:
+      // конкурентные возвраты по одному чеку выстраиваются в очередь и каждый видит
+      // результат предыдущего. Лок снимается на коммите/откате (xact-scoped).
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${body.checkId}, 0))`)
+
       const [check] = await tx.select().from(checks).where(eq(checks.id, body.checkId)).for('update')
       if (!check) throw new Error('CHECK_NOT_FOUND')
       if (check.status !== 'closed') throw new Error('CHECK_NOT_CLOSED')

@@ -108,7 +108,51 @@ async function computeEventBase(database: DbOrTx, ev: {
 export const eventsRouter = new Hono<AppEnv>()
 eventsRouter.use('*', requireAuth)
 
+// Стабильный ключ для advisory-lock брони: одна зона на одну календарную дату.
+// Конкурентные брони этой пары сериализуются (см. POST/PATCH ниже).
+const bookingLockKey = (spaceId: string, date: string) => `event-booking:${spaceId}:${date}`
+
+// Пересечение брони, обнаруженное ВНУТРИ транзакции PATCH (под advisory-lock).
+// Бросаем как ошибку, чтобы откатить транзакцию и вернуть 409 в catch.
+class EventOverlapError extends Error {
+  constructor(public event: typeof events.$inferSelect) {
+    super('EVENT_OVERLAP')
+  }
+}
+
 // ── Утилита: проверка пересечения событий по пространству ────────────────
+// Время в БД — text (date='YYYY-MM-DD', start/end='HH:MM'). Сравнивать строки
+// напрямую нельзя: (1) при endTime=null окно вырождалось в точку — события 19:00
+// и 19:30 не пересекались; (2) лексикографическое сравнение ломается на событиях
+// через полночь (22:00→02:00), где конец < начала. Поэтому строим из date+time
+// настоящие timestamp'ы и применяем стандартный предикат aStart < bEnd AND bStart < aEnd.
+//
+// Длительность по умолчанию (если endTime не задан) берём из остального кода:
+// hourly-аренда → plannedHours; иначе — 2 часа (типовая бронь зоны). Ночные
+// события (end < start) считаем переходящими на следующие сутки (+1 день).
+function eventInterval(date: string, start: string, end: string | null | undefined, plannedHours?: number | null) {
+  const startTs = `${date} ${start}`
+  if (end) {
+    // end < start → событие через полночь: конец на следующий день.
+    const endTs = end < start ? `${date} ${end} +1 day` : `${date} ${end}`
+    return { startTs, endTs, endRaw: end as string }
+  }
+  // Нет endTime: длительность по умолчанию (часы) → конец = старт + N часов.
+  const defaultHours = plannedHours && plannedHours > 0 ? plannedHours : 2
+  return { startTs, endTs: null, defaultHours, endRaw: null as string | null }
+}
+
+// SQL-выражение конца интервала строки events с теми же правилами по умолчанию.
+const eventEndExpr = sql`
+  CASE
+    WHEN ${events.endTime} IS NOT NULL THEN
+      (${events.date} || ' ' || ${events.endTime})::timestamp
+      + (CASE WHEN ${events.endTime} < ${events.startTime} THEN INTERVAL '1 day' ELSE INTERVAL '0' END)
+    ELSE
+      (${events.date} || ' ' || ${events.startTime})::timestamp
+      + (COALESCE(NULLIF(${events.plannedHours}, 0), 2) * INTERVAL '1 hour')
+  END`
+
 async function findOverlappingEvent(
   database: DbOrTx,
   body: Partial<z.infer<typeof EventSchema>>,
@@ -116,16 +160,21 @@ async function findOverlappingEvent(
 ) {
   if (body.type !== 'titan' || !body.spaceId || !body.date || !body.startTime) return null
 
-  const startA = body.startTime
-  const endA = body.endTime ?? body.startTime
+  const iv = eventInterval(body.date, body.startTime, body.endTime, body.plannedHours)
+  // Конец нового события как timestamp-выражение (то же правило по умолчанию).
+  const aEnd = iv.endTs != null
+    ? sql`${iv.endTs}::timestamp`
+    : sql`${iv.startTs}::timestamp + (${iv.defaultHours} * INTERVAL '1 hour')`
+  const aStart = sql`${iv.startTs}::timestamp`
+
   const conditions = [
     eq(events.date, body.date),
     eq(events.spaceId, body.spaceId),
     ne(events.status, 'cancelled' as const),
     ne(events.status, 'completed' as const),
-    // Пересечение: startA <= endB AND endA >= startB
-    sql`COALESCE(${events.endTime}, ${events.startTime}) >= ${startA}`,
-    sql`${events.startTime} <= ${endA}`,
+    // Стандартное пересечение полуоткрытых интервалов: aStart < bEnd AND bStart < aEnd.
+    sql`${aStart} < ${eventEndExpr}`,
+    sql`(${events.date} || ' ' || ${events.startTime})::timestamp < ${aEnd}`,
   ]
   if (excludeEventId) conditions.push(ne(events.id, excludeEventId))
 
@@ -175,17 +224,19 @@ eventsRouter.post('/', requireRole('owner', 'staff'), zValidator('json', EventSc
   const user = c.get('user')
   const body = c.req.valid('json')
 
-  // Защита от пересекающихся событий по одному пространству
-  const overlap = await findOverlappingEvent(db, body)
-  if (overlap) {
-    return c.json({
-      error: 'На это время уже запланировано другое мероприятие в этом пространстве',
-      conflict: { id: overlap.id, title: overlap.title, startTime: overlap.startTime, endTime: overlap.endTime },
-    }, 409)
-  }
-
   const isMinicap = body.format === 'minicap'
-  const [event] = await db.insert(events).values({
+  // Проверка пересечения и вставка — в ОДНОЙ транзакции под advisory-lock по
+  // (spaceId, date): иначе два одновременных POST на одну зону/время оба не нашли бы
+  // конфликт и оба вставились (двойная бронь зоны). Lock держится до конца транзакции.
+  let event: typeof events.$inferSelect | undefined
+  let conflict: typeof events.$inferSelect | null = null
+  await db.transaction(async (tx) => {
+    if (body.type === 'titan' && body.spaceId && body.date) {
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${bookingLockKey(body.spaceId, body.date)}, 0))`)
+      const overlap = await findOverlappingEvent(tx, body)
+      if (overlap) { conflict = overlap; return }
+    }
+    const [created] = await tx.insert(events).values({
     // Миникап — это всегда TITAN (type titan, локация фиксирована).
     type: isMinicap ? 'titan' : body.type,
     title: body.title,
@@ -212,11 +263,22 @@ eventsRouter.post('/', requireRole('owner', 'staff'), zValidator('json', EventSc
     lunchCost: body.lunchCost != null ? String(body.lunchCost) : null,
     otherCost: body.otherCost != null ? String(body.otherCost) : null,
     createdBy: user.sub,
-  }).returning()
+    }).returning()
+    event = created
 
-  // Расходы миникапа сразу материализуем в expenses (привязка к событию).
-  if (isMinicap && event) {
-    try { await upsertEventCosts(db, { ...event, createdBy: user.sub }) } catch { /* non-fatal */ }
+    // Расходы миникапа сразу материализуем в expenses (привязка к событию).
+    if (isMinicap && event) {
+      try { await upsertEventCosts(tx, { ...event, createdBy: user.sub }) } catch { /* non-fatal */ }
+    }
+  })
+
+  // Пересечение по зоне/времени найдено под блокировкой — вставки не было.
+  if (conflict) {
+    const cf = conflict as typeof events.$inferSelect
+    return c.json({
+      error: 'На это время уже запланировано другое мероприятие в этом пространстве',
+      conflict: { id: cf.id, title: cf.title, startTime: cf.startTime, endTime: cf.endTime },
+    }, 409)
   }
 
   // Автосохранение заказчика в справочник (для автоподбора в следующих событиях).
@@ -257,28 +319,13 @@ eventsRouter.patch('/:id', requireRole('owner', 'staff'), zValidator('json', Eve
   const eventId = c.req.param('id')
   const body = c.req.valid('json')
 
-  // Если меняется время/пространство — проверить пересечение.
-  // Сравниваем с undefined (а не truthiness): очистка endTime в null — это тоже
-  // изменение времени и должно перезапускать проверку пересечений.
-  if (body.spaceId !== undefined || body.startTime !== undefined || body.endTime !== undefined || body.date !== undefined) {
-    const [current] = await db.select().from(events).where(eq(events.id, eventId))
-    if (current) {
-      const merged = {
-        type: body.type ?? current.type,
-        spaceId: body.spaceId ?? current.spaceId ?? undefined,
-        date: body.date ?? current.date,
-        startTime: body.startTime ?? current.startTime,
-        endTime: body.endTime ?? current.endTime ?? undefined,
-      }
-      const overlap = await findOverlappingEvent(db, merged, eventId)
-      if (overlap) {
-        return c.json({
-          error: 'На это время уже запланировано другое мероприятие в этом пространстве',
-          conflict: { id: overlap.id, title: overlap.title, startTime: overlap.startTime, endTime: overlap.endTime },
-        }, 409)
-      }
-    }
-  }
+  // Меняется ли время/пространство? Сравниваем с undefined (а не truthiness):
+  // очистка endTime в null — это тоже изменение времени и должна перезапускать
+  // проверку пересечений. Саму проверку выполняем ВНУТРИ транзакции под advisory-lock
+  // (см. ниже), чтобы она была атомарна со вставкой/апдейтом чека и сериализовалась
+  // против конкурентных броней той же зоны/даты.
+  const timeChanged = body.spaceId !== undefined || body.startTime !== undefined
+    || body.endTime !== undefined || body.date !== undefined
 
   const [prev] = await db.select().from(events).where(eq(events.id, eventId))
   if (!prev) return c.json({ error: 'Not found' }, 404)
@@ -308,6 +355,25 @@ eventsRouter.patch('/:id', requireRole('owner', 'staff'), zValidator('json', Eve
     const merged = { ...prev, ...update }
 
     const isMinicap = (merged.format ?? 'regular') === 'minicap'
+
+    // 0) ПЕРЕСЕЧЕНИЕ БРОНИ: при изменении времени/пространства — под advisory-lock
+    //    по (spaceId, date) внутри транзакции, чтобы конкурентные брони сериализовались
+    //    и не создали двойную бронь зоны.
+    if (timeChanged) {
+      const overlapBody = {
+        type: (body.type ?? prev.type) as any,
+        spaceId: (body.spaceId ?? prev.spaceId ?? undefined) as string | undefined,
+        date: (body.date ?? prev.date) as string,
+        startTime: (body.startTime ?? prev.startTime) as string,
+        endTime: (body.endTime ?? prev.endTime ?? undefined) as string | undefined,
+        plannedHours: (body.plannedHours ?? prev.plannedHours ?? undefined) as number | undefined,
+      }
+      if (overlapBody.type === 'titan' && overlapBody.spaceId && overlapBody.date) {
+        await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${bookingLockKey(overlapBody.spaceId, overlapBody.date)}, 0))`)
+        const overlap = await findOverlappingEvent(tx, overlapBody, eventId)
+        if (overlap) throw new EventOverlapError(overlap)
+      }
+    }
 
     // 1) СТАРТ события: переход planned→active создаёт чек(и).
     const becomingActive = body.status === 'active' && prev.status !== 'active'
@@ -387,6 +453,13 @@ eventsRouter.patch('/:id', requireRole('owner', 'staff'), zValidator('json', Eve
     return ev
     })
   } catch (err: any) {
+    if (err instanceof EventOverlapError) {
+      const o = err.event
+      return c.json({
+        error: 'На это время уже запланировано другое мероприятие в этом пространстве',
+        conflict: { id: o.id, title: o.title, startTime: o.startTime, endTime: o.endTime },
+      }, 409)
+    }
     if (err?.message === 'NO_SHIFT') {
       return c.json({ error: 'Нет открытой смены — нельзя начать мероприятие (создать чек)' }, 400)
     }

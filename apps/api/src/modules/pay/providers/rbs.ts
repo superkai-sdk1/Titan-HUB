@@ -10,6 +10,7 @@
  * Фабрика makeRbsProvider параметризуется хостом и именами cred-ключей, отсюда
  * sberProvider и alfaProvider.
  */
+import { createHmac, timingSafeEqual } from 'node:crypto'
 import type {
   SbpProvider, CreatePaymentArgs, SbpCreateResult, SbpStatusResult, WebhookVerifyResult, ProviderCreds,
 } from '../types.js'
@@ -20,6 +21,37 @@ interface RbsConfig {
   base: string // напр. https://securepayments.sberbank.ru/payment/rest
   userKey: string
   passKey: string
+  // Ключ симметричного секрета для проверки checksum callback (выдаётся банком в
+  // ЛК по запросу). ОПЦИОНАЛЬНЫЙ: не входит в credKeys (иначе у уже настроенных
+  // клубов провайдер «отвалился» бы как ненастроенный) — читается из creds внутри
+  // verifyWebhook. Если не задан, подпись не проверяем и опираемся на re-fetch.
+  callbackSecretKey: string
+}
+
+/**
+ * Проверка симметричной подписи callback RBS (Сбер/Альфа).
+ *
+ * Алгоритм банка: из всех параметров callback убрать checksum (и sign_alias),
+ * остальные отсортировать по имени и склеить в строку `имя;значение;имя;значение;`
+ * (разделитель и хвост — «;», без пробелов); HMAC-SHA256 симметричным ключом, hex
+ * в ВЕРХНЕМ регистре; сравнить с присланным checksum. Сравнение — постоянное по
+ * времени (timingSafeEqual). Возвращает null, если в callback нет checksum.
+ */
+function verifyRbsChecksum(params: URLSearchParams, secret: string): boolean | null {
+  const provided = params.get('checksum')
+  if (!provided) return null
+  const entries: Array<[string, string]> = []
+  for (const [k, v] of params) {
+    if (k === 'checksum' || k === 'sign_alias') continue
+    entries.push([k, v])
+  }
+  entries.sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0))
+  const base = entries.map(([k, v]) => `${k};${v};`).join('')
+  const expected = createHmac('sha256', secret).update(base, 'utf8').digest('hex').toUpperCase()
+  const a = Buffer.from(expected, 'utf8')
+  const b = Buffer.from(provided.toUpperCase(), 'utf8')
+  if (a.length !== b.length) return false
+  return timingSafeEqual(a, b)
 }
 
 async function rbsCall(base: string, method: string, params: Record<string, string>): Promise<Record<string, unknown>> {
@@ -78,10 +110,9 @@ function makeRbsProvider(cfg: RbsConfig): SbpProvider {
 
     async verifyWebhook({ headers, rawBody, creds: c }): Promise<WebhookVerifyResult> {
       // RBS шлёт callback как query-параметры (mdOrder, orderNumber, operation,
-      // status). Подпись (checksum) требует симметричного ключа из кабинета; здесь
-      // полагаемся на серверную сверку статуса роутером (fetchStatus авторитетен).
+      // status [, checksum]). Параметры приходят в теле (form-urlencoded) или в
+      // query самого URL — собираем оба.
       const qs = new URLSearchParams(rawBody || '')
-      // часть интеграций кладёт параметры в query самого URL — пробуем и его
       const fromUrl = headers['x-callback-query']
       if (fromUrl) for (const [k, v] of new URLSearchParams(fromUrl)) qs.set(k, v)
       const orderId = qs.get('mdOrder') ?? undefined
@@ -90,7 +121,17 @@ function makeRbsProvider(cfg: RbsConfig): SbpProvider {
       const ok1 = qs.get('status') === '1'
       const status: SbpStatusResult['status'] = operation === 'deposited' && ok1 ? 'confirmed'
         : (operation === 'declinedByMerchant' || operation === 'declined') ? 'failed' : 'pending'
-      void c
+
+      // Первый слой защиты: симметричная подпись checksum (если банк её шлёт и в
+      // кабинете задан секрет). Подделанный callback с неверной/чужой подписью
+      // отбрасываем (ok:false) — не доходит даже до re-fetch и закрытия чужого
+      // чека. Если секрета нет ИЛИ банк не прислал checksum — не ослабляем поток:
+      // ok:true и полагаемся на серверную сверку статуса (fetchStatus авторитетен).
+      const secret = c[cfg.callbackSecretKey]
+      if (secret) {
+        const sigOk = verifyRbsChecksum(qs, secret)
+        if (sigOk === false) return { ok: false }
+      }
       return { ok: true, status, transactionId: orderId, checkId }
     },
   }
@@ -102,6 +143,7 @@ export const sberProvider = makeRbsProvider({
   base: 'https://securepayments.sberbank.ru/payment/rest',
   userKey: 'sber_username',
   passKey: 'sber_password',
+  callbackSecretKey: 'sber_callback_secret',
 })
 
 export const alfaProvider = makeRbsProvider({
@@ -110,4 +152,5 @@ export const alfaProvider = makeRbsProvider({
   base: 'https://pay.alfabank.ru/payment/rest',
   userKey: 'alfa_username',
   passKey: 'alfa_password',
+  callbackSecretKey: 'alfa_callback_secret',
 })

@@ -6,6 +6,7 @@ import { promisify } from 'node:util'
 import { exec as _exec } from 'node:child_process'
 import { mkdir, stat, readdir, unlink, writeFile } from 'node:fs/promises'
 import path from 'node:path'
+import { getSharedRedis } from './redis.js'
 
 const exec = promisify(_exec)
 const BIG = 1024 * 1024 * 256 // maxBuffer для exec
@@ -25,6 +26,86 @@ function pgEnv(): NodeJS.ProcessEnv {
     PGUSER: decodeURIComponent(u.username),
     PGPASSWORD: decodeURIComponent(u.password),
     PGDATABASE: u.pathname.replace(/^\//, ''),
+  }
+}
+
+// ─── Mutex backup/restore (Redis с in-process-фолбэком) ──────────────────────
+// Защита от одновременного запуска backup/restore: два параллельных дампа/
+// восстановления могут затоптать друг друга (порча данных). Lock общий на обе
+// операции. Redis недоступен → деградируем до in-memory-флага (одна реплика).
+
+const LOCK_KEY = 'backup:lock'
+const LOCK_TTL_MS = 30 * 60 * 1000 // 30 мин — авто-снятие, если процесс упал в середине
+let inProcessLock = false // фолбэк, когда Redis недоступен (single-instance)
+
+export class BackupBusyError extends Error {
+  constructor() {
+    super('Резервное копирование/восстановление уже выполняется')
+    this.name = 'BackupBusyError'
+  }
+}
+
+// Выполнить fn под эксклюзивным локом backup/restore. Параллельный вызов → BackupBusyError.
+export async function withBackupLock<T>(fn: () => Promise<T>): Promise<T> {
+  const token = `${process.pid}:${Date.now()}:${Math.random().toString(36).slice(2)}`
+  let viaRedis = false
+  try {
+    const redis = getSharedRedis()
+    // SET key token NX PX ttl — атомарный захват с авто-истечением.
+    const ok = await redis.set(LOCK_KEY, token, 'PX', LOCK_TTL_MS, 'NX')
+    if (ok === 'OK') {
+      viaRedis = true
+    } else {
+      throw new BackupBusyError()
+    }
+  } catch (e) {
+    if (e instanceof BackupBusyError) throw e
+    // Redis недоступен — фолбэк на in-process-флаг (защищает single-instance).
+    if (inProcessLock) throw new BackupBusyError()
+    inProcessLock = true
+  }
+  try {
+    return await fn()
+  } finally {
+    if (viaRedis) {
+      // Снимаем лок только если он всё ещё наш (не затёрли чужим после TTL).
+      try {
+        const redis = getSharedRedis()
+        const cur = await redis.get(LOCK_KEY)
+        if (cur === token) await redis.del(LOCK_KEY)
+      } catch { /* истечёт по TTL */ }
+    } else {
+      inProcessLock = false
+    }
+  }
+}
+
+// ─── Maintenance-режим клуба (флаг в Redis) ──────────────────────────────────
+// На время restore переводим клуб в обслуживание. Денежные/мутирующие эндпоинты
+// могут читать этот флаг и отбивать запись 503, чтобы касса/оплата не писали в
+// БД, пока она восстанавливается. Ключ пер-клубный (clubId|'default' на синглтоне).
+
+const maintenanceKey = (clubId: string | null | undefined): string => `maintenance:${clubId ?? 'default'}`
+
+export async function setMaintenance(clubId: string | null | undefined, on: boolean): Promise<void> {
+  try {
+    const redis = getSharedRedis()
+    if (on) {
+      // TTL как у лока — страховка, чтобы клуб не «завис» в обслуживании при падении процесса.
+      await redis.set(maintenanceKey(clubId), '1', 'PX', LOCK_TTL_MS)
+    } else {
+      await redis.del(maintenanceKey(clubId))
+    }
+  } catch { /* Redis недоступен — энфорсмент пропускаем, рассчитываем на mutex */ }
+}
+
+// Проверка флага обслуживания (для middleware/денежных эндпоинтов).
+export async function isMaintenance(clubId: string | null | undefined): Promise<boolean> {
+  try {
+    const redis = getSharedRedis()
+    return (await redis.get(maintenanceKey(clubId))) === '1'
+  } catch {
+    return false
   }
 }
 
@@ -109,11 +190,16 @@ export async function lastBackup(): Promise<BackupEntry | null> {
 }
 
 // Восстановление поверх текущей БД (DROP+CREATE из --clean дампа).
+// БЕЗОПАСНОСТЬ: ON_ERROR_STOP=1 + --single-transaction — restore применяется
+// АТОМАРНО: любая ошибка посреди дампа прерывает psql и откатывает всю транзакцию,
+// а не оставляет БД частично восстановленной (тихая порча, в т.ч. финансов).
 export async function restoreFromPath(file: string): Promise<void> {
   const env = pgEnv()
-  // Освобождаем блокировки: гасим прочие подключения к БД (пул API переподключится сам).
+  // Освобождаем блокировки: гасим прочие подключения к БД (пул API переподключится
+  // сам). Это вспомогательная команда — ошибки тут некритичны (ON_ERROR_STOP=0, .catch).
   await exec(`psql -v ON_ERROR_STOP=0 -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = current_database() AND pid <> pg_backend_pid()"`, { env, maxBuffer: BIG }).catch(() => {})
-  await exec(`gunzip -c "${file}" | psql -v ON_ERROR_STOP=0`, { env, shell: '/bin/sh', maxBuffer: BIG })
+  // Сам restore — строго в одной транзакции, любая ошибка → полный откат (всё-или-ничего).
+  await exec(`gunzip -c "${file}" | psql -v ON_ERROR_STOP=1 --single-transaction`, { env, shell: '/bin/sh', maxBuffer: BIG })
 }
 
 const SAFE_NAME = /^[A-Za-z0-9._-]+\.sql\.gz$/

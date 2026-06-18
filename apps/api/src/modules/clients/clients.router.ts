@@ -499,69 +499,143 @@ clientsRouter.delete('/:id/gomafia-link', requireRole('owner', 'staff'), async (
   return c.json({ ok: true, client: safe })
 })
 
+// Мягкое удаление (архивация). ФИНАНСОВЫЙ ИНВАРИАНТ (P0): нельзя «спрятать» клиента
+// с ненулевым балансом — депозит (>0) или долг (<0) исчезли бы из всех экранов
+// (balances/debtors/deposits фильтруют isNull(deletedAt)), а обязательство/деньги
+// выпали бы из учёта. Поэтому при balance<>0 → 409 «сначала закройте баланс».
+// Проверку и саму архивацию делаем в ОДНОЙ транзакции под FOR UPDATE строки клиента,
+// чтобы баланс не успел измениться между проверкой и апдейтом (TOCTOU).
 clientsRouter.delete('/:id', requireRole('owner'), async (c) => {
   const db = c.var.db
-  await db.update(profiles).set({ deletedAt: new Date() }).where(eq(profiles.id, c.req.param('id')))
+  const id = c.req.param('id')
+
+  type Res =
+    | { kind: 'not_found' }
+    | { kind: 'has_balance'; balance: number }
+    | { kind: 'ok' }
+    | { kind: 'already' } // уже в архиве — идемпотентно
+
+  const result = await db.transaction<Res>(async (tx) => {
+    const lockRes = await tx.execute(sql`
+      SELECT balance, deleted_at FROM profiles WHERE id = ${id} FOR UPDATE
+    `)
+    const lockRows = (lockRes as any).rows ?? lockRes
+    if (!lockRows || lockRows.length === 0) return { kind: 'not_found' }
+
+    // Уже в архиве → ничего не делаем (идемпотентность повторного DELETE).
+    if (lockRows[0].deleted_at ?? lockRows[0].deletedAt) return { kind: 'already' }
+
+    const balance = parseFloat(String(lockRows[0].balance))
+    if (Math.abs(balance) >= 0.005) return { kind: 'has_balance', balance }
+
+    await tx.update(profiles).set({ deletedAt: new Date() }).where(eq(profiles.id, id))
+    return { kind: 'ok' }
+  })
+
+  if (result.kind === 'not_found') return c.json({ error: 'Not found' }, 404)
+  if (result.kind === 'has_balance') {
+    const b = result.balance
+    const what = b > 0
+      ? `депозит ${b.toLocaleString('ru', { maximumFractionDigits: 2 })} ₽`
+      : `долг ${Math.abs(b).toLocaleString('ru', { maximumFractionDigits: 2 })} ₽`
+    return c.json({
+      error: `Нельзя архивировать клиента с ненулевым балансом (${what}). Сначала закройте баланс.`,
+      balance: b,
+    }, 409)
+  }
   return c.json({ ok: true })
 })
 
-// Полное удаление профиля (НАВСЕГДА). Только из архива (deletedAt задан) и только
-// владельцем. Все ссылки на профиль чистятся обобщённо по каталогу FK:
-//  - passkeys → удаляются (учётные данные не должны пережить пользователя);
-//  - nullable-колонки → NULL (чек/уведомление сохраняются, но «обезличиваются»);
-//  - NOT NULL-колонки → переносятся на sentinel-профиль «Удалённый пользователь»
-//    (кто открыл смену/пробил чек и т.п.) — иначе удаление либо падает на FK
-//    (напр. checks.shift_id → shifts), либо разрушило бы операционно-финансовую
-//    историю заведения. Сотрудник со сменами/чеками теперь удаляется корректно.
+// «Полное удаление» профиля (НАВСЕГДА) → переосмыслено как ОБЕЗЛИЧИВАНИЕ (GDPR-style
+// soft-delete с сохранением финансового аудит-трейла). Только из архива (deletedAt
+// задан) и только владельцем.
+//
+// ПОЧЕМУ НЕ физическое удаление (P0): прежняя версия УНИЧТОЖАЛА денежную историю —
+// физически удаляла строку profiles и обобщённо зануляла/переносила FK. В частности
+//   • transactions.player_id := NULL → ВСЕ депозиты/долги/списания клиента теряли
+//     привязку (аудит-трейл рвался безвозвратно);
+//   • bonus_history.profile_id (NOT NULL) переносился на ОБЩИЙ sentinel «Удалённый
+//     пользователь» → бонус-истории разных удалённых клиентов СКЛЕИВАЛИСЬ на одну
+//     строку → невосстановимо.
+// Для финучёта/54-ФЗ это недопустимо: транзакции — иммутабельный денежный след.
+//
+// МИНИМАЛЬНО-ИНВАЗИВНЫЙ ПОДХОД (без новых миграций, в рамках имеющихся колонок):
+//   1) Запрещаем обезличивание при balance<>0 — иначе незакрытое обязательство/деньги
+//      исчезли бы из всех экранов балансов (как и при мягком удалении). 409.
+//   2) НЕ трогаем transactions / bonus_history / checks / shifts и пр. FK — вся
+//      финансово-операционная история ОСТАЁТСЯ привязанной к ЭТОЙ же строке profiles.
+//   3) Затираем только ПДн самой строки profiles (имя/телефон/Telegram/фото/теги/
+//      birthday/пароль/pin), оставляя deletedAt непустым — клиент остаётся в архиве,
+//      но без персональных данных. nickname уникален и NOT NULL → ставим стабильный
+//      анонимный ник с суффиксом id (не плодит коллизий, не склеивает истории).
+//   4) Passkeys удаляем — учётные данные входа не должны пережить обезличивание.
+// Итог: финансовый аудит-трейл цел и атрибутирован верному (обезличенному) субъекту;
+// личные данные удалены. Операция идемпотентна (повтор по уже обезличенному ник-у — ок).
 clientsRouter.delete('/:id/permanent', requireRole('owner'), async (c) => {
   const db = c.var.db
   const id = c.req.param('id')
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
     return c.json({ error: 'Bad id' }, 400)
   }
-  const [client] = await db.select({ id: profiles.id, deletedAt: profiles.deletedAt }).from(profiles).where(eq(profiles.id, id))
-  if (!client) return c.json({ error: 'Not found' }, 404)
-  if (!client.deletedAt) return c.json({ error: 'Сначала отправьте клиента в архив' }, 400)
 
-  await db.transaction(async (tx) => {
-    // Sentinel создаём лениво — только если есть NOT NULL-ссылки (у обычного клиента
-    // их нет, тогда «надгробие» не плодится).
-    let sentinelId: string | null = null
-    const ensureSentinel = async (): Promise<string> => {
-      if (sentinelId) return sentinelId
-      const SENTINEL_NICK = '__deleted_user__'
-      const [ex] = await tx.select({ id: profiles.id }).from(profiles).where(eq(profiles.nickname, SENTINEL_NICK))
-      if (ex) { sentinelId = ex.id; return sentinelId }
-      // role 'tablet' → не попадает ни в список клиентов, ни в список персонала,
-      // а без linkedSpaceId не матчится и при входе планшета.
-      const [created] = await tx.insert(profiles).values({ nickname: SENTINEL_NICK, fullName: 'Удалённый пользователь', role: 'tablet' }).returning({ id: profiles.id })
-      sentinelId = created!.id
-      return sentinelId
-    }
+  type Res =
+    | { kind: 'not_found' }
+    | { kind: 'not_archived' }
+    | { kind: 'has_balance'; balance: number }
+    | { kind: 'ok' }
 
-    const fkRes = await tx.execute(sql`
-      SELECT cl.relname AS tbl, att.attname AS col, att.attnotnull AS notnull
-      FROM pg_constraint con
-      JOIN pg_class cl ON cl.oid = con.conrelid
-      JOIN pg_attribute att ON att.attrelid = con.conrelid AND att.attnum = con.conkey[1]
-      WHERE con.contype = 'f' AND con.confrelid = 'profiles'::regclass AND array_length(con.conkey, 1) = 1
+  const result = await db.transaction<Res>(async (tx) => {
+    // Блокируем строку клиента: проверка баланса и обезличивание — атомарно.
+    const lockRes = await tx.execute(sql`
+      SELECT balance, deleted_at FROM profiles WHERE id = ${id} FOR UPDATE
     `)
-    const fks: any[] = (fkRes as any).rows ?? fkRes ?? []
-    for (const fk of fks) {
-      const tblName = String(fk.tbl)
-      const tbl = sql.identifier(tblName)
-      const col = sql.identifier(String(fk.col))
-      if (tblName === 'passkeys') {
-        await tx.execute(sql`DELETE FROM ${tbl} WHERE ${col} = ${id}`)
-      } else if (fk.notnull) {
-        const sid = await ensureSentinel()
-        await tx.execute(sql`UPDATE ${tbl} SET ${col} = ${sid} WHERE ${col} = ${id}`)
-      } else {
-        await tx.execute(sql`UPDATE ${tbl} SET ${col} = NULL WHERE ${col} = ${id}`)
-      }
-    }
-    await tx.delete(profiles).where(eq(profiles.id, id))
+    const lockRows = (lockRes as any).rows ?? lockRes
+    if (!lockRows || lockRows.length === 0) return { kind: 'not_found' }
+    if (!(lockRows[0].deleted_at ?? lockRows[0].deletedAt)) return { kind: 'not_archived' }
+
+    const balance = parseFloat(String(lockRows[0].balance))
+    if (Math.abs(balance) >= 0.005) return { kind: 'has_balance', balance }
+
+    // Удаляем учётные данные входа (passkeys) — они не должны пережить субъекта.
+    // FK passkeys.user_id → profiles.id (см. schema/passkeys.ts).
+    await tx.execute(sql`DELETE FROM passkeys WHERE user_id = ${id}`)
+
+    // Затираем ТОЛЬКО ПДн строки profiles. FK на эту строку (transactions,
+    // bonus_history, checks, shifts, certificates…) НЕ трогаем — история цела.
+    // Анонимный ник стабилен и уникален (привязан к id) — без коллизий и склейки.
+    const anonNick = `__anon_${id.slice(0, 8)}__`
+    await tx.execute(sql`
+      UPDATE profiles SET
+        nickname = ${anonNick},
+        full_name = NULL,
+        phone = NULL,
+        birthday = NULL,
+        tg_id = NULL,
+        tg_username = NULL,
+        photo_url = NULL,
+        tg_photo_url = NULL,
+        gomafia_photo_url = NULL,
+        search_tags = ARRAY[]::text[],
+        password_hash = NULL,
+        pin = NULL,
+        deleted_at = now()
+      WHERE id = ${id}
+    `)
+    return { kind: 'ok' }
   })
+
+  if (result.kind === 'not_found') return c.json({ error: 'Not found' }, 404)
+  if (result.kind === 'not_archived') return c.json({ error: 'Сначала отправьте клиента в архив' }, 400)
+  if (result.kind === 'has_balance') {
+    const b = result.balance
+    const what = b > 0
+      ? `депозит ${b.toLocaleString('ru', { maximumFractionDigits: 2 })} ₽`
+      : `долг ${Math.abs(b).toLocaleString('ru', { maximumFractionDigits: 2 })} ₽`
+    return c.json({
+      error: `Нельзя удалить данные клиента с ненулевым балансом (${what}). Сначала закройте баланс.`,
+      balance: b,
+    }, 409)
+  }
   return c.json({ ok: true })
 })
 

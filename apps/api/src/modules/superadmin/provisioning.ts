@@ -3,9 +3,10 @@
 //
 // Поднимает с нуля изолированную БД `club_<slug>` для нового арендатора:
 //   1. CREATE DATABASE club_<slug>        (нетранзакционно → отдельный shell-out psql)
-//   2. baseline.sql на новой БД           (полная схема приложения, squash 001..049)
-//   3. _migrations + пометка ВСЕХ файлов из migrations/sql/ применёнными
-//      (чтобы штатный раннер не прогонял их повторно; 050+ применятся как обычно)
+//   2. baseline.sql на новой БД           (схема приложения, см. baseline-manifest.ts)
+//   3. _migrations + пометка применёнными ТОЛЬКО тех файлов, что реально «вшиты»
+//      в baseline (BASELINE_MIGRATIONS), затем штатный раннер (runMigrationsOn)
+//      доприменяет остаток (050, 053–059) — иначе их таблицы НЕ создавались.
 //   4. Запись в control-plane: clubs / club_modules / subscriptions (trial 7 дней)
 //
 // Безопасность БД-имени: dbName = `club_${slug}` подставляется в DDL текстом,
@@ -20,6 +21,9 @@ import { readdir, access } from 'node:fs/promises'
 import { constants as fsConstants } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join, resolve } from 'node:path'
+import { getClubDb, sql as dbSql } from '@titan/database'
+import { runMigrationsOn } from '../../migrations/runner.js'
+import { BASELINE_MIGRATIONS } from '../../migrations/baseline-manifest.js'
 // Control-БД: импорт по относительному пути к собранному dist (закрытый exports-
 // map пакета @titan/database не публикует subpath, а existing-файлы трогать нельзя;
 // относительный импорт резолвится и в tsx-dev, и в node-prod из общего workspace).
@@ -237,13 +241,36 @@ export async function provisionClub(input: ProvisionInput): Promise<Club> {
       { env: clubEnv, maxBuffer: BIG },
     )
 
-    // d. _migrations + пометка всех файлов миграций применёнными --------------
-    // baseline уже создал _migrations (он есть в дампе), но на всякий случай
-    // создаём IF NOT EXISTS, затем вставляем имена файлов (ON CONFLICT DO NOTHING).
-    const migrationIds = await readMigrationIds()
+    // d. _migrations: помечаем применёнными ТОЛЬКО то, что вшито в baseline -----
+    // КРИТИЧНО: baseline.sql непоследователен (см. baseline-manifest.ts) — он
+    // содержит 001–049,051,052, но НЕ 050 и НЕ 053–059. Раньше здесь помечались
+    // применёнными ВСЕ файлы из каталога (readdir) → раннер пропускал 050/053–059
+    // → таблицы integrations/collections*/fiscal_receipts/bookings/
+    // wallet_login_codes/resident_payments НИКОГДА не создавались на новом клубе.
+    //
+    // Теперь: засеваем _migrations ровно списком BASELINE_MIGRATIONS, затем
+    // штатный раннер доприменяет ОСТАЛЬНЫЕ файлы к этой же БД.
+    //
+    // Страховка от молчаливого пропуска: каждый .sql из каталога ОБЯЗАН быть
+    // либо в BASELINE_MIGRATIONS (засеян здесь), либо доприменён раннером. Если
+    // какой-то файл попал в BASELINE_MIGRATIONS, но физически исчез из каталога —
+    // это рассинхрон манифеста ↔ репозитория → громкий throw (ниже).
+    const diskMigrations = await readMigrationIds()
+    const diskSet = new Set(diskMigrations)
+    const baselineSet = new Set(BASELINE_MIGRATIONS)
+
+    // (1) Любой baseline-файл, которого больше нет на диске → манифест устарел.
+    const phantom = BASELINE_MIGRATIONS.filter((id) => !diskSet.has(id))
+    if (phantom.length > 0) {
+      throw new Error(
+        `BASELINE_MIGRATIONS ссылается на отсутствующие файлы: ${phantom.join(', ')}. ` +
+          'Обнови apps/api/src/migrations/baseline-manifest.ts.',
+      )
+    }
+
     // Формируем VALUES безопасно: имена файлов — литералы, экранируем кавычки.
     // (Имена контролируем мы — это файлы в репозитории, не пользовательский ввод.)
-    const valuesSql = migrationIds
+    const valuesSql = BASELINE_MIGRATIONS
       .map((id) => `('${id.replace(/'/g, "''")}')`)
       .join(', ')
     const seedMigrationsSql = `
@@ -257,6 +284,32 @@ export async function provisionClub(input: ProvisionInput): Promise<Club> {
     // Передаём SQL через stdin (psql -f -), чтобы НЕ светить в argv и не упереться
     // в лимит длины командной строки на большом списке миграций.
     await execWithStdin('psql -v ON_ERROR_STOP=1 -f -', seedMigrationsSql, clubEnv)
+
+    // d2. Доприменяем ОСТАЛЬНЫЕ миграции штатным раннером к БД нового клуба ------
+    // Строим conn-строку клуба из DATABASE_URL, заменив имя БД (тот же приём, что
+    // pgEnvFor(..., dbName) выше и buildClubConnString в lib/clubResolver.ts).
+    const clubUrl = new URL(adminUrl)
+    clubUrl.pathname = `/${dbName}`
+    const clubDb = getClubDb(clubUrl.toString())
+    await runMigrationsOn(clubDb, dbName)
+
+    // (2) Финальная страховка: каждый .sql из каталога теперь либо в baseline,
+    // либо был доприменён раннером (он пишет id в _migrations). Если в каталоге
+    // оказался файл, которого нет НИ в baseline, НИ среди применённых — это
+    // молчаливый пропуск; ловим его явно, а не отдаём клуб с дырой в схеме.
+    const appliedRows = await clubDb.execute(dbSql`SELECT id FROM _migrations`)
+    const applied = new Set<string>(
+      ((appliedRows as any).rows ?? appliedRows ?? []).map((r: any) => r.id),
+    )
+    const missed = diskMigrations.filter(
+      (id) => !baselineSet.has(id) && !applied.has(id),
+    )
+    if (missed.length > 0) {
+      throw new Error(
+        `Миграции не применены к БД ${dbName} (ни baseline, ни раннер): ${missed.join(', ')}. ` +
+          'Возможен рассинхрон baseline-manifest.ts ↔ каталога migrations/sql.',
+      )
+    }
 
     // e. Запись в control-plane (по возможности — в транзакции) ---------------
     const club = await control.transaction(async (tx) => {

@@ -1,12 +1,13 @@
 import { serve } from '@hono/node-server'
-import { closeDb, closeClubDbs, type Database } from '@titan/database'
+import { closeDb, closeClubDbs, getClubDb, type Database } from '@titan/database'
 import { app } from './app.js'
 import { checkBirthdays } from './cron/birthdays.js'
 import { auditBalances } from './cron/balance-audit.js'
 import { runPollsForDb } from './cron/polls.js'
 import { fiscalizePendingForDb } from './cron/fiscalize.js'
 import { getCronTargets } from './cron/targets.js'
-import { runMigrations } from './migrations/runner.js'
+import { runMigrations, runMigrationsOn } from './migrations/runner.js'
+import { listActiveClubDbNames, buildClubConnString } from './lib/clubResolver.js'
 import { getSharedRedis } from './lib/redis.js'
 
 const port = Number(process.env['API_PORT'] ?? 3001)
@@ -28,8 +29,64 @@ function assertEnv() {
 }
 assertEnv()
 
-// Запускаем миграции перед стартом сервера
+// Миграции ВСЕХ активных клуб-БД (модель database-per-club). Без этого новые
+// миграции применялись только к синглтону (DATABASE_URL), а существующие клубы
+// уходили в дрейф схемы после первого же релиза с миграцией → 500 у арендаторов.
+//
+// Контракт безопасности:
+//  • дефолтную БД (db_name == DATABASE_URL) пропускаем — её уже мигрировал
+//    runMigrations() (синглтон). Дедуп исключает двойной проход на основном клубе;
+//  • падение ОДНОГО клуба логируем и продолжаем (битый клуб не валит старт всей
+//    платформы); собираем список упавших и выводим итог;
+//  • control-plane недоступен/не сконфигурирован (нет CONTROL_DATABASE_URL и т.п.)
+//    → listActiveClubDbNames бросает → ловим и просто пропускаем (как дефолтный
+//    одно-клубный режим: мигрирован только синглтон).
+async function migrateAllClubs(): Promise<void> {
+  let defaultName = ''
+  try {
+    defaultName = new URL(process.env['DATABASE_URL'] ?? '').pathname.replace(/^\//, '')
+  } catch {
+    /* битый/пустой DATABASE_URL — defaultName останется пустым */
+  }
+
+  let clubNames: string[]
+  try {
+    clubNames = await listActiveClubDbNames()
+  } catch (e) {
+    console.warn('[migrations] control-plane недоступен — мигрируем только основную БД', e)
+    return
+  }
+
+  const targets = Array.from(new Set(clubNames)).filter((n) => n && n !== defaultName)
+  if (targets.length === 0) {
+    console.log('[migrations] клуб-БД для миграции нет (кроме основной)')
+    return
+  }
+
+  const failed: string[] = []
+  for (const name of targets) {
+    try {
+      await runMigrationsOn(getClubDb(buildClubConnString(name)), name)
+    } catch (e) {
+      failed.push(name)
+      console.error(`[migrations] клуб «${name}» — миграции НЕ применены`, e)
+    }
+  }
+  if (failed.length > 0) {
+    console.error(
+      `[migrations] ИТОГ: ${failed.length} клуб(ов) с ошибкой миграции: ${failed.join(', ')} ` +
+        '(их поддомены могут падать на новой схеме — требуется ручной разбор)',
+    )
+  } else {
+    console.log(`[migrations] все клуб-БД (${targets.length}) мигрированы`)
+  }
+}
+
+// Запускаем миграции перед стартом сервера: сначала синглтон (основная БД), затем
+// все активные клуб-БД. Ошибка синглтона — фатальна (схема основной БД обязана быть
+// консистентной); ошибки отдельных клубов НЕ валят старт (см. migrateAllClubs).
 runMigrations()
+  .then(() => migrateAllClubs())
   .then(() => {
     const server = serve({ fetch: app.fetch, port }, (info) => {
       console.log(`🚀 Titan HUB API running on http://localhost:${info.port}`)

@@ -139,6 +139,14 @@ app.route('/api/tg', tgRouter)
 // не браузер). Монтируется ДО requireActiveSubscription, как /api/tg.
 app.route('/api/pay', payRouter)
 
+// Приёмник вебхука Platega (дефолтный СБП-провайдер). Это ВХОДЯЩИЙ вебхук провайдера
+// (callback, не браузер): защита — пер-клубная подпись X-MerchantId/X-Secret +
+// серверная сверка статуса у Platega. Монтируется ДО requireActiveSubscription и БЕЗ
+// requireModule('platega') — иначе у клуба с истёкшей подпиской/выключенным модулем
+// вебхук получал 402/403, гость платил, а чек не закрывался (и продление подписки
+// тоже блокировалось — тупик). Целевой клуб резолвится из payload, не по Host.
+app.route('/api/platega', plategaRouter)
+
 // Публичный приём брони с виджета /book (гость без авторизации). Защита — гейт
 // booking_enabled + глобальный rate-limit + валидация. ДО requireActiveSubscription.
 app.route('/api/bookings/public', bookingsPublicRouter)
@@ -151,7 +159,9 @@ app.use('/api/*', requireActiveSubscription)
 // и при отсутствии флага — пропуск (fail-open). Гейтим опциональные модули.
 // Tai (ИИ) — ПЛАТНЫЙ: fail-closed для арендаторов (нужна подписка/модуль 'ai').
 app.use('/api/ai/*', requireAiPaid())
-app.use('/api/platega/*', requireModule('platega'))
+// Примечание: /api/platega — это ВХОДЯЩИЙ вебхук провайдера, он смонтирован ВЫШЕ
+// (до гейтов подписки/модуля). Браузерных ручек Platega нет (генерация QR/статус
+// живут в /api/pos под своими гейтами), поэтому requireModule('platega') тут не нужен.
 app.use('/api/events/*', requireModule('events'))
 app.use('/api/certificates/*', requireModule('certificates'))
 app.use('/api/discounts/*', requireModule('discounts'))
@@ -180,7 +190,6 @@ app.route('/api/staff', staffRouter)
 app.route('/api/cashops', cashopsRouter)
 app.route('/api/discounts', discountsRouter)
 app.route('/api/inventory', inventoryRouter)
-app.route('/api/platega', plategaRouter)
 app.route('/api/pricing', pricingRouter)
 app.route('/api/gomafia', gomafiaRouter)
 // Суперадмин-контур платформы (control-plane): bootstrap/login + управление клубами.

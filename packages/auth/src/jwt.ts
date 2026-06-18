@@ -15,6 +15,11 @@ export interface JwtPayload {
   sub: string
   role: string
   nickname: string
+  // Клуб-арендатор, на чьём поддомене выпущен токен (database-per-club). null —
+  // основной/служебный домен (одно-клубный режим). Опционально для ОБРАТНОЙ
+  // СОВМЕСТИМОСТИ: легаси-токены, выпущенные до привязки к клубу, поля не несут —
+  // requireAuth трактует их по grace-правилу (см. middleware/auth.ts).
+  clubId?: string | null
   iat?: number
   exp?: number
 }

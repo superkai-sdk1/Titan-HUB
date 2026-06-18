@@ -8,9 +8,13 @@
  * - Транзакция на каждую миграцию (откат при ошибке)
  *
  * SQL-файлы должны быть идемпотентны или иметь чёткий уникальный номер в имени.
+ *
+ * Ядро вынесено в `runMigrationsOn(dbHandle, label)`, чтобы прогонять раннер не
+ * только на синглтоне `db` (основная БД), но и на ЛЮБОЙ клуб-БД (getClubDb)
+ * — модель database-per-club. `runMigrations()` сохранён как обёртка над
+ * синглтоном для обратной совместимости (index.ts, провижининг).
  */
-import { db } from '@titan/database'
-import { sql } from '@titan/database'
+import { db, sql, type Database } from '@titan/database'
 import { readdir, readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
@@ -19,11 +23,19 @@ const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
 const SQL_DIR = join(__dirname, 'sql')
 
-export async function runMigrations() {
-  console.log('[migrations] Starting…')
+/**
+ * Применить ожидающие миграции к ПЕРЕДАННОМУ подключению Drizzle.
+ *
+ * @param dbHandle — синглтон `db` ИЛИ клуб-БД (getClubDb(connString)).
+ * @param label    — человекочитаемая метка БД (имя клуба/БД) для логов: видно,
+ *                   к какому клубу применяется миграция.
+ */
+export async function runMigrationsOn(dbHandle: Database, label = 'default'): Promise<void> {
+  const tag = `[migrations:${label}]`
+  console.log(`${tag} Starting…`)
 
   // 1. Таблица учёта миграций
-  await db.execute(sql`
+  await dbHandle.execute(sql`
     CREATE TABLE IF NOT EXISTS _migrations (
       id text PRIMARY KEY,
       applied_at timestamptz NOT NULL DEFAULT now()
@@ -36,14 +48,14 @@ export async function runMigrations() {
     files = (await readdir(SQL_DIR)).filter((f) => f.endsWith('.sql')).sort()
   } catch (e: any) {
     if (e.code === 'ENOENT') {
-      console.log('[migrations] No sql directory, nothing to apply.')
+      console.log(`${tag} No sql directory, nothing to apply.`)
       return
     }
     throw e
   }
 
   // 3. Какие уже применены
-  const appliedRows = await db.execute(sql`SELECT id FROM _migrations`)
+  const appliedRows = await dbHandle.execute(sql`SELECT id FROM _migrations`)
   const applied = new Set<string>(
     ((appliedRows as any).rows ?? appliedRows ?? []).map((r: any) => r.id),
   )
@@ -52,18 +64,26 @@ export async function runMigrations() {
     if (applied.has(file)) continue
     const filePath = join(SQL_DIR, file)
     const content = await readFile(filePath, 'utf-8')
-    console.log(`[migrations] Applying ${file}…`)
+    console.log(`${tag} Applying ${file}…`)
     try {
       // Транзакция через Drizzle — атомарно применяет SQL + запись о миграции
-      await db.transaction(async (tx) => {
+      await dbHandle.transaction(async (tx) => {
         await tx.execute(sql.raw(content))
         await tx.execute(sql`INSERT INTO _migrations (id) VALUES (${file})`)
       })
-      console.log(`[migrations] ✓ ${file}`)
+      console.log(`${tag} ✓ ${file}`)
     } catch (err) {
-      console.error(`[migrations] ✗ ${file} failed:`, err)
+      console.error(`${tag} ✗ ${file} failed:`, err)
       throw err
     }
   }
-  console.log('[migrations] Done.')
+  console.log(`${tag} Done.`)
+}
+
+/**
+ * Обёртка над синглтоном `db` (основная БД из DATABASE_URL) — обратная
+ * совместимость для index.ts и существующих вызовов.
+ */
+export async function runMigrations(): Promise<void> {
+  await runMigrationsOn(db, 'default')
 }

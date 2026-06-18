@@ -1470,6 +1470,13 @@ posRouter.post('/checks/:id/qr', requireRole('owner', 'staff', 'tablet'), async 
   const secret = (await getClubIntegration(db, 'platega_secret')) ?? process.env['PLATEGA_SECRET']
   if (!merchantId || !secret) return c.json({ error: 'Platega не настроен' }, 503)
 
+  // payload для вебхука Platega. Вебхук приходит на фиксированный URL основного
+  // домена (без клуб-поддомена), поэтому целевой клуб определяется ИЗ payload.
+  // На клуб-поддомене — 'club:<clubId>:<checkId>'; на основном домене (club=null,
+  // инстанс оператора) — голый checkId (вебхук фолбэкнется на синглтон).
+  const clubId = c.var.club?.id
+  const plategaPayload = clubId ? `club:${clubId}:${checkId}` : checkId
+
   const createRes = await fetch('https://app.platega.io/transaction/process', {
     method: 'POST',
     headers: { 'X-MerchantId': merchantId, 'X-Secret': secret, 'Content-Type': 'application/json' },
@@ -1477,7 +1484,7 @@ posRouter.post('/checks/:id/qr', requireRole('owner', 'staff', 'tablet'), async 
       paymentMethod: 2,
       paymentDetails: { amount, currency: 'RUB' },
       description: `Titan POS чек ${checkId.slice(0, 8)}`,
-      payload: checkId,
+      payload: plategaPayload,
     }),
   })
 
