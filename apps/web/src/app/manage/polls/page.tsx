@@ -493,7 +493,10 @@ export default function PollsPage() {
                         placeholder="Пятница" />
                     </FormField>
                   )}
-                  <FormField label="Подзаголовок — время">
+                  <FormField
+                    label="Время мероприятия — в опросе"
+                    hint="Показывается в ТЕКСТЕ опроса рядом с днём (напр. «Четверг 20:00»). Пусто — времени в опросе не будет."
+                  >
                     <input style={INP} value={c.subtitleTime}
                       onChange={e => patchConfig(c.id, { subtitleTime: e.target.value })}
                       placeholder="20:00" />
@@ -555,7 +558,7 @@ export default function PollsPage() {
                 </div>
 
                 {/* Время постинга */}
-                <FormField label="Время постинга (МСК)" hint="Формат ЧЧ:ММ — когда отправлять в выбранные дни.">
+                <FormField label="Время постинга (МСК)" hint="Когда бот САМ публикует опрос в выбранные дни. В тексте опроса НЕ показывается (для времени в опросе — поле «Время мероприятия» выше). Формат ЧЧ:ММ.">
                   <input style={INP} value={c.postTime}
                     onChange={e => patchConfig(c.id, { postTime: e.target.value })}
                     placeholder="10:00" inputMode="numeric" />
