@@ -6,6 +6,7 @@ import { api } from '@/lib/api'
 import { Icon } from '@/components/Icon'
 import { PageHeader, SaveButton, ToggleRow, INP, SEL, LBL } from '@/components/manage/DesignSystem'
 import { TimeInput24 } from '@/components/TimeInput24'
+import { AddressAutocomplete } from '@/components/AddressAutocomplete'
 import { StateView } from '@/components/StateView'
 import { useToast } from '@/components/Toast'
 import { IntegrationsTab } from './IntegrationsTab'
@@ -174,7 +175,7 @@ export default function SettingsPage() {
                       <input style={INP} value={form.venue_name} onChange={e => set('venue_name', e.target.value)} placeholder="Titan HUB" />
                     </Field>
                     <Field label="Адрес" icon="location_on">
-                      <input style={INP} value={form.venue_address} onChange={e => set('venue_address', e.target.value)} placeholder="ул. Примерная, 1" />
+                      <AddressAutocomplete value={form.venue_address} onChange={v => set('venue_address', v)} placeholder="ул. Примерная, 1" style={INP} />
                     </Field>
                     <Field label="Часы работы" icon="schedule">
                       <div style={{ display: 'flex', gap: 10 }}>
