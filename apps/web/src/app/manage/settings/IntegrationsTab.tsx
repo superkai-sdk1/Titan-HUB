@@ -162,6 +162,13 @@ const CATALOG: Product[] = [
       { key: 'whatsapp_token', label: 'Постоянный токен', type: 'password', placeholder: 'EAAB…', hint: 'Постоянный (System User) access token с правом whatsapp_business_messaging. Временный 24-часовой не подойдёт.' },
     ],
   },
+  // Карты и адреса
+  {
+    id: 'yandex_geosuggest', name: 'Яндекс Геосаджест', icon: 'location_on', color: '#FF3333', kind: 'keys',
+    blurb: 'Подсказки адресов из Яндекс.Карт',
+    about: 'Поиск и автодополнение адресов от Яндекс.Карт во ВСЕХ полях ввода адреса (онлайн-бронирование выезда, мероприятия). После установки клиент и сотрудник вводят первые буквы — система предлагает точные адреса. Нужен API-ключ Геосаджеста.',
+    fields: [{ key: 'yandex_geosuggest_key', label: 'API-ключ', type: 'password', placeholder: 'Введите API-ключ', hint: 'developer.tech.yandex.ru → Кабинет разработчика → подключите сервис «Geosuggest API» (Геосаджест) → создайте ключ и вставьте сюда. Ключ хранится зашифрованно и используется только на сервере.' }],
+  },
   // Прочее
   { id: 'music', name: 'Музыка для бизнеса', icon: 'campaign', color: '#EC4899', kind: 'keys', fields: [], comingSoon: true,
     blurb: 'Лицензионная фоновая музыка', about: 'Лицензионная фоновая музыка для зала (Звук Бизнес / Я.Музыка для бизнеса) — без рисков по авторским правам.' },

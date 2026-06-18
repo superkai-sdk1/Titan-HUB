@@ -10,6 +10,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { api } from '@/lib/api'
 import { Icon } from '@/components/Icon'
+import { AddressAutocomplete } from '@/components/AddressAutocomplete'
 
 interface Cabin { id: string; name: string; capacity: number | null; hourlyRate: string }
 interface Tariff { hours: number; price: string }
@@ -273,7 +274,7 @@ export default function BookPage() {
           <label style={lbl}>Название локации / мероприятия</label>
           <input style={inp} value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Напр.: День рождения Алексея" maxLength={160} />
           <label style={lbl}>Адрес проведения</label>
-          <input style={inp} value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Город, улица, дом" maxLength={300} />
+          <AddressAutocomplete value={address} onChange={setAddress} placeholder="Город, улица, дом" maxLength={300} style={inp} />
           {cfg.venueAddress && <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', marginTop: 10 }}>Наш штаб: {cfg.venueAddress}</p>}
         </Step>
       )}

@@ -276,6 +276,8 @@ const INTEGRATION_KEYS: Record<string, string> = {
   // Маркетинг — WhatsApp Business (Meta Cloud API).
   whatsapp_phone_id: 'WhatsApp: Phone Number ID',
   whatsapp_token: 'WhatsApp: постоянный токен',
+  // Поиск адресов — Яндекс Геосаджест (подсказки в полях ввода адреса).
+  yandex_geosuggest_key: 'Яндекс Геосаджест: API-ключ',
 }
 
 const isAllowedKey = (key: string): boolean =>

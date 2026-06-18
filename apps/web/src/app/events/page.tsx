@@ -7,6 +7,7 @@ import { api } from '@/lib/api'
 import { Sheet, INP, LBL } from '@/components/manage/DesignSystem'
 import { useToast } from '@/components/Toast'
 import { PullToRefreshContainer } from '@/components/PullToRefreshContainer'
+import { AddressAutocomplete } from '@/components/AddressAutocomplete'
 import { telLink, whatsappLink, telegramLink, openContact } from '@/lib/contact'
 import { MinicapSheet } from './MinicapSheet'
 
@@ -514,7 +515,7 @@ export default function EventsPage() {
           {/* Адрес (выезд) */}
           {form.type === 'exit' && (
             <FormSection title="Адрес выезда">
-              <input value={form.location} onChange={e => set({ location: e.target.value })} placeholder="Адрес или место выезда" style={INP} />
+              <AddressAutocomplete value={form.location} onChange={v => set({ location: v })} placeholder="Адрес или место выезда" style={INP} />
             </FormSection>
           )}
 

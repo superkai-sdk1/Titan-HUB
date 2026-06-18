@@ -14,6 +14,7 @@ import { internalRouter } from './modules/internal/internal.router.js'
 import { tgRouter } from './modules/tg/tg.router.js'
 import { payRouter } from './modules/pay/pay.router.js'
 import { bookingsPublicRouter, bookingsRouter } from './modules/bookings/bookings.router.js'
+import { geoRouter } from './modules/geo/geo.router.js'
 
 import { authRouter } from './modules/auth/auth.router.js'
 import { posRouter } from './modules/pos/pos.router.js'
@@ -150,6 +151,10 @@ app.route('/api/platega', plategaRouter)
 // Публичный приём брони с виджета /book (гость без авторизации). Защита — гейт
 // booking_enabled + глобальный rate-limit + валидация. ДО requireActiveSubscription.
 app.route('/api/bookings/public', bookingsPublicRouter)
+
+// Геосаджест (Яндекс) — публичный прокси подсказок адресов (нужен и на /book).
+// ДО requireActiveSubscription; ключ — в integrations, защита пер-IP лимитом.
+app.route('/api/geo', geoRouter)
 
 // Энфорсмент подписки на клуб-поддомене (грейс→блок). На основном домене (club=null)
 // и для allowlist (/api/club, /api/health, /api/superadmin) — пропуск.
