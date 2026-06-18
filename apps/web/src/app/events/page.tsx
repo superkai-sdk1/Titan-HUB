@@ -1,5 +1,5 @@
 'use client'
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import { Icon } from '@/components/Icon'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -8,7 +8,7 @@ import { Sheet, INP, LBL } from '@/components/manage/DesignSystem'
 import { useToast } from '@/components/Toast'
 import { PullToRefreshContainer } from '@/components/PullToRefreshContainer'
 import { AddressAutocomplete } from '@/components/AddressAutocomplete'
-import { telLink, whatsappLink, telegramLink, openContact } from '@/lib/contact'
+import { telLink, whatsappLink, telegramLink, openContact, mapsRouteUrl, taxiUrlFromCoords, taxiMapsFallbackUrl } from '@/lib/contact'
 import { MinicapSheet } from './MinicapSheet'
 
 const STATUS: Record<string, [string, string, string]> = {
@@ -107,6 +107,22 @@ export default function EventsPage() {
   // Раскрытые папки прошлых месяцев в «Прошедших».
   const [openMonths, setOpenMonths] = useState<Set<string>>(new Set())
   const toggleMonth = (ym: string) => setOpenMonths(s => { const n = new Set(s); n.has(ym) ? n.delete(ym) : n.add(ym); return n })
+
+  // Координаты адреса выбранного выезда — для прямого диплинка в Яндекс Go (точка
+  // назначения). Префетчим при открытии карточки, чтобы кнопка «Такси» была обычной
+  // ссылкой (открытие в жесте, без блокировки попапов). Нет координат → запасной
+  // вариант (Я.Карты, режим такси, по тексту адреса).
+  const [taxiCoords, setTaxiCoords] = useState<{ lat: number; lon: number } | null>(null)
+  useEffect(() => {
+    setTaxiCoords(null)
+    const addr = selected?.type === 'exit' ? String(selected?.location ?? '').trim() : ''
+    if (!addr) return
+    let cancelled = false
+    api.get<{ lat?: number; lon?: number }>(`/geo/geocode?text=${encodeURIComponent(addr)}`)
+      .then(r => { if (!cancelled && typeof r.lat === 'number' && typeof r.lon === 'number') setTaxiCoords({ lat: r.lat, lon: r.lon }) })
+      .catch(() => { /* фолбэк на Я.Карты-такси */ })
+    return () => { cancelled = true }
+  }, [selected?.id, selected?.location, selected?.type])
 
   const { data } = useQuery({ queryKey: ['events'], queryFn: () => api.get<any>('/events') })
   const allEvents: any[] = data?.events ?? []
@@ -704,6 +720,19 @@ export default function EventsPage() {
                       ))}
                     </div>
                   )}
+                </div>
+              )}
+              {/* Карта и такси — только для выезда с адресом (под кнопками связи). */}
+              {selected.type === 'exit' && selected.location && (
+                <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+                  <a href={mapsRouteUrl(selected.location)} target="_blank" rel="noreferrer"
+                    style={{ flex: 1, padding: '10px 4px', borderRadius: 11, border: '1px solid #4cd7f644', background: '#4cd7f612', color: '#4cd7f6', fontSize: 11, fontWeight: 700, textDecoration: 'none', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5 }}>
+                    <Icon name="map" size={18} color="#4cd7f6" />Карта
+                  </a>
+                  <a href={taxiCoords ? taxiUrlFromCoords(taxiCoords.lat, taxiCoords.lon) : taxiMapsFallbackUrl(selected.location)} target="_blank" rel="noreferrer"
+                    style={{ flex: 1, padding: '10px 4px', borderRadius: 11, border: '1px solid #FBBF2444', background: '#FBBF2412', color: '#FBBF24', fontSize: 11, fontWeight: 700, textDecoration: 'none', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5 }}>
+                    <Icon name="local_taxi" size={18} color="#FBBF24" />Такси
+                  </a>
                 </div>
               )}
               {selected.status === 'planned' && (

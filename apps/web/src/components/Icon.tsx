@@ -886,6 +886,22 @@ const ICONS: Record<string, React.ReactNode> = {
       <line x1="1" y1="1" x2="23" y2="23" />
     </>
   ),
+  map: (
+    <>
+      <polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6" />
+      <line x1="8" y1="2" x2="8" y2="18" />
+      <line x1="16" y1="6" x2="16" y2="22" />
+    </>
+  ),
+  local_taxi: (
+    <>
+      <path d="M5 11l1.5-4.5A2 2 0 0 1 8.4 5h7.2a2 2 0 0 1 1.9 1.5L19 11" />
+      <path d="M3 11h18a1 1 0 0 1 1 1v4a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1v-4a1 1 0 0 1 1-1z" />
+      <line x1="9" y1="5" x2="15" y2="5" />
+      <circle cx="6.5" cy="17.5" r="1.5" fill="currentColor" stroke="none" />
+      <circle cx="17.5" cy="17.5" r="1.5" fill="currentColor" stroke="none" />
+    </>
+  ),
 
   /* ── Arrows / trends ────────────────────────────────────── */
   arrow_circle_up: (

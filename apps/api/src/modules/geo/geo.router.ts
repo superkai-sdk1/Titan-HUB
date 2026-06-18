@@ -68,3 +68,35 @@ geoRouter.get('/suggest', async (c) => {
     return c.json({ enabled: true, suggestions: [] })
   }
 })
+
+// Геокодирование адреса → координаты (для диплинка такси: точка назначения).
+// Тем же ключом (если он разрешён для Геокодера); при неудаче → { } и фронт
+// открывает запасной вариант (Я.Карты, режим такси, по тексту). GET /api/geo/geocode?text=
+geoRouter.get('/geocode', async (c) => {
+  const db = c.var.db
+  const key = await getClubIntegration(db, 'yandex_geosuggest_key').catch(() => null)
+  const text = (c.req.query('text') ?? '').trim()
+  if (!key || text.length < 3) return c.json({})
+  try {
+    const r = getSharedRedis()
+    const k = `geocode:${clientIp(c)}`
+    const n = await r.incr(k)
+    if (n === 1) await r.expire(k, 60)
+    if (n > 60) return c.json({})
+  } catch { /* без Redis — продолжаем */ }
+  try {
+    const url = `https://geocode-maps.yandex.ru/1.x/?apikey=${encodeURIComponent(key)}`
+      + `&format=json&results=1&lang=ru_RU&geocode=${encodeURIComponent(text)}`
+    const res = await fetch(url)
+    if (!res.ok) return c.json({})
+    const data = (await res.json()) as any
+    const pos: string | undefined = data?.response?.GeoObjectCollection?.featureMember?.[0]?.GeoObject?.Point?.pos
+    if (!pos) return c.json({})
+    const [lon, lat] = pos.split(' ').map(Number) // Яндекс отдаёт «долгота широта»
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return c.json({})
+    return c.json({ lat, lon })
+  } catch (e) {
+    console.error('[geocode] error', e)
+    return c.json({})
+  }
+})
