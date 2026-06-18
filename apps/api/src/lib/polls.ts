@@ -74,9 +74,24 @@ export function russianWeekday(nowMs: number): string {
 }
 
 // Текст вопроса = «Заголовок\nДень Время». День: автоматический (день выкладки,
-// nowMs) при autoDay=true, иначе статичный subtitleDay.
-export function buildPollQuestion(cfg: PollConfig, nowMs: number = Date.now()): string {
-  const day = cfg.autoDay ? russianWeekday(nowMs) : (cfg.subtitleDay ?? '').trim()
+// nowMs) — ДЕФОЛТ; статичный subtitleDay только при ЯВНОМ autoDay===false.
+//
+// ВАЖНО (фикс бага «в четверг постит Пятница»): раньше тут было `cfg.autoDay ?`,
+// поэтому конфиг без поля autoDay (undefined — легаси или не сохранён) уходил в
+// СТАТИЧНЫЙ subtitleDay. А интерфейс (manage/polls) показывает тумблер «по дню
+// выкладки» как `autoDay !== false`, т.е. при undefined — ВКЛЮЧЁННЫМ. Рассинхрон:
+// в UI авто-день «включён», а бот постит зашитую «Пятница». Теперь бэк трактует
+// undefined так же, как UI — как авто (день выкладки).
+//
+// forceTodayDay — для кнопки «Выложить на сегодня»: день = день выкладки ВСЕГДА,
+// даже если autoDay выключен у конфига.
+export function buildPollQuestion(
+  cfg: PollConfig,
+  nowMs: number = Date.now(),
+  forceTodayDay = false,
+): string {
+  const useAutoDay = forceTodayDay || cfg.autoDay !== false
+  const day = useAutoDay ? russianWeekday(nowMs) : (cfg.subtitleDay ?? '').trim()
   const sub = [day, (cfg.subtitleTime ?? '').trim()].filter(Boolean).join(' ')
   return sub ? `${cfg.title}\n${sub}` : cfg.title
 }
@@ -120,11 +135,17 @@ export function isPollDue(cfg: PollConfig, nowMs: number): boolean {
 }
 
 // Отправить опрос по конфигу (через токен бота опросов).
-export function postPollConfig(token: string, cfg: PollConfig): Promise<SendPollResult> {
+// opts.forceTodayDay — выложить с СЕГОДНЯШНИМ днём недели независимо от autoDay
+// (кнопка «Выложить на сегодня»).
+export function postPollConfig(
+  token: string,
+  cfg: PollConfig,
+  opts?: { forceTodayDay?: boolean },
+): Promise<SendPollResult> {
   return sendTelegramPoll(token, {
     chatId: cfg.chatId,
     messageThreadId: cfg.threadId,
-    question: buildPollQuestion(cfg),
+    question: buildPollQuestion(cfg, Date.now(), opts?.forceTodayDay ?? false),
     options: cfg.options,
     isAnonymous: false,
     allowsMultipleAnswers: false,

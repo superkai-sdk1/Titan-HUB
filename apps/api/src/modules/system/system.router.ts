@@ -737,6 +737,35 @@ systemRouter.post(
   },
 )
 
+// POST /system/polls/post-today — «Выложить на сегодня»: отправить опрос НЕМЕДЛЕННО
+// с СЕГОДНЯШНИМ днём недели (МСК), независимо от autoDay/subtitleDay конфига (день
+// подзаголовка = день выкладки). В отличие от /test — это реальная выкладка: помечаем
+// сегодняшний слот отправленным (lastPostedAt=now), чтобы плановый постинг не задвоил
+// опрос сегодня.
+systemRouter.post(
+  '/polls/post-today',
+  requireAuth,
+  requireRole('owner'),
+  zValidator('json', z.object({ id: z.string().min(1) })),
+  async (c) => {
+    const db = c.var.db
+    const { id } = c.req.valid('json')
+    const configs = await readPollConfigs(db)
+    const idx = configs.findIndex((x) => x.id === id)
+    if (idx < 0) return c.json({ error: 'Опрос не найден' }, 404)
+    const cfg = configs[idx]!
+    const token = await getClubIntegration(db, 'poll_bot_token')
+    if (!token) return c.json({ error: 'Не задан токен бота опросов' }, 400)
+    const r = await postPollConfig(token, cfg, { forceTodayDay: true })
+    if (!r.ok) return c.json({ error: r.error ?? 'Не удалось отправить опрос' }, 502)
+    if (r.pollId) await recordPollPosted(db, cfg.chatId, r.pollId, r.messageId ?? 0, cfg.threadId, cfg.options).catch(() => {})
+    // Сегодняшний слот считаем закрытым — плановый постинг не повторит опрос сегодня.
+    configs[idx] = { ...cfg, lastPostedAt: new Date().toISOString() }
+    await writePollConfigs(db, configs).catch(() => {})
+    return c.json({ ok: true, messageId: r.messageId })
+  },
+)
+
 // ─── Сбор участников чата (вебхук бота опросов) ─────────────────────────────────
 // Telegram не отдаёт список участников — бот копит «увиденных» (голоса/сообщения/
 // входы). Включение = setWebhook + мгновенный посев администраторов чатов.

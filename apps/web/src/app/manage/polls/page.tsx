@@ -128,6 +128,8 @@ export default function PollsPage() {
   const [deletingId, setDeletingId] = useState<string | null>(null)
   // Тест: id опроса, который сейчас отправляется.
   const [testingId, setTestingId] = useState<string | null>(null)
+  // «Выложить на сегодня»: id опроса, который сейчас публикуется.
+  const [postingTodayId, setPostingTodayId] = useState<string | null>(null)
 
   // Редактирование группы/топика опроса вынесено за модалку — чтобы не сбить
   // случайно (опрос уйдёт не туда). Токен бота настраивается в разделе «Интеграции».
@@ -240,6 +242,25 @@ export default function PollsPage() {
       show(e instanceof ApiError ? e.message : 'Бот не в группе или нет прав', 'error')
     } finally {
       setTestingId(null)
+    }
+  }
+
+  // ── «Выложить на сегодня»: сохраняем, затем постим с СЕГОДНЯШНИМ днём недели ───
+  // День в подзаголовке = день выкладки, независимо от настройки autoDay опроса
+  // (для «Спортивной»/«Городской» мафии и любого другого опроса по его заголовку).
+  async function onPostToday(id: string) {
+    if (!tokenConfigured) { show('Сначала настройте токен бота опросов', 'error'); return }
+    setPostingTodayId(id)
+    try {
+      const ok = await saveAll()
+      if (!ok) return
+      await api.post<{ ok: boolean; messageId: number }>('/system/polls/post-today', { id })
+      show('Опрос на сегодня выложен', 'success')
+      await load() // обновить «последняя отправка» (lastPostedAt с сервера)
+    } catch (e) {
+      show(e instanceof ApiError ? e.message : 'Бот не в группе или нет прав', 'error')
+    } finally {
+      setPostingTodayId(null)
     }
   }
 
@@ -409,6 +430,8 @@ export default function PollsPage() {
         {/* ─── Список опросов ────────────────────────────────────────────── */}
         {configs.map(c => {
           const isTesting = testingId === c.id
+          const isPostingToday = postingTodayId === c.id
+          const busyAny = testingId !== null || postingTodayId !== null
           return (
             <SectionGroup key={c.id} title={c.title.trim() || 'Новый опрос'}>
               <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -538,10 +561,17 @@ export default function PollsPage() {
                     placeholder="10:00" inputMode="numeric" />
                 </FormField>
 
-                {/* Тест + последняя отправка */}
+                {/* Выложить на сегодня + тест + последняя отправка */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {/* Реальная выкладка с сегодняшним днём недели (день = день выкладки),
+                      независимо от настройки «авто-день» опроса. */}
+                  <Button variant="primary" icon="campaign" fullWidth
+                    loading={isPostingToday} disabled={!tokenConfigured || busyAny}
+                    onClick={() => onPostToday(c.id)}>
+                    Выложить на сегодня
+                  </Button>
                   <Button variant="secondary" icon="send" fullWidth
-                    loading={isTesting} disabled={!tokenConfigured || testingId !== null}
+                    loading={isTesting} disabled={!tokenConfigured || busyAny}
                     onClick={() => onTest(c.id)}>
                     Отправить сейчас (тест)
                   </Button>
