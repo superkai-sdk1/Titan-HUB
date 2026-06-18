@@ -40,10 +40,19 @@ geoRouter.get('/suggest', async (c) => {
     const suggestions = (data.results ?? []).map((r) => {
       const title = r?.title?.text ?? ''
       const subtitle = r?.subtitle?.text ?? ''
+      const comps: any[] = Array.isArray(r?.address?.component) ? r.address.component : []
+      const byKind = (k: string): string | undefined => comps.find((c) => {
+        const ks = Array.isArray(c?.kind) ? c.kind : [c?.kind]
+        return ks.includes(k)
+      })?.name
+      // «Улица, дом» из структурных компонентов (для значения после выбора).
+      const street = byKind('STREET') || byKind('ROUTE')
+      const house = byKind('HOUSE')
+      const short = [street, house].filter(Boolean).join(', ')
       const formatted = r?.address?.formatted_address
-        ?? (Array.isArray(r?.address?.component) ? r.address.component.map((x: any) => x?.name).filter(Boolean).join(', ') : '')
+        ?? (comps.length ? comps.map((x) => x?.name).filter(Boolean).join(', ') : '')
       const value = formatted || [subtitle, title].filter(Boolean).join(', ') || title
-      return { title, subtitle, value }
+      return { title, subtitle, value, short }
     }).filter((s) => s.value)
     return c.json({ enabled: true, suggestions })
   } catch (e) {
