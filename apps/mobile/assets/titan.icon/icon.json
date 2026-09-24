@@ -1,0 +1,36 @@
+{
+  "fill": {
+    "automatic-gradient": "extended-srgb:0.48627,0.22745,0.92941,1.00000"
+  },
+  "groups": [
+    {
+      "layers": [
+        {
+          "image-name": "titan-hub.svg",
+          "name": "titan-hub",
+          "position": {
+            "scale": 0.8,
+            "translation-in-points": [
+              0,
+              0
+            ]
+          }
+        }
+      ],
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.5
+      },
+      "translucency": {
+        "enabled": true,
+        "value": 0.5
+      }
+    }
+  ],
+  "supported-platforms": {
+    "circles": [
+      "watchOS"
+    ],
+    "squares": "shared"
+  }
+}

@@ -1,0 +1,117 @@
+{
+  "expo": {
+    "name": "Titan HUB",
+    "slug": "titan-hub",
+    "version": "0.1.0",
+    "orientation": "default",
+    "scheme": "titanhub",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "icon": "./assets/titan.icon",
+      "bundleIdentifier": "ru.titan.hub",
+      "buildNumber": "1",
+      "appleTeamId": "G99YH9UK8C",
+      "supportsTablet": true,
+      "infoPlist": {
+        "CFBundleDevelopmentRegion": "ru",
+        "CFBundleLocalizations": [
+          "ru"
+        ],
+        "ITSAppUsesNonExemptEncryption": false,
+        "UISupportedInterfaceOrientations": [
+          "UIInterfaceOrientationPortrait"
+        ],
+        "UISupportedInterfaceOrientations~ipad": [
+          "UIInterfaceOrientationPortrait",
+          "UIInterfaceOrientationPortraitUpsideDown",
+          "UIInterfaceOrientationLandscapeLeft",
+          "UIInterfaceOrientationLandscapeRight"
+        ],
+        "LSApplicationQueriesSchemes": [
+          "tg",
+          "whatsapp",
+          "yandexmaps",
+          "yandexnavi"
+        ]
+      }
+    },
+    "android": {
+      "package": "ru.titanpos.hub",
+      "versionCode": 1,
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/titan-android-foreground.png",
+        "monochromeImage": "./assets/images/titan-android-monochrome.png",
+        "backgroundColor": "#7C3AED"
+      },
+      "softwareKeyboardLayoutMode": "resize"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#F2F2F7",
+          "dark": {
+            "backgroundColor": "#000000"
+          },
+          "android": {
+            "image": "./assets/images/titan-splash.png",
+            "imageWidth": 180
+          }
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "deploymentTarget": "26.0"
+          },
+          "android": {
+            "compileSdkVersion": 36,
+            "targetSdkVersion": 36
+          }
+        }
+      ],
+      "expo-secure-store",
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Face ID разблокирует кассу без ввода PIN."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Фото нужно, чтобы поставить снимок в профиль игрока или сотрудника.",
+          "cameraPermission": "Камера нужна, чтобы снять фото для профиля игрока или сотрудника."
+        }
+      ],
+      [
+        "expo-calendar",
+        {
+          "calendarPermission": "Календарь нужен, чтобы мероприятия клуба появлялись в вашем календаре с напоминаниями."
+        }
+      ],
+      "./plugins/with-scene-lifecycle",
+      [
+        "expo-contacts",
+        {
+          "contactsPermission": "Контакты нужны, чтобы подставить телефон клиента или заказчика без ручного ввода."
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Геопозиция нужна, чтобы построить маршрут до выездного мероприятия от вашего места."
+        }
+      ],
+      "expo-sqlite",
+      "./plugins/with-contacts-testing-fix",
+      "./plugins/with-android-colors"
+    ],
+    "experiments": {
+      "typedRoutes": true,
+      "reactCompiler": true
+    }
+  }
+}
