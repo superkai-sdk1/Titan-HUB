@@ -1,6 +1,9 @@
 packages:
   - "apps/*"
   - "packages/*"
+  # Нативное iOS-приложение ставится своим npm и не входит в pnpm-воркспейс:
+  # серверные Docker-сборки не должны тянуть React Native.
+  - "!apps/mobile"
 allowBuilds:
   esbuild: true
   msgpackr-extract: true

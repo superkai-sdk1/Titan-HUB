@@ -1,0 +1,97 @@
+import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
+import { SymbolView } from 'expo-symbols';
+import { useEffect } from 'react';
+import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+
+import { AmbientBackdrop } from '@/components/ambient-backdrop';
+import { CheckView } from '@/components/check-view';
+import { ToolbarMenu, ToolbarMenuAction } from '@/components/toolbar';
+import { checkTitle, checkTotals } from '@/lib/checks';
+import { usePosPlayer } from '@/lib/payment';
+import { markCheckNotificationsRead, useCheck } from '@/lib/queries';
+import { useSession } from '@/lib/session';
+import { colors, space, type } from '@/lib/theme';
+import { useCheckActions } from '@/lib/use-check-actions';
+import { useNow } from '@/lib/use-now';
+
+/**
+ * Экран чека на iPhone — стеклянные карточки на фирменном фоне, как сетка кассы.
+ * «Добавить» и «Оплатить» — в плашке над таб-баром (components/check-accessory.tsx).
+ * На iPad чек открывается в правой панели кассы.
+ */
+export default function CheckScreen() {
+  const { checkId } = useLocalSearchParams<{ checkId: string }>();
+  const router = useRouter();
+  const check = useCheck(checkId);
+  const now = useNow(15_000);
+  const host = useSession((s) => s.club?.host);
+  const data = check.data;
+  const spaceId = data?.spaceId ?? null;
+  const actions = useCheckActions(checkId, data?.guestNames ?? []);
+  const player = usePosPlayer(data?.playerId ?? null);
+
+  useEffect(() => {
+    if (host && checkId) void markCheckNotificationsRead(host, { id: checkId, spaceId });
+  }, [host, checkId, spaceId]);
+
+  return (
+    <AmbientBackdrop style={styles.screen}>
+      <Stack.Title>{data ? checkTitle(data) : 'Чек'}</Stack.Title>
+      {data && (
+        <Stack.Toolbar placement="right">
+          <ToolbarMenu icon="ellipsis" accessibilityLabel="Действия с чеком">
+            <ToolbarMenuAction icon="bubble.left" onPress={() => router.push({ pathname: '/pos/chat', params: { checkId } })}>
+              Чат с кабинкой
+            </ToolbarMenuAction>
+            {data.status === 'open' && (
+              <>
+                <ToolbarMenuAction icon="person.crop.circle" onPress={actions.onOpenPlayer}>
+                  {data.playerId ? 'Клиенты чека' : 'Добавить клиента'}
+                </ToolbarMenuAction>
+                <ToolbarMenuAction icon="percent" onPress={actions.onAddDiscount}>
+                  Скидка
+                </ToolbarMenuAction>
+                <ToolbarMenuAction icon="xmark.circle" destructive onPress={actions.onCancel}>
+                  Отменить чек
+                </ToolbarMenuAction>
+              </>
+            )}
+            {data.status === 'closed' && (
+              <ToolbarMenuAction icon="arrow.uturn.backward" destructive onPress={() => router.push({ pathname: '/pos/refund', params: { checkId } })}>
+                Оформить возврат
+              </ToolbarMenuAction>
+            )}
+          </ToolbarMenu>
+        </Stack.Toolbar>
+      )}
+
+      {data ? (
+        <CheckView
+          check={data}
+          totals={checkTotals(data, now)}
+          actions={actions}
+          player={player.data}
+          now={now}
+          contentInsetAdjustmentBehavior="automatic"
+        />
+      ) : (
+        <View style={styles.state}>
+          {check.isError ? (
+            <>
+              <SymbolView name="exclamationmark.triangle" size={40} tintColor={colors.secondaryLabel} />
+              <Text style={[type.body, styles.stateText]}>{check.error.message}</Text>
+            </>
+          ) : (
+            <ActivityIndicator />
+          )}
+        </View>
+      )}
+    </AmbientBackdrop>
+  );
+}
+
+const styles = StyleSheet.create({
+  screen: { flex: 1, backgroundColor: colors.groupedBackground },
+  state: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: space.md, padding: space.xxl },
+  stateText: { color: colors.secondaryLabel, textAlign: 'center' },
+});
