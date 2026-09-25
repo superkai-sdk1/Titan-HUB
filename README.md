@@ -4,9 +4,11 @@
 
 # TITAN HUB
 
-**PWA-система управления игровым клубом / антикафе**
+**Система управления игровым клубом / антикафе: PWA и нативное приложение**
 
 Касса, склад, клиенты, лояльность, смены и касса, аналитика, AI-ассистент — полный операционный цикл заведения в одном монорепо.
+
+Веб работает как PWA, для iOS и Android есть нативное приложение на Expo.
 
 [![Next.js](https://img.shields.io/badge/Next.js_15-000000?style=for-the-badge&logo=nextdotjs&logoColor=white)](https://nextjs.org)
 [![React](https://img.shields.io/badge/React_19-20232A?style=for-the-badge&logo=react&logoColor=61DAFB)](https://react.dev)
@@ -32,6 +34,7 @@
 - [Ключевые возможности](#ключевые-возможности)
 - [Технологический стек](#технологический-стек)
 - [Структура монорепо](#структура-монорепо)
+- [Мобильное приложение](#мобильное-приложение)
 - [Навигация и маршруты](#навигация-и-маршруты)
 - [Доменные механизмы](#доменные-механизмы)
 - [Аутентификация и безопасность](#аутентификация-и-безопасность)
@@ -202,7 +205,8 @@ titan-hub/
 │   ├── api/          # @titan/api      — REST API (Hono, порт 3001)
 │   ├── wallet/       # @titan/wallet   — Telegram WebApp кошелёк клиента (Next.js, basePath /wallet, порт 3002)
 │   ├── bot-admin/    # @titan/bot-admin  — Telegram-бот персонала (уведомления, grammY)
-│   └── bot-wallet/   # @titan/bot-wallet — Telegram-бот клиентов (баланс, история, grammY)
+│   ├── bot-wallet/   # @titan/bot-wallet — Telegram-бот клиентов (баланс, история, grammY)
+│   └── mobile/       # titan-mobile     — нативное приложение iOS и Android (Expo SDK 57, вне pnpm-воркспейса)
 ├── packages/
 │   ├── database/     # @titan/database — Drizzle ORM: схема, клиент БД, реэкспорт операторов
 │   ├── auth/         # @titan/auth     — signToken/verifyToken (JWT), hashPassword/hashPin, verifyTelegramInitData
@@ -347,6 +351,33 @@ Radix UI (Dialog, Tabs, Select, Switch, Popover, Tooltip и др.), lucide-react
 ### packages/config — общие конфиги
 
 Shared `tsconfig/*.json` и конфигурация ESLint 9 + typescript-eslint.
+
+---
+
+## Мобильное приложение
+
+Нативное приложение для iOS и Android — `apps/mobile`. Не обёртка над PWA: интерфейс собран из нативных компонентов, данные идут через тот же REST API.
+
+| | |
+|---|---|
+| Стек | Expo SDK 57, React Native 0.86, expo-router |
+| Состав | касса, «Управление», мероприятия, аналитика, Tai |
+| iOS | `ru.titan.hub`, распространение через TestFlight |
+| Android | `ru.titanpos.hub`, APK для arm64-v8a |
+
+Интерфейс писался под iOS 26 — контролы SwiftUI, SF Symbols, Liquid Glass, Swift Charts. На Android их заменяет слой совместимости `src/compat/android`, который подключается подменой модулей в `metro.config.js`, поэтому экраны общие для обеих платформ.
+
+```bash
+cd apps/mobile && npm install
+
+npm run ios:device        # собрать и поставить на iPhone/iPad
+npm run android:device    # собрать APK и поставить на Android
+npm run ios:testflight    # загрузить билд в TestFlight
+```
+
+Приложение ставит зависимости своим `npm` и исключено из pnpm-воркспейса: серверные Docker-сборки не должны тянуть React Native.
+
+Подробности — установка, публикация, устройство слоя совместимости и различия платформ — в [docs/MOBILE.md](docs/MOBILE.md).
 
 ---
 
@@ -554,6 +585,7 @@ bash scripts/deploy.sh
 | [docs/TESTING.md](docs/TESTING.md) | Тестирование: фреймворки, запуск, покрытие |
 | [docs/API.md](docs/API.md) | Эндпоинты, форматы запросов/ответов, аутентификация |
 | [docs/CONFIGURATION.md](docs/CONFIGURATION.md) | Переменные окружения, значения по умолчанию |
+| [docs/MOBILE.md](docs/MOBILE.md) | Мобильное приложение: сборка, публикация в TestFlight, слой совместимости с Android |
 
 ---
 
