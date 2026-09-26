@@ -6,6 +6,7 @@ import { useAuthStore } from '@/store/auth.store'
 import { formatDistanceToNow } from 'date-fns'
 import { ru } from 'date-fns/locale'
 import { PageHeader, Sheet, Button, IconButton, ConfirmDialog, Chip, INP, LBL } from '@/components/manage/DesignSystem'
+import { ClientNotifySheet } from '@/components/manage/ClientNotifySheet'
 import { StateView } from '@/components/StateView'
 import { useToast } from '@/components/Toast'
 import { Icon } from '@/components/Icon'
@@ -106,6 +107,8 @@ export default function ClientsPage() {
   const [dbSearch, setDbSearch] = useState('')
   const [showCreate, setShowCreate] = useState(false)
   const [selected, setSelected] = useState<any>(null)
+  // Личное уведомление клиенту (приложение Titan Resident).
+  const [notifyOpen, setNotifyOpen] = useState(false)
   const [mode, setMode] = useState<'view' | 'edit'>('view')
   const [tab, setTab] = useState<'info' | 'tx'>('info')
   const [form, setForm] = useState({ nickname: '', fullName: '', phone: '', birthday: '', clientTier: 'newbie', password: '', photoUrl: '', gomafiaId: '' })
@@ -823,6 +826,10 @@ export default function ClientsPage() {
                       style={{ flex: 1, padding: '12px 0', borderRadius: 12, border: '1px solid rgba(34,158,217,0.3)', background: 'rgba(34,158,217,0.1)', color: '#229ED9', fontSize: 13, fontWeight: 700, cursor: selected.tgUsername ? 'pointer' : 'not-allowed', opacity: selected.tgUsername ? 1 : 0.45, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
                       <Icon name="telegram" size={16} />Написать
                     </button>
+                    <button onClick={() => setNotifyOpen(true)}
+                      style={{ flex: 1, padding: '12px 0', borderRadius: 12, border: '1px solid rgba(139,92,246,0.3)', background: 'rgba(139,92,246,0.1)', color: '#a78bfa', fontSize: 13, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                      <Icon name="notifications" size={16} />В приложение
+                    </button>
                   </div>
 
                   {/* Архив / восстановление / полное удаление */}
@@ -895,6 +902,9 @@ export default function ClientsPage() {
           )
         })()}
       </Sheet>
+
+      {/* Уведомление клиенту — поверх карточки (порталы рисуются в порядке монтирования). */}
+      <ClientNotifySheet client={selected} open={notifyOpen} onClose={() => setNotifyOpen(false)} />
 
       {/* Участники чата — сопоставление с TG из ростера бота */}
       <Sheet open={tgRosterOpen} onClose={() => { setTgRosterOpen(false); setTgRosterSearch('') }} title="Участники чата">

@@ -1,0 +1,83 @@
+{
+  "expo": {
+    "name": "Titan Resident",
+    "slug": "titan-resident",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "scheme": "titanresident",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#15121b",
+    "icon": "./assets/images/icon.png",
+    "ios": {
+      "bundleIdentifier": "ru.titan.resident",
+      "buildNumber": "1",
+      "appleTeamId": "G99YH9UK8C",
+      "supportsTablet": true,
+      "infoPlist": {
+        "CFBundleDevelopmentRegion": "ru",
+        "CFBundleLocalizations": ["ru"],
+        "ITSAppUsesNonExemptEncryption": false,
+        "LSApplicationQueriesSchemes": ["tg"]
+      }
+    },
+    "android": {
+      "package": "ru.titan.resident",
+      "versionCode": 1,
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/adaptive-foreground.png",
+        "monochromeImage": "./assets/images/adaptive-monochrome.png",
+        "backgroundColor": "#15121b"
+      },
+      "softwareKeyboardLayoutMode": "resize",
+      "blockedPermissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.READ_MEDIA_AUDIO"
+      ]
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#15121b",
+          "image": "./assets/images/splash-icon.png",
+          "imageWidth": 140
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "compileSdkVersion": 36,
+            "targetSdkVersion": 36
+          }
+        }
+      ],
+      "expo-secure-store",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/notification-icon.png",
+          "color": "#8B5CF6",
+          "defaultChannel": "wallet"
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Фото нужно, чтобы поставить снимок в ваш профиль клуба.",
+          "cameraPermission": false,
+          "microphonePermission": false
+        }
+      ],
+      "./plugins/with-android-queries"
+    ],
+    "extra": {
+      "apiUrl": "https://titanpos.ru"
+    },
+    "experiments": {
+      "typedRoutes": true,
+      "reactCompiler": true
+    }
+  }
+}
