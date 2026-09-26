@@ -5,6 +5,7 @@ import { KeyboardStickyView } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ClearButton } from '@/components/clear-button';
+import { TAB_BAR_GAP, useTabBarClearance } from '@/lib/tab-bar';
 import { colors, space, type } from '@/lib/theme';
 
 /** Высота капсулы поиска — на неё же делается запас в конце списка. */
@@ -17,7 +18,10 @@ export const SEARCH_HEIGHT = 48;
  */
 export function useSearchClearance(): number {
   const insets = useSafeAreaInsets();
-  return insets.bottom + space.sm + SEARCH_HEIGHT + space.lg;
+  const tabBar = useTabBarClearance();
+  // Android: плавающая панель вкладок не входит в safe area — поиск стоит над ней.
+  const base = tabBar > 0 ? tabBar + TAB_BAR_GAP : insets.bottom + space.sm;
+  return base + SEARCH_HEIGHT + space.lg;
 }
 
 /**
@@ -40,9 +44,12 @@ export function BottomSearch({
   autoCapitalize?: 'none' | 'words' | 'sentences';
 }) {
   const insets = useSafeAreaInsets();
+  const tabBar = useTabBarClearance();
+  const bottom = tabBar > 0 ? tabBar + TAB_BAR_GAP : insets.bottom + space.sm;
 
   return (
-    <KeyboardStickyView offset={{ closed: 0, opened: insets.bottom }} style={[styles.sticky, { bottom: insets.bottom + space.sm }]}>
+    // С клавиатурой капсула садится прямо на неё: offset возвращает отступ, который занят снизу.
+    <KeyboardStickyView offset={{ closed: 0, opened: bottom - space.sm }} style={[styles.sticky, { bottom }]}>
       <View pointerEvents="box-none">
         <GlassView style={styles.field}>
           <SymbolView name="magnifyingglass" size={16} weight="medium" tintColor={colors.secondaryLabel} />

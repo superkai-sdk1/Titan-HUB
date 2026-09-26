@@ -1,6 +1,7 @@
 import { Dimensions, Platform, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { useTabBarClearance } from './tab-bar';
 import { space } from './theme';
 
 const IS_PAD = Platform.OS === 'ios' && Platform.isPad;
@@ -31,6 +32,7 @@ export const MAX_CONTENT_WIDTH = 760;
 export function usePageGutter(): { paddingLeft: number; paddingRight: number; paddingBottom?: number } {
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
+  const tabBar = useTabBarClearance();
   const column = Math.max(space.lg, Math.round((width - MAX_CONTENT_WIDTH) / 2));
   return {
     paddingLeft: Math.max(column, insets.left + space.lg),
@@ -38,6 +40,8 @@ export function usePageGutter(): { paddingLeft: number; paddingRight: number; pa
     // На iPad вкладки живут сверху (или в боковой панели), и запас под плавающий
     // таб-бар iPhone превращается в дыру в конце экрана.
     ...(IS_PAD ? { paddingBottom: insets.bottom + space.xxxl } : {}),
+    // Android: контент прокручивается под плавающей панелью — последняя строка над ней.
+    ...(tabBar > 0 ? { paddingBottom: tabBar + space.xl } : {}),
   };
 }
 

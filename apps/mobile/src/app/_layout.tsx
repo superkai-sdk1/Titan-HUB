@@ -2,7 +2,7 @@ import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client
 import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect } from 'react';
-import { StyleSheet, useColorScheme } from 'react-native';
+import { Platform, StyleSheet, useColorScheme } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -68,7 +68,15 @@ export default function RootLayout() {
             <Stack.Screen name="(app)" />
             <Stack.Screen
               name="shift"
-              options={{ presentation: 'formSheet', sheetAllowedDetents: [0.6, 1], sheetGrabberVisible: true, headerShown: false }}
+              options={{
+                presentation: 'formSheet',
+                // Android раскладывает шторку с двумя высотами во весь рост и прячет её низ —
+                // кнопка «Открыть смену» оказалась бы за экраном. Там шторка сразу полная.
+                sheetAllowedDetents: Platform.OS === 'android' ? [1] : [0.6, 1],
+                sheetGrabberVisible: true,
+                headerShown: false,
+                contentStyle: Platform.OS === 'android' ? { backgroundColor: colors.sheetBackground } : undefined,
+              }}
             />
             <Stack.Screen
               name="new-check"

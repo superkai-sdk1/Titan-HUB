@@ -69,6 +69,8 @@ const TABLE: Record<string, string> = {
   'sun.horizon': 'wb_twilight',
   dice: 'casino',
   'fork.knife.circle': 'local_pizza',
+  'hand.raised': 'front_hand',
+  'figure.2.and.child.holdinghands': 'family_restroom',
   'birthday.cake': 'cake',
   'party.popper': 'celebration',
   percent: 'percent',

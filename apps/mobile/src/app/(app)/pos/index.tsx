@@ -26,6 +26,7 @@ import { createAccessoryScrollHandler } from '@/lib/chrome';
 import { plural } from '@/lib/format';
 import { haptic } from '@/lib/haptics';
 import { SPLIT_MIN_WIDTH, useSplitLayout } from '@/lib/layout';
+import { useTabBarClearance } from '@/lib/tab-bar';
 import { checkNeedsAttention } from '@/lib/notifications';
 import { usePosSelection } from '@/lib/pos-selection';
 import { createCheckErrorMessage } from '@/lib/new-check';
@@ -111,6 +112,8 @@ export default function PosScreen() {
   const selectedId = usePosSelection((s) => s.selectedCheckId);
   const setSelectedId = usePosSelection((s) => s.select);
   const onAccessoryScroll = useRef(createAccessoryScrollHandler()).current;
+  // Android: сетка прокручивается под плавающей панелью с плашкой смены.
+  const tabBarClearance = useTabBarClearance(true);
   const topBlur = useSharedValue(0);
 
   const wide = screenWidth === 0 ? window.width : screenWidth;
@@ -269,7 +272,11 @@ export default function PosScreen() {
     <View style={styles.flex} onLayout={(e) => setListWidth(e.nativeEvent.layout.width)}>
       <Animated.ScrollView
         contentInsetAdjustmentBehavior="never"
-        contentContainerStyle={[styles.content, { paddingTop: insets.top, paddingLeft: GRID_PADDING + insets.left, paddingRight: GRID_PADDING + insets.right }]}
+        contentContainerStyle={[
+          styles.content,
+          { paddingTop: insets.top, paddingLeft: GRID_PADDING + insets.left, paddingRight: GRID_PADDING + insets.right },
+          tabBarClearance > 0 && { paddingBottom: tabBarClearance + space.lg },
+        ]}
         scrollEventThrottle={32}
         onScroll={(e) => {
           const y = e.nativeEvent.contentOffset.y;
@@ -350,7 +357,8 @@ export default function PosScreen() {
   const selectedExists = !!selectedId && (checks.data ?? []).some((c) => c.id === selectedId);
   // Под панелью парит плашка смены (bottom accessory). Если система не учла её в safe area,
   // добавляем высоту плашки сами — иначе «Добавить» и «Оплатить» оказываются под ней.
-  const panelBottom = (insets.bottom >= 60 ? insets.bottom : insets.bottom + ACCESSORY_HEIGHT) + space.md;
+  const panelBottom =
+    tabBarClearance > 0 ? tabBarClearance + space.md : (insets.bottom >= 60 ? insets.bottom : insets.bottom + ACCESSORY_HEIGHT) + space.md;
 
   return (
     <AmbientBackdrop style={[styles.screen, styles.splitRow]} onLayout={(e) => setScreenWidth(e.nativeEvent.layout.width)}>

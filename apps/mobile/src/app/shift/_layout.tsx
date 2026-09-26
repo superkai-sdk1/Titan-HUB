@@ -13,7 +13,8 @@ export default function ShiftLayout() {
   return (
     <Stack screenOptions={{ headerBackButtonDisplayMode: 'minimal', ...SHEET_HEADER }}>
       <Stack.Screen name="index" options={{ title: 'Смена' }} />
-      <Stack.Screen name="open" options={{ title: 'Открыть смену' }} />
+      {/* Свой заголовок с крестиком: экран бывает первым в шторке (из плашки «Смена закрыта»). */}
+      <Stack.Screen name="open" options={{ title: 'Открыть смену', headerShown: false }} />
       <Stack.Screen name="close" options={{ title: 'Закрыть смену' }} />
       <Stack.Screen name="cash" options={{ title: 'Касса' }} />
     </Stack>
