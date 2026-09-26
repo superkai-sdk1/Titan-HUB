@@ -147,6 +147,45 @@ function bizDayBounds(dateStr: string, startHour = BIZ_START_HOUR): { start: Dat
   return { start, end: new Date(start.getTime() + 86400000) }
 }
 
+// ─── Себестоимость проданного (COGS) ───────────────────────────────────────────
+// Склад списывается В МОМЕНТ ДОБАВЛЕНИЯ позиции в открытый чек (addCheckItemTx:
+// движение 'sale', source_type='check'), а выручка считается только по ЗАКРЫТЫМ
+// чекам. Раньше COGS брался по дате движения без оглядки на статус чека, поэтому
+// пока гость сидел с непробитым счётом, его себестоимость уже вычиталась из
+// прибыли, а выручки ещё не было → «Прибыль сегодня» уходила в минус в реалтайме.
+//
+// Теперь движения по чекам (sale/return с source_type='check') учитываются ТОЛЬКО
+// у закрытых чеков и относятся к окну ПО ДАТЕ ЧЕКА (checks.created_at) — ровно как
+// выручка, поэтому выручка и её себестоимость всегда в одном периоде. Открытые чеки
+// не дают ни выручки, ни COGS; отменённые — тем более (там sale+return = 0).
+// Прочие движения (возвраты по refunds, исторические без источника) — по дате
+// движения, как и вычет возвратов из выручки (по дате возврата).
+const cogsSumExpr = sql<number>`sum((0 - ${stockMovements.delta})::numeric * coalesce(${stockMovements.unitCost}, ${inventory.costPrice}, 0)::numeric)`
+const notCheckSource = sql`${stockMovements.sourceType} is distinct from 'check'`
+
+async function cogsInWindow(database: Database, start: Date, end: Date): Promise<number> {
+  const [[checkRow], [otherRow]] = await Promise.all([
+    database
+      .select({ total: cogsSumExpr })
+      .from(stockMovements)
+      .innerJoin(checks, eq(checks.id, stockMovements.sourceId))
+      .leftJoin(inventory, eq(inventory.id, stockMovements.itemId))
+      .where(and(
+        eq(stockMovements.sourceType, 'check'), inArray(stockMovements.type, ['sale', 'return']),
+        eq(checks.status, 'closed'), gte(checks.createdAt, start), lt(checks.createdAt, end),
+      )),
+    database
+      .select({ total: cogsSumExpr })
+      .from(stockMovements)
+      .leftJoin(inventory, eq(inventory.id, stockMovements.itemId))
+      .where(and(
+        notCheckSource, inArray(stockMovements.type, ['sale', 'return']),
+        gte(stockMovements.createdAt, start), lt(stockMovements.createdAt, end),
+      )),
+  ])
+  return parseNum(checkRow?.total) + parseNum(otherRow?.total)
+}
+
 // Чистая разбивка за окно [start, end): валовая выручка, возвраты, эквайринг (8%
 // от СБП-переводов), себестоимость проданного, операционные расходы (без ЗП) и ЗП.
 // Возвращает и «грязные», и «чистые» показатели — фронт сам решает, что показывать.
@@ -194,11 +233,8 @@ async function netBreakdown(database: Database, start: Date, end: Date, expFrom:
   // при каждой новой закупке. Продажа: delta<0 → (−delta) добавляет к COGS; возврат
   // (refund/снятие позиции/void): delta>0 → (−delta) вычитает — возвращённый товар
   // проданным не считается. Фолбэк на текущий cost_price для исторических NULL.
-  const [cogsRow] = await database
-    .select({ total: sql<number>`sum((0 - ${stockMovements.delta})::numeric * coalesce(${stockMovements.unitCost}, ${inventory.costPrice}, 0)::numeric)` })
-    .from(stockMovements)
-    .leftJoin(inventory, eq(inventory.id, stockMovements.itemId))
-    .where(and(inArray(stockMovements.type, ['sale', 'return']), gte(stockMovements.createdAt, start), lt(stockMovements.createdAt, end)))
+  // Только закрытые чеки — см. cogsInWindow (иначе открытый счёт давал минус).
+  const cogsTotal = await cogsInWindow(database, start, end)
 
   // Операционные расходы без ЗП (по text-дате expenseDate, YYYY-MM-DD).
   const [opexRow] = await database
@@ -228,7 +264,7 @@ async function netBreakdown(database: Database, start: Date, end: Date, expFrom:
   const clubChecks = cnt - eventChecks
   const refundsTotal = parseNum(refundRow?.total)
   const commission = Math.round(parseNum(sbpRow?.total) * 0.08 * 100) / 100
-  const cogs = parseNum(cogsRow?.total)
+  const cogs = cogsTotal
   const opex = parseNum(opexRow?.total)
   const salary = parseNum(salaryRow?.total)
   // Чистыми считаем: выручка − возвраты − эквайринг − себестоимость − опекс − ЗП.
@@ -318,12 +354,9 @@ analyticsRouter.get('/dashboard', async (c) => {
   // COGS this month — себестоимость ПРОДАННОГО (продажа МИНУС возврат), а не
   // стоимость поставок. Зафиксированная себестоимость на момент списания
   // (stock_movements.unit_cost) с фолбэком на текущий WAC для исторических NULL.
-  // Продажа delta<0 добавляет, возврат delta>0 вычитает → (0 − delta). См. netBreakdown.
-  const [cogsRow] = await db
-    .select({ total: sql<number>`sum((0 - ${stockMovements.delta})::numeric * coalesce(${stockMovements.unitCost}, ${inventory.costPrice}, 0)::numeric)` })
-    .from(stockMovements)
-    .leftJoin(inventory, eq(inventory.id, stockMovements.itemId))
-    .where(and(inArray(stockMovements.type, ['sale', 'return']), gte(stockMovements.createdAt, thirtyDaysAgo)))
+  // Продажа delta<0 добавляет, возврат delta>0 вычитает → (0 − delta). Только
+  // закрытые чеки, окно по дате чека — см. cogsInWindow.
+  const monthCogs = await cogsInWindow(db, thirtyDaysAgo, todayEndBound)
 
   // Expenses this month.
   // ПРАВИЛО ЗАРПЛАТЫ В ПРИБЫЛИ: единственный источник истины по ФОТ — таблица
@@ -390,7 +423,7 @@ analyticsRouter.get('/dashboard', async (c) => {
   const yesterdayRev = parseNum(yesterdayStats?.revenue) - refundsYesterday
   const monthRev = parseNum(monthStats?.revenue) - refundsMonth
   const prevMonthRev = parseNum(prevMonthStats?.revenue) - refundsPrevMonth
-  const cogs = parseNum(cogsRow?.total)
+  const cogs = monthCogs
   // Операционные расходы БЕЗ зарплаты (см. правило выше).
   const opExpenses = parseNum(expensesRow?.total)
   // ФОТ — единственный источник истины.
@@ -603,23 +636,40 @@ analyticsRouter.get('/revenue', zValidator('query', dateRangeQuerySchema), async
     .groupBy(expenses.expenseDate)
 
   // COGS by day — себестоимость ПРОДАННОГО (продажа МИНУС возврат), а не стоимость
-  // поставок. Группировка по БИЗНЕС-ДНЮ движения; зафиксированный unit_cost с
-  // фолбэком на текущий WAC для исторических NULL. Продажа delta<0 добавляет,
-  // возврат delta>0 вычитает → (0 − delta).
+  // поставок. Зафиксированный unit_cost с фолбэком на текущий WAC для исторических
+  // NULL. Продажа delta<0 добавляет, возврат delta>0 вычитает → (0 − delta).
+  // Как в cogsInWindow: движения по чекам — только закрытых чеков и в бизнес-день
+  // ЧЕКА (тот же столбец, что и его выручка; открытый счёт не уводит день в минус);
+  // прочие (возвраты по refunds, исторические) — в бизнес-день движения.
   const smShift = sql`(${stockMovements.createdAt} AT TIME ZONE 'Europe/Moscow') - interval '${sql.raw(String(h))} hours'`
-  const cogsRows = await db
-    .select({
-      date: sql<string>`(${smShift})::date::text`,
-      total: sql<number>`sum((0 - ${stockMovements.delta})::numeric * coalesce(${stockMovements.unitCost}, ${inventory.costPrice}, 0)::numeric)`,
-    })
-    .from(stockMovements)
-    .leftJoin(inventory, eq(inventory.id, stockMovements.itemId))
-    .where(and(
-      inArray(stockMovements.type, ['sale', 'return']),
-      gte(stockMovements.createdAt, fromStart),
-      lt(stockMovements.createdAt, toEndExclusive),
-    ))
-    .groupBy(sql`(${smShift})::date`)
+  const [cogsCheckRows, cogsOtherRows] = await Promise.all([
+    db
+      .select({ date: sql<string>`(${bizShift})::date::text`, total: cogsSumExpr })
+      .from(stockMovements)
+      .innerJoin(checks, eq(checks.id, stockMovements.sourceId))
+      .leftJoin(inventory, eq(inventory.id, stockMovements.itemId))
+      .where(and(
+        eq(stockMovements.sourceType, 'check'), inArray(stockMovements.type, ['sale', 'return']),
+        eq(checks.status, 'closed'), gte(checks.createdAt, fromStart), lt(checks.createdAt, toEndExclusive),
+      ))
+      .groupBy(sql`(${bizShift})::date`),
+    db
+      .select({ date: sql<string>`(${smShift})::date::text`, total: cogsSumExpr })
+      .from(stockMovements)
+      .leftJoin(inventory, eq(inventory.id, stockMovements.itemId))
+      .where(and(
+        notCheckSource, inArray(stockMovements.type, ['sale', 'return']),
+        gte(stockMovements.createdAt, fromStart), lt(stockMovements.createdAt, toEndExclusive),
+      ))
+      .groupBy(sql`(${smShift})::date`),
+  ])
+  const cogsByDay = new Map<string, number>()
+  for (const r of [...cogsCheckRows, ...cogsOtherRows] as any[]) {
+    cogsByDay.set(r.date, (cogsByDay.get(r.date) ?? 0) + parseNum(r.total))
+  }
+  const cogsRows = [...cogsByDay.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([date, total]) => ({ date, total: Math.round(total * 100) / 100 }))
 
   // revenue — уже net-of-refunds по дню; refunds — отдельная серия для фронта.
   const refundsSeries = refRows.map((r: any) => ({ date: r.date, total: parseNum(r.total) }))
@@ -1186,7 +1236,8 @@ analyticsRouter.get('/staff', zValidator('query', dateRangeQuerySchema), async (
   // (stock_movements.unit_cost, фолбэк на текущий WAC для исторических NULL).
   //
   // ВАЖНО про фан-аут: cost считаем ОТДЕЛЬНЫМ запросом по stock_movements (тип
-  // 'sale', source_type='check', source_id=checks.id), а НЕ в одном join с
+  // 'sale' минус 'return' — снятые с чека позиции, source_type='check',
+  // source_id=checks.id), а НЕ в одном join с
   // checkItems — иначе сумма помножилась бы на число позиций/строк. retail (по
   // позициям) и cost (по движениям) собираем двумя запросами и сшиваем в JS.
   const costExpr = sql<number>`sum((0 - ${stockMovements.delta})::numeric * coalesce(${stockMovements.unitCost}, ${inventory.costPrice}, 0)::numeric)`
@@ -1215,7 +1266,7 @@ analyticsRouter.get('/staff', zValidator('query', dateRangeQuerySchema), async (
     .innerJoin(checks, eq(stockMovements.sourceId, checks.id))
     .leftJoin(inventory, eq(inventory.id, stockMovements.itemId))
     .where(and(
-      eq(stockMovements.sourceType, 'check'), eq(stockMovements.type, 'sale'),
+      eq(stockMovements.sourceType, 'check'), inArray(stockMovements.type, ['sale', 'return']),
       eq(checks.status, 'closed'), isNotNull(checks.staffCompId),
       gte(checks.createdAt, pStart), lt(checks.createdAt, pEnd),
     ))
@@ -1249,7 +1300,7 @@ analyticsRouter.get('/staff', zValidator('query', dateRangeQuerySchema), async (
     ? await db.select({ checkId: stockMovements.sourceId, cost: costExpr })
         .from(stockMovements)
         .leftJoin(inventory, eq(inventory.id, stockMovements.itemId))
-        .where(and(eq(stockMovements.sourceType, 'check'), eq(stockMovements.type, 'sale'), inArray(stockMovements.sourceId, compIds)))
+        .where(and(eq(stockMovements.sourceType, 'check'), inArray(stockMovements.type, ['sale', 'return']), inArray(stockMovements.sourceId, compIds)))
         .groupBy(stockMovements.sourceId)
     : []
   const compCostByCheck = new Map<string, number>(compCostRows.map((r: any) => [r.checkId, parseNum(r.cost)]))
@@ -1647,7 +1698,9 @@ analyticsRouter.get('/checks/:id', async (c) => {
   // ТЕКУЩЕМУ inventory.cost_price (WAC), который «плывёт» после каждой закупки и
   // расходится с общим COGS (он на stock_movements.unit_cost). Тянем фактическую
   // себестоимость на момент продажи из движений склада этого чека (sale,
-  // source_type='check'). На товар: sum((−delta)×unit_cost) с фолбэком на текущий
+  // source_type='check'), за вычетом позиций, снятых с чека до закрытия (return) —
+  // кроме отменённого чека, где return гасит всё и показывать было бы нечего.
+  // На товар: sum((−delta)×unit_cost) с фолбэком на текущий
   // WAC для исторических NULL. Если по товару движений нет (не учётный/историч.) —
   // fallback на costPrice×qty ниже.
   const saleMoves = await db
@@ -1657,7 +1710,7 @@ analyticsRouter.get('/checks/:id', async (c) => {
     })
     .from(stockMovements)
     .leftJoin(inventory, eq(inventory.id, stockMovements.itemId))
-    .where(and(eq(stockMovements.sourceType, 'check'), eq(stockMovements.sourceId, id), eq(stockMovements.type, 'sale')))
+    .where(and(eq(stockMovements.sourceType, 'check'), eq(stockMovements.sourceId, id), inArray(stockMovements.type, check.status === 'cancelled' ? ['sale'] : ['sale', 'return'])))
     .groupBy(stockMovements.itemId)
   const fixedCostByItem = new Map<string, number>(saleMoves.map((m: any) => [m.itemId, parseNum(m.cost)]))
   // Суммарное проданное кол-во товара по чеку — чтобы разнести фикс-себестоимость
