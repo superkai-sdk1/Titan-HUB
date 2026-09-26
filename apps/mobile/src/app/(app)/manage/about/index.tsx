@@ -1,8 +1,9 @@
 import Constants from 'expo-constants';
 import { Stack } from 'expo-router';
 import { useState } from 'react';
-import { Alert, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { AppRefreshControl } from '@/components/refresh-control';
 import { AmbientBackdrop } from '@/components/ambient-backdrop';
 import { GlassCard } from '@/components/new-check-parts';
 import { Group, Row } from '@/components/settings-parts';
@@ -95,7 +96,7 @@ export default function AboutScreen() {
       <ScrollView
         contentInsetAdjustmentBehavior="automatic"
         contentContainerStyle={[styles.content, gutter]}
-        refreshControl={<RefreshControl tintColor={colors.accent} refreshing={pulling} onRefresh={refresh} />}>
+        refreshControl={<AppRefreshControl tintColor={colors.accent} refreshing={pulling} onRefresh={refresh} />}>
         <GlassCard style={styles.hero}>
           <Text style={[type.title1, styles.label]}>{context.data?.club?.name ?? club?.name ?? 'Titan HUB'}</Text>
           <Text style={[type.subhead, styles.secondary]}>{club?.host ?? context.data?.club?.slug ?? ''}</Text>

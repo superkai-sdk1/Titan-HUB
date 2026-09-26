@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { FlashList } from '@shopify/flash-list';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import { Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { AppRefreshControl } from '@/components/refresh-control';
 import { money, QueryState } from '@/components/analytics/parts';
 import { AmbientBackdrop } from '@/components/ambient-backdrop';
 import { TierBadge } from '@/components/client-row';
@@ -49,7 +50,7 @@ export default function SegmentScreen() {
         keyExtractor={(p) => p.playerId}
         contentInsetAdjustmentBehavior="automatic"
         contentContainerStyle={[styles.content, gutter]}
-        refreshControl={<RefreshControl tintColor={colors.accent} refreshing={pulling} onRefresh={refresh} />}
+        refreshControl={<AppRefreshControl tintColor={colors.accent} refreshing={pulling} onRefresh={refresh} />}
         ListHeaderComponent={
           <View style={styles.header}>
             <Text style={[type.subhead, styles.secondary]}>{TITLES[key].caption}</Text>

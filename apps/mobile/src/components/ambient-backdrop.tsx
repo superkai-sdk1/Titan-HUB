@@ -1,5 +1,10 @@
-import type { ReactNode } from 'react';
-import { StyleSheet, useColorScheme, View, type LayoutChangeEvent, type StyleProp, type ViewStyle } from 'react-native';
+import { BlurTargetView } from 'expo-blur';
+import { NavigationRouteContext } from 'expo-router/react-navigation';
+import { useContext, useEffect, useRef, type ReactNode } from 'react';
+import { Platform, StyleSheet, useColorScheme, View, type LayoutChangeEvent, type StyleProp, type ViewStyle } from 'react-native';
+
+import { useBlurTargets } from '@/lib/blur-targets';
+import { colors } from '@/lib/theme';
 
 /**
  * Фирменный фон под стеклянными карточками — и одновременно корневой контейнер экрана.
@@ -21,15 +26,53 @@ export function AmbientBackdrop({
   onLayout?: (event: LayoutChangeEvent) => void;
 }) {
   const dark = useColorScheme() === 'dark';
+  if (Platform.OS === 'android') return <AndroidBackdrop style={style} onLayout={onLayout} dark={dark}>{children}</AndroidBackdrop>;
   return (
-    <View style={[styles.fill, dark ? styles.dark : styles.light, style]} onLayout={onLayout}>
+    <View style={[styles.fill, dark ? backdropGradient.dark : backdropGradient.light, style]} onLayout={onLayout}>
       {children}
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  fill: { flex: 1 },
+/**
+ * Android: фон экрана — ещё и цель размытия для прозрачной шапки (components/header-glass).
+ * Шапка размывает уехавший под неё контент, как UIScrollEdgeEffect на iOS.
+ */
+function AndroidBackdrop({
+  children,
+  style,
+  onLayout,
+  dark,
+}: {
+  children?: ReactNode;
+  style?: StyleProp<ViewStyle>;
+  onLayout?: (event: LayoutChangeEvent) => void;
+  dark: boolean;
+}) {
+  const route = useContext(NavigationRouteContext);
+  const target = useRef<View>(null);
+  const key = route?.key;
+
+  useEffect(() => {
+    if (!key) return;
+    const { register, unregister } = useBlurTargets.getState();
+    register(key, target);
+    return () => unregister(key, target);
+  }, [key]);
+
+  return (
+    // Фон страницы — внутри цели: движок размытия не видит фон окна под ней и подставил бы
+    // серый, отчего шапка светлела и «отрывалась» от экрана.
+    <BlurTargetView ref={target} style={[styles.fill, styles.page]}>
+      <View style={[styles.fill, dark ? backdropGradient.dark : backdropGradient.light, style]} onLayout={onLayout}>
+        {children}
+      </View>
+    </BlurTargetView>
+  );
+}
+
+/** Градиент фона. Его же рисует шапка Android (components/header-glass) — шапка продолжает фон экрана. */
+export const backdropGradient = StyleSheet.create({
   light: {
     experimental_backgroundImage:
       'radial-gradient(circle at 8% 4%, rgba(139,92,246,0.30) 0%, rgba(139,92,246,0) 42%), ' +
@@ -44,4 +87,9 @@ const styles = StyleSheet.create({
       'radial-gradient(circle at 18% 70%, rgba(139,92,246,0.32) 0%, rgba(139,92,246,0) 40%), ' +
       'radial-gradient(circle at 88% 92%, rgba(56,189,248,0.20) 0%, rgba(56,189,248,0) 36%)',
   },
+});
+
+const styles = StyleSheet.create({
+  fill: { flex: 1 },
+  page: { backgroundColor: colors.groupedBackground },
 });

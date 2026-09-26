@@ -1,8 +1,9 @@
 import { Stack, useRouter } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import { useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { AppRefreshControl } from '@/components/refresh-control';
 import { BottomSearch, useSearchClearance } from '@/components/bottom-search';
 import { AmbientBackdrop } from '@/components/ambient-backdrop';
 import { MenuItemRow } from '@/components/menu-item-row';
@@ -71,7 +72,7 @@ export default function MenuAdminScreen() {
         keyboardDismissMode="on-drag"
         keyboardShouldPersistTaps="handled"
         automaticallyAdjustKeyboardInsets
-        refreshControl={<RefreshControl tintColor={colors.accent} refreshing={pulling} onRefresh={refresh} />}>
+        refreshControl={<AppRefreshControl tintColor={colors.accent} refreshing={pulling} onRefresh={refresh} />}>
         {!data ? (
           menu.isError ? (
             <View style={styles.empty}>

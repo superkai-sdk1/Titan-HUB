@@ -18,6 +18,10 @@ import { create } from 'zustand';
 export type DialogButton = {
   text: string;
   style?: 'default' | 'cancel' | 'destructive';
+  /** SF Symbol для строки в шторке действий Android. */
+  icon?: string;
+  /** Отметка выбранного (сортировка и т.п.). */
+  checked?: boolean;
   /** Для диалога с полем приходит введённый текст. */
   onPress?: (value?: string) => void;
 };
@@ -79,4 +83,17 @@ export function chooseAction(title: string, message: string | undefined, buttons
     return;
   }
   useDialogStore.getState().push({ kind: 'choices', title, message, buttons });
+}
+
+/**
+ * Список действий (меню «…» в шапке на Android): всегда списком, даже из двух пунктов —
+ * системный AlertDialog расставил бы их кнопками в ряд. На iOS меню шапки нативные,
+ * эта функция там не нужна, но работает как Alert.
+ */
+export function showActionList(title: string, buttons: DialogButton[]): void {
+  if (Platform.OS === 'ios') {
+    Alert.alert(title, undefined, buttons as AlertButton[], { cancelable: true });
+    return;
+  }
+  useDialogStore.getState().push({ kind: 'choices', title, buttons });
 }

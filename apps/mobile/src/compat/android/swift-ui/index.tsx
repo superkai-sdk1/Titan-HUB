@@ -12,6 +12,7 @@ import {
   type ColorValue, type StyleProp, type TextStyle, type ViewStyle,
 } from 'react-native';
 
+import { useAutoFocus } from '@/lib/auto-focus';
 import { colors, radius, space } from '@/lib/theme';
 
 import { SymbolView } from '../symbols';
@@ -442,6 +443,7 @@ function Field({ secure, ...props }: FieldProps & { secure?: boolean }) {
   const bound = typeof props.text === 'object' && props.text !== null ? props.text : null;
   const initial = bound ? bound.value : (typeof props.text === 'string' ? props.text : props.defaultValue);
   const [value, setValue] = useState(initial ?? '');
+  const focus = useAutoFocus(!!props.autoFocus);
   // Обратно в наблюдаемое состояние не пишем: в SwiftUI биндинг задаёт полю начальное
   // значение, а дальше текст уходит через onTextChange — так он и используется в проекте.
   return (
@@ -450,7 +452,7 @@ function Field({ secure, ...props }: FieldProps & { secure?: boolean }) {
       value={value}
       placeholder={props.placeholder}
       placeholderTextColor={colors.tertiaryLabel}
-      autoFocus={props.autoFocus}
+      {...focus}
       editable={!m.disabled}
       multiline={props.multiline}
       numberOfLines={props.numberOfLines}

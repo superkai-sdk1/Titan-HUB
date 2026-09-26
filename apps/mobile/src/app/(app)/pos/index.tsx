@@ -246,9 +246,9 @@ export default function PosScreen() {
           onLongPress={() => {
             haptic.medium();
             chooseAction(item.title, undefined, [
-              { text: 'Добавить позицию', onPress: () => router.push({ pathname: '/pos/menu', params: { checkId: item.id } }) },
-              { text: 'Оплатить', onPress: () => router.push({ pathname: '/pay', params: { checkId: item.id } }) },
-              { text: 'Чат с кабинкой', onPress: () => router.push({ pathname: '/pos/chat', params: { checkId: item.id } }) },
+              { text: 'Добавить позицию', icon: 'plus.circle', onPress: () => router.push({ pathname: '/pos/menu', params: { checkId: item.id } }) },
+              { text: 'Оплатить', icon: 'creditcard', onPress: () => router.push({ pathname: '/pay', params: { checkId: item.id } }) },
+              { text: 'Чат с кабинкой', icon: 'bubble.left', onPress: () => router.push({ pathname: '/pos/chat', params: { checkId: item.id } }) },
               { text: 'Отмена', style: 'cancel' },
             ]);
           }}

@@ -1,7 +1,8 @@
 import { Stack } from 'expo-router';
 import { useState } from 'react';
-import { Alert, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { AppRefreshControl } from '@/components/refresh-control';
 import { AmbientBackdrop } from '@/components/ambient-backdrop';
 import { GlassChip } from '@/components/new-check-parts';
 import { Group, promptValue, Row, SwitchRow, useSettingsEditor } from '@/components/settings-parts';
@@ -66,7 +67,7 @@ export default function SettingsScreen() {
       <ScrollView
         contentInsetAdjustmentBehavior="automatic"
         contentContainerStyle={[styles.content, gutter]}
-        refreshControl={<RefreshControl tintColor={colors.accent} refreshing={pulling} onRefresh={refresh} />}>
+        refreshControl={<AppRefreshControl tintColor={colors.accent} refreshing={pulling} onRefresh={refresh} />}>
         <Group title="Заведение" footer="Название и адрес попадают в чеки и приглашения гостям.">
           <Row icon="house" color="#8B5CF6" title="Название" value={settings.text('venue_name', 'не указано')} onPress={() => editText('venue_name', 'Название клуба', 'Как клуб называется для гостей')} />
           <Row icon="mappin.and.ellipse" color="#F43F5E" title="Адрес" value={settings.text('venue_address', 'не указан')} onPress={() => editText('venue_address', 'Адрес', 'Улица и дом')} />

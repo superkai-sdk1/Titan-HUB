@@ -1,7 +1,8 @@
 import { Stack } from 'expo-router';
 import { useState } from 'react';
-import { ActivityIndicator, Alert, RefreshControl, ScrollView, Share, StyleSheet, Text } from 'react-native';
+import { ActivityIndicator, Alert, ScrollView, Share, StyleSheet, Text } from 'react-native';
 
+import { AppRefreshControl } from '@/components/refresh-control';
 import { AmbientBackdrop } from '@/components/ambient-backdrop';
 import { Group, promptValue, Row, SwitchRow, useSettingsEditor } from '@/components/settings-parts';
 import { api } from '@/lib/api';
@@ -79,7 +80,7 @@ export default function NotificationsScreen() {
       <ScrollView
         contentInsetAdjustmentBehavior="automatic"
         contentContainerStyle={[styles.content, gutter]}
-        refreshControl={<RefreshControl tintColor={colors.accent} refreshing={pulling} onRefresh={refresh} />}>
+        refreshControl={<AppRefreshControl tintColor={colors.accent} refreshing={pulling} onRefresh={refresh} />}>
         <Group title="Telegram" footer={telegramLinked ? 'Отмеченные события придут и в Telegram.' : 'Привяжите Telegram, чтобы получать события ещё и туда.'}>
           <Row icon="paperplane" color="#0EA5E9" title={telegramLinked ? 'Telegram привязан' : 'Привязать Telegram'} value={telegramLinked ? 'готово' : undefined} onPress={linkTelegram} />
         </Group>

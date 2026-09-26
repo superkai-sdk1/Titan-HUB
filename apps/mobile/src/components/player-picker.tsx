@@ -6,6 +6,7 @@ import Animated, { FadeIn } from 'react-native-reanimated';
 import { GlassView } from '@/components/glass';
 import { ClearButton } from '@/components/clear-button';
 import { Avatar, BalanceChips, GlassCard, sheetStyles } from '@/components/new-check-parts';
+import { useAutoFocus } from '@/lib/auto-focus';
 import { formatMoney } from '@/lib/format';
 import { haptic } from '@/lib/haptics';
 import { preselectTariff, sortTariffs, TIER_LABEL, usePlayerSearch, useTariffs, type PlayerSearchItem, type Tariff } from '@/lib/pos-api';
@@ -51,6 +52,7 @@ export function PlayerSearch({
   const players = (search.data ?? []).filter((p) => p.id !== excludeId && !excludeIds?.includes(p.id));
   const typing = trimmed.length > 0;
   const waiting = typing && (debounced !== trimmed || search.isLoading);
+  const focus = useAutoFocus();
 
   return (
     // column-reverse: поле поиска внизу блока, у клавиатуры, результаты растут вверх —
@@ -59,7 +61,7 @@ export function PlayerSearch({
       <GlassView style={styles.searchField}>
         <SymbolView name="magnifyingglass" size={16} weight="medium" tintColor={colors.secondaryLabel} />
         <TextInput
-          autoFocus
+          {...focus}
           value={query}
           onChangeText={onQuery}
           placeholder="Ник, имя или @telegram"

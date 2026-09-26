@@ -1,5 +1,5 @@
 import { SymbolView } from 'expo-symbols';
-import { StyleSheet, TextInput, View } from 'react-native';
+import { Platform, StyleSheet, TextInput, View } from 'react-native';
 import { KeyboardStickyView } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -51,7 +51,7 @@ export function BottomSearch({
     // С клавиатурой капсула садится прямо на неё: offset возвращает отступ, который занят снизу.
     <KeyboardStickyView offset={{ closed: 0, opened: bottom - space.sm }} style={[styles.sticky, { bottom }]}>
       <View pointerEvents="box-none">
-        <GlassView style={styles.field}>
+        <GlassView style={[styles.field, Platform.OS === 'android' && styles.fieldAndroid]}>
           <SymbolView name="magnifyingglass" size={16} weight="medium" tintColor={colors.secondaryLabel} />
           <TextInput
             value={value}
@@ -76,5 +76,8 @@ export function BottomSearch({
 const styles = StyleSheet.create({
   sticky: { position: 'absolute', left: space.lg, right: space.lg },
   field: { flexDirection: 'row', alignItems: 'center', gap: space.sm, height: SEARCH_HEIGHT, paddingHorizontal: space.lg, borderRadius: SEARCH_HEIGHT / 2 },
+  // Android: стекла нет, полупрозрачная капсула сливалась со строками списка под ней —
+  // непрозрачная, с тенью, как панель вкладок.
+  fieldAndroid: { backgroundColor: colors.floating, elevation: 8, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.separator },
   input: { flex: 1, color: colors.label, height: SEARCH_HEIGHT },
 });

@@ -1,11 +1,12 @@
 import { Host, Picker, Text as SwiftText } from '@expo/ui/swift-ui';
+import { AppRefreshControl } from '@/components/refresh-control';
 import { GlassView } from '@/components/glass';
 import { BottomSearch, useSearchClearance } from '@/components/bottom-search';
 import { pickerStyle, tag } from '@expo/ui/swift-ui/modifiers';
 import { Stack, useRouter } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import { useState } from 'react';
-import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Animated, { FadeIn, LayoutAnimationConfig } from 'react-native-reanimated';
 import type { SFSymbol } from 'sf-symbols-typescript';
 
@@ -83,7 +84,7 @@ export default function InventoryScreen() {
         keyboardDismissMode="on-drag"
         keyboardShouldPersistTaps="handled"
         automaticallyAdjustKeyboardInsets
-        refreshControl={<RefreshControl tintColor={colors.accent} refreshing={pulling} onRefresh={refresh} />}>
+        refreshControl={<AppRefreshControl tintColor={colors.accent} refreshing={pulling} onRefresh={refresh} />}>
         <GlassCard style={styles.summary}>
           <View style={styles.summaryTop}>
             <View style={styles.flex}>

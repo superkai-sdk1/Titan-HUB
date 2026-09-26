@@ -3,10 +3,11 @@ import { buttonBorderShape, buttonStyle, controlSize, labelStyle, menuStyle, pic
 import { Link, useRouter } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Animated, { FadeIn, FadeOut, LayoutAnimationConfig, LinearTransition } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { AppRefreshControl } from '@/components/refresh-control';
 import { AmbientBackdrop } from '@/components/ambient-backdrop';
 import { syncEventsToCalendar } from '@/lib/calendar-sync';
 import { calendarSyncDue, markCalendarSynced, useDevicePrefs } from '@/lib/device-prefs';
@@ -153,7 +154,7 @@ export default function EventsScreen() {
       <ScrollView
         contentInsetAdjustmentBehavior="never"
         contentContainerStyle={[styles.content, gutter, { paddingTop: insets.top }]}
-        refreshControl={<RefreshControl tintColor={colors.accent} progressViewOffset={insets.top} refreshing={pulling} onRefresh={refresh} />}>
+        refreshControl={<AppRefreshControl tintColor={colors.accent} progressViewOffset={insets.top} refreshing={pulling} onRefresh={refresh} />}>
         <View style={styles.header}>
           <View style={styles.flex}>
             <Text style={[type.largeTitle, styles.label]}>События</Text>

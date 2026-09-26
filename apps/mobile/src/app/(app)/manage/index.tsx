@@ -1,9 +1,10 @@
 import { useRouter, type Href } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import { useState } from 'react';
-import { Alert, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View, type ColorValue } from 'react-native';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View, type ColorValue } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { AppRefreshControl } from '@/components/refresh-control';
 import { AmbientBackdrop } from '@/components/ambient-backdrop';
 import { Avatar, GlassCard } from '@/components/new-check-parts';
 import { haptic } from '@/lib/haptics';
@@ -93,7 +94,7 @@ export default function ManageScreen() {
       <ScrollView
         contentInsetAdjustmentBehavior="never"
         contentContainerStyle={[styles.content, gutter, { paddingTop: insets.top }]}
-        refreshControl={<RefreshControl tintColor={colors.accent} progressViewOffset={insets.top} refreshing={pulling} onRefresh={refresh} />}>
+        refreshControl={<AppRefreshControl tintColor={colors.accent} progressViewOffset={insets.top} refreshing={pulling} onRefresh={refresh} />}>
         <Text style={[type.largeTitle, styles.label, styles.title]}>Управление</Text>
 
         <GlassCard style={styles.profile}>

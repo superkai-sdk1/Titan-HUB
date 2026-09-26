@@ -1,3 +1,5 @@
+import { HeaderHeightContext } from 'expo-router/react-navigation';
+import { useContext } from 'react';
 import { Dimensions, Platform, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -29,10 +31,11 @@ export const MAX_CONTENT_WIDTH = 760;
  * Возвращает paddingLeft/paddingRight — они приоритетнее paddingHorizontal в стилях,
  * поэтому достаточно добавить объект в конец `contentContainerStyle`.
  */
-export function usePageGutter(): { paddingLeft: number; paddingRight: number; paddingBottom?: number } {
+export function usePageGutter(): { paddingLeft: number; paddingRight: number; paddingBottom?: number; paddingTop?: number } {
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const tabBar = useTabBarClearance();
+  const headerTop = useHeaderClearance();
   const column = Math.max(space.lg, Math.round((width - MAX_CONTENT_WIDTH) / 2));
   return {
     paddingLeft: Math.max(column, insets.left + space.lg),
@@ -42,7 +45,18 @@ export function usePageGutter(): { paddingLeft: number; paddingRight: number; pa
     ...(IS_PAD ? { paddingBottom: insets.bottom + space.xxxl } : {}),
     // Android: контент прокручивается под плавающей панелью — последняя строка над ней.
     ...(tabBar > 0 ? { paddingBottom: tabBar + space.xl } : {}),
+    // Android: шапка прозрачная (components/header-glass), контент начинается под ней.
+    ...(headerTop > 0 ? { paddingTop: headerTop } : {}),
   };
+}
+
+/**
+ * Отступ под прозрачную шапку на Android: её высота плюс небольшой просвет. На iOS — 0,
+ * там отступ даёт contentInsetAdjustmentBehavior. У экранов без шапки высота 0.
+ */
+export function useHeaderClearance(): number {
+  const headerHeight = useContext(HeaderHeightContext) ?? 0;
+  return Platform.OS === 'android' && headerHeight > 0 ? headerHeight + space.sm : 0;
 }
 
 /** С какой ширины окна касса показывает правую панель чека. */

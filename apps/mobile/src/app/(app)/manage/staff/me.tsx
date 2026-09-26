@@ -1,7 +1,8 @@
 import { Stack, useRouter } from 'expo-router';
 import { useState } from 'react';
-import { ActivityIndicator, Alert, Linking, Pressable, RefreshControl, ScrollView, StyleSheet, Text } from 'react-native';
+import { ActivityIndicator, Alert, Linking, Pressable, ScrollView, StyleSheet, Text } from 'react-native';
 
+import { AppRefreshControl } from '@/components/refresh-control';
 import { AmbientBackdrop } from '@/components/ambient-backdrop';
 import { Avatar, DangerRow, GlassCard } from '@/components/new-check-parts';
 import { Group, promptValue, Row, SwitchRow } from '@/components/settings-parts';
@@ -143,7 +144,7 @@ export default function MyProfileScreen() {
       <ScrollView
         contentInsetAdjustmentBehavior="automatic"
         contentContainerStyle={[styles.content, gutter]}
-        refreshControl={<RefreshControl tintColor={colors.accent} refreshing={pulling} onRefresh={refresh} />}>
+        refreshControl={<AppRefreshControl tintColor={colors.accent} refreshing={pulling} onRefresh={refresh} />}>
         <GlassCard style={styles.hero}>
           <Pressable onPress={changePhoto} accessibilityRole="button" accessibilityLabel="Сменить фото">
             <Avatar name={profile?.nickname ?? '··'} photoUrl={profile?.photoUrl} size={72} />

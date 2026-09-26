@@ -10,6 +10,7 @@ import Animated, { FadeInLeft, FadeInRight, FadeOut, LayoutAnimationConfig } fro
 import { GlassCard, PrimaryButton, QuickTile, SheetHeader, sheetStyles } from '@/components/new-check-parts';
 import { PlayerCard, PlayerSearch, TariffGrid, useTariffChoice } from '@/components/player-picker';
 import { api } from '@/lib/api';
+import { useAutoFocus } from '@/lib/auto-focus';
 import { formatMoney } from '@/lib/format';
 import { haptic } from '@/lib/haptics';
 import { createCheckErrorMessage, openCreatedCheck } from '@/lib/new-check';
@@ -183,6 +184,7 @@ function ClientStep({
   });
 
   const busy = newClient.isPending || creatingCheck;
+  const focus = useAutoFocus();
   const canSubmit = nickname.trim().length >= 2 && !busy;
   const submit = () => {
     if (!canSubmit) return;
@@ -194,7 +196,7 @@ function ClientStep({
     <View style={styles.stepGap}>
       <GlassCard style={styles.field}>
         <TextInput
-          autoFocus
+          {...focus}
           value={nickname}
           onChangeText={setNickname}
           placeholder="Ник клиента"

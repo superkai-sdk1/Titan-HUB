@@ -154,8 +154,8 @@ function SupplyEditor({ mode, sourceId, initialLines }: { mode: Mode; sourceId: 
             { text: 'Не сохранять', style: 'destructive', onPress: leave },
           ]
         : [
-            ...(valid ? [{ text: 'Провести закупку', onPress: () => void submit().then((ok) => ok && leave()) }] : []),
-            { text: 'Сохранить черновик', onPress: () => void saveDraft().then((ok) => ok && leave()) },
+            ...(valid ? [{ text: 'Провести закупку', icon: 'checkmark.seal', onPress: () => void submit().then((ok) => ok && leave()) }] : []),
+            { text: 'Сохранить черновик', icon: 'tray.and.arrow.down', onPress: () => void saveDraft().then((ok) => ok && leave()) },
             { text: 'Не сохранять', style: 'destructive' as const, onPress: leave },
             { text: 'Остаться', style: 'cancel' as const },
           ],

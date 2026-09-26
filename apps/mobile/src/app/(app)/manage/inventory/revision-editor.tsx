@@ -125,9 +125,10 @@ function RevisionEditor({ draftId, items, initialLines }: { draftId: string | un
     if (leaving.current) return navigation.dispatch(data.action);
     const leave = () => navigation.dispatch(data.action);
     chooseAction('Ревизия не проведена', 'Сохранить перед выходом?', [
-      ...(filled.length > 0 ? [{ text: 'Провести ревизию', onPress: () => void apply().then((id) => id && leave()) }] : []),
+      ...(filled.length > 0 ? [{ text: 'Провести ревизию', icon: 'checkmark.seal', onPress: () => void apply().then((id) => id && leave()) }] : []),
       {
         text: 'Сохранить черновик',
+        icon: 'tray.and.arrow.down',
         onPress: () =>
           void saveRevisionDraft(draftId, payload)
             .then(() => {

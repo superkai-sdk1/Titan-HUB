@@ -1,9 +1,10 @@
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import { useState } from 'react';
-import { ActivityIndicator, Alert, Linking, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { SFSymbol } from 'sf-symbols-typescript';
 
+import { AppRefreshControl } from '@/components/refresh-control';
 import { GlassView } from '@/components/glass';
 import { AmbientBackdrop } from '@/components/ambient-backdrop';
 import { MinicapLineup } from '@/components/minicap-lineup';
@@ -185,7 +186,7 @@ export default function EventScreen() {
         contentInsetAdjustmentBehavior="automatic"
         contentContainerStyle={[styles.content, gutter]}
         showsVerticalScrollIndicator={false}
-        refreshControl={<RefreshControl tintColor={colors.accent} refreshing={pulling} onRefresh={refresh} />}>
+        refreshControl={<AppRefreshControl tintColor={colors.accent} refreshing={pulling} onRefresh={refresh} />}>
         <View style={styles.hero}>
           <View style={[styles.kind, { backgroundColor: `${kind.color}24` }]}>
             <SymbolView name={kind.symbol} size={13} weight="semibold" tintColor={kind.color} />

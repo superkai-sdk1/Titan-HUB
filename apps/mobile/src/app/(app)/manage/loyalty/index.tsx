@@ -2,9 +2,10 @@ import { Host, Picker, Text as SwiftText } from '@expo/ui/swift-ui';
 import { pickerStyle, tag } from '@expo/ui/swift-ui/modifiers';
 import { Stack, useRouter } from 'expo-router';
 import { useState } from 'react';
-import { Alert, RefreshControl, ScrollView, Share, StyleSheet, Text } from 'react-native';
+import { Alert, ScrollView, Share, StyleSheet, Text } from 'react-native';
 import Animated, { FadeIn, LayoutAnimationConfig } from 'react-native-reanimated';
 
+import { AppRefreshControl } from '@/components/refresh-control';
 import { AmbientBackdrop } from '@/components/ambient-backdrop';
 import { PrimaryButton } from '@/components/new-check-parts';
 import { Group, ListNote, promptValue, Row, SwitchRow, useSettingsEditor } from '@/components/settings-parts';
@@ -132,7 +133,7 @@ export default function LoyaltyScreen() {
       <ScrollView
         contentInsetAdjustmentBehavior="automatic"
         contentContainerStyle={[styles.content, gutter]}
-        refreshControl={<RefreshControl tintColor={colors.accent} refreshing={pulling} onRefresh={refresh} />}>
+        refreshControl={<AppRefreshControl tintColor={colors.accent} refreshing={pulling} onRefresh={refresh} />}>
         <Host matchContents={{ vertical: true }} style={styles.segment}>
           <Picker
             selection={tab}

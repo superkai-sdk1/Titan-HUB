@@ -1,0 +1,14 @@
+diff --git a/node_modules/expo-blur/android/src/main/java/expo/modules/blur/ExpoBlurView.kt b/node_modules/expo-blur/android/src/main/java/expo/modules/blur/ExpoBlurView.kt
+index 71344c8..6abdb5e 100644
+--- a/node_modules/expo-blur/android/src/main/java/expo/modules/blur/ExpoBlurView.kt
++++ b/node_modules/expo-blur/android/src/main/java/expo/modules/blur/ExpoBlurView.kt
+@@ -159,7 +159,8 @@ class ExpoBlurView(context: Context, appContext: AppContext) : ExpoView(context,
+     val dimezisBlurTarget = blurTarget?.blurTargetView
+       ?: throw BlurViewConfigurationException("The BlurView targeting blur target with id: $blurTargetId couldn't find the target")
+ 
+-    blurView.setupWith(dimezisBlurTarget)
++    // Titan HUB: без «синего шума» BlurView — он серил и зернил размытие шапки (patches/).
++    blurView.setupWith(dimezisBlurTarget, 4f, false)
+       .setFrameClearDrawable(decorView.background)
+       .setBlurRadius(blurRadius / blurReduction)
+ 

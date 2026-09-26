@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { AppRefreshControl } from '@/components/refresh-control';
 import { KpiTile, money, QueryState, SectionTitle, TileGrid } from '@/components/analytics/parts';
 import { AmbientBackdrop } from '@/components/ambient-backdrop';
 import { TierBadge } from '@/components/client-row';
@@ -41,7 +42,7 @@ export default function PlayerAnalyticsScreen() {
     <AmbientBackdrop style={styles.screen}>
       <Stack.Title>{data?.profile.nickname ?? 'Игрок'}</Stack.Title>
       <ScrollView contentInsetAdjustmentBehavior="automatic" contentContainerStyle={[styles.content, gutter]}
-        refreshControl={<RefreshControl tintColor={colors.accent} refreshing={pulling} onRefresh={refresh} />}>
+        refreshControl={<AppRefreshControl tintColor={colors.accent} refreshing={pulling} onRefresh={refresh} />}>
         <QueryState loading={!data} error={card.error}>
           {data && (
             <>
