@@ -10,14 +10,18 @@
     "icon": "./assets/images/icon.png",
     "ios": {
       "bundleIdentifier": "ru.titan.resident",
-      "buildNumber": "1",
+      "buildNumber": "2",
       "appleTeamId": "G99YH9UK8C",
-      "supportsTablet": true,
+      "supportsTablet": false,
       "infoPlist": {
         "CFBundleDevelopmentRegion": "ru",
-        "CFBundleLocalizations": ["ru"],
+        "CFBundleLocalizations": [
+          "ru"
+        ],
         "ITSAppUsesNonExemptEncryption": false,
-        "LSApplicationQueriesSchemes": ["tg"]
+        "LSApplicationQueriesSchemes": [
+          "tg"
+        ]
       }
     },
     "android": {
@@ -70,7 +74,8 @@
           "microphonePermission": false
         }
       ],
-      "./plugins/with-android-queries"
+      "./plugins/with-android-queries",
+      "./plugins/with-scene-lifecycle"
     ],
     "extra": {
       "apiUrl": "https://titanpos.ru"
