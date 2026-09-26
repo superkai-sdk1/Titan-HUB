@@ -9,6 +9,7 @@ Titan Resident — клиентское приложение клуба (iOS + A
 - Оформление фирменное тёмное (как веб-кошелёк `apps/wallet`) и ОДИНАКОВОЕ на обеих платформах: цвета из `src/lib/theme.ts`, без PlatformColor, SwiftUI и слоя совместимости `apps/mobile`.
 - Нативные папки `ios/` и `android/` не хранятся в git — они генерируются `npx expo prebuild` из `app.json` и `plugins/`.
 - Все запросы идут через `src/lib/api.ts`; в демо-режиме их обслуживает `src/lib/demo.ts`. Новый эндпоинт → добавить его и в демо, иначе демо покажет ошибку.
+- **iOS 27: плагин `plugins/with-scene-lifecycle` обязателен.** Без жизненного цикла UIScene сборка Xcode 27 мгновенно падает на устройствах с iOS 27 (`_UIApplicationEvaluateRuntimeIssueForNoSceneLifecycleAdoption`). Симулятор iOS 26 этого не ловит — проверять на iOS 27.
 - Деньги не проводятся офлайн и не ставятся в очередь: оплата — только онлайн-платёж через сервер, зачисление по вебхуку банка.
 - ESLint (правила React Compiler) держать чистым: shared value через `.set()`, без setState/записи в ref во время рендера, опрос и таймеры — через `useEffectEvent`.
 

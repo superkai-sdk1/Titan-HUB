@@ -3,7 +3,7 @@
 Приложение для клиентов клуба на iOS и Android: бонусы, депозит и долг, история операций, онлайн-оплата через СБП (депозит, долг, фонд клуба и разовые сборы) и уведомления. Expo SDK 57 (React Native 0.86), без WebView.
 
 - **Код:** `apps/client`
-- **iOS:** `ru.titan.resident`, команда Apple `G99YH9UK8C`
+- **iOS:** `ru.titan.resident` (только iPhone), команда Apple `G99YH9UK8C`, App Store Connect app id `6816426909`, TestFlight-группа «Titan Team»
 - **Android:** `ru.titan.resident`
 - **Сервер:** основной клуб `https://titanpos.ru` (`extra.apiUrl` в `app.json`)
 - **Вход:** Telegram-бот кошелька `@titanwalletrobot`
@@ -76,7 +76,7 @@
    - Android — загрузить ключ FCM V1 из проекта Firebase и положить `google-services.json` рядом с `app.json`, указав путь в `android.googleServicesFile`.
 
    Без этого push не приходят, но лента уведомлений и сообщения бота работают. Необязательно: `EXPO_ACCESS_TOKEN` в окружение API — включает защищённый режим Expo Push.
-2. **App Store Connect:** создать приложение «Titan Resident» с Bundle ID `ru.titan.resident`. API Apple создавать записи приложений не умеет, это делается вручную в вебе. Затем `npm run ios:testflight`.
+2. **App Store Connect:** приложение создано и заполнено (тексты, скриншоты, рейтинг 4+, App Privacy, бесплатно во всех странах). Новые сборки — `npm run ios:testflight`; в `app.json` включён плагин `with-scene-lifecycle` (обязателен для iOS 27).
 3. **Проверка App Store:** в заметках для проверяющего указать, что вход только через Telegram клуба, а полное демо открывается кнопкой «Посмотреть демо».
 
 ## Сборка
