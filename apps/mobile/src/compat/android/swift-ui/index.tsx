@@ -29,6 +29,9 @@ const TintContext = createContext<ColorValue>(colors.accent);
  */
 const MenuCloseContext = createContext<(() => void) | null>(null);
 
+/** Текст в подписи секции — мелкий и серый, как footer у SwiftUI Section. */
+const FootnoteContext = createContext(false);
+
 /** Оттенок берётся из seedColor ближайшего Host, если компонент не задал свой. */
 function useTint(own?: ColorValue): ColorValue {
   const inherited = useContext(TintContext);
@@ -75,7 +78,8 @@ export function Spacer({ modifiers }: Mods) {
 
 export function Text({ children, modifiers, style }: Mods & WithChildren & { style?: StyleProp<TextStyle> }) {
   const m = resolve(modifiers);
-  return <RNText style={[styles.text, m.text, style]}>{children}</RNText>;
+  const footnote = useContext(FootnoteContext);
+  return <RNText style={[styles.text, footnote && styles.footnote, m.text, style]}>{children}</RNText>;
 }
 
 /** SwiftUI Image(systemName:) — SF Symbol; на Android его рисует наш SymbolView. */
@@ -195,6 +199,32 @@ export function Picker({ selection, onSelectionChange, options, modifiers, child
           ))}
         </Sheet>
       </>
+    );
+  }
+
+  // inline — как в SwiftUI-форме: варианты строками, выбранный отмечен галочкой.
+  // Раньше рисовался сегмент, и пять вечеров при открытии смены сжимались до «Спортивн…».
+  if (m.pickerStyle === 'inline') {
+    return (
+      <View style={m.style}>
+        {items.map((item, index) => {
+          const active = item.value === selection;
+          return (
+            <View key={index}>
+              {index > 0 ? <View style={styles.separator} /> : null}
+              <Pressable
+                disabled={m.disabled}
+                onPress={() => change?.(item.value)}
+                style={({ pressed }) => [styles.listRow, pressed && styles.pressed]}
+                accessibilityRole="radio"
+                accessibilityState={{ selected: active }}>
+                <RNText style={[styles.text, styles.rowLabel]}>{item.label}</RNText>
+                {active ? <SymbolView name="checkmark" size={17} tintColor={tint} /> : null}
+              </Pressable>
+            </View>
+          );
+        })}
+      </View>
     );
   }
 
@@ -340,10 +370,13 @@ export function DatePicker({ title, selection, displayedComponents = 'date', onD
                     key={index}
                     disabled={day == null || off}
                     onPress={() => day != null && pickDay(day)}
-                    style={[styles.dayCell, chosen && { backgroundColor: tint }]}>
-                    <RNText style={[styles.text, styles.dayText, off && styles.dayTextOff, chosen && styles.dayTextChosen]}>
-                      {day ?? ''}
-                    </RNText>
+                    style={styles.dayCell}>
+                    {/* Кружок фиксированного размера: у ячейки ширина в процентах, и фон растягивался в овал. */}
+                    <View style={[styles.dayDot, chosen && { backgroundColor: tint }]}>
+                      <RNText style={[styles.text, styles.dayText, off && styles.dayTextOff, chosen && styles.dayTextChosen]}>
+                        {day ?? ''}
+                      </RNText>
+                    </View>
                   </Pressable>
                 );
               })}
@@ -514,7 +547,11 @@ export function Section({ title, footer, children, modifiers }: Mods & WithChild
     <View style={[styles.section, m.style]}>
       {title ? <RNText style={styles.sectionTitle}>{title.toUpperCase()}</RNText> : null}
       <View style={styles.card}>{separated(children)}</View>
-      {footer ? <View style={styles.sectionFooter}>{typeof footer === 'string' ? <RNText style={styles.footnote}>{footer}</RNText> : footer}</View> : null}
+      {footer ? (
+        <View style={styles.sectionFooter}>
+          {typeof footer === 'string' ? <RNText style={styles.footnote}>{footer}</RNText> : <FootnoteContext.Provider value>{footer}</FootnoteContext.Provider>}
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -790,7 +827,8 @@ const styles = StyleSheet.create({
   calendarRow: { flexDirection: 'row' },
   calendarGrid: { flexDirection: 'row', flexWrap: 'wrap' },
   weekday: { width: `${100 / 7}%`, textAlign: 'center', color: colors.secondaryLabel, fontSize: 12 },
-  dayCell: { width: `${100 / 7}%`, aspectRatio: 1, alignItems: 'center', justifyContent: 'center', borderRadius: 9999 },
+  dayCell: { width: `${100 / 7}%`, height: 48, alignItems: 'center', justifyContent: 'center' },
+  dayDot: { width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center' },
   dayText: { fontSize: 16 },
   dayTextChosen: { color: '#FFFFFF', fontWeight: '700' },
   timeColumns: { flexDirection: 'row', alignItems: 'center', height: TIME_CELL * 5, paddingHorizontal: space.xxl, gap: space.md },

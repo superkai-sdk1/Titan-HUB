@@ -53,7 +53,6 @@ export default function CustomersScreen() {
   return (
     <AmbientBackdrop style={styles.screen}>
       <Stack.Title>Заказчики</Stack.Title>
-      <Stack.SearchBar placement="integrated" placeholder="Имя или телефон" onChangeText={(event) => setQuery(event.nativeEvent.text)} onCancelButtonPress={() => setQuery('')} />
       <Stack.Toolbar placement="right">
         <ToolbarButton icon="plus" accessibilityLabel="Новый заказчик" onPress={() => open()} />
       </Stack.Toolbar>

@@ -50,6 +50,8 @@ export default function PosLayout() {
           sheetGrabberVisible: true,
           sheetLargestUndimmedDetentIndex: Platform.OS === 'android' ? 'none' : 0,
           headerShown: true,
+          // Без отступа под статус-бар в шапке шторки (см. app/shift/_layout.tsx).
+          ...(Platform.OS === 'android' ? { statusBarTranslucent: false } : {}),
           title: 'Чат с кабинкой',
         }}
       />

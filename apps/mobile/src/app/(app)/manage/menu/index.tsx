@@ -53,7 +53,6 @@ export default function MenuAdminScreen() {
   return (
     <AmbientBackdrop style={styles.screen}>
       <Stack.Title>Меню</Stack.Title>
-      <Stack.SearchBar placement="integrated" placeholder="Название или тег позиции" onChangeText={(event) => setQuery(event.nativeEvent.text)} onCancelButtonPress={() => setQuery('')} />
       <Stack.Toolbar placement="right">
         <ToolbarButton icon="arrow.up.arrow.down" accessibilityLabel="Порядок категорий" onPress={() => router.push({ pathname: '/manage/menu/reorder', params: { scope: 'categories' } })} />
         <ToolbarMenu icon="plus" accessibilityLabel="Создать">

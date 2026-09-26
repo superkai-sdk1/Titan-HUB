@@ -12,6 +12,8 @@ import { Platform, type ImageSourcePropType } from 'react-native';
 
 import { toMaterialSymbol } from '@/compat/android/sf-to-material';
 
+import { ToolbarTextButton } from './toolbar-text-button';
+
 const ICON_SIZE = 24;
 const cache = new Map<string, ImageSourcePropType>();
 
@@ -61,5 +63,9 @@ export function ToolbarMenuAction({ icon, ...rest }: MenuActionProps) {
 
 export function ToolbarButton({ icon, ...rest }: ButtonProps) {
   const android = useMaterialIcon(icon as string | undefined);
+  // Кнопку без иконки expo-router на Android не рисует вовсе — подставляем свою.
+  if (Platform.OS === 'android' && !icon && typeof rest.children === 'string') {
+    return <ToolbarTextButton title={rest.children} variant={rest.variant} disabled={rest.disabled} onPress={rest.onPress} />;
+  }
   return <Stack.Toolbar.Button {...rest} icon={(android ?? icon) as ButtonProps['icon']} />;
 }
