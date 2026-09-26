@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 
 import { api, ApiError } from './api';
+import { toNumber } from './format';
 import { queryClient } from './query';
 import { useClubKey } from './queries';
 import { useSession } from './session';
@@ -157,13 +158,22 @@ export function preselectTariff(tariffs: Tariff[], clientTier: string): string |
   return tariffs.find((t) => t.name.toLowerCase() === fallbackName.toLowerCase())?.id ?? null;
 }
 
-/** Порядок тарифов как в мастере веба: резидент → новичок → студент → гость → остальные. */
+/**
+ * Порядок тарифов в сетке кассы: статусы резидент → новичок → гость → студент, затем свои
+ * статусы клуба, затем тарифы без статуса от дорогого к дешёвому («Друзья клуба», потом
+ * «Одна игра») — самый дешёвый оказывается рядом с «Без тарифа».
+ */
+const STATUS_ORDER = ['resident', 'newbie', 'guest', 'student'];
+
 export function sortTariffs(tariffs: Tariff[]): Tariff[] {
   const rank = (t: Tariff) => {
-    const i = ['resident', 'newbie', 'student', 'guest'].indexOf(t.key ?? '');
+    if (!t.key) return 200;
+    const i = STATUS_ORDER.indexOf(t.key);
     return i === -1 ? 100 : i;
   };
-  return [...tariffs].sort((a, b) => rank(a) - rank(b));
+  return [...tariffs].sort(
+    (a, b) => rank(a) - rank(b) || (rank(a) === 200 ? toNumber(b.price) - toNumber(a.price) : a.sortOrder - b.sortOrder),
+  );
 }
 
 /* ─────────────────────────── Предчеки Tai ─────────────────────────── */
