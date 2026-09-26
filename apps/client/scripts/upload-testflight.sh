@@ -18,6 +18,15 @@ export LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8
 export ENTERPRISE_REPOSITORY="${ENTERPRISE_REPOSITORY:-https://mirrors.huaweicloud.com/repository/maven}"
 export EXPO_USE_PRECOMPILED_MODULES=0
 
+# App Store принимает сборки только ФИНАЛЬНЫМ Xcode: /Applications/Xcode.app на этом Mac —
+# бета (27.1), её сборки проходят в TestFlight, но «Add for Review» их отклоняет.
+# При смене версии Xcode очистить кэш ExpoModulesJSI (он собирается локально и
+# привязан к компилятору): bash node_modules/expo-modules-jsi/apple/scripts/clear-caches.sh
+if [ -z "${DEVELOPER_DIR:-}" ] && [ -d /Applications/Xcode-27.app ]; then
+  export DEVELOPER_DIR=/Applications/Xcode-27.app/Contents/Developer
+fi
+echo "› Xcode: $(xcodebuild -version | head -1) ($(xcodebuild -version | tail -1))"
+
 [ -f scripts/.asc-env ] && . scripts/.asc-env
 
 KEY_ID="${ASC_KEY_ID:-}"
