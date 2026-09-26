@@ -129,7 +129,7 @@ export default function WalletScreen() {
           ) : items.map((it, i) => (
             <View key={it.id}>
               {i > 0 ? <Divider inset={68} /> : null}
-              <FeedRow item={it} onOpenCheck={(id) => router.push({ pathname: '/check/[id]', params: { id } })} />
+              <FeedRow item={it} dated onOpenCheck={(id) => router.push({ pathname: '/check/[id]', params: { id } })} />
             </View>
           ))}
         </View>

@@ -198,8 +198,9 @@ export default function PayScreen() {
             })}
           </ScrollView>
 
-          <View style={styles.column}>
-            <Text style={[type.caption, { textAlign: 'center', marginTop: space.lg }]}>{target?.hint}</Text>
+          {/* Сумма — по центру свободного места, клавиатура и кнопка — у нижнего края. */}
+          <View style={[styles.column, styles.amountArea]}>
+            <Text style={[type.caption, { textAlign: 'center' }]}>{target?.hint}</Text>
             <Animated.View key={target?.id} entering={FadeIn.duration(200)} style={styles.amountBox}>
               <Text style={[styles.amount, !amountStr && { color: colors.textMuted }]} numberOfLines={1} adjustsFontSizeToFit>
                 {amountStr ? `${amountStr.replace(/\B(?=(\d{3})+(?!\d))/g, ' ')} ₽` : '0 ₽'}
@@ -221,7 +222,9 @@ export default function PayScreen() {
             </View>
 
             <Breakdown target={target} amount={amount} charged={charged} surcharge={surcharge} wallet={w} />
+          </View>
 
+          <View style={styles.column}>
             <Keypad value={amountStr} onChange={(v) => { setAmountInput(v); setError(null); }} />
 
             {error ? <Text style={styles.error}>{error}</Text> : null}
@@ -326,7 +329,8 @@ const styles = StyleSheet.create({
   grabber: { alignSelf: 'center', width: 38, height: 5, borderRadius: 3, backgroundColor: 'rgba(255,255,255,0.18)', marginBottom: space.md, display: Platform.OS === 'ios' ? 'flex' : 'none' },
   headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: space.lg },
   close: { width: 36, height: 36, borderRadius: 18, backgroundColor: colors.surfaceRaised, alignItems: 'center', justifyContent: 'center' },
-  form: { flex: 1, justifyContent: 'space-between' },
+  form: { flex: 1 },
+  amountArea: { flex: 1, justifyContent: 'center', minHeight: 190 },
   column: { width: '100%', maxWidth: MAX_WIDTH, alignSelf: 'center', paddingHorizontal: GUTTER },
   chip: {
     flexDirection: 'row', alignItems: 'center', gap: 6, height: 40, paddingHorizontal: 14, borderRadius: 20,

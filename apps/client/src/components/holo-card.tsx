@@ -149,7 +149,7 @@ const styles = StyleSheet.create({
   top: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   brand: { color: '#fff', fontSize: 17, fontWeight: '900', letterSpacing: 3.5, ...shadowText },
   chip: {
-    position: 'absolute', left: 22, top: 70, width: 42, height: 32, borderRadius: 7,
+    position: 'absolute', left: 22, top: 56, width: 38, height: 28, borderRadius: 7,
     experimental_backgroundImage: 'linear-gradient(135deg, #fde68a 0%, #d4a017 45%, #fef3c7 70%, #b8860b 100%)',
     opacity: 0.85,
   },

@@ -1,7 +1,7 @@
 // Строка ленты операций: деньги (₽) и бонусы (⭐) в одном списке.
 import { StyleSheet, Text, View } from 'react-native';
 
-import { bonus, clock, money } from '@/lib/format';
+import { bonus, clock, money, relative } from '@/lib/format';
 import { colors, space } from '@/lib/theme';
 import type { FeedItem } from '@/lib/types';
 
@@ -20,7 +20,8 @@ export function feedLook(item: Pick<FeedItem, 'type'>) {
   return LOOK[item.type] ?? { icon: 'wallet' as IconName, color: colors.textSecondary };
 }
 
-export function FeedRow({ item, onOpenCheck }: { item: FeedItem; onOpenCheck?: (checkId: string) => void }) {
+/** dated — показать относительную дату («вчера, 14:32»): для списков без группировки по дням. */
+export function FeedRow({ item, onOpenCheck, dated }: { item: FeedItem; onOpenCheck?: (checkId: string) => void; dated?: boolean }) {
   const look = feedLook(item);
   const positive = item.sign > 0;
   const amountText = item.unit === 'bonus'
@@ -32,7 +33,7 @@ export function FeedRow({ item, onOpenCheck }: { item: FeedItem; onOpenCheck?: (
       <IconBubble name={look.icon} color={look.color} />
       <View style={styles.text}>
         <Text style={styles.title} numberOfLines={1}>{item.title}</Text>
-        <Text style={styles.sub}>{clock(item.createdAt)}{clickable ? ' · чек' : ''}</Text>
+        <Text style={styles.sub}>{dated ? relative(item.createdAt) : clock(item.createdAt)}{clickable ? ' · чек' : ''}</Text>
       </View>
       <Text style={[styles.amount, { color: positive ? colors.greenBright : item.unit === 'bonus' ? colors.pink : colors.text }]}>
         {amountText}
