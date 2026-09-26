@@ -1,4 +1,4 @@
-import { GlassView } from 'expo-glass-effect';
+import { GlassView } from '@/components/glass';
 import { useDebounced } from '@/components/player-picker';
 import { BottomSearch, useSearchClearance } from '@/components/bottom-search';
 import { Unavailable } from '@/components/unavailable';

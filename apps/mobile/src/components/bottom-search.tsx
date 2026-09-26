@@ -1,9 +1,9 @@
-import { GlassView } from 'expo-glass-effect';
 import { SymbolView } from 'expo-symbols';
 import { StyleSheet, TextInput, View } from 'react-native';
 import { KeyboardStickyView } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { GlassView } from '@/components/glass';
 import { ClearButton } from '@/components/clear-button';
 import { TAB_BAR_GAP, useTabBarClearance } from '@/lib/tab-bar';
 import { colors, space, type } from '@/lib/theme';

@@ -1,5 +1,4 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { GlassView } from 'expo-glass-effect';
 import { useLocalSearchParams } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import { useEffect, useState } from 'react';
@@ -8,6 +7,7 @@ import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { GlassView } from '@/components/glass';
 import { api } from '@/lib/api';
 import { haptic } from '@/lib/haptics';
 import { KEYBOARD_DISMISS } from '@/lib/layout';

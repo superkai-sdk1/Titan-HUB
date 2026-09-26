@@ -1,9 +1,9 @@
-import { GlassView } from 'expo-glass-effect';
 import { Stack, useRouter } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import { useState } from 'react';
 import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { GlassView } from '@/components/glass';
 import { AmbientBackdrop } from '@/components/ambient-backdrop';
 import { Unavailable } from '@/components/unavailable';
 import { useCollections, type CollectionListItem } from '@/lib/collections-api';

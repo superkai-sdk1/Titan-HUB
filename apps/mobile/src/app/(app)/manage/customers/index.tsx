@@ -1,4 +1,3 @@
-import { GlassView } from 'expo-glass-effect';
 import { Stack, useRouter } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import { useState } from 'react';
@@ -6,6 +5,7 @@ import { ActivityIndicator, Linking, Pressable, RefreshControl, ScrollView, Styl
 import Animated, { FadeIn, FadeOut, LayoutAnimationConfig, LinearTransition } from 'react-native-reanimated';
 import type { SFSymbol } from 'sf-symbols-typescript';
 
+import { GlassView } from '@/components/glass';
 import { BottomSearch, useSearchClearance } from '@/components/bottom-search';
 import { AmbientBackdrop } from '@/components/ambient-backdrop';
 import { useDebounced } from '@/components/player-picker';

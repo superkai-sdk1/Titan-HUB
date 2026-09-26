@@ -1,8 +1,8 @@
-import { GlassView } from 'expo-glass-effect';
 import { Stack } from 'expo-router';
 import { useState } from 'react';
 import { RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { GlassView } from '@/components/glass';
 import { BarRow, KpiTile, money, PeriodChips, QueryState, SectionTitle, TileGrid } from '@/components/analytics/parts';
 import { AmbientBackdrop } from '@/components/ambient-backdrop';
 import { GlassCard } from '@/components/new-check-parts';

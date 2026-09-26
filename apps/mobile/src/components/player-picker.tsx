@@ -1,9 +1,9 @@
-import { GlassView } from 'expo-glass-effect';
 import { SymbolView } from 'expo-symbols';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import Animated, { FadeIn } from 'react-native-reanimated';
 
+import { GlassView } from '@/components/glass';
 import { ClearButton } from '@/components/clear-button';
 import { Avatar, BalanceChips, GlassCard, sheetStyles } from '@/components/new-check-parts';
 import { formatMoney } from '@/lib/format';

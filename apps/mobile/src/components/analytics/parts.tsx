@@ -1,10 +1,10 @@
-import { GlassView } from 'expo-glass-effect';
 import { useRouter } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import type { ReactNode } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View, type ColorValue } from 'react-native';
 import type { SFSymbol } from 'sf-symbols-typescript';
 
+import { GlassView } from '@/components/glass';
 import { GlassChip, sheetStyles } from '@/components/new-check-parts';
 import { RollingText } from '@/components/rolling-text';
 import { Unavailable } from '@/components/unavailable';

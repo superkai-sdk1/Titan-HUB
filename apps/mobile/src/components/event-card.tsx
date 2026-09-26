@@ -1,8 +1,8 @@
-import { GlassView } from 'expo-glass-effect';
 import { SymbolView } from 'expo-symbols';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View, type PressableProps } from 'react-native';
 import type { SFSymbol } from 'sf-symbols-typescript';
 
+import { GlassView } from '@/components/glass';
 import { dayNumber, eventKind, eventTitle, monthShort, STATUS_LOOK, timeRange, type EventRow } from '@/lib/events-api';
 import { formatMoney, toNumber } from '@/lib/format';
 import { colors, radius, space, type } from '@/lib/theme';

@@ -1,7 +1,7 @@
 import { Host, Picker, Text as SwiftText } from '@expo/ui/swift-ui';
+import { GlassView } from '@/components/glass';
 import { BottomSearch, useSearchClearance } from '@/components/bottom-search';
 import { pickerStyle, tag } from '@expo/ui/swift-ui/modifiers';
-import { GlassView } from 'expo-glass-effect';
 import { Stack, useRouter } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import { useState } from 'react';

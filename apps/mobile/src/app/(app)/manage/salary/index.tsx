@@ -1,11 +1,11 @@
 import { DatePicker, Host } from '@expo/ui/swift-ui';
-import { GlassView } from 'expo-glass-effect';
 import { Stack } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import { useState } from 'react';
 import { ActionSheetIOS, ActivityIndicator, Alert, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 
+import { GlassView } from '@/components/glass';
 import { AmbientBackdrop } from '@/components/ambient-backdrop';
 import { FormField } from '@/components/form-parts';
 import { Avatar, GlassCard, PrimaryButton, sheetStyles } from '@/components/new-check-parts';

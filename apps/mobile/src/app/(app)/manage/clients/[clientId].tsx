@@ -1,6 +1,5 @@
 import { Host, Picker, Text as SwiftText } from '@expo/ui/swift-ui';
 import { pickerStyle, tag } from '@expo/ui/swift-ui/modifiers';
-import { GlassView } from 'expo-glass-effect';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import { useState } from 'react';
@@ -8,6 +7,7 @@ import { ActivityIndicator, Alert, Linking, Pressable, RefreshControl, ScrollVie
 import Animated, { FadeIn, LayoutAnimationConfig } from 'react-native-reanimated';
 import type { SFSymbol } from 'sf-symbols-typescript';
 
+import { GlassView } from '@/components/glass';
 import { AmbientBackdrop } from '@/components/ambient-backdrop';
 import { TierBadge } from '@/components/client-row';
 import { Avatar, GlassCard, sheetStyles } from '@/components/new-check-parts';

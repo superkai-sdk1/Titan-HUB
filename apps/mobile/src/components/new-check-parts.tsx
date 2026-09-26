@@ -1,10 +1,10 @@
-import { GlassView } from 'expo-glass-effect';
 import { Image } from 'expo-image';
 import { SymbolView } from 'expo-symbols';
 import { useState, type ReactNode } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View, type ColorValue, type StyleProp, type ViewStyle } from 'react-native';
 import type { SFSymbol } from 'sf-symbols-typescript';
 
+import { GlassView } from '@/components/glass';
 import { formatMoney, toNumber } from '@/lib/format';
 import { haptic } from '@/lib/haptics';
 import { colors, radius, space, type } from '@/lib/theme';

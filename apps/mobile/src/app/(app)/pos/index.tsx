@@ -1,5 +1,5 @@
 import { BlurView } from 'expo-blur';
-import { GlassContainer, GlassView } from 'expo-glass-effect';
+import { GlassContainer } from 'expo-glass-effect';
 import { Link, useNavigation, useRouter } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
@@ -15,6 +15,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { GlassView } from '@/components/glass';
 import { AmbientBackdrop } from '@/components/ambient-backdrop';
 import { BirthdaysBanner } from '@/components/birthdays-banner';
 import { CheckCard, type CheckCardModel } from '@/components/check-card';
@@ -133,8 +134,14 @@ export default function PosScreen() {
   // зумом обратно в свою карточку. Оплаченная карточка растворяется уже после возврата.
   const navigation = useNavigation() as unknown as TransitionEvents;
   const [frozen, setFrozen] = useState<CheckCardModel[] | null>(null);
+  // Зум-переход на время прячет карточку-источник — стекло после него бывает пустым.
+  // Каждый возврат в кассу заново применяет стекло карточек (components/glass.tsx).
+  const [glassKey, setGlassKey] = useState(0);
   const freeze = useEffectEvent(() => setFrozen(liveData));
-  const release = useEffectEvent(() => setFrozen(null));
+  const release = useEffectEvent(() => {
+    setFrozen(null);
+    setGlassKey((k) => k + 1);
+  });
   useEffect(() => {
     const offStart = navigation.addListener('transitionStart', (e) => {
       if (e.data.closing) freeze();
@@ -215,6 +222,7 @@ export default function PosScreen() {
         <View style={[styles.fill, item.id === selectedId && styles.selected]}>
           <CheckCard
             model={item}
+            glassKey={glassKey}
             onPress={() => {
               haptic.selection();
               setSelectedId(item.id);
@@ -229,6 +237,7 @@ export default function PosScreen() {
       return (
         <CheckCard
           model={item}
+          glassKey={glassKey}
           onPress={() => {
             haptic.selection();
             router.push({ pathname: '/pos/[checkId]', params: { checkId: item.id } });
@@ -250,7 +259,7 @@ export default function PosScreen() {
       <Link href={{ pathname: '/pos/[checkId]', params: { checkId: item.id } }} asChild>
         {/* Чек раскрывается из карточки и сворачивается обратно в неё (зум iOS 18+). */}
         <Link.Trigger withAppleZoom>
-          <CheckCard model={item} />
+          <CheckCard model={item} glassKey={glassKey} />
         </Link.Trigger>
         <Link.Preview />
         <Link.Menu>
@@ -329,6 +338,7 @@ export default function PosScreen() {
                   style={[styles.cell, { width: cellWidth }]}>
                   <PrecheckCard
                     precheck={precheck}
+                    glassKey={glassKey}
                     busy={openingPrecheck === precheck.playerId}
                     onOpen={() => void onOpenPrecheck(precheck)}
                   />

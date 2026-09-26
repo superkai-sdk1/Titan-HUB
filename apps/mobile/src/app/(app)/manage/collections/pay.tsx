@@ -1,9 +1,9 @@
-import { GlassView } from 'expo-glass-effect';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import { useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { GlassView } from '@/components/glass';
 import { AmountKeypad, Avatar, GlassCard, PrimaryButton, SheetHeader, sheetStyles } from '@/components/new-check-parts';
 import { RollingText } from '@/components/rolling-text';
 import { balanceText } from '@/lib/clients-api';

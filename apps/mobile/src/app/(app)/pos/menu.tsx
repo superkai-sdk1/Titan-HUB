@@ -1,5 +1,4 @@
 import { FlashList } from '@shopify/flash-list';
-import { GlassView } from 'expo-glass-effect';
 import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
@@ -10,6 +9,7 @@ import Animated, { Keyframe, useAnimatedStyle, useSharedValue, withSequence, wit
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { SFSymbol } from 'sf-symbols-typescript';
 
+import { GlassView } from '@/components/glass';
 import { ClearButton } from '@/components/clear-button';
 import { CircleButton, GlassChip, sheetStyles } from '@/components/new-check-parts';
 import { RollingText } from '@/components/rolling-text';
