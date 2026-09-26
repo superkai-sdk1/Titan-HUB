@@ -107,7 +107,7 @@ function NotificationCard({ n, highlighted }: { n: ClientNotification; highlight
     <View style={[styles.card, highlighted && styles.cardNew]}>
       <IconBubble name={look.icon} color={look.color} size={42} />
       <View style={{ flex: 1 }}>
-        <View style={styles.titleRow}>
+        <View style={[styles.titleRow, highlighted && { paddingRight: 12 }]}>
           <Text style={[type.headline, { flex: 1 }]} numberOfLines={2}>{n.title}</Text>
           <Text style={styles.time}>{relative(n.createdAt)}</Text>
         </View>
