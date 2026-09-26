@@ -1,5 +1,5 @@
 import * as ImagePicker from 'expo-image-picker';
-import { Alert } from 'react-native';
+import { Alert, Linking } from 'react-native';
 
 import { api, ApiError } from './api';
 
@@ -37,7 +37,10 @@ export function pickAndUploadPhoto(title: string, onDone: (url: string) => void,
   const run = async (source: 'camera' | 'library') => {
     const permission = source === 'camera' ? await ImagePicker.requestCameraPermissionsAsync() : await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) {
-      Alert.alert(source === 'camera' ? 'Нужен доступ к камере' : 'Нужен доступ к фото', 'Разрешите доступ в Настройках iOS.');
+      Alert.alert(source === 'camera' ? 'Нужен доступ к камере' : 'Нужен доступ к фото', 'Разрешите доступ в настройках телефона.', [
+        { text: 'Отмена', style: 'cancel' },
+        { text: 'Открыть настройки', onPress: () => void Linking.openSettings() },
+      ]);
       return;
     }
     const result = source === 'camera' ? await ImagePicker.launchCameraAsync(PICK_OPTIONS) : await ImagePicker.launchImageLibraryAsync(PICK_OPTIONS);

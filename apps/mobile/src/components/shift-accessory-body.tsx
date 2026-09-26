@@ -26,7 +26,7 @@ export function ShiftAccessoryBody({ placement }: { placement: 'inline' | 'regul
   if (data && !data.shift) {
     closed = true;
     title = 'Смена закрыта';
-    detail = 'Подробнее';
+    detail = 'Нажмите, чтобы открыть';
   } else if (data && data.shift) {
     const count = data.openChecks.count;
     title = count === 0 ? 'Нет открытых чеков' : `${count} ${plural(count, ['чек', 'чека', 'чеков'])}`;
@@ -37,7 +37,8 @@ export function ShiftAccessoryBody({ placement }: { placement: 'inline' | 'regul
   return (
     <Pressable
       style={styles.row}
-      onPress={() => router.push('/shift')}
+      // Смена закрыта — сразу к открытию, без промежуточного экрана «Смена закрыта».
+      onPress={() => router.push(closed ? '/shift/open' : '/shift')}
       accessibilityRole="button"
       accessibilityLabel={`${title}, ${detail}${forecast ? `, прогноз ${forecast}` : ''}`}>
       <SymbolView

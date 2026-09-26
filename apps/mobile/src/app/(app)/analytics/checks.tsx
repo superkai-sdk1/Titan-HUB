@@ -1,8 +1,9 @@
 import { FlashList } from '@shopify/flash-list';
 import { Stack, useRouter } from 'expo-router';
 import { useState } from 'react';
-import { Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { AppRefreshControl } from '@/components/refresh-control';
 import { methodLook, money, PeriodChips, QueryState, SectionTitle } from '@/components/analytics/parts';
 import { AmbientBackdrop } from '@/components/ambient-backdrop';
 import { Avatar, GlassCard } from '@/components/new-check-parts';
@@ -43,7 +44,7 @@ export default function AnalyticsChecksScreen() {
         keyExtractor={(check) => check.id}
         contentInsetAdjustmentBehavior="automatic"
         contentContainerStyle={[styles.content, gutter]}
-        refreshControl={<RefreshControl tintColor={colors.accent} refreshing={pulling} onRefresh={refresh} />}
+        refreshControl={<AppRefreshControl tintColor={colors.accent} refreshing={pulling} onRefresh={refresh} />}
         ListHeaderComponent={
           <View style={styles.header}>
             <PeriodChips period={period} />

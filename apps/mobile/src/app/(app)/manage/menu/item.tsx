@@ -12,6 +12,7 @@ import { DangerRow, GlassCard, GlassChip, PrimaryButton, SheetHeader, sheetStyle
 import { categoryHex, categorySymbol, deleteMenuItem, saveMenuItem, useMenuAdmin, type AdminMenuItem } from '@/lib/catalog-api';
 import { formatMoney, toNumber } from '@/lib/format';
 import { haptic } from '@/lib/haptics';
+import { KEYBOARD_DISMISS } from '@/lib/layout';
 import { useSpaces, type MenuCategory, type Space } from '@/lib/pos-api';
 import { useSession } from '@/lib/session';
 import { parseAmount } from '@/lib/shift-api';
@@ -137,7 +138,7 @@ function ItemForm({
       <ScrollView
         contentContainerStyle={[styles.content, { paddingBottom: Math.max(insets.bottom, space.lg) }]}
         keyboardShouldPersistTaps="handled"
-        keyboardDismissMode="interactive"
+        keyboardDismissMode={KEYBOARD_DISMISS}
         showsVerticalScrollIndicator={false}>
         <SheetHeader title={original ? 'Позиция' : 'Новая позиция'} onClose={onClose} />
 

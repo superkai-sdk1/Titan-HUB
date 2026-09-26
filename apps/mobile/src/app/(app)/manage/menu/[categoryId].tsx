@@ -1,8 +1,9 @@
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
+import { AppRefreshControl } from '@/components/refresh-control';
 import { useDebounced } from '@/components/player-picker';
 import { BottomSearch, useSearchClearance } from '@/components/bottom-search';
 import { useState } from 'react';
-import { ActivityIndicator, Alert, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Animated, { FadeIn, FadeOut, LayoutAnimationConfig, LinearTransition } from 'react-native-reanimated';
 
 import { AmbientBackdrop } from '@/components/ambient-backdrop';
@@ -110,7 +111,7 @@ export default function MenuCategoryScreen() {
         keyboardDismissMode="on-drag"
         keyboardShouldPersistTaps="handled"
         automaticallyAdjustKeyboardInsets
-        refreshControl={<RefreshControl tintColor={colors.accent} refreshing={pulling} onRefresh={refresh} />}>
+        refreshControl={<AppRefreshControl tintColor={colors.accent} refreshing={pulling} onRefresh={refresh} />}>
         {!data ? (
           <ActivityIndicator style={styles.loading} />
         ) : items.length === 0 ? (

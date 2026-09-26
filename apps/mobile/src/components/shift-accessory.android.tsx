@@ -1,6 +1,6 @@
 import { StyleSheet, View } from 'react-native';
 
-import { colors, radius, space } from '@/lib/theme';
+import { colors, space } from '@/lib/theme';
 
 import { ShiftAccessoryBody } from './shift-accessory-body';
 
@@ -21,7 +21,10 @@ const styles = StyleSheet.create({
     height: 56,
     flexDirection: 'row',
     alignItems: 'center',
-    borderRadius: radius.card,
+    // Капсула, как панель вкладок под ней.
+    borderRadius: 28,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.separator,
     backgroundColor: colors.floating,
     paddingHorizontal: space.xs,
     elevation: 6,

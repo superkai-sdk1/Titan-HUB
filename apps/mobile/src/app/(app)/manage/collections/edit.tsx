@@ -10,6 +10,7 @@ import { FormField, FormSection } from '@/components/form-parts';
 import { GlassCard, PrimaryButton, SheetHeader, sheetStyles } from '@/components/new-check-parts';
 import { createCollection, updateCollection, useCollection, useCollections, type CollectionKind } from '@/lib/collections-api';
 import { haptic } from '@/lib/haptics';
+import { KEYBOARD_DISMISS } from '@/lib/layout';
 import { parseAmount } from '@/lib/shift-api';
 import { space, useAccentHex } from '@/lib/theme';
 
@@ -88,7 +89,7 @@ function CollectionForm({
       <ScrollView
         contentContainerStyle={[styles.content, { paddingBottom: Math.max(insets.bottom, space.lg) }]}
         keyboardShouldPersistTaps="handled"
-        keyboardDismissMode="interactive"
+        keyboardDismissMode={KEYBOARD_DISMISS}
         showsVerticalScrollIndicator={false}>
         <SheetHeader title={initial ? 'Сбор' : 'Новый сбор'} onClose={onClose} />
 

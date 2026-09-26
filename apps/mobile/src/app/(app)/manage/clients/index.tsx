@@ -1,9 +1,10 @@
 import { FlashList } from '@shopify/flash-list';
 import { Stack, useRouter } from 'expo-router';
 import { useMemo, useState } from 'react';
-import { ActivityIndicator, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { SFSymbol } from 'sf-symbols-typescript';
 
+import { AppRefreshControl } from '@/components/refresh-control';
 import { BottomSearch, useSearchClearance } from '@/components/bottom-search';
 import { AmbientBackdrop } from '@/components/ambient-backdrop';
 import { ClientRow } from '@/components/client-row';
@@ -147,7 +148,7 @@ export default function ClientsScreen() {
         keyboardDismissMode="on-drag"
         keyboardShouldPersistTaps="handled"
         automaticallyAdjustKeyboardInsets
-        refreshControl={<RefreshControl tintColor={colors.accent} refreshing={pulling} onRefresh={refresh} />}
+        refreshControl={<AppRefreshControl tintColor={colors.accent} refreshing={pulling} onRefresh={refresh} />}
       />
       <BottomSearch value={query} onChange={setQuery} placeholder="Ник, имя, телефон или тег" />
     </AmbientBackdrop>

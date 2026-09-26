@@ -6,6 +6,8 @@
 // в списке, но игнорируются при рендере — экраны при этом остаются рабочими.
 import type { ColorValue, KeyboardTypeOptions, TextStyle, ViewStyle } from 'react-native';
 
+import { colors } from '@/lib/theme';
+
 export type ViewModifier = { $type: string; [key: string]: unknown };
 
 const mod = (type: string, payload: Record<string, unknown> = {}): ViewModifier => ({ $type: type, ...payload });
@@ -93,6 +95,7 @@ export type ResolvedModifiers = {
   controlSize?: string;
   listStyle?: string;
   labelStyle?: string;
+  borderShape?: string;
   keyboardType?: KeyboardTypeOptions;
   submitLabel?: string;
   onSubmit?: () => void;
@@ -104,6 +107,47 @@ export type ResolvedModifiers = {
   editMode?: boolean;
   hideScrollBackground?: boolean;
 };
+
+/**
+ * SwiftUI принимает в foregroundStyle и имена цветов ('red'), и иерархию
+ * ({ type: 'hierarchical', style: 'secondary' }). RN такие значения цветом не считает:
+ * объект превращался в «нет цвета», и текст на тёмной теме становился чёрным.
+ */
+const NAMED_COLORS: Record<string, ColorValue> = {
+  red: colors.red,
+  green: colors.green,
+  orange: colors.orange,
+  yellow: colors.yellow,
+  blue: colors.blue,
+  purple: colors.purple,
+  pink: colors.pink,
+  gray: colors.gray,
+  mint: colors.mint,
+  teal: colors.teal,
+  cyan: colors.cyan,
+  indigo: colors.indigo,
+  brown: colors.brown,
+  primary: colors.label,
+  secondary: colors.secondaryLabel,
+};
+
+const HIERARCHY: Record<string, ColorValue> = {
+  primary: colors.label,
+  secondary: colors.secondaryLabel,
+  tertiary: colors.tertiaryLabel,
+  quaternary: colors.tertiaryLabel,
+};
+
+function foregroundColor(value: unknown): TextStyle['color'] {
+  if (typeof value === 'string') return (NAMED_COLORS[value] ?? value) as TextStyle['color'];
+  if (value && typeof value === 'object') {
+    const spec = value as { type?: string; style?: string };
+    if (spec.type === 'hierarchical' && spec.style) return HIERARCHY[spec.style] as TextStyle['color'];
+    // PlatformColor и DynamicColor — тоже объекты, их RN понимает сам.
+    if (!('type' in spec)) return value as TextStyle['color'];
+  }
+  return undefined;
+}
 
 const CAPITALIZE: Record<string, ResolvedModifiers['autocapitalize']> = {
   never: 'none', words: 'words', sentences: 'sentences', characters: 'characters',
@@ -123,9 +167,11 @@ export function resolve(modifiers?: ViewModifier[] | null): ResolvedModifiers {
         if (spec?.design === 'monospaced') out.text.fontVariant = ['tabular-nums'];
         break;
       }
-      case 'foregroundStyle':
-        out.text.color = m.color as string;
+      case 'foregroundStyle': {
+        const color = foregroundColor(m.color);
+        if (color !== undefined) out.text.color = color;
         break;
+      }
       case 'tint':
         out.tint = m.color as ColorValue;
         break;
@@ -151,6 +197,7 @@ export function resolve(modifiers?: ViewModifier[] | null): ResolvedModifiers {
       case 'controlSize': out.controlSize = m.size as string; break;
       case 'listStyle': out.listStyle = m.style as string; break;
       case 'labelStyle': out.labelStyle = m.style as string; break;
+      case 'buttonBorderShape': out.borderShape = m.shape as string; break;
       case 'keyboardType': out.keyboardType = m.type as KeyboardTypeOptions; break;
       case 'submitLabel': out.submitLabel = m.label as string; break;
       case 'onSubmit': out.onSubmit = m.handler as () => void; break;

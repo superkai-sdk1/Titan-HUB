@@ -1,4 +1,5 @@
 import * as Calendar from 'expo-calendar';
+import { Platform } from 'react-native';
 
 import { eventKind, eventTitle, fromDateTime, isUpcoming, STATUS_LOOK, type EventRow } from './events-api';
 import { formatMoney, toNumber } from './format';
@@ -81,8 +82,13 @@ async function clubCalendar(): Promise<Calendar.ExpoCalendar | null> {
   const mine = calendars.find((c) => c.title === title && c.allowsModifications);
   if (mine) return mine;
 
-  // Источник берём у календаря по умолчанию: локальный источник есть не на всех устройствах.
-  const source = calendars.find((c) => c.allowsModifications && c.source)?.source;
+  // iOS: источник берём у календаря по умолчанию — локальный источник есть не на всех устройствах.
+  // Android: только локальный аккаунт. Календарь, заведённый в чужом аккаунте (Google),
+  // его синхронизация считает лишним и удаляет при следующем обмене с сервером.
+  const source =
+    Platform.OS === 'android'
+      ? { isLocalAccount: true, name: 'Titan HUB', type: 'LOCAL' }
+      : calendars.find((c) => c.allowsModifications && c.source)?.source;
   try {
     return await Calendar.createCalendar({
       title,
@@ -91,7 +97,7 @@ async function clubCalendar(): Promise<Calendar.ExpoCalendar | null> {
       name: title,
       ownerAccount: 'Titan HUB',
       accessLevel: Calendar.CalendarAccessLevel.OWNER,
-      ...(source ? { sourceId: source.id, source } : {}),
+      ...(source ? { sourceId: 'id' in source ? source.id : undefined, source } : {}),
     });
   } catch {
     return null;

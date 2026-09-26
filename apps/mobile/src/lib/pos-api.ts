@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 
 import { api, ApiError } from './api';
+import { toNumber } from './format';
 import { queryClient } from './query';
 import { useClubKey } from './queries';
 import { useSession } from './session';
@@ -157,13 +158,22 @@ export function preselectTariff(tariffs: Tariff[], clientTier: string): string |
   return tariffs.find((t) => t.name.toLowerCase() === fallbackName.toLowerCase())?.id ?? null;
 }
 
-/** Порядок тарифов как в мастере веба: резидент → новичок → студент → гость → остальные. */
+/**
+ * Порядок тарифов в сетке кассы: статусы резидент → новичок → гость → студент, затем свои
+ * статусы клуба, затем тарифы без статуса от дорогого к дешёвому («Друзья клуба», потом
+ * «Одна игра») — самый дешёвый оказывается рядом с «Без тарифа».
+ */
+const STATUS_ORDER = ['resident', 'newbie', 'guest', 'student'];
+
 export function sortTariffs(tariffs: Tariff[]): Tariff[] {
   const rank = (t: Tariff) => {
-    const i = ['resident', 'newbie', 'student', 'guest'].indexOf(t.key ?? '');
+    if (!t.key) return 200;
+    const i = STATUS_ORDER.indexOf(t.key);
     return i === -1 ? 100 : i;
   };
-  return [...tariffs].sort((a, b) => rank(a) - rank(b));
+  return [...tariffs].sort(
+    (a, b) => rank(a) - rank(b) || (rank(a) === 200 ? toNumber(b.price) - toNumber(a.price) : a.sortOrder - b.sortOrder),
+  );
 }
 
 /* ─────────────────────────── Предчеки Tai ─────────────────────────── */
@@ -187,6 +197,25 @@ export function usePrechecks() {
     queryKey: [club, 'pos', 'prechecks'],
     queryFn: () => api.get<{ prechecks: Precheck[] }>('/pos/prechecks').then((r) => r.prechecks),
     refetchInterval: 20_000,
+  });
+}
+
+/* ─────────────────────────── Предугаданные позиции Tai ─────────────────────────── */
+
+/** Частый заказ резидента, которого ещё нет в чеке. */
+export type ItemSuggestion = { itemId: string; name: string; price: NumericString };
+
+/**
+ * «Tai предлагает» — как в веб-кассе. Сервер отдаёт пусто без подписки Tai,
+ * для не-резидентов и для закрытых чеков, поэтому запрос — только при плательщике.
+ */
+export function useCheckSuggestions(checkId: string, enabled: boolean) {
+  const club = useClubKey();
+  return useQuery({
+    queryKey: [club, 'pos', 'suggestions', checkId],
+    queryFn: () => api.get<{ suggestions: ItemSuggestion[] }>(`/pos/checks/${checkId}/suggestions`).then((r) => r.suggestions),
+    enabled,
+    staleTime: 60_000,
   });
 }
 
@@ -222,12 +251,17 @@ function applyCheck(check: CheckDetail) {
   queryClient.setQueryData([host, 'pos', 'check', check.id], check);
   void queryClient.invalidateQueries({ queryKey: [host, 'pos', 'checks'] });
   void queryClient.invalidateQueries({ queryKey: [host, 'pos', 'shift-summary'] });
+  // Позиции изменились — Tai пересчитывает, что ещё предложить.
+  void queryClient.invalidateQueries({ queryKey: [host, 'pos', 'suggestions', check.id] });
 }
 
 async function refetchCheck(checkId: string) {
   const host = useSession.getState().club?.host ?? 'none';
   await queryClient.invalidateQueries({ queryKey: [host, 'pos', 'check', checkId] });
 }
+
+/** Перечитать чек после изменений, которые сервер пишет в него сам (например, база мероприятия). */
+export const reloadCheck = refetchCheck;
 
 /** Добавить позицию (+1). Не идемпотентно: при ошибке перечитываем чек, а не повторяем. */
 export function addItem(checkId: string, itemId: string, quantity = 1) {

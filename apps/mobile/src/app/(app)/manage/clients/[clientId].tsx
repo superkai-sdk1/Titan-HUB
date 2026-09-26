@@ -1,13 +1,14 @@
 import { Host, Picker, Text as SwiftText } from '@expo/ui/swift-ui';
 import { pickerStyle, tag } from '@expo/ui/swift-ui/modifiers';
-import { GlassView } from 'expo-glass-effect';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import { useState } from 'react';
-import { ActivityIndicator, Alert, Linking, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Animated, { FadeIn, LayoutAnimationConfig } from 'react-native-reanimated';
 import type { SFSymbol } from 'sf-symbols-typescript';
 
+import { AppRefreshControl } from '@/components/refresh-control';
+import { GlassView } from '@/components/glass';
 import { AmbientBackdrop } from '@/components/ambient-backdrop';
 import { TierBadge } from '@/components/client-row';
 import { Avatar, GlassCard, sheetStyles } from '@/components/new-check-parts';
@@ -222,7 +223,7 @@ export default function ClientScreen() {
         contentInsetAdjustmentBehavior="automatic"
         contentContainerStyle={[styles.content, gutter]}
         showsVerticalScrollIndicator={false}
-        refreshControl={<RefreshControl tintColor={colors.accent} refreshing={pulling} onRefresh={refresh} />}>
+        refreshControl={<AppRefreshControl tintColor={colors.accent} refreshing={pulling} onRefresh={refresh} />}>
         <View style={styles.hero}>
           <Pressable onPress={archived ? undefined : changePhoto} disabled={archived} accessibilityRole="button" accessibilityLabel="Фото клиента">
             <Avatar name={data.nickname} photoUrl={clientPhoto(data)} size={96} />

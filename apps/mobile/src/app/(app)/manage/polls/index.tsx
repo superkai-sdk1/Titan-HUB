@@ -1,7 +1,8 @@
 import { Stack, useRouter } from 'expo-router';
 import { useState } from 'react';
-import { Alert, RefreshControl, ScrollView, StyleSheet, Text } from 'react-native';
+import { Alert, ScrollView, StyleSheet, Text } from 'react-native';
 
+import { AppRefreshControl } from '@/components/refresh-control';
 import { AmbientBackdrop } from '@/components/ambient-backdrop';
 import { Group, ListNote, Row, SwitchRow } from '@/components/settings-parts';
 import { setPollCollect, setPollCommandsAdminOnly, usePollChats, usePollCollect, usePolls, WEEKDAY_LABELS, type PollConfig } from '@/lib/admin-api';
@@ -59,7 +60,7 @@ export default function PollsScreen() {
       <ScrollView
         contentInsetAdjustmentBehavior="automatic"
         contentContainerStyle={[styles.content, gutter]}
-        refreshControl={<RefreshControl tintColor={colors.accent} refreshing={pulling} onRefresh={refresh} />}>
+        refreshControl={<AppRefreshControl tintColor={colors.accent} refreshing={pulling} onRefresh={refresh} />}>
         <Group title="Бот" footer={tokenConfigured ? 'Токен бота опросов задан в веб-кассе.' : 'Без токена бот не сможет выложить опрос. Токен задаётся в веб-кассе.'}>
           <Row icon={tokenConfigured ? 'checkmark.seal' : 'exclamationmark.triangle'} color={tokenConfigured ? '#22C55E' : '#F59E0B'} title="Токен бота" value={tokenConfigured ? (polls.data?.tokenMasked ?? 'задан') : 'не задан'} />
           <SwitchRow

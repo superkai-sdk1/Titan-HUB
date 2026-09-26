@@ -7,6 +7,7 @@ import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, Text
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { AddressField } from '@/components/address-field';
 import { GlassCard, GlassChip, PrimaryButton, SheetHeader, sheetStyles } from '@/components/new-check-parts';
 import { FormField, FormSection } from '@/components/form-parts';
 import {
@@ -30,6 +31,7 @@ import { formatMoney, toNumber } from '@/lib/format';
 import { pushEventToCalendar } from '@/lib/calendar-sync';
 import { useDevicePrefs } from '@/lib/device-prefs';
 import { haptic } from '@/lib/haptics';
+import { KEYBOARD_DISMISS } from '@/lib/layout';
 import { cleanPhone, pickContact } from '@/lib/phone-book';
 import { useSpaces } from '@/lib/pos-api';
 import { parseAmount } from '@/lib/shift-api';
@@ -146,7 +148,7 @@ function EventForm({ initial, onDone }: { initial: EventRow | undefined; onDone:
       <ScrollView
         contentContainerStyle={[styles.content, { paddingBottom: Math.max(insets.bottom, space.lg) }]}
         keyboardShouldPersistTaps="handled"
-        keyboardDismissMode="interactive"
+        keyboardDismissMode={KEYBOARD_DISMISS}
         showsVerticalScrollIndicator={false}>
         <SheetHeader title={initial ? 'Мероприятие' : 'Новое мероприятие'} onClose={onDone} />
 
@@ -212,7 +214,7 @@ function EventForm({ initial, onDone }: { initial: EventRow | undefined; onDone:
         {kind === 'exit' ? (
           <FormSection title="АДРЕС ВЫЕЗДА">
             <GlassCard style={styles.card}>
-              <FormField icon="mappin.and.ellipse" value={address} onChange={setAddress} placeholder="Город, улица, дом" autoCapitalize="sentences" />
+              <AddressField value={address} onChange={setAddress} placeholder="Город, улица, дом" />
             </GlassCard>
           </FormSection>
         ) : (

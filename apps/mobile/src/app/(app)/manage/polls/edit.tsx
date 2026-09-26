@@ -11,6 +11,7 @@ import { DangerRow, GlassCard, GlassChip, PrimaryButton, SheetHeader, sheetStyle
 import { Row, SwitchRow } from '@/components/settings-parts';
 import { POLL_DEFAULT_OPTIONS, postPollToday, savePolls, testPoll, usePollChats, usePolls, WEEKDAY_LABELS, type PollConfig } from '@/lib/admin-api';
 import { haptic } from '@/lib/haptics';
+import { KEYBOARD_DISMISS } from '@/lib/layout';
 import { newIdempotencyKey } from '@/lib/shift-api';
 import { colors, space, type, useAccentHex } from '@/lib/theme';
 
@@ -132,7 +133,7 @@ function PollForm({ all, original, tokenConfigured, onClose }: { all: PollConfig
 
   return (
     <KeyboardAvoidingView behavior="padding" style={styles.flex}>
-      <ScrollView contentContainerStyle={[styles.content, { paddingBottom: Math.max(insets.bottom, space.lg) }]} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={[styles.content, { paddingBottom: Math.max(insets.bottom, space.lg) }]} keyboardShouldPersistTaps="handled" keyboardDismissMode={KEYBOARD_DISMISS} showsVerticalScrollIndicator={false}>
         <SheetHeader title={original ? 'Опрос' : 'Новый опрос'} onClose={onClose} />
 
         <FormSection title="ОПРОС">

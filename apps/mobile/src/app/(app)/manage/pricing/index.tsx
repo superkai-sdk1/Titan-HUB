@@ -3,10 +3,11 @@ import { pickerStyle, tag } from '@expo/ui/swift-ui/modifiers';
 import { Stack, useRouter } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import { useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Animated, { FadeIn, LayoutAnimationConfig } from 'react-native-reanimated';
 import type { SFSymbol } from 'sf-symbols-typescript';
 
+import { AppRefreshControl } from '@/components/refresh-control';
 import { AmbientBackdrop } from '@/components/ambient-backdrop';
 import { GlassCard, sheetStyles } from '@/components/new-check-parts';
 import { saveEventRate, SPACE_LOOK, useEveningTypesAdmin, useSpacesAdmin, useTariffsAdmin } from '@/lib/catalog-api';
@@ -20,6 +21,7 @@ import { useClubKey } from '@/lib/queries';
 import { useSession } from '@/lib/session';
 import { parseAmount } from '@/lib/shift-api';
 import { colors, space, type } from '@/lib/theme';
+import { promptText } from '@/lib/dialog';
 import { ToolbarButton } from '@/components/toolbar';
 
 type Tab = 'tariffs' | 'evenings' | 'rental' | 'events';
@@ -57,7 +59,7 @@ export default function PricingScreen() {
   };
 
   const editRate = (hours: number, price: number) =>
-    Alert.prompt(
+    promptText(
       `${hours} ч`,
       'Цена за весь период — основа чека мероприятия с почасовой оплатой',
       [
@@ -79,7 +81,7 @@ export default function PricingScreen() {
     );
 
   const addEventRate = () =>
-    Alert.prompt('Сколько часов?', 'Например, 7', [
+    promptText('Сколько часов?', 'Например, 7', [
       { text: 'Отмена', style: 'cancel' },
       {
         text: 'Дальше',
@@ -105,7 +107,7 @@ export default function PricingScreen() {
       <ScrollView
         contentInsetAdjustmentBehavior="automatic"
         contentContainerStyle={[styles.content, gutter]}
-        refreshControl={<RefreshControl tintColor={colors.accent} refreshing={pulling} onRefresh={refresh} />}>
+        refreshControl={<AppRefreshControl tintColor={colors.accent} refreshing={pulling} onRefresh={refresh} />}>
         <Host matchContents={{ vertical: true }} style={styles.segment}>
           <Picker
             selection={tab}

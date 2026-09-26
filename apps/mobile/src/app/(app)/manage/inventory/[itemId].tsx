@@ -1,11 +1,12 @@
 import { Chart, Host } from '@expo/ui/swift-ui';
-import { GlassView } from 'expo-glass-effect';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import { useState } from 'react';
-import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View, type ColorValue } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View, type ColorValue } from 'react-native';
 import type { SFSymbol } from 'sf-symbols-typescript';
 
+import { AppRefreshControl } from '@/components/refresh-control';
+import { GlassView } from '@/components/glass';
 import { AmbientBackdrop } from '@/components/ambient-backdrop';
 import { GlassCard, sheetStyles } from '@/components/new-check-parts';
 import { RollingText } from '@/components/rolling-text';
@@ -72,7 +73,7 @@ export default function InventoryItemScreen() {
       <ScrollView
         contentInsetAdjustmentBehavior="automatic"
         contentContainerStyle={[styles.content, gutter]}
-        refreshControl={<RefreshControl tintColor={colors.accent} refreshing={pulling} onRefresh={refresh} />}>
+        refreshControl={<AppRefreshControl tintColor={colors.accent} refreshing={pulling} onRefresh={refresh} />}>
         <View style={styles.hero}>
           <Text style={[type.title2, styles.label, styles.centered]} numberOfLines={2}>
             {item.name}

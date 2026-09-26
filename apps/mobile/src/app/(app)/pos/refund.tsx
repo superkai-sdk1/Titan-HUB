@@ -1,4 +1,3 @@
-import { GlassView } from 'expo-glass-effect';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import { useState } from 'react';
@@ -7,11 +6,13 @@ import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import Animated, { FadeIn, ZoomIn } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { GlassView } from '@/components/glass';
 import { FormField, FormSection } from '@/components/form-parts';
 import { GlassCard, GlassChip, PrimaryButton, SheetHeader, sheetStyles } from '@/components/new-check-parts';
 import { checkTitle } from '@/lib/checks';
 import { formatMoney } from '@/lib/format';
 import { haptic } from '@/lib/haptics';
+import { KEYBOARD_DISMISS } from '@/lib/layout';
 import { METHODS, usePosPlayer } from '@/lib/payment';
 import { useCheck, useShiftSummary } from '@/lib/queries';
 import {
@@ -219,7 +220,7 @@ function RefundForm({ prepare, onRefetch, onClose }: { prepare: RefundPrepare; o
       <ScrollView
         contentContainerStyle={[styles.content, { paddingBottom: Math.max(insets.bottom, space.lg) }]}
         keyboardShouldPersistTaps="handled"
-        keyboardDismissMode="interactive"
+        keyboardDismissMode={KEYBOARD_DISMISS}
         showsVerticalScrollIndicator={false}>
         <SheetHeader title="Возврат" onClose={onClose} />
 

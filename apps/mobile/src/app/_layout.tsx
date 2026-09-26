@@ -2,11 +2,14 @@ import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client
 import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect } from 'react';
-import { StyleSheet, useColorScheme } from 'react-native';
+import { Platform, StyleSheet, useColorScheme } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
+import { stackHeaderOptions } from '@/components/header-glass';
+import { sheetLayout } from '@/components/sheet-grabber';
+import { DialogHost } from '@/components/dialog-host';
 import { NotificationBanner } from '@/components/notification-banner';
 import { OfflineBanner } from '@/components/offline-banner';
 import { SessionLock } from '@/components/session-lock';
@@ -15,6 +18,7 @@ import { useRealtime } from '@/lib/realtime';
 import { useDevicePrefs } from '@/lib/device-prefs';
 import { useSession } from '@/lib/session';
 import { colors, accentHex } from '@/lib/theme';
+import { sheetOptions } from '@/lib/sheet';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -59,7 +63,7 @@ export default function RootLayout() {
     <KeyboardProvider>
     <ThemeProvider value={theme}>
       <PersistQueryClientProvider client={queryClient} persistOptions={{ persister: queryPersister, maxAge: CACHE_MAX_AGE }}>
-        <Stack screenOptions={{ headerShown: false }}>
+        <Stack screenOptions={{ headerShown: false }} screenLayout={sheetLayout}>
           <Stack.Protected guard={!signedIn}>
             <Stack.Screen name="(auth)" />
           </Stack.Protected>
@@ -67,12 +71,22 @@ export default function RootLayout() {
             <Stack.Screen name="(app)" />
             <Stack.Screen
               name="shift"
-              options={{ presentation: 'formSheet', sheetAllowedDetents: [0.6, 1], sheetGrabberVisible: true, headerShown: false }}
+              options={{
+                presentation: 'formSheet',
+                ...sheetOptions,
+                // Android раскладывает шторку с двумя высотами во весь рост и прячет её низ —
+                // кнопка «Открыть смену» оказалась бы за экраном. Там шторка сразу полная.
+                sheetAllowedDetents: Platform.OS === 'android' ? [1] : [0.6, 1],
+                sheetGrabberVisible: true,
+                headerShown: false,
+                contentStyle: Platform.OS === 'android' ? { backgroundColor: colors.sheetBackground } : undefined,
+              }}
             />
             <Stack.Screen
               name="new-check"
               options={{
                 presentation: 'formSheet',
+                ...sheetOptions,
                 // Высота по содержимому, как модалка веб-кассы; клавиатура поднимает шторку.
                 sheetAllowedDetents: 'fitToContents',
                 sheetGrabberVisible: true,
@@ -83,11 +97,11 @@ export default function RootLayout() {
             />
             <Stack.Screen
               name="pay"
-              options={{ presentation: 'formSheet', sheetAllowedDetents: [1], sheetGrabberVisible: true, headerShown: false }}
+              options={{ presentation: 'formSheet', ...sheetOptions, sheetAllowedDetents: [1], sheetGrabberVisible: true, headerShown: false }}
             />
             <Stack.Screen
               name="notifications"
-              options={{ presentation: 'modal', headerShown: true, title: 'Уведомления' }}
+              options={{ presentation: 'modal', headerShown: true, title: 'Уведомления', ...stackHeaderOptions }}
             />
             {/* Tai — свой заголовок и композер внизу, поэтому системная шапка не нужна. */}
             <Stack.Screen name="tai" options={{ presentation: 'modal', headerShown: false }} />
@@ -97,6 +111,7 @@ export default function RootLayout() {
         {signedIn && <NotificationBanner />}
         <OfflineBanner />
         <SessionLock />
+        <DialogHost />
       </PersistQueryClientProvider>
     </ThemeProvider>
     </KeyboardProvider>

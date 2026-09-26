@@ -1,11 +1,12 @@
-import { GlassView } from 'expo-glass-effect';
+import { AppRefreshControl } from '@/components/refresh-control';
+import { GlassView } from '@/components/glass';
 import { useDebounced } from '@/components/player-picker';
 import { BottomSearch, useSearchClearance } from '@/components/bottom-search';
 import { Unavailable } from '@/components/unavailable';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import { useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Animated, { FadeIn, FadeOut, LayoutAnimationConfig, LinearTransition } from 'react-native-reanimated';
 
 import { AmbientBackdrop } from '@/components/ambient-backdrop';
@@ -30,6 +31,7 @@ import { haptic } from '@/lib/haptics';
 import { usePageGutter } from '@/lib/layout';
 import { parseAmount } from '@/lib/shift-api';
 import { colors, space, type } from '@/lib/theme';
+import { promptText } from '@/lib/dialog';
 import { ToolbarMenu, ToolbarMenuAction } from '@/components/toolbar';
 
 const rowLayout = LinearTransition.springify().damping(22).stiffness(220);
@@ -100,7 +102,7 @@ export default function CollectionScreen() {
   const progress = totals.eligibleCount > 0 ? Math.min(1, totals.paidCount / totals.eligibleCount) : 0;
 
   const editAmount = () =>
-    Alert.prompt(
+    promptText(
       'Взнос за период',
       `${period.label}. Меняется только этот период; у участников с персональной суммой — своя.`,
       [
@@ -201,7 +203,7 @@ export default function CollectionScreen() {
         keyboardDismissMode="on-drag"
         keyboardShouldPersistTaps="handled"
         automaticallyAdjustKeyboardInsets
-        refreshControl={<RefreshControl tintColor={colors.accent} refreshing={pulling} onRefresh={refresh} />}>
+        refreshControl={<AppRefreshControl tintColor={colors.accent} refreshing={pulling} onRefresh={refresh} />}>
         <Text style={[type.subhead, styles.secondary, styles.centered]}>
           {collection.isMandatory ? 'Обязательный взнос резидентов' : 'Добровольный сбор'}
           {collection.description ? ` · ${collection.description}` : ''}

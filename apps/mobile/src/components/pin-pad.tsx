@@ -1,4 +1,3 @@
-import { GlassView } from 'expo-glass-effect';
 import { SymbolView } from 'expo-symbols';
 import { useEffect } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
@@ -10,6 +9,7 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 
+import { GlassView } from '@/components/glass';
 import { haptic } from '@/lib/haptics';
 import { colors, springs } from '@/lib/theme';
 

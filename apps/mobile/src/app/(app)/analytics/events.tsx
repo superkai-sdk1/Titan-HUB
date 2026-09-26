@@ -1,8 +1,9 @@
 import { Chart, Host } from '@expo/ui/swift-ui';
 import { Stack } from 'expo-router';
 import { useState } from 'react';
-import { RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { AppRefreshControl } from '@/components/refresh-control';
 import { BarRow, KpiTile, money, PeriodChips, QueryState, SectionTitle, TileGrid } from '@/components/analytics/parts';
 import { AmbientBackdrop } from '@/components/ambient-backdrop';
 import { GlassCard, sheetStyles } from '@/components/new-check-parts';
@@ -41,7 +42,7 @@ export default function EventsAnalyticsScreen() {
       <ScrollView
         contentInsetAdjustmentBehavior="automatic"
         contentContainerStyle={[styles.content, gutter]}
-        refreshControl={<RefreshControl tintColor={colors.accent} refreshing={pulling} onRefresh={refresh} />}>
+        refreshControl={<AppRefreshControl tintColor={colors.accent} refreshing={pulling} onRefresh={refresh} />}>
         <PeriodChips period={period} />
         <QueryState loading={!data} error={events.error}>
           {data &&

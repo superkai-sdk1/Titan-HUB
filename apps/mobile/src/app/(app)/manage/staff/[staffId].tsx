@@ -1,7 +1,8 @@
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
-import { ActivityIndicator, Alert, Linking, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Linking, ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { AppRefreshControl } from '@/components/refresh-control';
 import { AmbientBackdrop } from '@/components/ambient-backdrop';
 import { Avatar, DangerRow, GlassCard, GlassChip } from '@/components/new-check-parts';
 import { Group, promptValue, Row, SwitchRow } from '@/components/settings-parts';
@@ -152,7 +153,7 @@ export default function StaffMemberScreen() {
       <ScrollView
         contentInsetAdjustmentBehavior="automatic"
         contentContainerStyle={[styles.content, gutter]}
-        refreshControl={<RefreshControl tintColor={colors.accent} refreshing={pulling} onRefresh={refresh} />}>
+        refreshControl={<AppRefreshControl tintColor={colors.accent} refreshing={pulling} onRefresh={refresh} />}>
         <GlassCard style={styles.hero}>
           <Avatar name={row.nickname} photoUrl={row.photoUrl} size={64} />
           <Text style={[type.title2, styles.label]} numberOfLines={1}>

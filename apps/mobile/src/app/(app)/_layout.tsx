@@ -1,17 +1,17 @@
 import { usePathname, useRouter } from 'expo-router';
+import { Tabs } from 'expo-router/tabs';
 import { NativeTabs } from 'expo-router/unstable-native-tabs';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Platform, StyleSheet, View } from 'react-native';
+import type { ReactNode } from 'react';
+import { Platform } from 'react-native';
 
 import { CheckAccessory } from '@/components/check-accessory';
+import { FloatingTabBar } from '@/components/floating-tab-bar';
 import { ShiftAccessory } from '@/components/shift-accessory';
 import { useChrome } from '@/lib/chrome';
 import { haptic } from '@/lib/haptics';
-import { colors, space } from '@/lib/theme';
+import { colors } from '@/lib/theme';
 
 const IS_PAD = Platform.OS === 'ios' && Platform.isPad;
-/** Высота таб-бара Material — под ней и живёт плашка на Android. */
-const TAB_BAR_HEIGHT = 64;
 const CHECK_PATH = /^\/pos\/([0-9a-f-]{36})$/i;
 
 /**
@@ -42,15 +42,15 @@ export default function AppLayout() {
   const router = useRouter();
   const pathname = usePathname();
   const accessoryVisible = useChrome((s) => s.accessoryVisible);
-  const insets = useSafeAreaInsets();
   const openCheckId = IS_PAD ? undefined : CHECK_PATH.exec(pathname)?.[1];
 
-  let accessory: React.ReactNode = null;
+  let accessory: ReactNode = null;
   if (pathname === '/pos' && (IS_PAD || accessoryVisible)) accessory = <ShiftAccessory />;
   else if (openCheckId) accessory = <CheckAccessory checkId={openCheckId} />;
 
+  if (Platform.OS === 'android') return <AndroidTabs accessory={accessory} />;
+
   return (
-    <View style={styles.root}>
     <NativeTabs
       tintColor={colors.accent}
       sidebarAdaptable
@@ -88,23 +88,25 @@ export default function AppLayout() {
         <NativeTabs.Trigger.Label>Управление</NativeTabs.Trigger.Label>
       </NativeTabs.Trigger>
 
-      {/* BottomAccessory — фича iOS 26; на Android react-native-screens её не рисует. */}
-      {accessory && Platform.OS === 'ios' && (
-        <NativeTabs.BottomAccessory>{accessory}</NativeTabs.BottomAccessory>
-      )}
+      {accessory && <NativeTabs.BottomAccessory>{accessory}</NativeTabs.BottomAccessory>}
     </NativeTabs>
-    {/* На Android BottomAccessory не рисуется — кладём плашку своим слоем над таб-баром.
-        Её android-вариант не вызывает usePlacement, который жив только внутри той фичи. */}
-    {accessory && Platform.OS === 'android' && (
-      <View pointerEvents="box-none" style={[styles.accessory, { bottom: insets.bottom + TAB_BAR_HEIGHT }]}>
-        {accessory}
-      </View>
-    )}
-    </View>
   );
 }
 
-const styles = StyleSheet.create({
-  root: { flex: 1 },
-  accessory: { position: 'absolute', left: space.md, right: space.md },
-});
+/**
+ * Android: вкладки без системной панели Material — вместо неё плавающая капсула как на
+ * iPhone (components/floating-tab-bar.tsx). Плашка смены или чека едет в той же стопке
+ * над капсулой: раньше её клали отдельным слоем на расчётную высоту, и она наезжала на
+ * панель. Экраны занимают всю высоту и прокручиваются под капсулой, как на iOS.
+ */
+function AndroidTabs({ accessory }: { accessory: ReactNode }) {
+  return (
+    <Tabs screenOptions={{ headerShown: false }} tabBar={(props) => <FloatingTabBar {...props} accessory={accessory} />}>
+      <Tabs.Screen name="pos" />
+      <Tabs.Screen name="events" />
+      <Tabs.Screen name="new/index" />
+      <Tabs.Screen name="analytics" />
+      <Tabs.Screen name="manage" />
+    </Tabs>
+  );
+}

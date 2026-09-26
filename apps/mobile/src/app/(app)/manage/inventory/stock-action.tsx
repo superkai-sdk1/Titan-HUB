@@ -11,6 +11,7 @@ import { RollingText } from '@/components/rolling-text';
 import { haptic } from '@/lib/haptics';
 import { adjustStock, setReplenishment, thresholdOf, useInventory, writeOff, type InventoryItem } from '@/lib/inventory-api';
 import { colors, space, type } from '@/lib/theme';
+import { promptText } from '@/lib/dialog';
 
 type Mode = 'writeoff' | 'adjust' | 'params';
 type AdjustKind = 'delta' | 'absolute';
@@ -70,7 +71,7 @@ function WriteOffForm({ item, onDone }: { item: InventoryItem; onDone: () => voi
           : `Останется ${stock - qty} шт`;
 
   const askReason = () =>
-    Alert.prompt('Причина списания', undefined, [
+    promptText('Причина списания', undefined, [
       { text: 'Отмена', style: 'cancel' },
       { text: 'Готово', onPress: (value?: string) => value?.trim() && setReason(value.trim()) },
     ], 'plain-text', custom ? reason : '');
@@ -196,7 +197,7 @@ function AdjustForm({ item, onDone }: { item: InventoryItem; onDone: () => void 
       />
       <Pressable
         onPress={() =>
-          Alert.prompt('Причина корректировки', 'Попадёт в журнал движений', [
+          promptText('Причина корректировки', 'Попадёт в журнал движений', [
             { text: 'Отмена', style: 'cancel' },
             { text: 'Готово', onPress: (v?: string) => setReason(v?.trim() || 'Ручная корректировка') },
           ], 'plain-text', reason)

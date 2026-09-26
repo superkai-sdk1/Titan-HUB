@@ -2,10 +2,11 @@ import { Chart, Host } from '@expo/ui/swift-ui';
 import { useRouter } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import { useState } from 'react';
-import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { SFSymbol } from 'sf-symbols-typescript';
 
+import { AppRefreshControl } from '@/components/refresh-control';
 import { BarRow, KpiTile, methodLook, money, PeriodChips, QueryState, SectionTitle, TileGrid } from '@/components/analytics/parts';
 import { AmbientBackdrop } from '@/components/ambient-backdrop';
 import { GlassCard, sheetStyles } from '@/components/new-check-parts';
@@ -58,7 +59,7 @@ export default function AnalyticsScreen() {
       <ScrollView
         contentInsetAdjustmentBehavior="never"
         contentContainerStyle={[styles.content, gutter, { paddingTop: insets.top }]}
-        refreshControl={<RefreshControl tintColor={colors.accent} progressViewOffset={insets.top} refreshing={pulling} onRefresh={refresh} />}>
+        refreshControl={<AppRefreshControl tintColor={colors.accent} progressViewOffset={insets.top} refreshing={pulling} onRefresh={refresh} />}>
         <View style={styles.headerRow}>
           <View style={styles.header}>
             <Text style={[type.largeTitle, styles.label]}>Аналитика</Text>

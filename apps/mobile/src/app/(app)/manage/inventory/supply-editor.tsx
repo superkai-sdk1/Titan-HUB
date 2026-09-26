@@ -1,4 +1,3 @@
-import { GlassView } from 'expo-glass-effect';
 import { Stack, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import { usePreventRemove } from 'expo-router/react-navigation';
 import { SymbolView } from 'expo-symbols';
@@ -7,6 +6,7 @@ import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, Text
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import Animated, { FadeIn, FadeOut, LinearTransition } from 'react-native-reanimated';
 
+import { GlassView } from '@/components/glass';
 import { AmbientBackdrop } from '@/components/ambient-backdrop';
 import { GlassCard, PrimaryButton, sheetStyles } from '@/components/new-check-parts';
 import { formatMoney } from '@/lib/format';
@@ -22,9 +22,10 @@ import {
   useSupply,
   type SupplyLineInput,
 } from '@/lib/inventory-api';
-import { usePageGutter } from '@/lib/layout';
+import { KEYBOARD_DISMISS, usePageGutter } from '@/lib/layout';
 import { newIdempotencyKey, parseAmount } from '@/lib/shift-api';
 import { colors, space, type } from '@/lib/theme';
+import { chooseAction } from '@/lib/dialog';
 
 type Mode = 'create' | 'draft' | 'correct';
 type Line = { key: string; itemId: string | null; name: string; qty: string; price: string; lastPrice: number | null };
@@ -144,7 +145,7 @@ function SupplyEditor({ mode, sourceId, initialLines }: { mode: Mode; sourceId: 
   usePreventRemove(dirty && !busy, ({ data }) => {
     if (leaving.current) return navigation.dispatch(data.action);
     const leave = () => navigation.dispatch(data.action);
-    Alert.alert(
+    chooseAction(
       mode === 'correct' ? 'Корректировка не сохранена' : 'Закупка не проведена',
       mode === 'correct' ? 'Изменения пропадут.' : 'Сохранить перед выходом?',
       mode === 'correct'
@@ -153,8 +154,8 @@ function SupplyEditor({ mode, sourceId, initialLines }: { mode: Mode; sourceId: 
             { text: 'Не сохранять', style: 'destructive', onPress: leave },
           ]
         : [
-            ...(valid ? [{ text: 'Провести закупку', onPress: () => void submit().then((ok) => ok && leave()) }] : []),
-            { text: 'Сохранить черновик', onPress: () => void saveDraft().then((ok) => ok && leave()) },
+            ...(valid ? [{ text: 'Провести закупку', icon: 'checkmark.seal', onPress: () => void submit().then((ok) => ok && leave()) }] : []),
+            { text: 'Сохранить черновик', icon: 'tray.and.arrow.down', onPress: () => void saveDraft().then((ok) => ok && leave()) },
             { text: 'Не сохранять', style: 'destructive' as const, onPress: leave },
             { text: 'Остаться', style: 'cancel' as const },
           ],
@@ -183,7 +184,7 @@ function SupplyEditor({ mode, sourceId, initialLines }: { mode: Mode; sourceId: 
     <AmbientBackdrop style={styles.screen}>
       <Stack.Title>{title}</Stack.Title>
       <KeyboardAvoidingView behavior="padding" style={styles.flex}>
-        <ScrollView contentInsetAdjustmentBehavior="automatic" contentContainerStyle={[styles.content, gutter]} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive">
+        <ScrollView contentInsetAdjustmentBehavior="automatic" contentContainerStyle={[styles.content, gutter]} keyboardShouldPersistTaps="handled" keyboardDismissMode={KEYBOARD_DISMISS}>
           {parsed.map(({ line, qty, price, sum, error }, index) => {
             const suggestions = suggestionsFor(line);
             const priceDiff = line.lastPrice !== null && price > 0 ? round2(price - line.lastPrice) : 0;

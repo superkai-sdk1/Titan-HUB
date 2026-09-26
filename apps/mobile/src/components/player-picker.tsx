@@ -1,10 +1,12 @@
-import { GlassView } from 'expo-glass-effect';
 import { SymbolView } from 'expo-symbols';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import Animated, { FadeIn } from 'react-native-reanimated';
 
+import { GlassView } from '@/components/glass';
+import { ClearButton } from '@/components/clear-button';
 import { Avatar, BalanceChips, GlassCard, sheetStyles } from '@/components/new-check-parts';
+import { useAutoFocus } from '@/lib/auto-focus';
 import { formatMoney } from '@/lib/format';
 import { haptic } from '@/lib/haptics';
 import { preselectTariff, sortTariffs, TIER_LABEL, usePlayerSearch, useTariffs, type PlayerSearchItem, type Tariff } from '@/lib/pos-api';
@@ -50,6 +52,7 @@ export function PlayerSearch({
   const players = (search.data ?? []).filter((p) => p.id !== excludeId && !excludeIds?.includes(p.id));
   const typing = trimmed.length > 0;
   const waiting = typing && (debounced !== trimmed || search.isLoading);
+  const focus = useAutoFocus();
 
   return (
     // column-reverse: поле поиска внизу блока, у клавиатуры, результаты растут вверх —
@@ -58,7 +61,7 @@ export function PlayerSearch({
       <GlassView style={styles.searchField}>
         <SymbolView name="magnifyingglass" size={16} weight="medium" tintColor={colors.secondaryLabel} />
         <TextInput
-          autoFocus
+          {...focus}
           value={query}
           onChangeText={onQuery}
           placeholder="Ник, имя или @telegram"
@@ -72,6 +75,7 @@ export function PlayerSearch({
           clearButtonMode="while-editing"
           accessibilityLabel="Поиск игрока"
         />
+        <ClearButton visible={query.length > 0} onPress={() => onQuery('')} />
       </GlassView>
 
       {typing && (
@@ -180,11 +184,19 @@ function tariffColor(tariff: Tariff, index: number): string {
   return /^#[0-9a-f]{6}$/i.test(tariff.color ?? '') ? tariff.color : PALETTE[index % PALETTE.length]!;
 }
 
-/** Сетка как в веб-кассе: первые три тарифа — ряд по три, дальше — по два. */
-function tariffRows<T>(list: T[]): T[][] {
-  const rows: T[][] = [];
-  if (list.length > 0) rows.push(list.slice(0, 3));
-  for (let i = 3; i < list.length; i += 2) rows.push(list.slice(i, i + 2));
+type Cell = { kind: 'tariff'; tariff: Tariff; color: string } | { kind: 'none' };
+
+/**
+ * Раскладка сетки — подряд: первый ряд из трёх, дальше по два, «Без тарифа» последней
+ * плиткой. С порядком sortTariffs это:
+ *   Резидент | Новичок | Гость
+ *   Студент | Друзья клуба
+ *   Одна игра | Без тарифа
+ */
+function tariffRows(list: Tariff[]): Cell[][] {
+  const cells: Cell[] = [...list.map((tariff, index): Cell => ({ kind: 'tariff', tariff, color: tariffColor(tariff, index) })), { kind: 'none' }];
+  const rows: Cell[][] = [cells.slice(0, 3)];
+  for (let i = 3; i < cells.length; i += 2) rows.push(cells.slice(i, i + 2));
   return rows;
 }
 
@@ -197,13 +209,41 @@ export function TariffGrid({
 }) {
   if (choice.isLoading) return <ActivityIndicator style={styles.loading} />;
 
-  const rows = tariffRows(choice.list.map((tariff, index) => ({ tariff, color: tariffColor(tariff, index) })));
+  const rows = tariffRows(choice.list);
 
   return (
     <View style={styles.grid}>
       {rows.map((row, r) => (
-        <View key={row.map((cell) => cell.tariff.id).join()} style={styles.gridRow}>
-          {row.map(({ tariff, color }) => {
+        <View key={row.map((cell) => (cell.kind === 'tariff' ? cell.tariff.id : 'none')).join()} style={styles.gridRow}>
+          {row.map((cell) => {
+            if (cell.kind === 'none') {
+              const isSelected = choice.selectedId === null;
+              return (
+                <Pressable
+                  key="none"
+                  onPress={() => choice.choose(null)}
+                  style={styles.flex}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: isSelected }}
+                  accessibilityLabel="Без тарифа"
+                  accessibilityHint={noTariffCaption}>
+                  <GlassView isInteractive tintColor={isSelected ? 'rgba(142,142,147,0.35)' : undefined} style={styles.tariffTile}>
+                    <Text style={[type.subhead, styles.tariffName]} numberOfLines={1}>
+                      Без тарифа
+                    </Text>
+                    <Text style={[type.caption2, sheetStyles.secondary, styles.noTariffCaption]} numberOfLines={2}>
+                      {noTariffCaption}
+                    </Text>
+                    {isSelected && (
+                      <View style={styles.tileCheck}>
+                        <SymbolView name="checkmark.circle.fill" size={16} tintColor={colors.secondaryLabel} />
+                      </View>
+                    )}
+                  </GlassView>
+                </Pressable>
+              );
+            }
+            const { tariff, color } = cell;
             const isSelected = choice.selectedId === tariff.id;
             return (
               <Pressable
@@ -232,19 +272,6 @@ export function TariffGrid({
           {r > 0 && row.length === 1 && <View style={styles.flex} />}
         </View>
       ))}
-
-      <Pressable onPress={() => choice.choose(null)} accessibilityRole="button" accessibilityState={{ selected: choice.selectedId === null }}>
-        <GlassView isInteractive tintColor={choice.selectedId === null ? 'rgba(142,142,147,0.35)' : undefined} style={styles.noTariff}>
-        <View style={styles.noTariffIcon}>
-          <SymbolView name="nosign" size={16} weight="medium" tintColor={colors.secondaryLabel} />
-        </View>
-        <View style={styles.flex}>
-          <Text style={[type.subhead, styles.tariffName]}>Без тарифа</Text>
-          <Text style={[type.caption1, sheetStyles.secondary]}>{noTariffCaption}</Text>
-        </View>
-        {choice.selectedId === null && <SymbolView name="checkmark.circle.fill" size={18} tintColor={colors.secondaryLabel} />}
-        </GlassView>
-      </Pressable>
     </View>
   );
 }
@@ -288,13 +315,5 @@ const styles = StyleSheet.create({
   },
   tariffName: { color: colors.label, fontWeight: '600' },
   tileCheck: { position: 'absolute', top: 6, right: 6 },
-  noTariff: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space.md,
-    padding: space.md,
-    borderRadius: 20,
-    borderCurve: 'continuous',
-  },
-  noTariffIcon: { width: 32, height: 32, borderRadius: 9, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.fill },
+  noTariffCaption: { textAlign: 'center' },
 });

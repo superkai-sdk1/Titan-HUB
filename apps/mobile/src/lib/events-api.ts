@@ -71,6 +71,9 @@ export type BookingRequest = {
   event_id: string | null;
 };
 
+/** Старая бронь: зона штаба, мероприятие по ней завершено. `check_total` — итог вечера. */
+export type ArchivedBooking = Omit<BookingRequest, 'duration_hours'> & { event_status: EventStatus; check_total: NumericString | null };
+
 export type EventRate = { hours: number; price: NumericString };
 export type Customer = { id: string; name: string | null; phone: string | null };
 export type StaffMember = { id: string; nickname: string; role: string; photoUrl: string | null };
@@ -207,6 +210,17 @@ export function useBookingRequests() {
     queryKey: [club, 'bookings', 'new'],
     queryFn: () => api.get<{ bookings: BookingRequest[] }>('/bookings?status=new').then((r) => r.bookings),
     refetchInterval: 60_000,
+  });
+}
+
+/** «Старые брони» — как вкладка «Старые» в веб-мероприятиях (последние 200). */
+export function useArchivedBookings(enabled: boolean) {
+  const club = useClubKey();
+  return useQuery({
+    queryKey: [club, 'bookings', 'archive'],
+    queryFn: () => api.get<{ bookings: ArchivedBooking[] }>('/bookings/archive').then((r) => r.bookings),
+    enabled,
+    staleTime: 5 * 60_000,
   });
 }
 

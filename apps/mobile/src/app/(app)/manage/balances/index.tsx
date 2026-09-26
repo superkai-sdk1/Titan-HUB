@@ -1,12 +1,13 @@
 import { Host, Picker, Text as SwiftText } from '@expo/ui/swift-ui';
+import { AppRefreshControl } from '@/components/refresh-control';
+import { GlassView } from '@/components/glass';
 import { useDebounced } from '@/components/player-picker';
 import { BottomSearch, useSearchClearance } from '@/components/bottom-search';
 import { pickerStyle, tag } from '@expo/ui/swift-ui/modifiers';
-import { GlassView } from 'expo-glass-effect';
 import { Stack, useRouter } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import { useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Animated, { FadeIn, FadeOut, LayoutAnimationConfig, LinearTransition } from 'react-native-reanimated';
 import type { SFSymbol } from 'sf-symbols-typescript';
 
@@ -76,7 +77,7 @@ export default function BalancesScreen() {
         keyboardDismissMode="on-drag"
         keyboardShouldPersistTaps="handled"
         automaticallyAdjustKeyboardInsets
-        refreshControl={<RefreshControl tintColor={colors.accent} refreshing={pulling} onRefresh={refresh} />}>
+        refreshControl={<AppRefreshControl tintColor={colors.accent} refreshing={pulling} onRefresh={refresh} />}>
         <View style={styles.tiles}>
           <SummaryTile
             title="Депозиты"

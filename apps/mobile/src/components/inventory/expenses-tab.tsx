@@ -1,10 +1,10 @@
-import { GlassView } from 'expo-glass-effect';
 import { useRouter } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import { useState } from 'react';
 import { ActivityIndicator, Alert, StyleSheet, Text, View } from 'react-native';
 import Animated, { FadeIn, FadeOut, LinearTransition } from 'react-native-reanimated';
 
+import { GlassView } from '@/components/glass';
 import { Avatar, GlassCard, GlassChip, PrimaryButton, sheetStyles } from '@/components/new-check-parts';
 import { RollingText } from '@/components/rolling-text';
 import { SwipeToDelete } from '@/components/swipe-to-delete';

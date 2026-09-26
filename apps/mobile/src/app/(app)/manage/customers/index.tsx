@@ -1,11 +1,12 @@
-import { GlassView } from 'expo-glass-effect';
 import { Stack, useRouter } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import { useState } from 'react';
-import { ActivityIndicator, Linking, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Animated, { FadeIn, FadeOut, LayoutAnimationConfig, LinearTransition } from 'react-native-reanimated';
 import type { SFSymbol } from 'sf-symbols-typescript';
 
+import { AppRefreshControl } from '@/components/refresh-control';
+import { GlassView } from '@/components/glass';
 import { BottomSearch, useSearchClearance } from '@/components/bottom-search';
 import { AmbientBackdrop } from '@/components/ambient-backdrop';
 import { useDebounced } from '@/components/player-picker';
@@ -53,7 +54,6 @@ export default function CustomersScreen() {
   return (
     <AmbientBackdrop style={styles.screen}>
       <Stack.Title>Заказчики</Stack.Title>
-      <Stack.SearchBar placement="integrated" placeholder="Имя или телефон" onChangeText={(event) => setQuery(event.nativeEvent.text)} onCancelButtonPress={() => setQuery('')} />
       <Stack.Toolbar placement="right">
         <ToolbarButton icon="plus" accessibilityLabel="Новый заказчик" onPress={() => open()} />
       </Stack.Toolbar>
@@ -64,7 +64,7 @@ export default function CustomersScreen() {
         keyboardDismissMode="on-drag"
         keyboardShouldPersistTaps="handled"
         automaticallyAdjustKeyboardInsets
-        refreshControl={<RefreshControl tintColor={colors.accent} refreshing={pulling} onRefresh={refresh} />}>
+        refreshControl={<AppRefreshControl tintColor={colors.accent} refreshing={pulling} onRefresh={refresh} />}>
         {customers.data && (
           <Text style={[type.footnote, styles.count]}>
             {searching

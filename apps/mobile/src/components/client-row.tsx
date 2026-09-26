@@ -1,7 +1,7 @@
-import { GlassView } from 'expo-glass-effect';
 import type { ReactNode } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { GlassView } from '@/components/glass';
 import { Avatar, BalanceChips } from '@/components/new-check-parts';
 import { clientPhoto, tierLook, type Client, type ClientTierRow } from '@/lib/clients-api';
 import { haptic } from '@/lib/haptics';

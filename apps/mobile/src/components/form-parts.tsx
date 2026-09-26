@@ -4,6 +4,7 @@ import { StyleSheet, Text, TextInput, View } from 'react-native';
 import type { SFSymbol } from 'sf-symbols-typescript';
 
 import { sheetStyles } from '@/components/new-check-parts';
+import { useAutoFocus } from '@/lib/auto-focus';
 import { colors, space, type } from '@/lib/theme';
 
 /** Поля форм в шторках: подпись группы капсом и строка ввода со значком — внутри стеклянной карточки. */
@@ -38,6 +39,7 @@ export function FormField({
   /** Единица справа от значения, например «₽». */
   suffix?: string;
 }) {
+  const focus = useAutoFocus(!!autoFocus);
   return (
     <View style={styles.field}>
       <SymbolView name={icon} size={16} weight="medium" tintColor={colors.secondaryLabel} />
@@ -50,7 +52,7 @@ export function FormField({
         keyboardType={keyboardType}
         autoCapitalize={autoCapitalize}
         autoCorrect={false}
-        autoFocus={autoFocus}
+        {...focus}
         accessibilityLabel={placeholder}
         style={[type.body, styles.input]}
       />

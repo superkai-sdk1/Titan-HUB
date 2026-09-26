@@ -2,12 +2,17 @@ import { BlurView } from 'expo-blur';
 import * as LocalAuthentication from 'expo-local-authentication';
 import { SymbolView } from 'expo-symbols';
 import { useEffect, useRef, useState } from 'react';
-import { AppState, Pressable, StyleSheet, Text, View, Platform } from 'react-native';
+import { Alert, AppState, Pressable, StyleSheet, Text, View, Platform } from 'react-native';
 import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
 
+import { PinDots, PinPad, type PinKey } from '@/components/pin-pad';
+import { api, ApiError } from '@/lib/api';
 import { haptic } from '@/lib/haptics';
 import { useSession } from '@/lib/session';
 import { colors, space, type } from '@/lib/theme';
+import type { LoginResponse } from '@/lib/types';
+
+const PIN_LENGTH = 4;
 
 /** Через сколько в фоне касса снова просит Face ID или PIN — как 30 минут простоя в вебе. */
 const LOCK_AFTER_MS = 30 * 60 * 1000;
@@ -41,6 +46,16 @@ export function SessionLock() {
       }
     });
     return () => sub.remove();
+  }, []);
+
+  // Есть ли вообще Face ID / отпечаток. Без них кнопка «Разблокировать» молча ничего
+  // не делала — на Android без настроенного отпечатка касса открывалась только выходом.
+  const [biometrics, setBiometrics] = useState<boolean | null>(null);
+  useEffect(() => {
+    void (async () => {
+      const ok = (await LocalAuthentication.hasHardwareAsync()) && (await LocalAuthentication.isEnrolledAsync());
+      setBiometrics(ok);
+    })().catch(() => setBiometrics(false));
   }, []);
 
   const unlockWithBiometrics = async () => {
@@ -84,26 +99,78 @@ export function SessionLock() {
       ) : (
         <View style={[StyleSheet.absoluteFill, styles.scrim]} />
       )}
-      {locked && (
-        <View style={styles.content}>
-          <SymbolView name="lock.fill" size={44} tintColor={colors.secondaryLabel} />
-          <Text style={[type.title3, styles.title]}>Касса заблокирована</Text>
-          <Pressable style={styles.primary} onPress={() => void unlockWithBiometrics()} accessibilityRole="button">
-            <SymbolView name="faceid" size={22} tintColor={colors.accent} />
-            <Text style={[type.headline, styles.primaryText]}>Разблокировать</Text>
-          </Pressable>
-          <Pressable onPress={() => void useSession.getState().signOut()} hitSlop={12} accessibilityRole="button">
-            <Text style={[type.body, styles.secondaryText]}>Войти по PIN</Text>
-          </Pressable>
-        </View>
-      )}
+      {locked && <LockedContent biometrics={biometrics === true} onBiometrics={() => void unlockWithBiometrics()} />}
     </Animated.View>
+  );
+}
+
+/**
+ * Экран блокировки: Face ID / отпечаток (если настроены) и PIN того же сотрудника прямо
+ * здесь. Раньше «Войти по PIN» выходило из кассы целиком, и после каждого холодного старта
+ * приходилось входить заново.
+ */
+function LockedContent({ biometrics, onBiometrics }: { biometrics: boolean; onBiometrics: () => void }) {
+  const user = useSession((s) => s.user);
+  const [pin, setPin] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [shakeKey, setShakeKey] = useState(0);
+
+  const verify = async (code: string) => {
+    setBusy(true);
+    try {
+      // userId — проверяем PIN именно этого сотрудника, а не любого в клубе.
+      const res = await api.post<LoginResponse>('/auth/login/pin', { pin: code, userId: user?.id }, { auth: false });
+      haptic.success();
+      await useSession.getState().signIn(res.token, res.user);
+    } catch (error) {
+      haptic.error();
+      setPin('');
+      if (error instanceof ApiError && error.status === 401) setShakeKey((k) => k + 1);
+      else Alert.alert('Не удалось разблокировать', error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onKey = (key: PinKey) => {
+    if (busy) return;
+    if (key === 'delete') {
+      setPin((p) => p.slice(0, -1));
+      return;
+    }
+    if (pin.length >= PIN_LENGTH) return;
+    const next = pin + key;
+    setPin(next);
+    if (next.length === PIN_LENGTH) void verify(next);
+  };
+
+  return (
+    <View style={styles.content}>
+      <SymbolView name="lock.fill" size={36} tintColor={colors.secondaryLabel} />
+      <Text style={[type.title3, styles.title]}>Касса заблокирована</Text>
+      <Text style={[type.subhead, styles.secondaryText]}>{user?.nickname ? `${user.nickname}, введите PIN` : 'Введите PIN'}</Text>
+      <PinDots length={PIN_LENGTH} filled={busy ? PIN_LENGTH : pin.length} shakeKey={shakeKey} />
+      <PinPad onKey={onKey} disabled={busy} canDelete={pin.length > 0} />
+      <View style={styles.links}>
+        {biometrics && (
+          <Pressable style={styles.primary} onPress={onBiometrics} accessibilityRole="button">
+            {/* На Android разблокировка — отпечатком: значок лица там вводит в заблуждение. */}
+            <SymbolView name={Platform.OS === 'ios' ? 'faceid' : 'touchid'} size={20} tintColor={colors.accent} />
+            <Text style={[type.headline, styles.primaryText]}>{Platform.OS === 'ios' ? 'Face ID' : 'Отпечаток'}</Text>
+          </Pressable>
+        )}
+        <Pressable onPress={() => void useSession.getState().signOut()} hitSlop={12} accessibilityRole="button">
+          <Text style={[type.body, styles.secondaryText]}>Другой сотрудник</Text>
+        </Pressable>
+      </View>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   scrim: { backgroundColor: colors.background },
-  content: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: space.lg, padding: space.xxl },
+  content: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: space.md, padding: space.xl },
+  links: { flexDirection: 'row', alignItems: 'center', gap: space.xl, marginTop: space.sm },
   title: { color: colors.label },
   primary: {
     flexDirection: 'row',

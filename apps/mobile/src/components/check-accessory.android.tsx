@@ -1,6 +1,6 @@
 import { StyleSheet, View } from 'react-native';
 
-import { colors, radius, space } from '@/lib/theme';
+import { colors, space } from '@/lib/theme';
 
 import { CheckAccessoryBody } from './check-accessory-body';
 
@@ -17,7 +17,10 @@ const styles = StyleSheet.create({
   pill: {
     minHeight: 56,
     justifyContent: 'center',
-    borderRadius: radius.card,
+    // Капсула, как панель вкладок под ней.
+    borderRadius: 28,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.separator,
     backgroundColor: colors.floating,
     paddingHorizontal: space.xs,
     elevation: 6,

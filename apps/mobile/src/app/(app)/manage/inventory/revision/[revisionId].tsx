@@ -9,7 +9,7 @@ import { GlassCard, PrimaryButton, sheetStyles } from '@/components/new-check-pa
 import { formatMoney, plural, toNumber } from '@/lib/format';
 import { haptic } from '@/lib/haptics';
 import { correctRevision, useRevision } from '@/lib/inventory-api';
-import { usePageGutter } from '@/lib/layout';
+import { KEYBOARD_DISMISS, usePageGutter } from '@/lib/layout';
 import { colors, space, type } from '@/lib/theme';
 
 const money = (n: number) => formatMoney(n, { kopecks: 'auto' });
@@ -83,7 +83,7 @@ export default function RevisionScreen() {
     <AmbientBackdrop style={styles.screen}>
       <Stack.Title>Ревизия</Stack.Title>
       <KeyboardAvoidingView behavior="padding" style={styles.flex}>
-        <ScrollView contentInsetAdjustmentBehavior="automatic" contentContainerStyle={[styles.content, gutter]} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive">
+        <ScrollView contentInsetAdjustmentBehavior="automatic" contentContainerStyle={[styles.content, gutter]} keyboardShouldPersistTaps="handled" keyboardDismissMode={KEYBOARD_DISMISS}>
           <View style={styles.hero}>
             <Text style={[type.title3, styles.label]}>{longDate.format(new Date(data.revision.createdAt))}</Text>
             <Text style={[type.subhead, styles.secondary]}>{`${data.items.length} ${plural(data.items.length, ['позиция', 'позиции', 'позиций'])}${data.revision.author ? ` · провёл ${data.revision.author}` : ''}`}</Text>

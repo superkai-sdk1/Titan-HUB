@@ -1,11 +1,12 @@
 import { DatePicker, Host } from '@expo/ui/swift-ui';
-import { GlassView } from 'expo-glass-effect';
 import { Stack } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import { useState } from 'react';
-import { ActionSheetIOS, ActivityIndicator, Alert, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActionSheetIOS, ActivityIndicator, Alert, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 
+import { AppRefreshControl } from '@/components/refresh-control';
+import { GlassView } from '@/components/glass';
 import { AmbientBackdrop } from '@/components/ambient-backdrop';
 import { FormField } from '@/components/form-parts';
 import { Avatar, GlassCard, PrimaryButton, sheetStyles } from '@/components/new-check-parts';
@@ -14,7 +15,7 @@ import { Unavailable } from '@/components/unavailable';
 import { fromDateTime, toDateString, useStaffList } from '@/lib/events-api';
 import { formatMoney, toNumber } from '@/lib/format';
 import { haptic } from '@/lib/haptics';
-import { usePageGutter } from '@/lib/layout';
+import { KEYBOARD_DISMISS, usePageGutter } from '@/lib/layout';
 import { useShiftSummary } from '@/lib/queries';
 import { currentBusinessDay, paySalary, useBusinessDayStartHour, useSalaryEstimate, useSalaryPayments } from '@/lib/salary-api';
 import { useSession } from '@/lib/session';
@@ -163,8 +164,8 @@ function SalaryOwnerScreen() {
           contentInsetAdjustmentBehavior="automatic"
           contentContainerStyle={[styles.content, gutter]}
           keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="interactive"
-          refreshControl={<RefreshControl tintColor={colors.accent} refreshing={pulling} onRefresh={refresh} />}>
+          keyboardDismissMode={KEYBOARD_DISMISS}
+          refreshControl={<AppRefreshControl tintColor={colors.accent} refreshing={pulling} onRefresh={refresh} />}>
           <Text style={[type.footnote, sheetStyles.sectionTitle]}>СОТРУДНИК</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.people} contentContainerStyle={styles.peopleContent}>
             {staff.isLoading && <ActivityIndicator />}

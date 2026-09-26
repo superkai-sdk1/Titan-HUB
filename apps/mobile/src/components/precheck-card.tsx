@@ -1,9 +1,9 @@
-import { GlassView } from 'expo-glass-effect';
 import { SymbolView } from 'expo-symbols';
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import Animated, { cancelAnimation, Easing, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 
+import { GlassView } from '@/components/glass';
 import { Avatar } from '@/components/new-check-parts';
 import { formatMoney, toNumber } from '@/lib/format';
 import { haptic } from '@/lib/haptics';
@@ -18,7 +18,7 @@ const TAI_TINT = 'rgba(139,92,246,0.30)';
  * Предчек Tai: игрок проголосовал «приду», чека у него ещё нет. Карточка — фиолетовое
  * интерактивное стекло; удержание открывает чек с тарифом по статусу.
  */
-export function PrecheckCard({ precheck, busy, onOpen }: { precheck: Precheck; busy: boolean; onOpen: () => void }) {
+export function PrecheckCard({ precheck, busy, onOpen, glassKey }: { precheck: Precheck; busy: boolean; onOpen: () => void; glassKey?: number }) {
   const [holding, setHolding] = useState(false);
   const progress = useSharedValue(0);
   const progressStyle = useAnimatedStyle(() => ({ width: `${progress.value * 100}%` }));
@@ -46,7 +46,7 @@ export function PrecheckCard({ precheck, busy, onOpen }: { precheck: Precheck; b
       }}
       accessibilityRole="button"
       accessibilityLabel={`Предчек: ${precheck.nickname}, ${precheck.tariffName ?? 'тариф'}. Удерживайте, чтобы открыть чек`}>
-      <GlassView isInteractive glassEffectStyle="regular" tintColor={TAI_TINT} style={styles.card}>
+      <GlassView isInteractive refreshKey={glassKey} glassEffectStyle="regular" tintColor={TAI_TINT} style={styles.card}>
         <View style={styles.header}>
           <Avatar name={precheck.nickname} photoUrl={precheck.photoUrl} size={34} />
           <View style={styles.titles}>

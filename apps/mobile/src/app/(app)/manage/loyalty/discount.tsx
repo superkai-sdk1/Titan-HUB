@@ -10,6 +10,7 @@ import { SwitchRow } from '@/components/settings-parts';
 import { deleteDiscount, saveDiscount, useDiscounts, type Discount } from '@/lib/admin-api';
 import { toNumber } from '@/lib/format';
 import { haptic } from '@/lib/haptics';
+import { KEYBOARD_DISMISS } from '@/lib/layout';
 import { parseAmount } from '@/lib/shift-api';
 import { colors, space, type } from '@/lib/theme';
 
@@ -90,7 +91,7 @@ function DiscountForm({ original, onClose }: { original: Discount | null; onClos
 
   return (
     <KeyboardAvoidingView behavior="padding" style={styles.flex}>
-      <ScrollView contentContainerStyle={[styles.content, { paddingBottom: Math.max(insets.bottom, space.lg) }]} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={[styles.content, { paddingBottom: Math.max(insets.bottom, space.lg) }]} keyboardShouldPersistTaps="handled" keyboardDismissMode={KEYBOARD_DISMISS} showsVerticalScrollIndicator={false}>
         <SheetHeader title={original ? 'Скидка' : 'Новая скидка'} onClose={onClose} />
 
         <FormSection title="СКИДКА">

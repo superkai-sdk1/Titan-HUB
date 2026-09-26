@@ -10,6 +10,8 @@ import { checkTitle, checkTotals } from '@/lib/checks';
 import { usePosPlayer } from '@/lib/payment';
 import { markCheckNotificationsRead, useCheck } from '@/lib/queries';
 import { useSession } from '@/lib/session';
+import { useHeaderClearance } from '@/lib/layout';
+import { useTabBarClearance } from '@/lib/tab-bar';
 import { colors, space, type } from '@/lib/theme';
 import { useCheckActions } from '@/lib/use-check-actions';
 import { useNow } from '@/lib/use-now';
@@ -29,6 +31,9 @@ export default function CheckScreen() {
   const spaceId = data?.spaceId ?? null;
   const actions = useCheckActions(checkId, data?.guestNames ?? []);
   const player = usePosPlayer(data?.playerId ?? null);
+  // Android: кнопки «Добавить / Оплатить» плывут над панелью вкладок — чек не должен под ними прятаться.
+  const tabBarClearance = useTabBarClearance(true);
+  const headerTop = useHeaderClearance();
 
   useEffect(() => {
     if (host && checkId) void markCheckNotificationsRead(host, { id: checkId, spaceId });
@@ -73,6 +78,10 @@ export default function CheckScreen() {
           player={player.data}
           now={now}
           contentInsetAdjustmentBehavior="automatic"
+          contentContainerStyle={[
+            tabBarClearance > 0 && { paddingBottom: tabBarClearance + space.lg },
+            headerTop > 0 && { paddingTop: headerTop },
+          ]}
         />
       ) : (
         <View style={styles.state}>

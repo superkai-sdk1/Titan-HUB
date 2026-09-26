@@ -1,4 +1,5 @@
 import Constants from 'expo-constants';
+import { Platform } from 'react-native';
 
 import { useSession } from './session';
 
@@ -84,7 +85,7 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
   const useAuth = options.auth !== false;
   const headers: Record<string, string> = {
     Accept: 'application/json',
-    'X-App-Platform': 'ios',
+    'X-App-Platform': Platform.OS,
     'X-App-Version': APP_VERSION,
   };
   // FormData (загрузка фото) сериализует и размечает сам fetch — свой Content-Type сломал бы boundary.

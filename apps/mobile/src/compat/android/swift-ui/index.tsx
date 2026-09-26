@@ -12,6 +12,7 @@ import {
   type ColorValue, type StyleProp, type TextStyle, type ViewStyle,
 } from 'react-native';
 
+import { useAutoFocus } from '@/lib/auto-focus';
 import { colors, radius, space } from '@/lib/theme';
 
 import { SymbolView } from '../symbols';
@@ -21,6 +22,16 @@ type Mods = { modifiers?: ViewModifier[] };
 type WithChildren = { children?: ReactNode };
 
 const TintContext = createContext<ColorValue>(colors.accent);
+
+/**
+ * Пункт меню сперва выполняет своё действие, потом закрывает меню. Раньше меню
+ * закрывалось по касанию (onTouchStart) — модалка исчезала раньше, чем кнопка получала
+ * нажатие, и пункт «Мероприятие / Миникап» не срабатывал вовсе.
+ */
+const MenuCloseContext = createContext<(() => void) | null>(null);
+
+/** Текст в подписи секции — мелкий и серый, как footer у SwiftUI Section. */
+const FootnoteContext = createContext(false);
 
 /** Оттенок берётся из seedColor ближайшего Host, если компонент не задал свой. */
 function useTint(own?: ColorValue): ColorValue {
@@ -51,7 +62,8 @@ export function Host({ style, children, seedColor, pointerEvents, modifiers }: H
 
 export function VStack({ children, spacing, alignment, modifiers, style }: Mods & WithChildren & { spacing?: number; alignment?: string; style?: StyleProp<ViewStyle> }) {
   const align = alignment === 'leading' ? 'flex-start' : alignment === 'trailing' ? 'flex-end' : 'center';
-  return <View style={[{ gap: spacing, alignItems: align }, resolve(modifiers).style, style]}>{children}</View>;
+  // flexShrink: в строке (HStack) столбец текста должен переноситься, а не вылезать за карточку.
+  return <View style={[{ gap: spacing, alignItems: align, flexShrink: 1 }, resolve(modifiers).style, style]}>{children}</View>;
 }
 
 export function HStack({ children, spacing, alignment, modifiers, style }: Mods & WithChildren & { spacing?: number; alignment?: string; style?: StyleProp<ViewStyle> }) {
@@ -67,15 +79,23 @@ export function Spacer({ modifiers }: Mods) {
 
 export function Text({ children, modifiers, style }: Mods & WithChildren & { style?: StyleProp<TextStyle> }) {
   const m = resolve(modifiers);
-  return <RNText style={[styles.text, m.text, style]}>{children}</RNText>;
+  const footnote = useContext(FootnoteContext);
+  return <RNText style={[styles.text, footnote && styles.footnote, m.text, style]}>{children}</RNText>;
 }
 
 /** SwiftUI Image(systemName:) — SF Symbol; на Android его рисует наш SymbolView. */
-export function Image({ systemName, size = 17, color, modifiers }: Mods & { systemName?: string; size?: number; color?: ColorValue }) {
+export function Image({ systemName, size = 17, color, modifiers, onPress }: Mods & { systemName?: string; size?: number; color?: ColorValue; onPress?: () => void }) {
   const m = resolve(modifiers);
   const inner = <SymbolView name={systemName ?? ''} size={size} tintColor={color ?? m.text.color ?? colors.label} />;
   // frame + background из модификаторов образуют «плашку» вокруг иконки — как в SwiftUI.
-  return Object.keys(m.style).length > 0 ? <View style={[styles.center, m.style]}>{inner}</View> : inner;
+  const framed = Object.keys(m.style).length > 0 ? <View style={[styles.center, m.style]}>{inner}</View> : inner;
+  // В SwiftUI Image принимает onPress — например, иконка уведомления открывает чек.
+  if (!onPress) return framed;
+  return (
+    <Pressable onPress={onPress} hitSlop={8} accessibilityRole="button" style={({ pressed }) => pressed && styles.pressed}>
+      {framed}
+    </Pressable>
+  );
 }
 
 export function Label({ title, systemImage, modifiers }: Mods & { title?: string; systemImage?: string }) {
@@ -93,17 +113,26 @@ export function Label({ title, systemImage, modifiers }: Mods & { title?: string
 export function Button({ label, systemImage, onPress, modifiers, children, role }: Mods & WithChildren & { label?: string; systemImage?: string; onPress?: () => void; role?: string }) {
   const m = resolve(modifiers);
   const tint = useTint(m.tint);
+  const closeMenu = useContext(MenuCloseContext);
   const destructive = role === 'destructive';
   const color = destructive ? colors.red : (m.text.color ?? tint);
   const large = m.controlSize === 'large' || m.controlSize === 'extraLarge';
-  const filled = m.buttonStyle === 'borderedProminent';
+  // «Стеклянные» стили iOS 26 на Android — их ближайшие Material-аналоги: залитая и тональная кнопки.
+  const filled = m.buttonStyle === 'borderedProminent' || m.buttonStyle === 'glassProminent';
+  const tonal = m.buttonStyle === 'bordered' || m.buttonStyle === 'glass';
   return (
     <Pressable
-      onPress={onPress}
+      onPress={() => {
+        closeMenu?.();
+        onPress?.();
+      }}
       disabled={m.disabled}
       style={({ pressed }) => [
         styles.button,
+        closeMenu && styles.menuItem,
         large && styles.buttonLarge,
+        (filled || tonal) && styles.buttonPill,
+        tonal && { backgroundColor: colors.fill },
         filled && { backgroundColor: tint as string },
         m.style,
         (pressed || m.disabled) && styles.pressed,
@@ -174,6 +203,32 @@ export function Picker({ selection, onSelectionChange, options, modifiers, child
     );
   }
 
+  // inline — как в SwiftUI-форме: варианты строками, выбранный отмечен галочкой.
+  // Раньше рисовался сегмент, и пять вечеров при открытии смены сжимались до «Спортивн…».
+  if (m.pickerStyle === 'inline') {
+    return (
+      <View style={m.style}>
+        {items.map((item, index) => {
+          const active = item.value === selection;
+          return (
+            <View key={index}>
+              {index > 0 ? <View style={styles.separator} /> : null}
+              <Pressable
+                disabled={m.disabled}
+                onPress={() => change?.(item.value)}
+                style={({ pressed }) => [styles.listRow, pressed && styles.pressed]}
+                accessibilityRole="radio"
+                accessibilityState={{ selected: active }}>
+                <RNText style={[styles.text, styles.rowLabel]}>{item.label}</RNText>
+                {active ? <SymbolView name="checkmark" size={17} tintColor={tint} /> : null}
+              </Pressable>
+            </View>
+          );
+        })}
+      </View>
+    );
+  }
+
   // segmented — как UISegmentedControl: подсвеченная «таблетка» внутри дорожки.
   return (
     <View style={[styles.segments, m.style]}>
@@ -207,67 +262,81 @@ function monthGrid(year: number, month: number): (number | null)[] {
   return cells;
 }
 
-export function DatePicker({ title, selection, displayedComponents = 'date', onDateChange, modifiers }: Mods & {
+type DateRange = { start?: Date; end?: Date };
+
+/** Высота строки в колонках часов и минут — по ней прокручиваем к выбранному значению. */
+const TIME_CELL = 44;
+
+/**
+ * Выбор даты и/или времени. Нативный Compose-диалог требует особой границы композиции и
+ * внутри обычного дерева RN падает с MissingHostException, поэтому выбор свой.
+ *
+ * Раньше при `['date', 'hourAndMinute']` показывался только календарь: время начала
+ * мероприятия и аренды зоны на Android поменять было нельзя. Теперь календарь и время
+ * в одной шторке, а `range` ограничивает выбор, как в SwiftUI.
+ */
+export function DatePicker({ title, selection, displayedComponents = 'date', onDateChange, modifiers, range }: Mods & {
   title?: string;
   selection?: Date | null;
   displayedComponents?: 'date' | 'hourAndMinute' | 'dateAndTime' | ('date' | 'hourAndMinute' | 'dateAndTime')[];
   onDateChange?: (date: Date) => void;
+  range?: DateRange;
 }) {
   const m = resolve(modifiers);
   const tint = useTint(m.tint) as string;
   const [open, setOpen] = useState(false);
   const kinds = Array.isArray(displayedComponents) ? displayedComponents : [displayedComponents];
-  const timeOnly = kinds.length === 1 && kinds[0] === 'hourAndMinute';
+  const withDate = kinds.includes('date') || kinds.includes('dateAndTime');
+  const withTime = kinds.includes('hourAndMinute') || kinds.includes('dateAndTime');
   const value = selection ?? new Date();
   const [shownMonth, setShownMonth] = useState(() => new Date(value.getFullYear(), value.getMonth(), 1));
-  const shown = timeOnly
-    ? value.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
-    : value.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' });
+
+  const time = value.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+  const shown = !withDate
+    ? time
+    : withTime
+      ? `${value.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })}, ${time}`
+      : value.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' });
+
+  const clamp = (date: Date) => {
+    if (range?.start && date < range.start) return new Date(range.start);
+    if (range?.end && date > range.end) return new Date(range.end);
+    return date;
+  };
+  const dayDisabled = (day: number) => {
+    const from = new Date(shownMonth.getFullYear(), shownMonth.getMonth(), day);
+    const to = new Date(shownMonth.getFullYear(), shownMonth.getMonth(), day, 23, 59, 59, 999);
+    return (!!range?.start && to < range.start) || (!!range?.end && from > range.end);
+  };
 
   const pickDay = (day: number) => {
     const next = new Date(value);
     next.setFullYear(shownMonth.getFullYear(), shownMonth.getMonth(), day);
-    onDateChange?.(next);
-    setOpen(false);
+    onDateChange?.(clamp(next));
+    if (!withTime) setOpen(false);
   };
   const pickTime = (hours: number, minutes: number) => {
     const next = new Date(value);
     next.setHours(hours, minutes, 0, 0);
-    onDateChange?.(next);
+    onDateChange?.(clamp(next));
   };
+
+  // Минуты — шагом 5, плюс текущее значение, если оно между шагами (например, 18:37).
+  const minutes = Array.from({ length: 12 }, (_, index) => index * 5);
+  if (!minutes.includes(value.getMinutes())) {
+    minutes.push(value.getMinutes());
+    minutes.sort((a, b) => a - b);
+  }
 
   return (
     <View style={[styles.listRow, m.style]}>
       {title ? <RNText style={[styles.text, styles.rowLabel]}>{title}</RNText> : null}
-      <Pressable onPress={() => setOpen(true)} disabled={m.disabled} style={styles.dateValue}>
+      <Pressable onPress={() => { setShownMonth(new Date(value.getFullYear(), value.getMonth(), 1)); setOpen(true); }} disabled={m.disabled} style={styles.dateValue}>
         <RNText style={[styles.text, { color: tint }]}>{shown}</RNText>
       </Pressable>
 
-      {/* Свой выбор вместо диалога Material: нативный Compose-диалог требует особой
-          границы композиции и внутри обычного дерева RN падает с MissingHostException. */}
       <Sheet visible={open} onClose={() => setOpen(false)} title={title}>
-        {timeOnly ? (
-          <View style={styles.timeColumns}>
-            <ScrollView style={styles.timeColumn} contentContainerStyle={styles.timeColumnContent}>
-              {Array.from({ length: 24 }, (_, hour) => (
-                <Pressable key={hour} style={styles.timeCell} onPress={() => pickTime(hour, value.getMinutes())}>
-                  <RNText style={[styles.timeText, hour === value.getHours() && { color: tint, fontWeight: '700' }]}>
-                    {String(hour).padStart(2, '0')}
-                  </RNText>
-                </Pressable>
-              ))}
-            </ScrollView>
-            <ScrollView style={styles.timeColumn} contentContainerStyle={styles.timeColumnContent}>
-              {Array.from({ length: 12 }, (_, index) => index * 5).map((minute) => (
-                <Pressable key={minute} style={styles.timeCell} onPress={() => pickTime(value.getHours(), minute)}>
-                  <RNText style={[styles.timeText, minute === value.getMinutes() && { color: tint, fontWeight: '700' }]}>
-                    {String(minute).padStart(2, '0')}
-                  </RNText>
-                </Pressable>
-              ))}
-            </ScrollView>
-          </View>
-        ) : (
+        {withDate ? (
           <View style={styles.calendar}>
             <View style={styles.calendarHead}>
               <Pressable
@@ -296,21 +365,61 @@ export function DatePicker({ title, selection, displayedComponents = 'date', onD
                   value.getDate() === day &&
                   value.getMonth() === shownMonth.getMonth() &&
                   value.getFullYear() === shownMonth.getFullYear();
+                const off = day != null && dayDisabled(day);
                 return (
                   <Pressable
                     key={index}
-                    disabled={day == null}
+                    disabled={day == null || off}
                     onPress={() => day != null && pickDay(day)}
-                    style={[styles.dayCell, chosen && { backgroundColor: tint }]}>
-                    <RNText style={[styles.text, styles.dayText, chosen && styles.dayTextChosen]}>
-                      {day ?? ''}
-                    </RNText>
+                    style={styles.dayCell}>
+                    {/* Кружок фиксированного размера: у ячейки ширина в процентах, и фон растягивался в овал. */}
+                    <View style={[styles.dayDot, chosen && { backgroundColor: tint }]}>
+                      <RNText style={[styles.text, styles.dayText, off && styles.dayTextOff, chosen && styles.dayTextChosen]}>
+                        {day ?? ''}
+                      </RNText>
+                    </View>
                   </Pressable>
                 );
               })}
             </View>
           </View>
-        )}
+        ) : null}
+
+        {withTime ? (
+          <View style={[styles.timeColumns, withDate && styles.timeColumnsCompact]}>
+            <ScrollView
+              style={styles.timeColumn}
+              contentContainerStyle={styles.timeColumnContent}
+              contentOffset={{ x: 0, y: Math.max(0, (value.getHours() - 1) * TIME_CELL) }}>
+              {Array.from({ length: 24 }, (_, hour) => (
+                <Pressable key={hour} style={styles.timeCell} onPress={() => pickTime(hour, value.getMinutes())}>
+                  <RNText style={[styles.timeText, hour === value.getHours() && { color: tint, fontWeight: '700' }]}>
+                    {String(hour).padStart(2, '0')}
+                  </RNText>
+                </Pressable>
+              ))}
+            </ScrollView>
+            <RNText style={styles.timeColon}>:</RNText>
+            <ScrollView
+              style={styles.timeColumn}
+              contentContainerStyle={styles.timeColumnContent}
+              contentOffset={{ x: 0, y: Math.max(0, (minutes.indexOf(value.getMinutes()) - 1) * TIME_CELL) }}>
+              {minutes.map((minute) => (
+                <Pressable key={minute} style={styles.timeCell} onPress={() => pickTime(value.getHours(), minute)}>
+                  <RNText style={[styles.timeText, minute === value.getMinutes() && { color: tint, fontWeight: '700' }]}>
+                    {String(minute).padStart(2, '0')}
+                  </RNText>
+                </Pressable>
+              ))}
+            </ScrollView>
+          </View>
+        ) : null}
+
+        {withTime ? (
+          <Pressable onPress={() => setOpen(false)} style={({ pressed }) => [styles.sheetDone, { backgroundColor: tint }, pressed && styles.pressed]}>
+            <RNText style={styles.sheetDoneText}>Готово</RNText>
+          </Pressable>
+        ) : null}
       </Sheet>
     </View>
   );
@@ -334,6 +443,7 @@ function Field({ secure, ...props }: FieldProps & { secure?: boolean }) {
   const bound = typeof props.text === 'object' && props.text !== null ? props.text : null;
   const initial = bound ? bound.value : (typeof props.text === 'string' ? props.text : props.defaultValue);
   const [value, setValue] = useState(initial ?? '');
+  const focus = useAutoFocus(!!props.autoFocus);
   // Обратно в наблюдаемое состояние не пишем: в SwiftUI биндинг задаёт полю начальное
   // значение, а дальше текст уходит через onTextChange — так он и используется в проекте.
   return (
@@ -342,7 +452,7 @@ function Field({ secure, ...props }: FieldProps & { secure?: boolean }) {
       value={value}
       placeholder={props.placeholder}
       placeholderTextColor={colors.tertiaryLabel}
-      autoFocus={props.autoFocus}
+      {...focus}
       editable={!m.disabled}
       multiline={props.multiline}
       numberOfLines={props.numberOfLines}
@@ -395,9 +505,42 @@ export function ColorPicker({ selection, onSelectionChange, label, modifiers }: 
 
 // ——— списки ———
 
+/**
+ * SwiftUI Form — прокручиваемый сгруппированный список. Раньше здесь был простой View:
+ * на Android шторка смены и форма входа не прокручивались, а секции липли к краям.
+ */
 export function Form({ children, modifiers }: Mods & WithChildren) {
   const m = resolve(modifiers);
-  return <View style={[styles.form, m.style]}>{children}</View>;
+  return (
+    <ScrollView
+      style={styles.list}
+      contentContainerStyle={[styles.form, m.style]}
+      keyboardShouldPersistTaps="handled"
+      keyboardDismissMode="on-drag"
+      refreshControl={m.refresh ? <Refresher onRefresh={m.refresh} /> : undefined}>
+      {children}
+    </ScrollView>
+  );
+}
+
+/** Индикатор обновления, который сам крутится, пока идёт `refreshable`. */
+function Refresher({ onRefresh, ...rest }: { onRefresh: () => Promise<void> | void }) {
+  const [refreshing, setRefreshing] = useState(false);
+  return (
+    <RefreshControl
+      {...rest}
+      refreshing={refreshing}
+      colors={[colors.accent]}
+      onRefresh={async () => {
+        setRefreshing(true);
+        try {
+          await onRefresh();
+        } finally {
+          setRefreshing(false);
+        }
+      }}
+    />
+  );
 }
 
 export function Section({ title, footer, children, modifiers }: Mods & WithChildren & { title?: string; footer?: ReactNode }) {
@@ -406,28 +549,83 @@ export function Section({ title, footer, children, modifiers }: Mods & WithChild
     <View style={[styles.section, m.style]}>
       {title ? <RNText style={styles.sectionTitle}>{title.toUpperCase()}</RNText> : null}
       <View style={styles.card}>{separated(children)}</View>
-      {footer ? <View style={styles.sectionFooter}>{typeof footer === 'string' ? <RNText style={styles.footnote}>{footer}</RNText> : footer}</View> : null}
+      {footer ? (
+        <View style={styles.sectionFooter}>
+          {typeof footer === 'string' ? <RNText style={styles.footnote}>{footer}</RNText> : <FootnoteContext.Provider value>{footer}</FootnoteContext.Provider>}
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+type ForEachProps = WithChildren & {
+  /** Как SwiftUI onMove: индексы источников и место вставки в исходном массиве. */
+  onMove?: (sources: number[], destination: number) => void;
+  onDelete?: (indices: number[]) => void;
+};
+
+/**
+ * `List.ForEach` с перестановкой. На Android перетаскивания SwiftUI нет — строки
+ * двигаются стрелками «выше / ниже». Раньше List.ForEach не существовал вовсе, и
+ * экран «Порядок категорий» падал при открытии.
+ */
+function ForEach({ children, onMove, onDelete }: ForEachProps) {
+  const rows = Children.toArray(children).filter(Boolean);
+  return (
+    <View style={styles.card}>
+      {rows.map((row, index) => (
+        <View key={isValidElement(row) && row.key != null ? row.key : index}>
+          {index > 0 ? <View style={styles.separator} /> : null}
+          <View style={styles.moveRow}>
+            <View style={styles.rowLabel}>{row}</View>
+            {onDelete ? (
+              <Pressable hitSlop={8} onPress={() => onDelete([index])} accessibilityRole="button" accessibilityLabel="Удалить">
+                <SymbolView name="minus.circle.fill" size={22} tintColor={colors.red} />
+              </Pressable>
+            ) : null}
+            {onMove ? (
+              <>
+                <Pressable
+                  hitSlop={6}
+                  disabled={index === 0}
+                  onPress={() => onMove([index], index - 1)}
+                  style={({ pressed }) => [styles.moveButton, (pressed || index === 0) && styles.pressed]}
+                  accessibilityRole="button"
+                  accessibilityLabel="Выше">
+                  <SymbolView name="chevron.up" size={16} tintColor={index === 0 ? colors.tertiaryLabel : colors.label} />
+                </Pressable>
+                <Pressable
+                  hitSlop={6}
+                  disabled={index === rows.length - 1}
+                  onPress={() => onMove([index], index + 2)}
+                  style={({ pressed }) => [styles.moveButton, (pressed || index === rows.length - 1) && styles.pressed]}
+                  accessibilityRole="button"
+                  accessibilityLabel="Ниже">
+                  <SymbolView name="chevron.down" size={16} tintColor={index === rows.length - 1 ? colors.tertiaryLabel : colors.label} />
+                </Pressable>
+              </>
+            ) : null}
+          </View>
+        </View>
+      ))}
     </View>
   );
 }
 
 export function List({ children, modifiers, style }: Mods & WithChildren & { style?: StyleProp<ViewStyle> }) {
   const m = resolve(modifiers);
-  const [refreshing, setRefreshing] = useState(false);
-  const refresh = m.refresh
-    ? (
-        <RefreshControl
-          refreshing={refreshing}
-          onRefresh={async () => { setRefreshing(true); try { await m.refresh?.(); } finally { setRefreshing(false); } }}
-        />
-      )
-    : undefined;
+  const inset = m.listStyle !== 'plain';
   return (
-    <ScrollView style={[styles.list, style]} contentContainerStyle={styles.listContent} refreshControl={refresh}>
+    <ScrollView
+      style={[styles.list, style]}
+      contentContainerStyle={[styles.listContent, inset && styles.listInset]}
+      refreshControl={m.refresh ? <Refresher onRefresh={m.refresh} /> : undefined}>
       {children}
     </ScrollView>
   );
 }
+
+List.ForEach = ForEach;
 
 export function LabeledContent({ label, children, modifiers }: Mods & WithChildren & { label?: string }) {
   const m = resolve(modifiers);
@@ -443,14 +641,28 @@ export function Menu({ label, systemImage, children, modifiers }: Mods & WithChi
   const m = resolve(modifiers);
   const tint = useTint(m.tint) as string;
   const [open, setOpen] = useState(false);
+  // glassProminent / borderedProminent + круглая форма — заметная круглая кнопка «+», как в iOS.
+  const prominent = m.buttonStyle === 'glassProminent' || m.buttonStyle === 'borderedProminent';
+  const round = prominent && (m.borderShape === 'circle' || m.labelStyle === 'iconOnly');
+  const large = m.controlSize === 'large' || m.controlSize === 'extraLarge';
+  const iconColor = prominent ? '#FFFFFF' : tint;
   return (
     <>
-      <Pressable onPress={() => setOpen(true)} style={[styles.button, m.style]}>
-        {systemImage ? <SymbolView name={systemImage} size={19} tintColor={tint} /> : null}
-        {label && !systemImage ? <RNText style={[styles.text, { color: tint }]}>{label}</RNText> : null}
+      <Pressable
+        onPress={() => setOpen(true)}
+        accessibilityRole="button"
+        accessibilityLabel={label}
+        style={({ pressed }) => [
+          round ? [styles.roundButton, large && styles.roundButtonLarge] : styles.button,
+          prominent && { backgroundColor: tint },
+          m.style,
+          pressed && styles.pressed,
+        ]}>
+        {systemImage ? <SymbolView name={systemImage} size={large ? 22 : 19} tintColor={iconColor} /> : null}
+        {label && !systemImage ? <RNText style={[styles.text, { color: iconColor }]}>{label}</RNText> : null}
       </Pressable>
       <Sheet visible={open} onClose={() => setOpen(false)} title={label}>
-        <View onTouchStart={() => setOpen(false)}>{separated(children)}</View>
+        <MenuCloseContext.Provider value={() => setOpen(false)}>{separated(children)}</MenuCloseContext.Provider>
       </Sheet>
     </>
   );
@@ -548,9 +760,15 @@ function separated(children: ReactNode) {
   return items.map((child, index) => (
     <View key={index}>
       {index > 0 ? <View style={styles.separator} /> : null}
-      {child}
+      {needsCellPadding(child) ? <View style={styles.cell}>{child}</View> : child}
     </View>
   ));
+}
+
+/** Строки без собственных полей (стеки, текст) — в SwiftUI их отступы даёт ячейка. */
+function needsCellPadding(child: ReactNode): boolean {
+  if (!isValidElement(child)) return typeof child === 'string';
+  return child.type === HStack || child.type === VStack || child.type === Text || child.type === Label || child.type === ProgressView;
 }
 
 function Sheet({ visible, onClose, title, children }: { visible: boolean; onClose: () => void; title?: string; children: ReactNode }) {
@@ -576,6 +794,7 @@ const styles = StyleSheet.create({
 
   button: { flexDirection: 'row', alignItems: 'center', gap: space.sm, paddingVertical: space.sm, paddingHorizontal: space.md, borderRadius: radius.control },
   buttonLarge: { paddingVertical: space.md, justifyContent: 'center' },
+  buttonPill: { borderRadius: 999, paddingHorizontal: space.lg, justifyContent: 'center' },
   pressed: { opacity: 0.55 },
 
   segments: { flexDirection: 'row', backgroundColor: colors.fill, borderRadius: 9, padding: 2 },
@@ -583,7 +802,13 @@ const styles = StyleSheet.create({
   segmentActive: { backgroundColor: colors.card },
   segmentText: { fontSize: 14, color: colors.label },
 
-  form: { gap: space.xl },
+  form: { gap: space.xl, paddingHorizontal: space.lg, paddingTop: space.lg, paddingBottom: space.xxxl },
+  cell: { paddingHorizontal: space.lg, paddingVertical: space.md },
+  menuItem: { paddingVertical: space.md, paddingHorizontal: space.lg },
+  roundButton: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
+  roundButtonLarge: { width: 50, height: 50, borderRadius: 25 },
+  moveRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm, paddingLeft: space.lg, paddingRight: space.sm, minHeight: 52 },
+  moveButton: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.fill },
   section: { gap: space.xs },
   sectionTitle: { color: colors.secondaryLabel, fontSize: 12, letterSpacing: 0.6, marginLeft: space.lg, marginBottom: space.xs },
   sectionFooter: { marginHorizontal: space.lg, marginTop: space.xs },
@@ -593,6 +818,7 @@ const styles = StyleSheet.create({
   listRow: { flexDirection: 'row', alignItems: 'center', gap: space.md, paddingHorizontal: space.lg, paddingVertical: space.md, minHeight: 48 },
   list: { flex: 1 },
   listContent: { paddingVertical: space.md, gap: space.xl },
+  listInset: { paddingHorizontal: space.lg },
 
   input: { color: colors.label, fontSize: 17, paddingVertical: space.md, paddingHorizontal: space.lg, flex: 1 },
   dateValue: { paddingVertical: space.xs },
@@ -603,14 +829,20 @@ const styles = StyleSheet.create({
   calendarRow: { flexDirection: 'row' },
   calendarGrid: { flexDirection: 'row', flexWrap: 'wrap' },
   weekday: { width: `${100 / 7}%`, textAlign: 'center', color: colors.secondaryLabel, fontSize: 12 },
-  dayCell: { width: `${100 / 7}%`, aspectRatio: 1, alignItems: 'center', justifyContent: 'center', borderRadius: 9999 },
+  dayCell: { width: `${100 / 7}%`, height: 48, alignItems: 'center', justifyContent: 'center' },
+  dayDot: { width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center' },
   dayText: { fontSize: 16 },
   dayTextChosen: { color: '#FFFFFF', fontWeight: '700' },
-  timeColumns: { flexDirection: 'row', height: 260, paddingHorizontal: space.xxl, gap: space.xl },
-  timeColumn: { flex: 1 },
-  timeColumnContent: { paddingVertical: space.sm },
-  timeCell: { paddingVertical: space.sm, alignItems: 'center' },
-  timeText: { color: colors.label, fontSize: 20 },
+  timeColumns: { flexDirection: 'row', alignItems: 'center', height: TIME_CELL * 5, paddingHorizontal: space.xxl, gap: space.md },
+  timeColumnsCompact: { height: TIME_CELL * 3, marginTop: space.sm },
+  timeColumn: { flex: 1, alignSelf: 'stretch' },
+  timeColumnContent: { paddingVertical: space.xs },
+  timeCell: { height: TIME_CELL, alignItems: 'center', justifyContent: 'center' },
+  timeText: { color: colors.label, fontSize: 20, fontVariant: ['tabular-nums'] },
+  timeColon: { color: colors.secondaryLabel, fontSize: 22, fontWeight: '600' },
+  dayTextOff: { color: colors.tertiaryLabel },
+  sheetDone: { marginHorizontal: space.lg, marginTop: space.lg, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center' },
+  sheetDoneText: { color: '#FFFFFF', fontSize: 17, fontWeight: '600' },
   swatch: { width: 28, height: 28, borderRadius: 14 },
   swatchLarge: { width: 44, height: 44, borderRadius: 22 },
   swatchActive: { borderWidth: 3, borderColor: colors.label },

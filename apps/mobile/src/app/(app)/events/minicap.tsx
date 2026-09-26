@@ -25,6 +25,7 @@ import {
 } from '@/lib/events-api';
 import { formatMoney, toNumber } from '@/lib/format';
 import { haptic } from '@/lib/haptics';
+import { KEYBOARD_DISMISS } from '@/lib/layout';
 import { parseAmount } from '@/lib/shift-api';
 import { colors, space, type, useAccentHex } from '@/lib/theme';
 
@@ -130,7 +131,7 @@ function MinicapForm({ initial, onClose, onCreated }: { initial: EventRow | unde
       <ScrollView
         contentContainerStyle={[styles.content, { paddingBottom: Math.max(insets.bottom, space.lg) }]}
         keyboardShouldPersistTaps="handled"
-        keyboardDismissMode="interactive"
+        keyboardDismissMode={KEYBOARD_DISMISS}
         showsVerticalScrollIndicator={false}>
         <SheetHeader title={initial ? 'Миникап' : 'Новый миникап'} onClose={onClose} />
 

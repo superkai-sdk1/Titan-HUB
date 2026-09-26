@@ -28,6 +28,7 @@ import {
   type GomafiaPlayer,
 } from '@/lib/clients-api';
 import { haptic } from '@/lib/haptics';
+import { KEYBOARD_DISMISS } from '@/lib/layout';
 import { cleanPhone, pickContact } from '@/lib/phone-book';
 import { colors, space, type, useAccentHex } from '@/lib/theme';
 
@@ -190,7 +191,7 @@ function ClientForm({ initial, onClose, onCreated }: { initial: Client | undefin
       <ScrollView
         contentContainerStyle={[styles.content, { paddingBottom: Math.max(insets.bottom, space.lg) }]}
         keyboardShouldPersistTaps="handled"
-        keyboardDismissMode="interactive"
+        keyboardDismissMode={KEYBOARD_DISMISS}
         showsVerticalScrollIndicator={false}>
         <SheetHeader title={initial ? 'Профиль клиента' : 'Новый клиент'} onClose={onClose} />
 

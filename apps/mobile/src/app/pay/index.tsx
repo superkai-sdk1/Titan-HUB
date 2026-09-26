@@ -5,8 +5,8 @@ import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View
 import Animated, { FadeIn, FadeOut, LinearTransition } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { GlassView } from 'expo-glass-effect';
 
+import { GlassView } from '@/components/glass';
 import { Avatar, BalanceChips, GlassCard, PrimaryButton, sheetStyles } from '@/components/new-check-parts';
 import { PaymentSuccess } from '@/components/payment-success';
 import { checkTitle } from '@/lib/checks';
@@ -35,6 +35,7 @@ import { parseAmount } from '@/lib/shift-api';
 import { isSplitLayout } from '@/lib/layout';
 import { colors, space, type } from '@/lib/theme';
 import { useNow } from '@/lib/use-now';
+import { promptText } from '@/lib/dialog';
 import { ToolbarButton } from '@/components/toolbar';
 
 const SHEET_DISMISS_MS = 420;
@@ -160,7 +161,7 @@ export default function PayScreen() {
     }
 
     if (method === 'certificate' && !certificate) {
-      Alert.prompt(
+      promptText(
         'Сертификат',
         'Введите код с сертификата',
         [
@@ -200,7 +201,7 @@ export default function PayScreen() {
   const editPart = (part: PaymentPart) => {
     if (part.locked) return;
     const look = METHODS[part.method];
-    Alert.prompt(
+    promptText(
       look.title,
       part.method === 'cash' ? 'Сколько наличных дал гость — сдачу посчитаем' : 'Сумма этой части оплаты',
       [

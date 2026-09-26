@@ -9,6 +9,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AmbientBackdrop } from '@/components/ambient-backdrop';
 import { GlassCard, GlassChip } from '@/components/new-check-parts';
 import { haptic } from '@/lib/haptics';
+import { KEYBOARD_DISMISS } from '@/lib/layout';
 import { askTai, isTaiLocked, TAI_ACTIONS, taiActionLabel, taiErrorText, type TaiAction } from '@/lib/tai-api';
 import { colors, space, type, useAccentHex } from '@/lib/theme';
 
@@ -87,7 +88,7 @@ export default function TaiScreen() {
         <ScrollView
           ref={scroller}
           contentContainerStyle={styles.messages}
-          keyboardDismissMode="interactive"
+          keyboardDismissMode={KEYBOARD_DISMISS}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
           onContentSizeChange={() => scroller.current?.scrollToEnd({ animated: true })}>

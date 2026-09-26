@@ -21,6 +21,7 @@ import { formatMoney, toNumber } from '@/lib/format';
 import { haptic } from '@/lib/haptics';
 import { newIdempotencyKey, parseAmount } from '@/lib/shift-api';
 import { colors, space, type } from '@/lib/theme';
+import { promptText } from '@/lib/dialog';
 
 type Mode = 'balance' | 'bonus';
 type BonusOp = 'plus' | 'minus';
@@ -93,7 +94,7 @@ export default function AdjustSheet() {
   })();
 
   const editReason = (then?: (next: string) => void) =>
-    Alert.prompt(
+    promptText(
       'Причина',
       mode === 'bonus' ? 'Попадёт в историю бонусов клиента' : 'Попадёт в историю движений клиента',
       [

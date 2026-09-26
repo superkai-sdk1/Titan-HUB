@@ -1,9 +1,9 @@
-import { GlassView } from 'expo-glass-effect';
 import { SymbolView } from 'expo-symbols';
 import { useEffect } from 'react';
 import { Pressable, StyleSheet, Text, View, type PressableProps } from 'react-native';
 import Animated, { useAnimatedStyle, useSharedValue, withRepeat, withSequence, withTiming } from 'react-native-reanimated';
 
+import { GlassView } from '@/components/glass';
 import { Avatar } from '@/components/new-check-parts';
 import { formatMoney } from '@/lib/format';
 import { colors, radius, space, type } from '@/lib/theme';
@@ -32,8 +32,9 @@ export type CheckCardModel = {
  * Карточка открытого чека в сетке кассы — Liquid Glass. Стекло интерактивное: отклик на
  * касание (подъём и блик под пальцем) рисует сама система. Остальные props (onPress, ref
  * от Link) пробрасываются в Pressable — так работают `<Link asChild>`, предпросмотр и зум.
+ * `glassKey` — смена значения заново применяет стекло (после зум-перехода, см. components/glass).
  */
-export function CheckCard({ model, ...pressable }: { model: CheckCardModel } & PressableProps) {
+export function CheckCard({ model, glassKey, ...pressable }: { model: CheckCardModel; glassKey?: number } & PressableProps) {
   const pulse = useSharedValue(0);
 
   useEffect(() => {
@@ -52,7 +53,7 @@ export function CheckCard({ model, ...pressable }: { model: CheckCardModel } & P
       style={styles.pressable}
       accessibilityRole="button"
       accessibilityLabel={`${model.title}, ${formatMoney(model.total)}`}>
-      <GlassView isInteractive glassEffectStyle="regular" tintColor={model.attention ? ATTENTION_TINT : undefined} style={styles.card}>
+      <GlassView isInteractive refreshKey={glassKey} glassEffectStyle="regular" tintColor={model.attention ? ATTENTION_TINT : undefined} style={styles.card}>
         <Animated.View pointerEvents="none" style={[styles.ring, ringStyle]} />
 
         <View style={styles.header}>

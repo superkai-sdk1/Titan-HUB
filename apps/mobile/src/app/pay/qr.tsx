@@ -1,4 +1,3 @@
-import { GlassView } from 'expo-glass-effect';
 import { Image } from 'expo-image';
 import { useKeepAwake } from 'expo-keep-awake';
 import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
@@ -8,6 +7,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 import Animated, { FadeIn, ZoomIn } from 'react-native-reanimated';
 
+import { GlassView } from '@/components/glass';
 import { PrimaryButton, sheetStyles } from '@/components/new-check-parts';
 import { PaymentSuccess } from '@/components/payment-success';
 import { formatMoney, toNumber } from '@/lib/format';

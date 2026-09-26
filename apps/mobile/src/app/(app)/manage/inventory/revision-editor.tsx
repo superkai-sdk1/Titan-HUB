@@ -1,6 +1,5 @@
 import { Host, Toggle } from '@expo/ui/swift-ui';
 import { tint } from '@expo/ui/swift-ui/modifiers';
-import { GlassView } from 'expo-glass-effect';
 import { Stack, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import { usePreventRemove } from 'expo-router/react-navigation';
 import { SymbolView } from 'expo-symbols';
@@ -9,13 +8,16 @@ import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, Text
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import Animated, { FadeIn, FadeOut, LinearTransition } from 'react-native-reanimated';
 
+import { GlassView } from '@/components/glass';
+import { ClearButton } from '@/components/clear-button';
 import { AmbientBackdrop } from '@/components/ambient-backdrop';
 import { GlassCard, PrimaryButton, sheetStyles } from '@/components/new-check-parts';
 import { formatMoney, plural, toNumber } from '@/lib/format';
 import { haptic } from '@/lib/haptics';
 import { applyRevision, saveRevisionDraft, useInventory, useRevision, type InventoryItem, type RevisionLineInput } from '@/lib/inventory-api';
-import { usePageGutter } from '@/lib/layout';
+import { KEYBOARD_DISMISS, usePageGutter } from '@/lib/layout';
 import { colors, space, type, useAccentHex } from '@/lib/theme';
+import { chooseAction } from '@/lib/dialog';
 
 type Line = { itemId: string; actual: string };
 
@@ -122,10 +124,11 @@ function RevisionEditor({ draftId, items, initialLines }: { draftId: string | un
   usePreventRemove(dirty && lines.length > 0 && !busy, ({ data }) => {
     if (leaving.current) return navigation.dispatch(data.action);
     const leave = () => navigation.dispatch(data.action);
-    Alert.alert('Ревизия не проведена', 'Сохранить перед выходом?', [
-      ...(filled.length > 0 ? [{ text: 'Провести ревизию', onPress: () => void apply().then((id) => id && leave()) }] : []),
+    chooseAction('Ревизия не проведена', 'Сохранить перед выходом?', [
+      ...(filled.length > 0 ? [{ text: 'Провести ревизию', icon: 'checkmark.seal', onPress: () => void apply().then((id) => id && leave()) }] : []),
       {
         text: 'Сохранить черновик',
+        icon: 'tray.and.arrow.down',
         onPress: () =>
           void saveRevisionDraft(draftId, payload)
             .then(() => {
@@ -143,7 +146,7 @@ function RevisionEditor({ draftId, items, initialLines }: { draftId: string | un
     <AmbientBackdrop style={styles.screen}>
       <Stack.Title>{draftId ? 'Черновик ревизии' : 'Новая ревизия'}</Stack.Title>
       <KeyboardAvoidingView behavior="padding" style={styles.flex}>
-        <ScrollView contentInsetAdjustmentBehavior="automatic" contentContainerStyle={[styles.content, gutter]} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive">
+        <ScrollView contentInsetAdjustmentBehavior="automatic" contentContainerStyle={[styles.content, gutter]} keyboardShouldPersistTaps="handled" keyboardDismissMode={KEYBOARD_DISMISS}>
           <GlassCard style={styles.options}>
             <Host matchContents={{ vertical: true }} style={styles.stretch} seedColor={accent}>
               <Toggle
@@ -175,6 +178,7 @@ function RevisionEditor({ draftId, items, initialLines }: { draftId: string | un
                 clearButtonMode="while-editing"
                 style={[type.body, styles.searchInput]}
               />
+              <ClearButton visible={query.length > 0} onPress={() => setQuery('')} />
             </GlassView>
             {q.length > 0 && (
               <GlassCard>
