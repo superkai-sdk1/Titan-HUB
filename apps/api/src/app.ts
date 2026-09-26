@@ -43,6 +43,8 @@ import { plategaRouter } from './modules/platega/platega.router.js'
 import { pricingRouter } from './modules/pricing/pricing.router.js'
 import { gomafiaRouter } from './modules/gomafia/gomafia.router.js'
 import { superadminRouter } from './modules/superadmin/index.js'
+import { residentRouter } from './modules/resident/resident.router.js'
+import { broadcastRouter } from './modules/resident/broadcast.router.js'
 
 const app = new Hono()
 
@@ -175,6 +177,10 @@ app.use('/api/discounts/*', requireModule('discounts'))
 app.use('/api/analytics/*', requireModule('analytics'))
 
 app.route('/api/auth', authRouter)
+// Клиентское приложение Titan Resident: сводка, лента, сборы, уведомления, push.
+app.route('/api/resident', residentRouter)
+// Рассылки клиентам из панели (лента приложения + push + бот кошелька).
+app.route('/api/client-broadcasts', broadcastRouter)
 app.route('/api/pos', posRouter)
 app.route('/api/shifts', shiftsRouter)
 app.route('/api/menu', menuRouter)

@@ -2,6 +2,7 @@ import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { profiles, transactions, bonusLots, bonusHistory, checks, checkItems, checkPayments, checkDiscounts, inventory, spaces, walletLoginCodes, residentPayments, collections, collectionMembers, eq, ne, and, isNull, inArray, desc, gt, lt, ilike, sql } from '@titan/database'
 import { visitProgress } from '../../lib/loyalty.js'
+import { clientCollections } from '../resident/resident.router.js'
 import { getActiveSbpProvider, getProvider, resolveCreds, getPaymentTestMode } from '../pay/registry.js'
 import { getClubIntegration } from '../../lib/secrets.js'
 import { round2 } from '../../lib/money.js'
@@ -24,7 +25,7 @@ import type { AuthenticatorTransportFuture } from '@simplewebauthn/server'
 import type { AppEnv } from '../../types.js'
 import { z } from 'zod'
 import { isoBase64URL, isoUint8Array } from '@simplewebauthn/server/helpers'
-import { randomInt } from 'node:crypto'
+import { randomInt, randomBytes } from 'node:crypto'
 
 const RP_NAME = process.env['WEBAUTHN_RP_NAME'] ?? 'Titan HUB'
 const RP_ID = process.env['WEBAUTHN_RP_ID'] ?? 'localhost'
@@ -441,6 +442,16 @@ const WALLET_CODE_TTL_MS = 5 * 60 * 1000
 
 authRouter.post('/wallet-code/start', async (c) => {
   const db = c.var.db
+  // Приложение Titan Resident присылает имя устройства — бот покажет его в запросе
+  // подтверждения. Тело необязательно (веб-кошелёк шлёт пустой POST).
+  let device: { deviceName?: string; platform?: string } = {}
+  try {
+    const raw = await c.req.json().catch(() => ({})) as Record<string, unknown>
+    device = {
+      deviceName: typeof raw['deviceName'] === 'string' ? raw['deviceName'].trim().slice(0, 60) : undefined,
+      platform: raw['platform'] === 'ios' || raw['platform'] === 'android' ? raw['platform'] : undefined,
+    }
+  } catch { /* пустое тело */ }
   // Лёгкий троттлинг по доверенному IP: не плодим коды бесконтрольно.
   // Ключ префиксован клубом (P1): троттлинг одного клуба не задевает другие.
   const ip = clientIp(c)
@@ -470,10 +481,21 @@ authRouter.post('/wallet-code/start', async (c) => {
       .limit(1)
     if (!clash) break
   }
+  // Длинный неугадываемый код для диплинка t.me/<bot>?start=login_<deepCode>
+  // (4 цифры в ссылке перебирались бы; Telegram допускает в start до 64 символов).
+  const deepCode = randomBytes(18).toString('base64url')
   const expiresAt = new Date(Date.now() + WALLET_CODE_TTL_MS)
-  const [row] = await db.insert(walletLoginCodes).values({ code, expiresAt }).returning({ ticket: walletLoginCodes.ticket })
+  const [row] = await db.insert(walletLoginCodes).values({
+    code, expiresAt, deepCode, deviceName: device.deviceName ?? null, platform: device.platform ?? null,
+  }).returning({ ticket: walletLoginCodes.ticket })
   const botUsername = await getWalletBotUsername()
-  return c.json({ code, ticket: row?.ticket ?? null, botUsername, expiresAt: expiresAt.toISOString() })
+  return c.json({
+    code,
+    ticket: row?.ticket ?? null,
+    botUsername,
+    deepLink: botUsername ? `https://t.me/${botUsername}?start=login_${deepCode}` : null,
+    expiresAt: expiresAt.toISOString(),
+  })
 })
 
 authRouter.get('/wallet-code/status', async (c) => {
@@ -488,6 +510,11 @@ authRouter.get('/wallet-code/status', async (c) => {
   if (new Date(row.expiresAt).getTime() < Date.now()) {
     await db.delete(walletLoginCodes).where(eq(walletLoginCodes.id, row.id)).catch(() => {})
     return c.json({ status: 'expired' })
+  }
+  // Клиент нажал в боте «Это не я» — вход отклонён, тикет одноразовый.
+  if (row.status === 'rejected') {
+    await db.delete(walletLoginCodes).where(eq(walletLoginCodes.id, row.id)).catch(() => {})
+    return c.json({ status: 'rejected' })
   }
   if (row.status !== 'claimed' || !row.profileId) return c.json({ status: 'pending' })
   // Подтверждён ботом → выдаём JWT. Строку удаляем (одноразовый тикет).
@@ -646,6 +673,9 @@ authRouter.get('/me/pay-info', requireAuth, async (c) => {
 authRouter.post('/me/payments', requireAuth, zValidator('json', z.object({
   purpose: z.enum(['deposit', 'debt', 'fund']),
   amount: z.number().positive().max(1_000_000),
+  // Приложение Titan Resident платит за конкретный сбор (фонд или разовый);
+  // веб-кошелёк не передаёт — берётся активный ежемесячный «Фонд клуба».
+  collectionId: z.string().uuid().optional(),
 })), async (c) => {
   const db = c.var.db
   const user = c.get('user')
@@ -653,14 +683,25 @@ authRouter.post('/me/payments', requireAuth, zValidator('json', z.object({
   const amt = round2(amount)
   if (amt < 1) return c.json({ error: 'Минимальная сумма — 1 ₽' }, 400)
 
-  // Для взноса в фонд — определяем активный сбор.
+  // Для взноса — определяем сбор и проверяем, что клиент в нём участвует.
   let collectionId: string | null = null
+  let collectionName = 'Фонд клуба'
   if (purpose === 'fund') {
-    const [coll] = await db.select().from(collections)
-      .where(and(eq(collections.isActive, true), eq(collections.kind, 'recurring')))
-      .orderBy(desc(collections.createdAt)).limit(1)
-    if (!coll) return c.json({ error: 'Фонд клуба сейчас недоступен' }, 400)
+    const reqId = c.req.valid('json').collectionId
+    const [coll] = reqId
+      ? await db.select().from(collections).where(and(eq(collections.id, reqId), eq(collections.isActive, true))).limit(1)
+      : await db.select().from(collections)
+          .where(and(eq(collections.isActive, true), eq(collections.kind, 'recurring')))
+          .orderBy(desc(collections.createdAt)).limit(1)
+    if (!coll) return c.json({ error: 'Этот сбор сейчас недоступен' }, 400)
+    if (reqId) {
+      const [me] = await db.select({ tier: profiles.clientTier }).from(profiles).where(eq(profiles.id, user.sub))
+      const mine = (await clientCollections(db, user.sub, me?.tier ?? '')).find((x) => x.id === coll.id)
+      if (!mine) return c.json({ error: 'Взносы доступны резидентам клуба' }, 400)
+      if (mine.excluded) return c.json({ error: 'Вы освобождены от этого сбора' }, 400)
+    }
     collectionId = coll.id
+    collectionName = coll.name
   }
 
   // Эквайринговая надбавка 8% — её платит КЛИЕНТ поверх суммы услуги (как в кассе:
@@ -675,7 +716,7 @@ authRouter.post('/me/payments', requireAuth, zValidator('json', z.object({
   if (!rp) return c.json({ error: 'Не удалось создать платёж' }, 500)
 
   const origin = new URL(c.req.url).origin
-  const label = purpose === 'fund' ? 'Фонд клуба' : purpose === 'debt' ? 'Погашение долга' : 'Пополнение депозита'
+  const label = purpose === 'fund' ? `Взнос «${collectionName}»` : purpose === 'debt' ? 'Погашение долга' : 'Пополнение депозита'
 
   let paymentUrl: string | undefined
   let transactionId: string | undefined

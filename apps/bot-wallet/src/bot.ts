@@ -216,13 +216,79 @@ export function createWalletBot(ctx: WalletBotCtx): Bot {
       return
     }
 
+    // Вход в приложение Titan Resident в одно касание: приложение открывает
+    // t.me/<bot>?start=login_<deepCode>. Код одноразовый и длинный (не 4 цифры),
+    // но вход всё равно подтверждается кнопкой с именем устройства — иначе ссылку,
+    // пересланную злоумышленником, можно было бы «нажать не глядя».
+    if (payload?.startsWith('login_')) {
+      const deepCode = payload.slice(6)
+      if (!/^[A-Za-z0-9_-]{16,64}$/.test(deepCode)) {
+        await ctx2.reply('❌ Ссылка для входа недействительна. Нажмите «Войти через Telegram» в приложении ещё раз.')
+        return
+      }
+      const profile = await resolveProfileByTg(tgId)
+      if (!profile) {
+        await ctx2.reply('👋 Этот Telegram пока не привязан к клиенту клуба.\n\nПопросите администратора привязать аккаунт — и войдите в приложение снова.')
+        return
+      }
+      const [row] = await db.select().from(walletLoginCodes)
+        .where(and(eq(walletLoginCodes.deepCode, deepCode), eq(walletLoginCodes.status, 'pending'), gt(walletLoginCodes.expiresAt, new Date())))
+        .limit(1)
+      if (!row) {
+        await ctx2.reply('⌛ Ссылка для входа устарела. Нажмите «Войти через Telegram» в приложении ещё раз.')
+        return
+      }
+      const device = row.deviceName ? `«${escapeMd(row.deviceName)}»` : 'новом устройстве'
+      const kb = new InlineKeyboard().text('✅ Да, войти', `lc:${row.id}`).text('Это не я', `lr:${row.id}`)
+      await ctx2.reply(
+        `🔐 *Вход в Titan Resident*\n\n${escapeMd(profile.nickname)}, подтвердите вход на устройстве ${device}.\n\nЕсли вы не входили — нажмите «Это не я».`,
+        { parse_mode: 'Markdown', reply_markup: kb },
+      )
+      return
+    }
+
     const profile = await resolveProfileByTg(tgId)
     if (!profile) {
-      await ctx2.reply('👋 Добро пожаловать в Titan Wallet!\n\nЧтобы привязать аккаунт, обратитесь к администратору.')
+      await ctx2.reply('👋 Добро пожаловать в Titan Resident!\n\nЧтобы привязать аккаунт, обратитесь к администратору.')
       return
     }
 
     await ctx2.reply(`👋 Привет, *${escapeMd(profile.nickname)}*!`, { parse_mode: 'Markdown', reply_markup: walletKeyboard })
+  })
+
+  // Подтверждение / отказ входа в приложение (кнопки из /start login_…).
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+  bot.callbackQuery(/^lc:(.+)$/, async (ctx2) => {
+    const id = ctx2.match[1] ?? ''
+    const profile = await resolveProfileByTg(String(ctx2.from?.id))
+    if (!profile || !UUID_RE.test(id)) {
+      await ctx2.answerCallbackQuery({ text: 'Аккаунт не привязан' })
+      return
+    }
+    // Атомарно: только пока запрос ещё ждёт и не истёк (повторное нажатие — no-op).
+    const claimed = await db.update(walletLoginCodes)
+      .set({ status: 'claimed', profileId: profile.id })
+      .where(and(eq(walletLoginCodes.id, id), eq(walletLoginCodes.status, 'pending'), gt(walletLoginCodes.expiresAt, new Date())))
+      .returning({ id: walletLoginCodes.id })
+    if (!claimed.length) {
+      await ctx2.answerCallbackQuery({ text: 'Запрос устарел' })
+      await ctx2.editMessageText('⌛ Запрос на вход устарел. Начните вход в приложении заново.').catch(() => {})
+      return
+    }
+    await ctx2.answerCallbackQuery({ text: 'Вход подтверждён' })
+    await ctx2.editMessageText(
+      `✅ Готово, *${escapeMd(profile.nickname)}*! Вернитесь в приложение — вход уже выполнен.`,
+      { parse_mode: 'Markdown' },
+    ).catch(() => {})
+  })
+  bot.callbackQuery(/^lr:(.+)$/, async (ctx2) => {
+    const id = ctx2.match[1] ?? ''
+    if (UUID_RE.test(id)) {
+      await db.update(walletLoginCodes).set({ status: 'rejected' })
+        .where(and(eq(walletLoginCodes.id, id), eq(walletLoginCodes.status, 'pending')))
+    }
+    await ctx2.answerCallbackQuery({ text: 'Вход отклонён' })
+    await ctx2.editMessageText('🛡 Вход отклонён — доступ никому не выдан. Если это были не вы, ничего делать не нужно.').catch(() => {})
   })
 
   bot.callbackQuery('balance', async (ctx2) => {

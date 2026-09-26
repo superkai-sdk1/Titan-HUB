@@ -16,7 +16,7 @@ import { publishEvent } from '../../lib/realtime.js'
 import { residentPayments, eq } from '@titan/database'
 import { getProvider, resolveCreds } from './registry.js'
 import { settleCheckPayment } from './settle.js'
-import { settleResidentPayment } from './residentSettle.js'
+import { settleResidentPayment, notifyResidentPaid } from './residentSettle.js'
 
 export const payRouter = new Hono<AppEnv>()
 
@@ -107,7 +107,10 @@ const handleWebhook = async (c: Context<AppEnv>) => {
     publishEvent(c.var.club?.id, 'check:paid', { checkId })
     publishEvent(c.var.club?.id, 'check:closed', { checkId })
   }
-  if (residentApplied) publishEvent(c.var.club?.id, 'resident:paid', { paymentId: checkId })
+  if (residentApplied) {
+    publishEvent(c.var.club?.id, 'resident:paid', { paymentId: checkId })
+    void notifyResidentPaid(db, checkId)
+  }
   return ack()
 }
 

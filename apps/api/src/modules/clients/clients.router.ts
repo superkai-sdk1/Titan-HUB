@@ -775,7 +775,16 @@ clientsRouter.post('/:id/balance', requireRole('owner', 'staff'), zValidator('js
       }
     }
     void notify({ type: 'deposit_topup', title: depTitle, body: depBody, meta: { clientId } }, db).catch(() => {})
-    void notifyClient(clientId, `💰 Депозит пополнен на ${fmtAmt} ₽.\nБаланс: ${fmtBal} ₽`, db)
+    void notifyClient(clientId, result.prevBalance < 0
+      ? {
+          kind: 'deposit',
+          title: result.newBalance >= 0 ? 'Долг погашен' : 'Долг частично погашен',
+          body: result.newBalance >= 0
+            ? `Внесено ${fmtAmt} ₽. Баланс: ${fmtBal} ₽`
+            : `Внесено ${fmtAmt} ₽. Осталось погасить ${Math.abs(result.newBalance).toLocaleString('ru')} ₽`,
+          meta: { screen: 'history' },
+        }
+      : { kind: 'deposit', title: `Депозит +${fmtAmt} ₽`, body: `Баланс: ${fmtBal} ₽`, meta: { screen: 'history' } }, db)
   }
   // Долг образовался: баланс только что ушёл в минус (раньше был неотрицателен).
   if (result.newBalance < 0 && result.prevBalance >= 0) {
@@ -785,7 +794,12 @@ clientsRouter.post('/:id/balance', requireRole('owner', 'staff'), zValidator('js
       body: `${who} · долг ${Math.abs(result.newBalance).toLocaleString('ru', { maximumFractionDigits: 0 })} ₽`,
       meta: { clientId },
     }, db).catch(() => {})
-    void notifyClient(clientId, `⚠️ У вас образовался долг: ${Math.abs(result.newBalance).toLocaleString('ru')} ₽`, db)
+    void notifyClient(clientId, {
+      kind: 'debt',
+      title: 'Образовался долг',
+      body: `${Math.abs(result.newBalance).toLocaleString('ru')} ₽. Погасить можно в приложении.`,
+      meta: { screen: 'pay', purpose: 'debt' },
+    }, db)
   }
 
   return c.json({ balance: result.newBalance })
@@ -850,9 +864,19 @@ clientsRouter.post('/:id/bonus', requireRole('owner', 'staff'), zValidator('json
   }
 
   if (amount > 0) {
-    void notifyClient(client.id, `⭐ Вам начислено ${amount.toLocaleString('ru')} бонусов.\nВсего: ${Math.round(newBonus).toLocaleString('ru')} ⭐`, db)
+    void notifyClient(client.id, {
+      kind: 'bonus',
+      title: `+${amount.toLocaleString('ru')} бонусов`,
+      body: `На счёте ${Math.round(newBonus).toLocaleString('ru')} ⭐`,
+      meta: { screen: 'history' },
+    }, db)
   } else if (amount < 0) {
-    void notifyClient(client.id, `💫 Списано ${Math.abs(amount).toLocaleString('ru')} бонусов.\nОстаток: ${Math.round(newBonus).toLocaleString('ru')} ⭐`, db)
+    void notifyClient(client.id, {
+      kind: 'bonus',
+      title: `−${Math.abs(amount).toLocaleString('ru')} бонусов`,
+      body: `Осталось ${Math.round(newBonus).toLocaleString('ru')} ⭐`,
+      meta: { screen: 'history' },
+    }, db)
   }
   return c.json({ bonusPoints: newBonus })
 })

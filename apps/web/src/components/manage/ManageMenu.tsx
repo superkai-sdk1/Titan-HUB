@@ -62,6 +62,8 @@ const NAV: NavGroup[] = [
       { href: '/manage/loyalty',   label: 'Лояльность', icon: 'loyalty', color: '#F59E0B', bg: 'rgba(245,158,11,0.15)', roles: ['owner','staff'] },
       // Сбор средств (Фонд клуба и разовые сборы) — взносы резидентов, мимо кассы.
       { href: '/manage/collections', label: 'Сбор средств', icon: 'savings', color: '#22C55E', bg: 'rgba(34,197,94,0.15)', roles: ['owner','staff'], perm: 'debtors' },
+      // Рассылки клиентам: лента и push в приложении Titan Resident (+ бот кошелька).
+      { href: '/manage/broadcasts', label: 'Рассылки', icon: 'campaign', color: '#EC4899', bg: 'rgba(236,72,153,0.15)', roles: ['owner'] },
       // Брони живут в «Мероприятиях» (заявки + Старые брони) — отдельного раздела нет.
     ],
   },

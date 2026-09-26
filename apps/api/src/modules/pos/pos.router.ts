@@ -1839,15 +1839,30 @@ posRouter.post('/checks/:id/pay', requireRole('owner', 'staff'), zValidator('jso
     if (closed?.playerId) {
       const pid = closed.playerId
       if ((closed.bonusAwarded ?? 0) > 0) {
-        void notifyClient(pid, `⭐ Начислено ${Number(closed.bonusAwarded).toLocaleString('ru')} бонусов за покупку на ${paidTotal.toLocaleString('ru')} ₽`, db)
+        void notifyClient(pid, {
+          kind: 'bonus',
+          title: `+${Number(closed.bonusAwarded).toLocaleString('ru')} бонусов`,
+          body: `Начислены за покупку на ${paidTotal.toLocaleString('ru')} ₽`,
+          meta: { screen: 'check', checkId },
+        }, db)
       }
       if ((closed.debtAmount ?? 0) > 0) {
-        void notifyClient(pid, `⚠️ Оплата в долг: ${Number(closed.debtAmount).toLocaleString('ru')} ₽`, db)
+        void notifyClient(pid, {
+          kind: 'debt',
+          title: 'Оплата в долг',
+          body: `${Number(closed.debtAmount).toLocaleString('ru')} ₽ записано в долг. Погасить можно в приложении.`,
+          meta: { screen: 'pay', purpose: 'debt', checkId },
+        }, db)
       }
       // Авто-повышение Новичок→Резидент после 10 посещений (бизнес-дней с чеком);
       // maybePromoteToResident повышает ТОЛЬКО статус newbie, остальные не трогает.
       void maybePromoteToResident(pid, db).then(r => {
-        if (r.promoted) void notifyClient(pid, '🎉 Поздравляем! Вы стали Резидентом Titan — спасибо, что с нами!', db)
+        if (r.promoted) void notifyClient(pid, {
+          kind: 'tier',
+          title: 'Вы — Резидент Titan!',
+          body: 'Поздравляем с новым статусом — спасибо, что вы с нами.',
+          meta: { screen: 'home' },
+        }, db)
       }).catch(() => {})
     }
     if (closed?.completedEvent) {

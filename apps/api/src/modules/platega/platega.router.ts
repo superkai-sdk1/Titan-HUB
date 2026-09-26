@@ -13,7 +13,7 @@ import { round2, computeRental, computeTotals } from '../../lib/money.js'
 import { publishEvent } from '../../lib/realtime.js'
 import { getClubIntegration } from '../../lib/secrets.js'
 import { getClubDbById } from '../../lib/clubResolver.js'
-import { settleResidentPayment } from '../pay/residentSettle.js'
+import { settleResidentPayment, notifyResidentPaid } from '../pay/residentSettle.js'
 // Control-БД (продление подписки клуба по платежу платформы) — относительный путь
 // к dist, как в clubResolver/superadmin (закрытый exports-map @titan/database).
 import {
@@ -273,9 +273,11 @@ plategaRouter.post('/webhook', async (c) => {
   // погашение долга / депозит / Фонд клуба. Применяется идемпотентно, чек не трогаем.
   const [residentRow] = await db.select({ id: residentPayments.id }).from(residentPayments).where(eq(residentPayments.id, checkId)).limit(1)
   if (residentRow) {
+    let residentApplied = false
     try {
       await db.transaction(async (tx) => {
-        await settleResidentPayment(tx, { paymentId: checkId, verifiedAmount, transactionId, descriptionPrefix: 'Platega' })
+        const r = await settleResidentPayment(tx, { paymentId: checkId, verifiedAmount, transactionId, descriptionPrefix: 'Platega' })
+        if (r === 'applied') residentApplied = true
       })
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : ''
@@ -287,6 +289,7 @@ plategaRouter.post('/webhook', async (c) => {
       return c.json({ error: 'internal error' }, 500)
     }
     publishEvent(c.var.club?.id, 'resident:paid', { paymentId: checkId })
+    if (residentApplied) void notifyResidentPaid(db, checkId)
     return c.json({ ok: true })
   }
   let didClose = false
