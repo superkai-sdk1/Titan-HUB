@@ -1,4 +1,5 @@
 import { Stack } from 'expo-router';
+import { Platform } from 'react-native';
 
 import { colors } from '@/lib/theme';
 
@@ -43,9 +44,11 @@ export default function PosLayout() {
         name="chat"
         options={{
           presentation: 'formSheet',
-          sheetAllowedDetents: [0.6, 1],
+          // Android раскладывает шторку на полную высоту и на средней высоте прячет низ —
+          // поле ввода и быстрые ответы оказывались за экраном. Там шторка сразу во весь рост.
+          sheetAllowedDetents: Platform.OS === 'android' ? [1] : [0.6, 1],
           sheetGrabberVisible: true,
-          sheetLargestUndimmedDetentIndex: 0,
+          sheetLargestUndimmedDetentIndex: Platform.OS === 'android' ? 'none' : 0,
           headerShown: true,
           title: 'Чат с кабинкой',
         }}

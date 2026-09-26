@@ -62,6 +62,15 @@ export default function ClientTelegramSheet() {
         <GlassChip label="Открыть в Telegram" icon="paperplane" active={false} onPress={() => link && void Linking.openURL(link.deepLink).catch(() => Alert.alert('Не удалось открыть Telegram'))} />
         <GlassChip label="Поделиться" icon="square.and.arrow.up" active={false} onPress={() => link && void Share.share({ message: link.deepLink })} />
       </View>
+      {/* Как «Участники чата» в вебе: гость уже писал в чат клуба — привязка без QR. */}
+      <View style={styles.actions}>
+        <GlassChip
+          label="Выбрать из чата клуба"
+          icon="person.2"
+          active={false}
+          onPress={() => router.push({ pathname: '/manage/clients/tg-roster', params: { clientId } })}
+        />
+      </View>
 
       {linked.length > 0 && (
         <GlassCard>

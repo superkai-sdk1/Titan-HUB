@@ -190,6 +190,25 @@ export function usePrechecks() {
   });
 }
 
+/* ─────────────────────────── Предугаданные позиции Tai ─────────────────────────── */
+
+/** Частый заказ резидента, которого ещё нет в чеке. */
+export type ItemSuggestion = { itemId: string; name: string; price: NumericString };
+
+/**
+ * «Tai предлагает» — как в веб-кассе. Сервер отдаёт пусто без подписки Tai,
+ * для не-резидентов и для закрытых чеков, поэтому запрос — только при плательщике.
+ */
+export function useCheckSuggestions(checkId: string, enabled: boolean) {
+  const club = useClubKey();
+  return useQuery({
+    queryKey: [club, 'pos', 'suggestions', checkId],
+    queryFn: () => api.get<{ suggestions: ItemSuggestion[] }>(`/pos/checks/${checkId}/suggestions`).then((r) => r.suggestions),
+    enabled,
+    staleTime: 60_000,
+  });
+}
+
 /* ─────────────────────────── Чек ─────────────────────────── */
 
 type CreateCheckBody = { playerId?: string; spaceId?: string; linkedEventId?: string; guestNames?: string[] };
@@ -222,12 +241,17 @@ function applyCheck(check: CheckDetail) {
   queryClient.setQueryData([host, 'pos', 'check', check.id], check);
   void queryClient.invalidateQueries({ queryKey: [host, 'pos', 'checks'] });
   void queryClient.invalidateQueries({ queryKey: [host, 'pos', 'shift-summary'] });
+  // Позиции изменились — Tai пересчитывает, что ещё предложить.
+  void queryClient.invalidateQueries({ queryKey: [host, 'pos', 'suggestions', check.id] });
 }
 
 async function refetchCheck(checkId: string) {
   const host = useSession.getState().club?.host ?? 'none';
   await queryClient.invalidateQueries({ queryKey: [host, 'pos', 'check', checkId] });
 }
+
+/** Перечитать чек после изменений, которые сервер пишет в него сам (например, база мероприятия). */
+export const reloadCheck = refetchCheck;
 
 /** Добавить позицию (+1). Не идемпотентно: при ошибке перечитываем чек, а не повторяем. */
 export function addItem(checkId: string, itemId: string, quantity = 1) {

@@ -281,6 +281,36 @@ export function useClientTelegramLink(clientId: string | undefined) {
   });
 }
 
+/** Участник чатов клуба, которого видел бот: из него можно привязать Telegram клиенту. */
+export type TgRosterUser = {
+  tgId: string;
+  username: string | null;
+  firstName: string | null;
+  lastName: string | null;
+  chatId: string | null;
+  lastSeen: string;
+  /** Ник клиента, к которому этот Telegram уже привязан (основным или дополнительным). */
+  linkedTo: string | null;
+};
+
+export function useTgRoster() {
+  const club = useClubKey();
+  return useQuery({
+    queryKey: [club, 'clients', 'tg-roster'],
+    queryFn: () => api.get<{ users: TgRosterUser[] }>('/clients/tg-roster').then((r) => r.users),
+    staleTime: 60_000,
+  });
+}
+
+/** Добавить клиенту Telegram из ростера — не перезаписывает, а добавляет аккаунт. 409 — занят другим. */
+export async function linkClientTg(clientId: string, user: Pick<TgRosterUser, 'tgId' | 'username'>): Promise<void> {
+  await api.post(`/clients/${clientId}/tg-link`, { tgId: user.tgId, tgUsername: user.username ?? undefined });
+  const club = host();
+  void queryClient.invalidateQueries({ queryKey: [club, 'client', clientId, 'tg'] });
+  void queryClient.invalidateQueries({ queryKey: [club, 'client', clientId] });
+  void queryClient.invalidateQueries({ queryKey: [club, 'clients', 'tg-roster'] });
+}
+
 export async function unlinkClientTg(clientId: string, tgId: string): Promise<void> {
   await api.delete(`/clients/${clientId}/tg-link`, { tgId });
   const club = host();

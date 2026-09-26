@@ -1,7 +1,7 @@
 import { GlassView } from 'expo-glass-effect';
 import { SymbolView } from 'expo-symbols';
 import { useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View, type ScrollViewProps } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View, type ScrollViewProps } from 'react-native';
 import Animated, { FadeIn, FadeOut, LayoutAnimationConfig, LinearTransition } from 'react-native-reanimated';
 import type { SFSymbol } from 'sf-symbols-typescript';
 
@@ -9,10 +9,13 @@ import { Avatar, BalanceChips } from '@/components/new-check-parts';
 import { RollingText } from '@/components/rolling-text';
 import { SwipeToDelete } from '@/components/swipe-to-delete';
 import type { CheckTotals } from '@/lib/checks';
+import { promptText } from '@/lib/dialog';
+import { eventErrorMessage, eventTitle, updateEvent, useEvent, useEventRates } from '@/lib/events-api';
 import { formatDuration, formatMoney, formatTime, plural, toNumber } from '@/lib/format';
 import { haptic } from '@/lib/haptics';
 import type { PosPlayer } from '@/lib/payment';
-import { TIER_LABEL } from '@/lib/pos-api';
+import { addItem, reloadCheck, TIER_LABEL, useCheckSuggestions } from '@/lib/pos-api';
+import { parseAmount } from '@/lib/shift-api';
 import { colors, radius, space, type } from '@/lib/theme';
 import type { CheckDetail } from '@/lib/types';
 import type { CheckActions } from '@/lib/use-check-actions';
@@ -27,6 +30,8 @@ import { useNow } from '@/lib/use-now';
 
 const rowLayout = LinearTransition.springify().damping(22).stiffness(220);
 const ORDER_TINT = 'rgba(255,149,0,0.20)';
+/** Фиолетовое стекло Tai — как карточки предчеков. */
+const TAI_TINT = 'rgba(139,92,246,0.18)';
 
 type Props = {
   check: CheckDetail;
@@ -177,6 +182,10 @@ export function CheckView({ check, totals, actions, player, now, contentInsetAdj
           )}
         </GlassView>
 
+        {isOpen && check.playerId && <TaiSuggestions checkId={check.id} itemIds={new Set(itemRows.map((row) => row.checkItem.itemId))} />}
+
+        {check.linkedEventId && <LinkedEventCard check={check} isOpen={isOpen} base={totals.eventBase} />}
+
         {(isOpen || check.discounts.length > 0) && (
           <GlassView style={styles.card}>
             <CardHeader
@@ -323,6 +332,155 @@ function ItemRow({
   );
 }
 
+/* ─────────────────────────── Tai предлагает ─────────────────────────── */
+
+/**
+ * Частые заказы резидента, которых ещё нет в чеке, — как «Tai предлагает» в веб-кассе.
+ * Тап добавляет позицию. Сервер сам отдаёт пусто без подписки Tai и для не-резидентов.
+ */
+function TaiSuggestions({ checkId, itemIds }: { checkId: string; itemIds: Set<string> }) {
+  const suggestions = useCheckSuggestions(checkId, true);
+  const [adding, setAdding] = useState<string | null>(null);
+  const list = (suggestions.data ?? []).filter((s) => !itemIds.has(s.itemId));
+  if (list.length === 0) return null;
+
+  const add = (itemId: string) => {
+    haptic.light();
+    setAdding(itemId);
+    addItem(checkId, itemId)
+      .catch((error: Error) => {
+        haptic.error();
+        Alert.alert('Позиция не добавлена', error.message === 'Check not open' ? 'Чек уже закрыт.' : error.message);
+      })
+      .finally(() => setAdding(null));
+  };
+
+  return (
+    <Animated.View entering={FadeIn} exiting={FadeOut} layout={rowLayout}>
+      <GlassView tintColor={TAI_TINT} style={styles.card}>
+        <CardHeader icon="sparkles" iconColor={colors.accent} title="Tai предлагает" detail="обычно берёт" />
+        {list.map((s, index) => (
+          <Animated.View key={s.itemId} entering={FadeIn} exiting={FadeOut} layout={rowLayout}>
+            {index > 0 && <View style={styles.divider} />}
+            <Pressable
+              disabled={adding !== null}
+              onPress={() => add(s.itemId)}
+              style={({ pressed }) => [styles.suggestionRow, pressed && styles.pressed]}
+              accessibilityRole="button"
+              accessibilityLabel={`Добавить ${s.name}, ${formatMoney(toNumber(s.price))}`}>
+              <View style={styles.flex}>
+                <Text style={[type.body, styles.label]} numberOfLines={1}>
+                  {s.name}
+                </Text>
+                <Text style={[type.footnote, styles.secondary]}>{formatMoney(toNumber(s.price))}</Text>
+              </View>
+              <View style={styles.addBadge}>
+                {adding === s.itemId ? <ActivityIndicator color="white" size="small" /> : <SymbolView name="plus" size={14} weight="bold" tintColor="white" />}
+              </View>
+            </Pressable>
+          </Animated.View>
+        ))}
+      </GlassView>
+    </Animated.View>
+  );
+}
+
+/* ─────────────────────────── Мероприятие чека ─────────────────────────── */
+
+/**
+ * Чек мероприятия: база (фикс-сумма или почасовой тариф) и её правка прямо из чека,
+ * как в веб-кассе. Сервер пересчитывает базу только в собственном чеке мероприятия,
+ * поэтому правка доступна лишь там; у миникапа база — взнос участника, его меняют в карточке миникапа.
+ */
+function LinkedEventCard({ check, isOpen, base }: { check: CheckDetail; isOpen: boolean; base: number }) {
+  const event = useEvent(check.linkedEventId ?? undefined);
+  const data = event.data;
+  const hourly = data?.billingMode === 'hourly';
+  const rates = useEventRates();
+  const [busy, setBusy] = useState(false);
+  const editable = isOpen && !!data && data.checkId === check.id && data.format !== 'minicap' && data.status !== 'completed' && data.status !== 'cancelled';
+  if (!data && base <= 0) return null;
+
+  const save = async (input: { plannedHours: number } | { fixedAmount: number }) => {
+    if (!data || busy) return;
+    haptic.selection();
+    setBusy(true);
+    try {
+      await updateEvent(data.id, input);
+      await reloadCheck(check.id);
+      haptic.success();
+    } catch (error) {
+      haptic.error();
+      Alert.alert('Мероприятие не изменено', eventErrorMessage(error instanceof Error ? error.message : String(error)));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const editAmount = () =>
+    promptText(
+      'Сумма мероприятия',
+      'Фиксированная сумма — основа этого чека',
+      [
+        { text: 'Отмена', style: 'cancel' },
+        {
+          text: 'Сохранить',
+          onPress: (value?: string) => {
+            const amount = parseAmount(value ?? '');
+            if (amount === null) return Alert.alert('Введите сумму');
+            void save({ fixedAmount: amount });
+          },
+        },
+      ],
+      'plain-text',
+      String(data?.fixedAmount != null ? toNumber(data.fixedAmount) : base || ''),
+      'decimal-pad',
+    );
+
+  return (
+    <GlassView style={styles.card}>
+      <CardHeader
+        icon="calendar"
+        iconColor={colors.accent}
+        title={data ? eventTitle(data) : 'Мероприятие'}
+        detail={hourly && data?.plannedHours ? `${data.plannedHours} ч` : undefined}
+      />
+      <View style={styles.lineRow}>
+        <Text style={[type.subhead, styles.secondary, styles.flex]}>{hourly ? 'Почасовой тариф' : 'Сумма мероприятия'}</Text>
+        {busy ? <ActivityIndicator /> : <RollingText text={formatMoney(base)} style={[type.headline, type.amount, styles.label]} />}
+      </View>
+      {editable && hourly && (rates.data?.length ?? 0) > 0 && (
+        <View style={styles.hoursGrid}>
+          {rates.data!.map((rate) => {
+            const active = data!.plannedHours === rate.hours;
+            return (
+              <Pressable
+                key={rate.hours}
+                disabled={busy || active}
+                onPress={() => void save({ plannedHours: rate.hours })}
+                style={({ pressed }) => [styles.hourChip, active && styles.hourChipActive, pressed && styles.pressed]}
+                accessibilityRole="button"
+                accessibilityState={{ selected: active }}
+                accessibilityLabel={`${rate.hours} ч, ${formatMoney(toNumber(rate.price))}`}>
+                <Text style={[type.subhead, styles.hourText, active && styles.hourTextActive]}>{rate.hours} ч</Text>
+                <Text style={[type.caption1, active ? styles.hourTextActive : styles.secondary]} numberOfLines={1}>
+                  {formatMoney(toNumber(rate.price))}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      )}
+      {editable && !hourly && (
+        <Pressable onPress={editAmount} disabled={busy} style={({ pressed }) => [styles.softButton, pressed && styles.pressed]} accessibilityRole="button">
+          <SymbolView name="pencil" size={15} weight="semibold" tintColor={colors.accent} />
+          <Text style={[type.subhead, styles.softButtonText]}>Изменить сумму</Text>
+        </Pressable>
+      )}
+    </GlassView>
+  );
+}
+
 /* ─────────────────────────── Мелкие части ─────────────────────────── */
 
 function CardHeader({
@@ -451,6 +609,13 @@ const styles = StyleSheet.create({
   },
   softButtonText: { color: colors.accent, fontWeight: '600' },
 
+  suggestionRow: { flexDirection: 'row', alignItems: 'center', gap: space.md, paddingVertical: space.sm },
+  addBadge: { width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.accent },
+  hoursGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm, marginTop: space.xs },
+  hourChip: { flexGrow: 1, minWidth: 64, alignItems: 'center', gap: 2, paddingVertical: space.sm, paddingHorizontal: space.sm, borderRadius: 14, borderCurve: 'continuous', backgroundColor: colors.fill },
+  hourChipActive: { backgroundColor: colors.accent },
+  hourText: { color: colors.label, fontWeight: '700' },
+  hourTextActive: { color: 'white' },
   cancel: { alignSelf: 'center', paddingHorizontal: space.xl, paddingVertical: space.md },
   cancelText: { color: colors.red, fontWeight: '600' },
 

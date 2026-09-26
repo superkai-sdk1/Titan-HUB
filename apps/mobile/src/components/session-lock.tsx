@@ -89,7 +89,8 @@ export function SessionLock() {
           <SymbolView name="lock.fill" size={44} tintColor={colors.secondaryLabel} />
           <Text style={[type.title3, styles.title]}>Касса заблокирована</Text>
           <Pressable style={styles.primary} onPress={() => void unlockWithBiometrics()} accessibilityRole="button">
-            <SymbolView name="faceid" size={22} tintColor={colors.accent} />
+            {/* На Android разблокировка — отпечатком: значок лица там вводит в заблуждение. */}
+            <SymbolView name={Platform.OS === 'ios' ? 'faceid' : 'touchid'} size={22} tintColor={colors.accent} />
             <Text style={[type.headline, styles.primaryText]}>Разблокировать</Text>
           </Pressable>
           <Pressable onPress={() => void useSession.getState().signOut()} hitSlop={12} accessibilityRole="button">

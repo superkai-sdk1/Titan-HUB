@@ -8,6 +8,7 @@ import { FormField, FormSection } from '@/components/form-parts';
 import { GlassCard, GlassChip, PrimaryButton, SheetHeader, sheetStyles } from '@/components/new-check-parts';
 import { createStaff } from '@/lib/admin-api';
 import { haptic } from '@/lib/haptics';
+import { KEYBOARD_DISMISS } from '@/lib/layout';
 import { space } from '@/lib/theme';
 
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
@@ -44,7 +45,7 @@ export default function NewStaffSheet() {
 
   return (
     <KeyboardAvoidingView behavior="padding" style={styles.flex}>
-      <ScrollView contentContainerStyle={[styles.content, { paddingBottom: Math.max(insets.bottom, space.lg) }]} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={[styles.content, { paddingBottom: Math.max(insets.bottom, space.lg) }]} keyboardShouldPersistTaps="handled" keyboardDismissMode={KEYBOARD_DISMISS} showsVerticalScrollIndicator={false}>
         <SheetHeader title="Новый сотрудник" onClose={() => router.back()} />
 
         <FormSection title="ВХОД" footer="Никнейм и пароль сотрудник вводит при первом входе. PIN — быстрый вход на устройстве кассы.">

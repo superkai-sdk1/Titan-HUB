@@ -19,8 +19,10 @@ import {
   type ParticipantRole,
 } from '@/lib/events-api';
 import { haptic } from '@/lib/haptics';
+import { KEYBOARD_DISMISS } from '@/lib/layout';
 import { createClient, TIER_LABEL, type ClientTier } from '@/lib/pos-api';
 import { colors, space, type } from '@/lib/theme';
+import { chooseAction } from '@/lib/dialog';
 
 const rowLayout = LinearTransition.springify().damping(22).stiffness(220);
 /** Как в веб-кассе: новому участнику миникапа выбирают один из трёх статусов. */
@@ -64,7 +66,7 @@ export default function ParticipantsSheet() {
 
   const createAndAdd = (nickname: string) => {
     if (nickname.length < 2) return Alert.alert('Ник — минимум 2 символа');
-    Alert.alert(`Новый клиент «${nickname}»`, 'Выберите статус клиента', [
+    chooseAction(`Новый клиент «${nickname}»`, 'Выберите статус клиента', [
       ...NEW_CLIENT_TIERS.map((tier) => ({
         text: TIER_LABEL[tier] ?? tier,
         onPress: async () => {
@@ -88,7 +90,7 @@ export default function ParticipantsSheet() {
       <ScrollView
         contentContainerStyle={[styles.content, { paddingBottom: Math.max(insets.bottom, space.lg) }]}
         keyboardShouldPersistTaps="handled"
-        keyboardDismissMode="interactive"
+        keyboardDismissMode={KEYBOARD_DISMISS}
         showsVerticalScrollIndicator={false}>
         <SheetHeader title="Состав миникапа" onClose={() => router.back()} />
 

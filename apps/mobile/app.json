@@ -107,7 +107,9 @@
       ],
       "expo-sqlite",
       "./plugins/with-contacts-testing-fix",
-      "./plugins/with-android-colors"
+      "./plugins/with-android-colors",
+      "./plugins/with-android-queries",
+      "./plugins/with-android-phone-portrait"
     ],
     "experiments": {
       "typedRoutes": true,

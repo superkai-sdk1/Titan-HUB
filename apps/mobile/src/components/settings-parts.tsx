@@ -10,6 +10,7 @@ import { Unavailable } from '@/components/unavailable';
 import { saveSettings, useSettings } from '@/lib/admin-api';
 import { haptic } from '@/lib/haptics';
 import { colors, space, type, useAccentHex } from '@/lib/theme';
+import { promptText } from '@/lib/dialog';
 
 /**
  * Строки-настройки как в iOS: цветной значок, подпись, значение справа.
@@ -70,7 +71,7 @@ export function promptValue({
   onSubmit: (next: string) => void;
 }) {
   haptic.light();
-  Alert.prompt(
+  promptText(
     title,
     message,
     [

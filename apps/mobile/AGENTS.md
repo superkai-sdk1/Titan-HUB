@@ -18,6 +18,9 @@ Read the exact versioned docs at https://docs.expo.dev/versions/v57.0.0/ before 
 - **`headerTransparent`** нужен только iOS (там отступ добирает `contentInsetAdjustmentBehavior`). На Android шапка непрозрачная — см. `src/components/header-glass.tsx`.
 - **Шторки** не должны быть с прозрачным фоном: под ними нет Liquid Glass. Фон берётся из `colors.sheetBackground`.
 - **Нативные компоненты Compose** (`@expo/ui/jetpack-compose`) требуют особой границы композиции и внутри обычного дерева RN падают с `MissingHostException` — выбор даты и времени поэтому написан на RN.
+- **Шторка с двумя высотами** на Android раскладывается во весь рост и сдвигается вниз — прижатое к её низу (поиск, поле ввода) на средней высоте оказывается за экраном.
+- **`Alert.prompt` на Android молча не работает**, а `Alert.alert` рисует максимум три кнопки. Использовать `promptText` / `chooseAction` из `src/lib/dialog.ts`.
+- **iOS-only пропы**: вместо `keyboardDismissMode="interactive"` — `KEYBOARD_DISMISS` из `src/lib/layout.ts`; к полям поиска с `clearButtonMode` добавлять `ClearButton`.
 
 iOS-only модули (`@expo/ui/swift-ui`, `expo-symbols`, `expo-glass-effect`) подменяются на `src/compat/android` через `metro.config.js`. Добавляя новый такой модуль, добавляйте и замену.
 

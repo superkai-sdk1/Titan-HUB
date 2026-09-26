@@ -62,6 +62,7 @@ export default function ManageLayout() {
       <Stack.Screen name="clients/edit" options={tallSheet} />
       <Stack.Screen name="clients/adjust" options={compactSheet} />
       <Stack.Screen name="clients/telegram" options={tallSheet} />
+      <Stack.Screen name="clients/tg-roster" options={tallSheet} />
 
       <Stack.Screen name="balances/index" options={{ ...glassHeader, title: 'Депозиты и долги' }} />
       <Stack.Screen name="balances/find" options={compactSheet} />

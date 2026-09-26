@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import Animated, { FadeIn } from 'react-native-reanimated';
 
+import { ClearButton } from '@/components/clear-button';
 import { Avatar, BalanceChips, GlassCard, sheetStyles } from '@/components/new-check-parts';
 import { formatMoney } from '@/lib/format';
 import { haptic } from '@/lib/haptics';
@@ -72,6 +73,7 @@ export function PlayerSearch({
           clearButtonMode="while-editing"
           accessibilityLabel="Поиск игрока"
         />
+        <ClearButton visible={query.length > 0} onPress={() => onQuery('')} />
       </GlassView>
 
       {typing && (

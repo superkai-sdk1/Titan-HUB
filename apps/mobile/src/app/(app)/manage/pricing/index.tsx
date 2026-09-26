@@ -20,6 +20,7 @@ import { useClubKey } from '@/lib/queries';
 import { useSession } from '@/lib/session';
 import { parseAmount } from '@/lib/shift-api';
 import { colors, space, type } from '@/lib/theme';
+import { promptText } from '@/lib/dialog';
 import { ToolbarButton } from '@/components/toolbar';
 
 type Tab = 'tariffs' | 'evenings' | 'rental' | 'events';
@@ -57,7 +58,7 @@ export default function PricingScreen() {
   };
 
   const editRate = (hours: number, price: number) =>
-    Alert.prompt(
+    promptText(
       `${hours} ч`,
       'Цена за весь период — основа чека мероприятия с почасовой оплатой',
       [
@@ -79,7 +80,7 @@ export default function PricingScreen() {
     );
 
   const addEventRate = () =>
-    Alert.prompt('Сколько часов?', 'Например, 7', [
+    promptText('Сколько часов?', 'Например, 7', [
       { text: 'Отмена', style: 'cancel' },
       {
         text: 'Дальше',

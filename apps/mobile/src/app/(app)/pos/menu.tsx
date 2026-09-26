@@ -4,12 +4,13 @@ import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import { useEffect, useMemo, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Alert, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { KeyboardAvoidingView, useKeyboardState } from 'react-native-keyboard-controller';
 import Animated, { Keyframe, useAnimatedStyle, useSharedValue, withSequence, withSpring, withTiming } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { SFSymbol } from 'sf-symbols-typescript';
 
+import { ClearButton } from '@/components/clear-button';
 import { CircleButton, GlassChip, sheetStyles } from '@/components/new-check-parts';
 import { RollingText } from '@/components/rolling-text';
 import { checkTotals } from '@/lib/checks';
@@ -29,6 +30,12 @@ import { useNow } from '@/lib/use-now';
 
 const ALL = 'all';
 const SEARCH_HEIGHT = 48;
+/**
+ * На Android шторка с двумя высотами раскладывает содержимое на полную высоту и
+ * просто сдвигает его вниз: на средней высоте нижний край — за экраном, и капсула
+ * поиска у нижнего края была не видна вовсе. Поэтому там поиск — сверху, как в веб-кассе.
+ */
+const SEARCH_ON_TOP = Platform.OS === 'android';
 const TOP = 'top';
 const OTHER = 'other';
 
@@ -48,6 +55,7 @@ export default function MenuSheet() {
   const keyboardOpen = useKeyboardState((state) => state.isVisible);
   // Капсула поиска парит над сеткой у нижнего края; с клавиатурой — прямо над ней.
   const searchBottom = keyboardOpen ? space.sm : Math.max(insets.bottom - 6, space.md);
+  const listBottom = SEARCH_ON_TOP ? insets.bottom + space.xxxl : SEARCH_HEIGHT + searchBottom + space.lg;
   const menu = useMenu();
   const check = useCheck(checkId);
   const now = useNow(30_000);
@@ -150,6 +158,8 @@ export default function MenuSheet() {
           <CircleButton icon="xmark" label="Закрыть" onPress={() => router.back()} />
         </View>
 
+        {SEARCH_ON_TOP && <SearchField value={query} onChange={setQuery} />}
+
         {!query && (
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipsScroll} contentContainerStyle={styles.chips}>
             <GlassChip label="Все" icon="square.grid.2x2" active={category === ALL} onPress={() => selectCategory(ALL)} />
@@ -172,7 +182,7 @@ export default function MenuSheet() {
         data={rows}
         keyExtractor={(row) => row.key}
         getItemType={(row) => row.type}
-        contentContainerStyle={{ ...styles.listContent, paddingBottom: SEARCH_HEIGHT + searchBottom + space.lg }}
+        contentContainerStyle={{ ...styles.listContent, paddingBottom: listBottom }}
         keyboardDismissMode="on-drag"
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
@@ -216,25 +226,34 @@ export default function MenuSheet() {
       />
 
       {/* Поиск внизу, как в iOS 26: стеклянная капсула поверх сетки, плитки прокручиваются под ней. */}
-      <View pointerEvents="box-none" style={[styles.floatingSearch, { bottom: searchBottom }]}>
-        <GlassView style={styles.search}>
-          <SymbolView name="magnifyingglass" size={16} weight="medium" tintColor={colors.secondaryLabel} />
-          <TextInput
-            value={query}
-            onChangeText={setQuery}
-            placeholder="Позиция или тег"
-            placeholderTextColor={colors.tertiaryLabel}
-            selectionColor={colors.accent}
-            style={[type.body, styles.searchInput]}
-            autoCorrect={false}
-            returnKeyType="search"
-            clearButtonMode="while-editing"
-            accessibilityLabel="Поиск по меню"
-          />
-        </GlassView>
-      </View>
+      {!SEARCH_ON_TOP && (
+        <View pointerEvents="box-none" style={[styles.floatingSearch, { bottom: searchBottom }]}>
+          <SearchField value={query} onChange={setQuery} />
+        </View>
+      )}
       </View>
     </KeyboardAvoidingView>
+  );
+}
+
+function SearchField({ value, onChange }: { value: string; onChange: (text: string) => void }) {
+  return (
+    <GlassView style={styles.search}>
+      <SymbolView name="magnifyingglass" size={16} weight="medium" tintColor={colors.secondaryLabel} />
+      <TextInput
+        value={value}
+        onChangeText={onChange}
+        placeholder="Позиция или тег"
+        placeholderTextColor={colors.tertiaryLabel}
+        selectionColor={colors.accent}
+        style={[type.body, styles.searchInput]}
+        autoCorrect={false}
+        returnKeyType="search"
+        clearButtonMode="while-editing"
+        accessibilityLabel="Поиск по меню"
+      />
+      <ClearButton visible={value.length > 0} onPress={() => onChange('')} />
+    </GlassView>
   );
 }
 
@@ -325,7 +344,7 @@ const styles = StyleSheet.create({
   totalPill: { flexDirection: 'row', alignItems: 'center', gap: 6, height: 32, paddingHorizontal: space.md, borderRadius: 16 },
   totalText: { color: colors.label, fontWeight: '700' },
   search: { flexDirection: 'row', alignItems: 'center', gap: space.sm, height: SEARCH_HEIGHT, paddingHorizontal: space.lg, borderRadius: SEARCH_HEIGHT / 2 },
-  searchInput: { flex: 1, color: colors.label, height: SEARCH_HEIGHT },
+  searchInput: { flex: 1, color: colors.label, height: SEARCH_HEIGHT, paddingVertical: 0 },
   // Ряд категорий фиксированной высоты: горизонтальный ScrollView иначе может сжаться и наехать на соседей.
   chipsScroll: { flexGrow: 0, flexShrink: 0, height: 44, marginHorizontal: -space.lg },
   chips: { gap: space.sm, paddingHorizontal: space.lg, alignItems: 'center' },

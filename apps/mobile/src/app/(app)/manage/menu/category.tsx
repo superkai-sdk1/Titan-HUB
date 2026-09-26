@@ -12,6 +12,7 @@ import { FormField, FormSection } from '@/components/form-parts';
 import { DangerRow, GlassCard, PrimaryButton, SheetHeader, sheetStyles } from '@/components/new-check-parts';
 import { CATEGORY_PRESETS, categoryHex, categorySymbol, deleteCategory, PALETTE, saveCategory, useMenuAdmin } from '@/lib/catalog-api';
 import { haptic } from '@/lib/haptics';
+import { KEYBOARD_DISMISS } from '@/lib/layout';
 import type { MenuCategory } from '@/lib/pos-api';
 import { useSession } from '@/lib/session';
 import { space, type, useAccentHex } from '@/lib/theme';
@@ -86,7 +87,7 @@ function CategoryForm({ original, onClose, onDeleted }: { original: MenuCategory
       <ScrollView
         contentContainerStyle={[styles.content, { paddingBottom: Math.max(insets.bottom, space.lg) }]}
         keyboardShouldPersistTaps="handled"
-        keyboardDismissMode="interactive"
+        keyboardDismissMode={KEYBOARD_DISMISS}
         showsVerticalScrollIndicator={false}>
         <SheetHeader title={original ? 'Категория' : 'Новая категория'} onClose={onClose} />
 

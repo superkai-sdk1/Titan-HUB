@@ -12,6 +12,7 @@ import { GlassCard, GlassChip, PrimaryButton, SheetHeader, sheetStyles } from '@
 import { createTabletLinkCode, saveSpace, SPACE_LOOK, useSpacesAdmin } from '@/lib/catalog-api';
 import { toNumber } from '@/lib/format';
 import { haptic } from '@/lib/haptics';
+import { KEYBOARD_DISMISS } from '@/lib/layout';
 import { SPACE_TYPE_LABEL, type Space } from '@/lib/pos-api';
 import { parseAmount } from '@/lib/shift-api';
 import { space as gap, type, useAccentHex } from '@/lib/theme';
@@ -84,7 +85,7 @@ function SpaceForm({ original, onClose }: { original: Space | null; onClose: () 
 
   return (
     <KeyboardAvoidingView behavior="padding" style={styles.flex}>
-      <ScrollView contentContainerStyle={[styles.content, { paddingBottom: Math.max(insets.bottom, gap.lg) }]} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={[styles.content, { paddingBottom: Math.max(insets.bottom, gap.lg) }]} keyboardShouldPersistTaps="handled" keyboardDismissMode={KEYBOARD_DISMISS} showsVerticalScrollIndicator={false}>
         <SheetHeader title={original ? 'Зона' : 'Новая зона'} onClose={onClose} />
 
         <FormSection title="ЗОНА">

@@ -16,6 +16,7 @@ import Animated, {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AmbientBackdrop } from '@/components/ambient-backdrop';
+import { BirthdaysBanner } from '@/components/birthdays-banner';
 import { CheckCard, type CheckCardModel } from '@/components/check-card';
 import { CheckPanel } from '@/components/check-panel';
 import { PrecheckCard } from '@/components/precheck-card';
@@ -28,6 +29,7 @@ import { SPLIT_MIN_WIDTH, useSplitLayout } from '@/lib/layout';
 import { checkNeedsAttention } from '@/lib/notifications';
 import { usePosSelection } from '@/lib/pos-selection';
 import { createCheckErrorMessage } from '@/lib/new-check';
+import { chooseAction } from '@/lib/dialog';
 import { openPrecheck, usePrechecks, type Precheck } from '@/lib/pos-api';
 import { useChecks, useNotifications } from '@/lib/queries';
 import { colors, space, type } from '@/lib/theme';
@@ -218,6 +220,29 @@ export default function PosScreen() {
         </View>
       );
     }
+    if (Platform.OS === 'android') {
+      // Link.Preview и Link.Menu — жесты iOS: на Android долгое нажатие ничего не давало.
+      // Те же быстрые действия — списком по долгому нажатию.
+      return (
+        <CheckCard
+          model={item}
+          onPress={() => {
+            haptic.selection();
+            router.push({ pathname: '/pos/[checkId]', params: { checkId: item.id } });
+          }}
+          delayLongPress={350}
+          onLongPress={() => {
+            haptic.medium();
+            chooseAction(item.title, undefined, [
+              { text: 'Добавить позицию', onPress: () => router.push({ pathname: '/pos/menu', params: { checkId: item.id } }) },
+              { text: 'Оплатить', onPress: () => router.push({ pathname: '/pay', params: { checkId: item.id } }) },
+              { text: 'Чат с кабинкой', onPress: () => router.push({ pathname: '/pos/chat', params: { checkId: item.id } }) },
+              { text: 'Отмена', style: 'cancel' },
+            ]);
+          }}
+        />
+      );
+    }
     return (
       <Link href={{ pathname: '/pos/[checkId]', params: { checkId: item.id } }} asChild>
         {/* Чек раскрывается из карточки и сворачивается обратно в неё (зум iOS 18+). */}
@@ -255,6 +280,8 @@ export default function PosScreen() {
           <RefreshControl tintColor={colors.accent} progressViewOffset={insets.top} refreshing={pulling} onRefresh={refresh} />
         }>
         {header}
+
+        <BirthdaysBanner />
 
         {checks.isLoading ? (
           <View style={styles.center}>

@@ -23,6 +23,7 @@ import {
   type ExpenseCatalogItem,
   type ExpenseCategory,
 } from '@/lib/inventory-api';
+import { KEYBOARD_DISMISS } from '@/lib/layout';
 import { newIdempotencyKey, parseAmount } from '@/lib/shift-api';
 import { colors, space, type, useAccentHex } from '@/lib/theme';
 
@@ -83,7 +84,7 @@ export default function ExpenseNewSheet() {
       <ScrollView
         contentContainerStyle={[styles.content, { paddingBottom: Math.max(insets.bottom, space.lg) }]}
         keyboardShouldPersistTaps="handled"
-        keyboardDismissMode="interactive"
+        keyboardDismissMode={KEYBOARD_DISMISS}
         showsVerticalScrollIndicator={false}>
         <SheetHeader title="Новый расход" onClose={() => router.back()} />
 

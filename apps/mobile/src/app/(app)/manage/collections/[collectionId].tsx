@@ -30,6 +30,7 @@ import { haptic } from '@/lib/haptics';
 import { usePageGutter } from '@/lib/layout';
 import { parseAmount } from '@/lib/shift-api';
 import { colors, space, type } from '@/lib/theme';
+import { promptText } from '@/lib/dialog';
 import { ToolbarMenu, ToolbarMenuAction } from '@/components/toolbar';
 
 const rowLayout = LinearTransition.springify().damping(22).stiffness(220);
@@ -100,7 +101,7 @@ export default function CollectionScreen() {
   const progress = totals.eligibleCount > 0 ? Math.min(1, totals.paidCount / totals.eligibleCount) : 0;
 
   const editAmount = () =>
-    Alert.prompt(
+    promptText(
       'Взнос за период',
       `${period.label}. Меняется только этот период; у участников с персональной суммой — своя.`,
       [

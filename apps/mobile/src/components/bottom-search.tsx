@@ -4,6 +4,7 @@ import { StyleSheet, TextInput, View } from 'react-native';
 import { KeyboardStickyView } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { ClearButton } from '@/components/clear-button';
 import { colors, space, type } from '@/lib/theme';
 
 /** Высота капсулы поиска — на неё же делается запас в конце списка. */
@@ -58,6 +59,7 @@ export function BottomSearch({
             clearButtonMode="while-editing"
             accessibilityLabel={placeholder}
           />
+          <ClearButton visible={value.length > 0} onPress={() => onChange('')} />
         </GlassView>
       </View>
     </KeyboardStickyView>

@@ -1,6 +1,6 @@
 import { Stack, useRouter } from 'expo-router';
 import { useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, RefreshControl, ScrollView, StyleSheet, Text } from 'react-native';
+import { ActivityIndicator, Alert, Linking, Pressable, RefreshControl, ScrollView, StyleSheet, Text } from 'react-native';
 
 import { AmbientBackdrop } from '@/components/ambient-backdrop';
 import { Avatar, DangerRow, GlassCard } from '@/components/new-check-parts';
@@ -88,7 +88,10 @@ export default function MyProfileScreen() {
     }
     void (async () => {
       if (!(await ensureCalendarAccess())) {
-        Alert.alert('Нужен доступ к календарю', 'Разрешите доступ в Настройках iOS — тогда мероприятия будут появляться в календаре с напоминаниями.');
+        Alert.alert('Нужен доступ к календарю', 'Разрешите доступ в настройках телефона — тогда мероприятия будут появляться в календаре с напоминаниями.', [
+          { text: 'Отмена', style: 'cancel' },
+          { text: 'Открыть настройки', onPress: () => void Linking.openSettings() },
+        ]);
         return;
       }
       await setCalendarSync(true);

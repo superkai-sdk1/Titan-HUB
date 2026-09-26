@@ -9,6 +9,8 @@ const TABLE: Record<string, string> = {
   'chevron.left': 'chevron_left',
   'chevron.right': 'chevron_right',
   'chevron.up.chevron.down': 'unfold_more',
+  'chevron.up': 'keyboard_arrow_up',
+  'chevron.down': 'keyboard_arrow_down',
   xmark: 'close',
   'xmark.circle': 'cancel',
   'xmark.octagon': 'dangerous',
@@ -56,6 +58,8 @@ const TABLE: Record<string, string> = {
   'wallet.bifold': 'wallet',
   giftcard: 'redeem',
   gift: 'card_giftcard',
+  'birthday.cake': 'cake',
+  'party.popper': 'celebration',
   percent: 'percent',
   discount: 'percent',
   sum: 'functions',
@@ -84,6 +88,7 @@ const TABLE: Record<string, string> = {
   trophy: 'trophy',
   'suit.spade': 'casino',
   faceid: 'face',
+  touchid: 'fingerprint',
 
   // заведение и склад
   house: 'home',
@@ -181,6 +186,7 @@ const TABLE: Record<string, string> = {
   'link.badge.plus': 'add_link',
   map: 'map',
   'mappin.and.ellipse': 'place',
+  mappin: 'location_on',
   'location.fill': 'location_on',
   car: 'directions_car',
   camera: 'photo_camera',

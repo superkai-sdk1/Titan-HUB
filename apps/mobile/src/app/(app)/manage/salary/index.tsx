@@ -14,7 +14,7 @@ import { Unavailable } from '@/components/unavailable';
 import { fromDateTime, toDateString, useStaffList } from '@/lib/events-api';
 import { formatMoney, toNumber } from '@/lib/format';
 import { haptic } from '@/lib/haptics';
-import { usePageGutter } from '@/lib/layout';
+import { KEYBOARD_DISMISS, usePageGutter } from '@/lib/layout';
 import { useShiftSummary } from '@/lib/queries';
 import { currentBusinessDay, paySalary, useBusinessDayStartHour, useSalaryEstimate, useSalaryPayments } from '@/lib/salary-api';
 import { useSession } from '@/lib/session';
@@ -163,7 +163,7 @@ function SalaryOwnerScreen() {
           contentInsetAdjustmentBehavior="automatic"
           contentContainerStyle={[styles.content, gutter]}
           keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="interactive"
+          keyboardDismissMode={KEYBOARD_DISMISS}
           refreshControl={<RefreshControl tintColor={colors.accent} refreshing={pulling} onRefresh={refresh} />}>
           <Text style={[type.footnote, sheetStyles.sectionTitle]}>СОТРУДНИК</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.people} contentContainerStyle={styles.peopleContent}>

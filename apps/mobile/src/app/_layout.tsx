@@ -7,6 +7,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
+import { DialogHost } from '@/components/dialog-host';
 import { NotificationBanner } from '@/components/notification-banner';
 import { OfflineBanner } from '@/components/offline-banner';
 import { SessionLock } from '@/components/session-lock';
@@ -97,6 +98,7 @@ export default function RootLayout() {
         {signedIn && <NotificationBanner />}
         <OfflineBanner />
         <SessionLock />
+        <DialogHost />
       </PersistQueryClientProvider>
     </ThemeProvider>
     </KeyboardProvider>

@@ -12,6 +12,7 @@ import { GlassCard, GlassChip, PrimaryButton, SheetHeader, sheetStyles } from '@
 import { checkTitle } from '@/lib/checks';
 import { formatMoney } from '@/lib/format';
 import { haptic } from '@/lib/haptics';
+import { KEYBOARD_DISMISS } from '@/lib/layout';
 import { METHODS, usePosPlayer } from '@/lib/payment';
 import { useCheck, useShiftSummary } from '@/lib/queries';
 import {
@@ -219,7 +220,7 @@ function RefundForm({ prepare, onRefetch, onClose }: { prepare: RefundPrepare; o
       <ScrollView
         contentContainerStyle={[styles.content, { paddingBottom: Math.max(insets.bottom, space.lg) }]}
         keyboardShouldPersistTaps="handled"
-        keyboardDismissMode="interactive"
+        keyboardDismissMode={KEYBOARD_DISMISS}
         showsVerticalScrollIndicator={false}>
         <SheetHeader title="Возврат" onClose={onClose} />
 

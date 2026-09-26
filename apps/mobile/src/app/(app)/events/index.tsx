@@ -24,19 +24,21 @@ import {
   resolveBooking,
   startEvent,
   todayMsk,
+  useArchivedBookings,
   useBookingRequests,
   useEventRates,
+  type ArchivedBooking,
   useEvents,
   type BookingRequest,
   type EventRow,
 } from '@/lib/events-api';
-import { plural } from '@/lib/format';
+import { formatMoney, plural, toNumber } from '@/lib/format';
 import { haptic } from '@/lib/haptics';
 import { usePageGutter } from '@/lib/layout';
 import { useSpaces } from '@/lib/pos-api';
 import { colors, space, type, useAccentHex } from '@/lib/theme';
 
-type Tab = 'upcoming' | 'past';
+type Tab = 'upcoming' | 'past' | 'archive';
 
 const rowLayout = LinearTransition.springify().damping(22).stiffness(200);
 
@@ -65,6 +67,7 @@ export default function EventsScreen() {
   const rates = useEventRates();
   const spaces = useSpaces();
   const [tab, setTab] = useState<Tab>('upcoming');
+  const archive = useArchivedBookings(tab === 'archive');
   const [pulling, setPulling] = useState(false);
   const [openMonths, setOpenMonths] = useState<string[]>([]);
   const [startingId, setStartingId] = useState<string | null>(null);
@@ -90,7 +93,7 @@ export default function EventsScreen() {
 
   const refresh = async () => {
     setPulling(true);
-    await Promise.allSettled([events.refetch(), bookings.refetch()]);
+    await Promise.allSettled([events.refetch(), bookings.refetch(), ...(tab === 'archive' ? [archive.refetch()] : [])]);
     setPulling(false);
   };
 
@@ -181,6 +184,7 @@ export default function EventsScreen() {
             modifiers={[pickerStyle('segmented')]}>
             <SwiftText modifiers={[tag('upcoming')]}>{`Предстоящие · ${upcoming.length}`}</SwiftText>
             <SwiftText modifiers={[tag('past')]}>{`Прошедшие · ${past.length}`}</SwiftText>
+            <SwiftText modifiers={[tag('archive')]}>Старые</SwiftText>
           </Picker>
         </Host>
 
@@ -226,6 +230,26 @@ export default function EventsScreen() {
                       {dayEvents.map(renderEvent)}
                     </View>
                   ))
+                )}
+              </View>
+            ) : tab === 'archive' ? (
+              <View style={styles.list}>
+                {archive.isLoading ? (
+                  <ActivityIndicator style={styles.loading} />
+                ) : (archive.data ?? []).length === 0 ? (
+                  <View style={styles.empty}>
+                    <Unavailable
+                      title={archive.isError ? 'Нет связи' : 'Старых броней нет'}
+                      systemImage={archive.isError ? 'wifi.exclamationmark' : 'folder'}
+                      description={archive.isError ? archive.error.message : 'Здесь появятся брони зон штаба, чьи мероприятия уже прошли.'}
+                    />
+                  </View>
+                ) : (
+                  <View style={styles.group}>
+                    {(archive.data ?? []).map((booking) => (
+                      <ArchivedBookingCard key={booking.id} booking={booking} />
+                    ))}
+                  </View>
                 )}
               </View>
             ) : (
@@ -307,6 +331,34 @@ function BookingCard({ booking, busy, onConfirm, onReject }: { booking: BookingR
           <Text style={[type.subhead, styles.confirmText]}>Подтвердить</Text>
         </Pressable>
       </View>
+    </GlassCard>
+  );
+}
+
+function ArchivedBookingCard({ booking }: { booking: ArchivedBooking }) {
+  const startsAt = parsePgTimestamp(booking.starts_at);
+  return (
+    <GlassCard style={styles.booking}>
+      <View style={styles.bookingTop}>
+        <SymbolView name="archivebox" size={16} weight="semibold" tintColor={colors.secondaryLabel} />
+        <Text style={[type.headline, styles.label, styles.flex]} numberOfLines={1}>
+          {booking.title || booking.name}
+        </Text>
+        {booking.check_total != null && (
+          <Text style={[type.headline, type.amount, styles.label]}>{formatMoney(toNumber(booking.check_total))}</Text>
+        )}
+      </View>
+      <Text style={[type.subhead, styles.secondary]}>
+        {`${formatMskDateTime(startsAt)}${booking.tariff_hours ? ` · ${booking.tariff_hours} ч` : ''}${booking.guests ? ` · ${booking.guests} гостей` : ''}`}
+      </Text>
+      <Text style={[type.footnote, styles.secondary]} numberOfLines={1}>
+        {`${booking.zone_name ?? 'Штаб'}${booking.title ? ` · ${booking.name}` : ''} · ${booking.phone}`}
+      </Text>
+      {booking.comment && (
+        <Text style={[type.footnote, styles.tertiary]} numberOfLines={2}>
+          {booking.comment}
+        </Text>
+      )}
     </GlassCard>
   );
 }

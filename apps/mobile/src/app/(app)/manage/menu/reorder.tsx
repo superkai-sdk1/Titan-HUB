@@ -2,7 +2,7 @@ import { Host, Label, List } from '@expo/ui/swift-ui';
 import { environment, foregroundStyle, listStyle, scrollContentBackground } from '@expo/ui/swift-ui/modifiers';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
-import { ActivityIndicator, Alert, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Platform, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { PrimaryButton, SheetHeader, sheetStyles } from '@/components/new-check-parts';
@@ -96,7 +96,9 @@ function ReorderList({
     <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, space.lg) }]}>
       <View style={styles.header}>
         <SheetHeader title={scope === 'categories' ? 'Порядок категорий' : 'Порядок позиций'} onClose={onClose} />
-        <Text style={[type.footnote, sheetStyles.secondary]}>Потяните за полоски справа. Так же порядок увидят касса и планшеты.</Text>
+        <Text style={[type.footnote, sheetStyles.secondary]}>
+          {Platform.OS === 'ios' ? 'Потяните за полоски справа.' : 'Двигайте строки стрелками справа.'} Так же порядок увидят касса и планшеты.
+        </Text>
       </View>
       {order.length === 0 ? (
         <Text style={[type.subhead, sheetStyles.secondary, styles.empty]}>Переставлять нечего</Text>
