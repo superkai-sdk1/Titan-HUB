@@ -42,6 +42,17 @@ interface EventRate {
 
 type Tab = 'tariffs' | 'evenings' | 'rental' | 'events'
 
+// Сумма из поля ввода: «1 500,50» → 1500.5. Поля — текстовые с inputMode="decimal":
+// на iPhone с русской раскладкой type="number" отдавал пустую строку при запятой,
+// и тариф молча сохранялся с ценой 0. null — ввод не распознан.
+function parseMoney(text: string): number | null {
+  const normalized = String(text).replace(/\s/g, '').replace(',', '.')
+  if (!normalized) return 0
+  const n = Number(normalized)
+  return Number.isFinite(n) && n >= 0 ? Math.round(n * 100) / 100 : null
+}
+const moneyInput = (v: string | number | null | undefined) => String(parseFloat(String(v ?? 0)) || 0).replace('.', ',')
+
 // Палитра для выбора цвета тарифа/типа вечера.
 const COLOR_PALETTE = [
   '#8B5CF6', '#10B981', '#F59E0B', '#3B82F6', '#F43F5E',
@@ -186,6 +197,11 @@ export default function PricingPage() {
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['pricing', 'tariffs'] }); setShowTariffForm(false) },
     onError: () => show('Не удалось сохранить тариф', 'error'),
   })
+  const restoreTariff = useMutation({
+    mutationFn: (id: string) => api.patch(`/pricing/tariffs/${id}`, { isActive: true }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['pricing', 'tariffs'] }); setShowTariffForm(false); show('Тариф снова в кассе', 'success') },
+    onError: () => show('Не удалось вернуть тариф', 'error'),
+  })
   const delTariff = useMutation({
     mutationFn: (id: string) => api.delete(`/pricing/tariffs/${id}`),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['pricing', 'tariffs'] }); setConfirmDelTariff(null); setShowTariffForm(false) },
@@ -194,7 +210,7 @@ export default function PricingPage() {
 
   function openTariff(t?: Tariff) {
     setTariffForm(t
-      ? { id: t.id, name: t.name, price: String(t.price ?? 0), color: t.color ?? COLOR_PALETTE[0] }
+      ? { id: t.id, name: t.name, price: moneyInput(t.price), color: t.color ?? COLOR_PALETTE[0] }
       : { name: '', price: '0', color: COLOR_PALETTE[0] })
     setShowTariffForm(true)
   }
@@ -240,17 +256,17 @@ export default function PricingPage() {
   })
   const spaces: Space[] = spacesData?.spaces ?? []
 
-  const SPACE_BLANK = { name: '', type: 'table', hourlyRate: '0', capacity: '', isActive: true }
+  const SPACE_BLANK = { name: '', type: 'table', hourlyRate: '', capacity: '', isActive: true }
   const [spaceEditing, setSpaceEditing] = useState<Space | null>(null)
   const [spaceForm, setSpaceForm] = useState<{ name: string; type: string; hourlyRate: string; capacity: string; isActive: boolean }>(SPACE_BLANK)
   const [showSpaceForm, setShowSpaceForm] = useState(false)
   const [confirmDelSpace, setConfirmDelSpace] = useState<string | null>(null)
 
   const saveSpace = useMutation({
-    mutationFn: (b: { id?: string; name: string; type: string; hourlyRate: number; capacity?: number; isActive: boolean }) =>
+    mutationFn: (b: { id?: string; name: string; type: string; hourlyRate: number; capacity: number | null; isActive: boolean }) =>
       b.id
         ? api.patch(`/spaces/${b.id}`, { name: b.name, type: b.type, hourlyRate: b.hourlyRate, capacity: b.capacity, isActive: b.isActive })
-        : api.post('/spaces', { name: b.name, type: b.type, hourlyRate: b.hourlyRate, capacity: b.capacity }),
+        : api.post('/spaces', { name: b.name, type: b.type, hourlyRate: b.hourlyRate, ...(b.capacity !== null ? { capacity: b.capacity } : {}) }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['spaces'] }); setShowSpaceForm(false); setSpaceEditing(null) },
     onError: () => show('Не удалось сохранить зону', 'error'),
   })
@@ -279,7 +295,7 @@ export default function PricingPage() {
   function openSpace(s?: Space) {
     setSpaceEditing(s ?? null)
     setSpaceForm(s
-      ? { name: s.name, type: s.type, hourlyRate: String(s.hourlyRate ?? 0), capacity: String(s.capacity ?? ''), isActive: s.isActive ?? true }
+      ? { name: s.name, type: s.type, hourlyRate: moneyInput(s.hourlyRate), capacity: s.capacity ? String(s.capacity) : '', isActive: s.isActive ?? true }
       : SPACE_BLANK)
     setShowSpaceForm(true)
   }
@@ -300,10 +316,17 @@ export default function PricingPage() {
     onError: () => show('Не удалось сохранить тариф мероприятия', 'error'),
   })
 
+  const [confirmDelRate, setConfirmDelRate] = useState<number | null>(null)
+  const delEventRate = useMutation({
+    mutationFn: (hours: number) => api.delete(`/pricing/event-rates/${hours}`),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['pricing', 'event-rates'] }); setConfirmDelRate(null); setShowEventRateForm(false) },
+    onError: () => { setConfirmDelRate(null); show('Не удалось удалить пакет', 'error') },
+  })
+
   function openEventRate(r?: EventRate) {
     setEventRateForm(r
-      ? { existing: true, hours: String(r.hours), price: String(parseFloat(String(r.price ?? 0)) || 0) }
-      : { hours: '', price: '0' })
+      ? { existing: true, hours: String(r.hours), price: moneyInput(r.price) }
+      : { hours: '', price: '' })
     setShowEventRateForm(true)
   }
 
@@ -339,6 +362,8 @@ export default function PricingPage() {
           // Статусы клиента (key, иерархия Резидент→Студент→Новичок→Гость) +
           // дополнительные тарифы без статуса (напр. «Одна игра»). Сумма за вечер/игру.
           const list = tariffs.filter(t => t.isActive !== false)
+          // Скрытые (удалённые) тарифы раньше пропадали из списка насовсем — вернуть их было нельзя.
+          const hidden = tariffs.filter(t => t.isActive === false)
           return (
           <>
             <TabBar count={list.length} label="тарифов" action={isOwner ? { label: 'Добавить', onClick: () => openTariff() } : undefined} />
@@ -366,6 +391,25 @@ export default function PricingPage() {
                   })}
                 </div>
               )}
+            {hidden.length > 0 && (
+              <>
+                <p style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', color: 'var(--on-surface-variant)', margin: '18px 0 8px' }}>Скрытые</p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {hidden.map(t => (
+                    <Card
+                      key={t.id}
+                      accent="#94A3B8"
+                      icon="visibility_off"
+                      title={t.name}
+                      subtitle="Убран из кассы — нажмите, чтобы вернуть или изменить"
+                      dim
+                      onClick={isOwner ? () => openTariff(t) : undefined}
+                      right={<span style={{ ...PRICE_CSS, color: '#94A3B8' }}>{(parseFloat(String(t.price ?? 0)) || 0).toLocaleString('ru')} ₽</span>}
+                    />
+                  ))}
+                </div>
+              </>
+            )}
           </>
           )
         })()}
@@ -457,15 +501,15 @@ export default function PricingPage() {
       </div>
 
       {/* ─── Sheet: тариф ─── */}
-      <Sheet open={showTariffForm} onClose={() => setShowTariffForm(false)} title={tariffForm.id ? 'Редактировать статус' : 'Новый статус'}>
+      <Sheet open={showTariffForm} onClose={() => setShowTariffForm(false)} initialHeight="88dvh" title={tariffForm.id ? (tariffs.find(t => t.id === tariffForm.id)?.key ? 'Статус клиента' : 'Тариф') : 'Новый тариф'}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <div>
-            <label style={LBL}>Название статуса *</label>
-            <input value={tariffForm.name} onChange={e => setTariffForm(p => ({ ...p, name: e.target.value }))} style={INP} placeholder="Резидент, Студент, Новичок, Гость" />
+            <label style={LBL}>Название *</label>
+            <input value={tariffForm.name} onChange={e => setTariffForm(p => ({ ...p, name: e.target.value }))} style={INP} placeholder="Например, «Одна игра»" />
           </div>
           <div>
             <label style={LBL}>Сумма за вечер (₽)</label>
-            <input type="number" value={tariffForm.price} onChange={e => setTariffForm(p => ({ ...p, price: e.target.value }))} style={INP} />
+            <input inputMode="decimal" value={tariffForm.price} onChange={e => setTariffForm(p => ({ ...p, price: e.target.value }))} style={{ ...INP, borderColor: parseMoney(tariffForm.price) === null ? '#F43F5E' : undefined }} placeholder="0" />
           </div>
           <div>
             <label style={LBL}>Цвет</label>
@@ -474,14 +518,16 @@ export default function PricingPage() {
           <Button
             fullWidth size="lg"
             loading={saveTariff.isPending}
-            disabled={!tariffForm.name.trim()}
-            onClick={() => saveTariff.mutate({ id: tariffForm.id, name: tariffForm.name.trim(), price: Number(tariffForm.price) || 0, color: tariffForm.color })}
+            disabled={!tariffForm.name.trim() || parseMoney(tariffForm.price) === null}
+            onClick={() => saveTariff.mutate({ id: tariffForm.id, name: tariffForm.name.trim(), price: parseMoney(tariffForm.price) ?? 0, color: tariffForm.color })}
             style={{ marginTop: 4 }}
           >
             Сохранить
           </Button>
           {tariffForm.id && isOwner && !tariffs.find(t => t.id === tariffForm.id)?.isSystem && (
-            <Button fullWidth variant="danger" icon="delete" onClick={() => setConfirmDelTariff(tariffForm.id!)}>Удалить статус</Button>
+            tariffs.find(t => t.id === tariffForm.id)?.isActive === false
+              ? <Button fullWidth variant="secondary" icon="undo" loading={restoreTariff.isPending} onClick={() => restoreTariff.mutate(tariffForm.id!)}>Вернуть в кассу</Button>
+              : <Button fullWidth variant="danger" icon="visibility_off" onClick={() => setConfirmDelTariff(tariffForm.id!)}>Убрать из кассы</Button>
           )}
         </div>
       </Sheet>
@@ -513,7 +559,7 @@ export default function PricingPage() {
       </Sheet>
 
       {/* ─── Sheet: зона ─── */}
-      <Sheet open={showSpaceForm} onClose={() => { setShowSpaceForm(false); setSpaceEditing(null) }} title={spaceEditing ? 'Редактировать зону' : 'Новая зона'}>
+      <Sheet open={showSpaceForm} onClose={() => { setShowSpaceForm(false); setSpaceEditing(null) }} initialHeight="88dvh" title={spaceEditing ? 'Зона' : 'Новая зона'}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <div>
             <label style={LBL}>Название *</label>
@@ -535,11 +581,11 @@ export default function PricingPage() {
           </div>
           <div>
             <label style={LBL}>Ставка в час (₽)</label>
-            <input type="number" value={spaceForm.hourlyRate} onChange={e => setSpaceForm(p => ({ ...p, hourlyRate: e.target.value }))} style={INP} />
+            <input inputMode="decimal" value={spaceForm.hourlyRate} onChange={e => setSpaceForm(p => ({ ...p, hourlyRate: e.target.value }))} style={{ ...INP, borderColor: parseMoney(spaceForm.hourlyRate) === null ? '#F43F5E' : undefined }} placeholder="0" />
           </div>
           <div>
             <label style={LBL}>Вместимость (чел.)</label>
-            <input type="number" value={spaceForm.capacity} onChange={e => setSpaceForm(p => ({ ...p, capacity: e.target.value }))} placeholder="Не указано" style={INP} />
+            <input inputMode="numeric" value={spaceForm.capacity} onChange={e => setSpaceForm(p => ({ ...p, capacity: e.target.value.replace(/\D/g, '') }))} placeholder="Не указана — оставьте пустым" style={INP} />
           </div>
           {spaceEditing && (
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '12px 14px', borderRadius: 12, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
@@ -551,13 +597,14 @@ export default function PricingPage() {
           <Button
             fullWidth size="lg"
             loading={saveSpace.isPending}
-            disabled={!spaceForm.name.trim()}
+            disabled={!spaceForm.name.trim() || parseMoney(spaceForm.hourlyRate) === null}
             onClick={() => saveSpace.mutate({
               id: spaceEditing?.id,
               name: spaceForm.name.trim(),
               type: spaceForm.type,
-              hourlyRate: Number(spaceForm.hourlyRate) || 0,
-              capacity: spaceForm.capacity ? Number(spaceForm.capacity) : undefined,
+              hourlyRate: parseMoney(spaceForm.hourlyRate) ?? 0,
+              // Пустое поле — null: раньше оно не отправлялось, и старая вместимость оставалась.
+              capacity: spaceForm.capacity ? Number(spaceForm.capacity) : null,
               isActive: spaceForm.isActive,
             })}
             style={{ marginTop: 4 }}
@@ -577,7 +624,7 @@ export default function PricingPage() {
       </Sheet>
 
       {/* ─── Sheet: тариф мероприятия ─── */}
-      <Sheet open={showEventRateForm} onClose={() => setShowEventRateForm(false)} title={eventRateForm.existing ? `${eventRateForm.hours} ч` : 'Новый тариф'} desktopSize="sm">
+      <Sheet open={showEventRateForm} onClose={() => setShowEventRateForm(false)} initialHeight="70dvh" title={eventRateForm.existing ? `Пакет на ${eventRateForm.hours} ч` : 'Новый пакет'} desktopSize="sm">
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <div>
             <label style={LBL}>Число часов *</label>
@@ -592,16 +639,19 @@ export default function PricingPage() {
           </div>
           <div>
             <label style={LBL}>Цена за период (₽)</label>
-            <input type="number" value={eventRateForm.price} onChange={e => setEventRateForm(p => ({ ...p, price: e.target.value }))} style={INP} />
+            <input inputMode="decimal" value={eventRateForm.price} onChange={e => setEventRateForm(p => ({ ...p, price: e.target.value }))} style={{ ...INP, borderColor: parseMoney(eventRateForm.price) === null ? '#F43F5E' : undefined }} placeholder="0" />
           </div>
           <Button
             fullWidth size="lg"
             loading={saveEventRate.isPending}
-            disabled={!eventRateForm.hours || !(Number(eventRateForm.hours) > 0)}
-            onClick={() => saveEventRate.mutate({ hours: Number(eventRateForm.hours), price: Number(eventRateForm.price) || 0 })}
+            disabled={!eventRateForm.hours || !(Number(eventRateForm.hours) > 0) || parseMoney(eventRateForm.price) === null}
+            onClick={() => saveEventRate.mutate({ hours: Number(eventRateForm.hours), price: parseMoney(eventRateForm.price) ?? 0 })}
           >
             Сохранить
           </Button>
+          {eventRateForm.existing && isOwner && (
+            <Button fullWidth variant="danger" icon="delete" onClick={() => setConfirmDelRate(Number(eventRateForm.hours))}>Удалить пакет</Button>
+          )}
         </div>
       </Sheet>
 
@@ -637,9 +687,9 @@ export default function PricingPage() {
         open={!!confirmDelTariff}
         onClose={() => setConfirmDelTariff(null)}
         onConfirm={() => confirmDelTariff && delTariff.mutate(confirmDelTariff)}
-        title="Удалить тариф?"
-        message="Тариф больше не будет доступен на кассе."
-        confirmLabel="Удалить"
+        title="Убрать тариф из кассы?"
+        message="Прошлые чеки сохранятся, а вернуть тариф можно в разделе «Скрытые»."
+        confirmLabel="Убрать"
         danger
         loading={delTariff.isPending}
       />
@@ -651,6 +701,16 @@ export default function PricingPage() {
         confirmLabel="Удалить"
         danger
         loading={delEvening.isPending}
+      />
+      <ConfirmDialog
+        open={confirmDelRate !== null}
+        onClose={() => setConfirmDelRate(null)}
+        onConfirm={() => confirmDelRate !== null && delEventRate.mutate(confirmDelRate)}
+        title="Удалить пакет?"
+        message="Уже посчитанные мероприятия сохранят свою сумму."
+        confirmLabel="Удалить"
+        danger
+        loading={delEventRate.isPending}
       />
       <ConfirmDialog
         open={!!confirmDelSpace}
