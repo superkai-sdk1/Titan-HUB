@@ -687,6 +687,8 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
   const { data: chatMsgs } = useQuery({
     queryKey: ['chat', checkId],
     queryFn: () => api.get<{ messages: ChatMessage[] }>(`/pos/checks/${checkId}/chat`).then((r) => r.messages),
+    // Чат идёт через планшет кабинки — у чека без зоны его нет, и опрашивать нечего.
+    enabled: !!check?.spaceId,
     refetchInterval: 4000,
   })
   const chatUnread = chatOpen ? 0 : (chatMsgs ?? []).filter((m) => m.sender === 'guest' && new Date(m.createdAt).getTime() > chatSeenAt).length
@@ -1028,6 +1030,7 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
           </div>
         </div>
 
+        {check?.spaceId && (
         <button
           onClick={() => { setChatSeenAt(Date.now()); setChatOpen(true); markReadByCheck({ checkId, types: ['chat_message'] }) }}
           aria-label="Чат с гостем"
@@ -1043,6 +1046,7 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
             <span style={{ position: 'absolute', top: -5, right: -5, minWidth: 18, height: 18, padding: '0 4px', borderRadius: 9, background: '#f43f5e', color: '#fff', fontSize: 10, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{chatUnread}</span>
           )}
         </button>
+        )}
 
         <button
           onClick={() => setConfirmCancel(true)}

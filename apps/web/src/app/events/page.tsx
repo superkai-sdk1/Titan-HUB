@@ -35,7 +35,7 @@ const BLANK = {
   date: new Date().toISOString().split('T')[0],
   startTime: '18:00',
   endTime: '',
-  billingMode: 'amount' as 'amount' | 'hourly',
+  billingMode: 'amount' as 'amount' | 'hourly' | 'rental',
   fixedAmount: '',
   plannedHours: 2,
   responsibleStaffId: '',
@@ -271,8 +271,11 @@ export default function EventsPage() {
     if (form.type === 'exit' && !form.responsibleStaffId) { setFormError('Для выезда укажите ответственного'); return }
     if (form.type === 'titan' && !form.customerName.trim()) { setFormError('Укажите имя заказчика'); return }
     if (form.type === 'exit' && !form.location.trim()) { setFormError('Укажите адрес выезда'); return }
+    // «По ставке зоны» — только для мероприятия в клубе с выбранной зоной.
+    const mode: 'amount' | 'hourly' | 'rental' = form.billingMode === 'rental' && form.type !== 'titan' ? 'amount' : form.billingMode
+    if (mode === 'rental' && !form.spaceId) { setFormError('Выберите зону — чек посчитает её аренду по ставке'); return }
 
-    const hourly = form.billingMode === 'hourly'
+    const hourly = mode === 'hourly'
     const phone = existingCust ? (existingCust.phone ?? null) : (form.customerPhone || null)
     const payload: any = {
       type: form.type,
@@ -284,12 +287,12 @@ export default function EventsPage() {
       startTime: normTime(form.startTime),
       endTime: form.endTime ? normTime(form.endTime) : null,
       paymentType: 'fixed',
-      billingMode: hourly ? 'hourly' : 'amount',
+      billingMode: mode,
       responsibleStaffId: form.responsibleStaffId || null,
       customerName: form.customerName.trim() || null,
       customerPhone: phone,
       comment: form.comment || null,
-      fixedAmount: !hourly && form.fixedAmount ? parseFloat(form.fixedAmount) : null,
+      fixedAmount: mode === 'amount' && form.fixedAmount ? parseFloat(form.fixedAmount) : null,
       plannedHours: hourly ? Number(form.plannedHours) : null,
     }
     if (editId) saveEdit.mutate({ id: editId, ...payload })
@@ -307,7 +310,9 @@ export default function EventsPage() {
     const day = (ev.date ?? '').split('-')[2]
     const month = MONTHS_SHORT[Number((ev.date ?? '').split('-')[1])] ?? ''
     const responsible = staffById(ev.responsibleStaffId)
-    const baseAmount = ev.billingMode === 'hourly'
+    const baseAmount = ev.billingMode === 'rental'
+      ? 'по ставке зоны'
+      : ev.billingMode === 'hourly'
       ? (ev.plannedHours ? `${ev.plannedHours} ч` : 'почасовая')
       : ev.fixedAmount != null ? `${parseFloat(ev.fixedAmount).toLocaleString('ru')} ₽`
       : ev.manualAmount != null ? `${parseFloat(ev.manualAmount).toLocaleString('ru')} ₽`
@@ -616,7 +621,7 @@ export default function EventsPage() {
           {/* Оплата — Фикс / Почасовая */}
           <FormSection title="Оплата">
             <div style={{ display: 'flex', gap: 8 }}>
-              {([['amount', 'Фикс', 'sell'], ['hourly', 'Почасовая', 'schedule']] as [string, string, string][]).map(([k, l, icon]) => {
+              {([['amount', 'Фикс', 'sell'], ['hourly', 'Пакет по часам', 'schedule'], ...(form.type === 'titan' ? [['rental', 'По ставке зоны', 'meeting_room']] : [])] as [string, string, string][]).map(([k, l, icon]) => {
                 const active = form.billingMode === k
                 return (
                   <button key={k} onClick={() => set({ billingMode: k })}
@@ -627,7 +632,17 @@ export default function EventsPage() {
               })}
             </div>
 
-            {form.billingMode === 'amount' ? (
+            {form.billingMode === 'rental' && form.type === 'titan' ? (
+              <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: 0, lineHeight: 1.5, display: 'flex', gap: 6 }}>
+                <Icon name="timer" size={15} color="#a78bfa" />
+                {(() => {
+                  const sp = spacesList.find((x: any) => x.id === form.spaceId)
+                  return sp
+                    ? <span>При старте откроется чек аренды «{sp.name}»: {(parseFloat(sp.hourlyRate) || 0).toLocaleString('ru')} ₽/ч, время считается по факту — любую минуту начатого часа округляем до часа.</span>
+                    : <span>Выберите зону выше — чек посчитает её аренду по ставке зоны, по факту.</span>
+                })()}
+              </p>
+            ) : form.billingMode === 'amount' || form.type !== 'titan' && form.billingMode === 'rental' ? (
               <div><label style={LBL}>Сумма (₽)</label><input type="number" inputMode="numeric" value={form.fixedAmount} onChange={e => set({ fixedAmount: e.target.value })} placeholder="0" style={INP} /></div>
             ) : (
               <div>
@@ -672,7 +687,9 @@ export default function EventsPage() {
       <Sheet open={!!selected} onClose={() => setSelected(null)} title={selected ? (selected.title || TYPES[selected.type]?.[0] || selected.type) : ''}>
         {selected && (() => {
           const [, statusColor, statusIcon] = STATUS[selected.status] ?? ['—', '#94A3B8', 'help']
-          const amountLabel = selected.billingMode === 'hourly'
+          const amountLabel = selected.billingMode === 'rental'
+            ? 'по ставке зоны, по факту'
+            : selected.billingMode === 'hourly'
             ? `${selected.plannedHours ?? '—'} ч`
             : selected.fixedAmount != null ? `${parseFloat(selected.fixedAmount).toLocaleString('ru')} ₽`
             : selected.manualAmount != null ? `${parseFloat(selected.manualAmount).toLocaleString('ru')} ₽` : '—'
@@ -688,7 +705,7 @@ export default function EventsPage() {
                   ['Время', `${selected.startTime}${selected.endTime ? ` — ${selected.endTime}` : ''}`],
                   selected.type === 'exit' ? ['Адрес', selected.location || '—'] : null,
                   ['Ответственный', staffById(selected.responsibleStaffId)?.nickname || '—'],
-                  ['Оплата', selected.billingMode === 'hourly' ? 'Почасовая' : 'Фикс'],
+                  ['Оплата', selected.billingMode === 'rental' ? 'По ставке зоны' : selected.billingMode === 'hourly' ? 'Пакет по часам' : 'Фикс'],
                   ['Сумма / время', amountLabel],
                   ['Комментарий', selected.comment || '—'],
                 ].filter(Boolean).map((row) => { const [k, v] = row as [string, string]; return v && v !== '—' ? (
