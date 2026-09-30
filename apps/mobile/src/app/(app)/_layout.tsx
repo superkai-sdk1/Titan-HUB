@@ -44,8 +44,13 @@ export default function AppLayout() {
   const accessoryVisible = useChrome((s) => s.accessoryVisible);
   const openCheckId = IS_PAD ? undefined : CHECK_PATH.exec(pathname)?.[1];
 
+  // Android прячет плашку смены при прокрутке сам (плавающая панель на RN — это дёшево).
+  // На iOS плашку не снимаем: каждое снятие перестраивало таб-бар UIKit (~60 мс) прямо
+  // посреди прокрутки. Там таб-бар сворачивается системно (minimizeBehavior), а плашка
+  // переезжает в компактный вид рядом с ним (placement 'inline').
+  const hiddenByScroll = Platform.OS === 'android' && !accessoryVisible;
   let accessory: ReactNode = null;
-  if (pathname === '/pos' && (IS_PAD || accessoryVisible)) accessory = <ShiftAccessory />;
+  if (pathname === '/pos' && (IS_PAD || !hiddenByScroll)) accessory = <ShiftAccessory />;
   else if (openCheckId) accessory = <CheckAccessory checkId={openCheckId} />;
 
   if (Platform.OS === 'android') return <AndroidTabs accessory={accessory} />;
@@ -54,6 +59,7 @@ export default function AppLayout() {
     <NativeTabs
       tintColor={colors.accent}
       sidebarAdaptable
+      minimizeBehavior="onScrollDown"
       screenListeners={({ route }) => ({
         tabPress: () => {
           // Папка без _layout даёт маршрут «new/index»: Trigger сопоставляет имя без «/index», а route.name — нет.

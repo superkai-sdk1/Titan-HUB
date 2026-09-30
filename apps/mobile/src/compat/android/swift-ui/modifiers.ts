@@ -4,7 +4,7 @@
 // который компоненты из ./index.tsx читают через resolve() и переводят в стили RN.
 // Модификаторы, у которых на Android нет смысла (стекло, курсив SF), сохраняются
 // в списке, но игнорируются при рендере — экраны при этом остаются рабочими.
-import type { ColorValue, KeyboardTypeOptions, TextStyle, ViewStyle } from 'react-native';
+import { Platform, type ColorValue, type KeyboardTypeOptions, type TextStyle, type ViewStyle } from 'react-native';
 
 import { colors } from '@/lib/theme';
 
@@ -171,6 +171,8 @@ export function resolve(modifiers?: ViewModifier[] | null): ResolvedModifiers {
         if (spec?.size) out.text.fontSize = spec.size;
         if (spec?.weight) out.text.fontWeight = WEIGHTS[spec.weight] ?? (spec.weight as TextStyle['fontWeight']);
         if (spec?.design === 'monospaced') out.text.fontVariant = ['tabular-nums'];
+        // Скруглённый SF Pro есть только на iOS; на Android остаётся системный шрифт.
+        if (spec?.design === 'rounded' && Platform.OS === 'ios') out.text.fontFamily = 'ui-rounded';
         break;
       }
       case 'foregroundStyle': {

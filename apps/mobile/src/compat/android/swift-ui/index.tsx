@@ -1,24 +1,103 @@
-// Android-двойники компонентов @expo/ui/swift-ui.
+// RN-двойники компонентов @expo/ui/swift-ui: на Android — вместо SwiftUI, на iOS — ради
+// скорости переходов (см. IOS ниже).
 //
 // На Android нативных вью SwiftUI нет: `requireNativeView('ExpoUI', 'PickerView')`
 // и остальные падают. Здесь те же 23 компонента собраны на React Native — так, чтобы
 // 43 экрана, написанных под SwiftUI, работали без правок. Выбор даты и времени отдан
 // нативным диалогам Material из @expo/ui/jetpack-compose, остальное — RN-примитивы,
 // стилизованные под сгруппированные списки iOS, чтобы вёрстка экранов не разъехалась.
-import { Children, createContext, isValidElement, useContext, useState, type ReactElement, type ReactNode } from 'react';
+import { NavigationContext } from 'expo-router/react-navigation';
+import { Children, cloneElement, createContext, Fragment, isValidElement, useContext, useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import {
-  ActivityIndicator, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Switch,
-  Text as RNText, TextInput, View,
+  ActivityIndicator, DynamicColorIOS, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Switch,
+  Text as RNText, TextInput, useWindowDimensions, View,
   type ColorValue, type StyleProp, type TextStyle, type ViewStyle,
 } from 'react-native';
 
 import { SwipeToDelete } from '@/components/swipe-to-delete';
 import { useAutoFocus } from '@/lib/auto-focus';
+import { haptic } from '@/lib/haptics';
 import { useTabBarClearance } from '@/lib/tab-bar';
 import { colors, radius, space } from '@/lib/theme';
 
 import { SymbolView } from '../symbols';
+import Animated, { Easing, Keyframe, SlideInDown, useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+import { ChartIsland, ColorIsland, DateIsland, HAS_ISLANDS } from './islands';
 import { resolve, type ViewModifier } from './modifiers';
+
+/**
+ * На iOS слой тоже рисует формы: SwiftUI Form строился по 110–220 мс на каждый переход
+ * и анимации дёргались, RN-разметка тех же экранов — в 2–3 раза быстрее. Отличия iOS —
+ * размеры и отступы iOS 26 и нативные вставки для меню, сегментов, даты и графиков.
+ */
+const IOS = Platform.OS === 'ios';
+
+/** Когда экран впервые показал вставку: считаем «доехал ли» он от этого момента. */
+const screenBorn = new WeakMap<object, number>();
+/** Экраны, уже закончившие въезд: новые вставки и длинные списки в них рисуются сразу. */
+const settledScreens = new WeakSet<object>();
+const NO_SCREEN = {};
+/** Push-анимация iOS идёт ~0,35–0,5 с; у вкладок события конца перехода нет — ждём столько же. */
+const SETTLE_MS = 450;
+
+/**
+ * Очередь подстановки вставок: одна вставка стоит 12–17 мс, пять разом давали паузу
+ * 60–110 мс сразу после въезда экрана. По одной через кадр — та же работа без рывка.
+ */
+const slotQueue: (() => void)[] = [];
+let pumping = false;
+function pumpSlots() {
+  const next = slotQueue.shift();
+  if (!next) {
+    pumping = false;
+    return;
+  }
+  next();
+  requestAnimationFrame(() => requestAnimationFrame(pumpSlots));
+}
+function requestSlot(grant: () => void): () => void {
+  slotQueue.push(grant);
+  if (!pumping) {
+    pumping = true;
+    requestAnimationFrame(pumpSlots);
+  }
+  return () => {
+    const index = slotQueue.indexOf(grant);
+    if (index >= 0) slotQueue.splice(index, 1);
+  };
+}
+
+/**
+ * Готов ли экран к нативной вставке SwiftUI. Хост SwiftUI пересчитывает раскладку на
+ * каждом кадре въезда экрана — вставки дёргали анимацию перехода. Пока экран едет,
+ * рисуем RN-копию вставки, настоящую подставляем по окончании перехода.
+ */
+function useSettled(enabled = true): boolean {
+  const navigation = useContext(NavigationContext);
+  const key = (navigation as object | undefined) ?? NO_SCREEN;
+  const [settled, setSettled] = useState(() => settledScreens.has(key));
+  useEffect(() => {
+    if (settled || !enabled) return;
+    const now = Date.now();
+    const born = screenBorn.get(key) ?? now;
+    if (!screenBorn.has(key)) screenBorn.set(key, now);
+    let cancelSlot: (() => void) | undefined;
+    const done = () => {
+      settledScreens.add(key);
+      cancelSlot ??= requestSlot(() => setSettled(true));
+    };
+    const timer = setTimeout(done, Math.max(0, born + SETTLE_MS - now));
+    const unsubscribe = navigation?.addListener('transitionEnd' as never, done);
+    return () => {
+      clearTimeout(timer);
+      unsubscribe?.();
+      cancelSlot?.();
+    };
+  }, [navigation, key, settled, enabled]);
+  return settled;
+}
 
 type Mods = { modifiers?: ViewModifier[] };
 type WithChildren = { children?: ReactNode };
@@ -41,7 +120,7 @@ const FootnoteContext = createContext(false);
  * и отступы ячейки берёт первый стек или текст внутри него; 'inside' — отступы уже есть,
  * поле ввода в такой строке компактное; 'none' — вне секции.
  */
-type CellPlace = 'none' | 'root' | 'inside';
+type CellPlace = 'none' | 'root' | 'inside' | 'control';
 const CellContext = createContext<CellPlace>('none');
 
 /** Корень строки-обёртки получает отступы ячейки, его потомки — уже «внутри». */
@@ -90,7 +169,18 @@ export function VStack({ children, spacing, alignment, modifiers, style }: Mods 
 export function HStack({ children, spacing, alignment, modifiers, style }: Mods & WithChildren & { spacing?: number; alignment?: string; style?: StyleProp<ViewStyle> }) {
   const align = alignment === 'top' ? 'flex-start' : alignment === 'bottom' ? 'flex-end' : 'center';
   const root = useCellRoot();
-  const view = <View style={[root && styles.cell, { flexDirection: 'row', gap: spacing, alignItems: align }, resolve(modifiers).style, style]}>{children}</View>;
+  // Как в SwiftUI: значение справа от Spacer не сжимается — сжимается и обрезается подпись слева.
+  const list = Children.toArray(children);
+  const spacerAt = list.findIndex((child) => isValidElement(child) && child.type === Spacer);
+  const items =
+    spacerAt < 0
+      ? list
+      : list.map((child, index) =>
+          index > spacerAt && isValidElement(child) && (child.type === VStack || child.type === Text)
+            ? cloneElement(child as ReactElement<{ style?: StyleProp<ViewStyle> }>, { style: [(child.props as { style?: StyleProp<ViewStyle> }).style, styles.noShrink] })
+            : child,
+        );
+  const view = <View style={[root && styles.cell, { flexDirection: 'row', gap: spacing, alignItems: align }, resolve(modifiers).style, style]}>{items}</View>;
   return root ? insideCell(view) : view;
 }
 
@@ -109,7 +199,7 @@ export function Text({ children, modifiers, style }: Mods & WithChildren & { sty
   const m = resolve(modifiers);
   const footnote = useContext(FootnoteContext);
   const root = useCellRoot();
-  return <RNText numberOfLines={m.lineLimit} style={[styles.text, footnote && styles.footnote, root && styles.cell, m.text, style]}>{children}</RNText>;
+  return <RNText numberOfLines={m.lineLimit} style={[styles.text, footnote && styles.footnote, root && styles.cellText, m.text, style]}>{children}</RNText>;
 }
 
 /** SwiftUI Image(systemName:) — SF Symbol; на Android его рисует наш SymbolView. */
@@ -145,6 +235,10 @@ export function Button({ label, systemImage, onPress, modifiers, children, role 
   const tint = useTint(m.tint);
   const closeMenu = useContext(MenuCloseContext);
   const destructive = role === 'destructive';
+  // Кнопка — сама строка секции или корень строки-обёртки (ActionRow «Добавить тариф»):
+  // высота и отступы как у соседних строк.
+  const place = useContext(CellContext);
+  const asRow = place === 'control' || place === 'root';
   const color = destructive ? colors.red : (m.text.color ?? tint);
   const large = m.controlSize === 'large' || m.controlSize === 'extraLarge';
   // «Стеклянные» стили iOS 26 на Android — их ближайшие Material-аналоги: залитая и тональная кнопки.
@@ -174,6 +268,7 @@ export function Button({ label, systemImage, onPress, modifiers, children, role 
       disabled={m.disabled}
       style={({ pressed }) => [
         styles.button,
+        asRow && styles.actionRow,
         closeMenu && styles.menuItem,
         large && styles.buttonLarge,
         (filled || tonal) && styles.buttonPill,
@@ -195,20 +290,87 @@ export function Toggle({ label, isOn, onIsOnChange, modifiers, children }: Mods 
   return (
     <View style={[styles.listRow, m.style]}>
       <View style={styles.rowLabel}>
-        {label ? <RNText style={[styles.text, m.text]}>{label}</RNText> : children}
+        {label ? <RNText style={[styles.text, m.text]}>{label}</RNText> : <CellContext.Provider value="inside">{children}</CellContext.Provider>}
       </View>
       <Switch value={!!isOn} onValueChange={onIsOnChange} disabled={m.disabled} trackColor={{ true: tint, false: colors.fill }} thumbColor="#FFFFFF" />
     </View>
   );
 }
 
+/**
+ * Сегмент iOS 26 на RN: капсула-дорожка и скользящий ползунок. Нативная вставка SwiftUI
+ * стоила десятки миллисекунд на каждом переходе, а сегмент обычно стоит вверху экрана —
+ * подменять его после въезда нельзя.
+ */
+function IosSegmented({ labels, index, disabled, style, onSelect }: { labels: string[]; index: number; disabled?: boolean; style?: StyleProp<ViewStyle>; onSelect: (index: number) => void }) {
+  // Ширина сегментов — по подписям, как у системного: «Предстоящие · 3» не режется ради «Старые».
+  const [frames, setFrames] = useState<{ x: number; width: number }[]>([]);
+  const target = frames[index];
+  const x = useSharedValue(0);
+  const width = useSharedValue(0);
+  const placed = useSharedValue(false);
+  useEffect(() => {
+    if (!target) return;
+    // Первое размещение — без анимации, дальше ползунок едет пружиной.
+    if (!placed.get()) {
+      x.set(target.x);
+      width.set(target.width);
+      placed.set(true);
+      return;
+    }
+    const spring = { damping: 26, stiffness: 320, mass: 0.8 };
+    x.set(withSpring(target.x, spring));
+    width.set(withSpring(target.width, spring));
+  }, [target, x, width, placed]);
+  const thumb = useAnimatedStyle(() => ({ width: width.get(), transform: [{ translateX: x.get() }] }));
+  return (
+    <View style={[styles.iosSegments, disabled && styles.pressed, style]}>
+      {target ? <Animated.View style={[styles.iosThumb, thumb]} /> : null}
+      {labels.map((text, i) => (
+        <Pressable
+          key={i}
+          disabled={disabled}
+          onPress={() => i !== index && onSelect(i)}
+          onLayout={(event) => {
+            const { x: left, width: w } = event.nativeEvent.layout;
+            setFrames((prev) => {
+              if (prev[i]?.x === left && prev[i]?.width === w) return prev;
+              const next = [...prev];
+              next[i] = { x: left, width: w };
+              return next;
+            });
+          }}
+          style={styles.iosSegment}
+          accessibilityRole="tab"
+          accessibilityState={{ selected: i === index }}>
+          <RNText numberOfLines={1} style={[styles.iosSegmentText, i === index && styles.iosSegmentTextActive]}>
+            {text}
+          </RNText>
+        </Pressable>
+      ))}
+    </View>
+  );
+}
+
+const SEGMENT_PAD = 3;
+/** Фон всплывающего меню: почти непрозрачный, как материал системных меню. */
+const POPOVER_BG = IOS ? DynamicColorIOS({ light: 'rgba(250,250,252,0.98)', dark: 'rgba(40,40,42,0.98)' }) : colors.card;
+/** Ползунок сегмента: белый в светлой теме, серый в тёмной — как у системного. */
+const SEGMENT_THUMB = IOS ? DynamicColorIOS({ light: '#FFFFFF', dark: '#636366' }) : '#FFFFFF';
+
 /** Собирает варианты выбора из детей: `<Text modifiers={[tag(value)]}>Подпись</Text>`. */
-function readOptions(children: ReactNode): { value: unknown; label: ReactNode }[] {
+function readOptions(children: ReactNode): { value: unknown; label: ReactNode; systemImage?: string }[] {
   return Children.toArray(children)
     .filter((child): child is ReactElement<Mods & WithChildren> => isValidElement(child))
     // Вариант бывает Text (подпись — дети) и Label (подпись — title, как в SwiftUI-меню со значками).
-    .map((child) => ({ value: resolve(child.props.modifiers).tag, label: child.props.children ?? (child.props as { title?: ReactNode }).title }));
+    .map((child) => {
+      const props = child.props as Mods & WithChildren & { title?: ReactNode; systemImage?: string };
+      return { value: resolve(props.modifiers).tag, label: props.children ?? props.title, systemImage: props.systemImage };
+    });
 }
+
+/** Подпись варианта строкой. */
+const labelText = (label: ReactNode) => Children.toArray(label).join('');
 
 export function Picker({ selection, onSelectionChange, options, modifiers, children, label }: Mods & WithChildren & {
   selection?: unknown;
@@ -225,6 +387,40 @@ export function Picker({ selection, onSelectionChange, options, modifiers, child
 
   // Меню и колесо на телефоне одинаково неуместны — показываем выбор списком в модалке.
   const [open, setOpen] = useState(false);
+  const { ref: popoverRef, anchor: popoverAnchor, open: openPopover, close: closePopover } = usePopover();
+  // Сегмент — сама строка секции: как в SwiftUI-форме, с отступами ячейки, а не впритык к краям.
+  const inCell = useContext(CellContext) === 'control';
+  // iOS: всплывающее меню выбора (RN) и сегмент iOS 26 на RN — без вставок SwiftUI.
+  if (IOS && (m.pickerStyle === 'menu' || m.pickerStyle === 'wheel')) {
+    const current = items.find((item) => item.value === selection);
+    return (
+      <>
+        <Pressable
+          ref={popoverRef}
+          onPress={openPopover}
+          disabled={m.disabled}
+          style={({ pressed }) => [styles.listRow, m.style, pressed && styles.rowPressed, m.disabled && styles.pressed]}
+          accessibilityRole="button"
+          accessibilityLabel={label}
+          accessibilityValue={{ text: labelText(current?.label) }}>
+          {label ? <RNText style={[styles.text, styles.rowLabel]}>{label}</RNText> : <View style={styles.rowLabel} />}
+          <View style={styles.row}>
+            <RNText style={[styles.text, { color: tint }]}>{current?.label ?? ''}</RNText>
+            <SymbolView name="chevron.up.chevron.down" size={12} weight="semibold" tintColor={tint} />
+          </View>
+        </Pressable>
+        <PopoverMenu
+          anchor={popoverAnchor}
+          onClose={closePopover}
+          checks
+          items={items.map((item) => ({ label: labelText(item.label), systemImage: (item as { systemImage?: string }).systemImage, checked: item.value === selection, onPress: () => change?.(item.value) }))}
+        />
+      </>
+    );
+  }
+  if (IOS && m.pickerStyle === 'segmented') {
+    return <IosSegmented labels={items.map((item) => Children.toArray(item.label).join(''))} index={items.findIndex((item) => item.value === selection)} disabled={m.disabled} style={[inCell && styles.segmentInCell, m.style]} onSelect={(index) => change?.(items[index]?.value)} />;
+  }
   if (m.pickerStyle === 'menu' || m.pickerStyle === 'wheel') {
     const current = items.find((item) => item.value === selection);
     return (
@@ -277,7 +473,7 @@ export function Picker({ selection, onSelectionChange, options, modifiers, child
 
   // segmented — как UISegmentedControl: подсвеченная «таблетка» внутри дорожки.
   return (
-    <View style={[styles.segments, m.style]}>
+    <View style={[styles.segments, inCell && styles.segmentInCell, m.style]}>
       {items.map((item, index) => {
         const active = item.value === selection;
         return (
@@ -336,6 +532,31 @@ export function DatePicker({ title, selection, displayedComponents = 'date', onD
   const withTime = kinds.includes('hourAndMinute') || kinds.includes('dateAndTime');
   const value = selection ?? new Date();
   const [shownMonth, setShownMonth] = useState(() => new Date(value.getFullYear(), value.getMonth(), 1));
+  if (HAS_ISLANDS) {
+    // iOS: плашки как у компактного DatePicker; нативный календарь или колесо создаются
+    // только в открытой панели — вставка SwiftUI не стоит ничего при переходе на экран.
+    const components = kinds.flatMap((kind): ('date' | 'hourAndMinute')[] => (kind === 'dateAndTime' ? ['date', 'hourAndMinute'] : [kind]));
+    const pill = (text: string, part: string) => (
+      <Pressable
+        onPress={() => setOpen(true)}
+        disabled={m.disabled}
+        style={({ pressed }) => [styles.datePill, (pressed || m.disabled) && styles.pressed]}
+        accessibilityRole="button"
+        accessibilityLabel={`${title ?? ''} ${part}: ${text}`}>
+        <RNText style={[styles.text, open && { color: tint }]}>{text}</RNText>
+      </Pressable>
+    );
+    return (
+      <View style={[styles.listRow, m.style]}>
+        {title ? <RNText style={[styles.text, styles.rowLabel]}>{title}</RNText> : <View style={styles.rowLabel} />}
+        <View style={styles.row}>
+          {components.includes('date') ? pill(value.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' }), 'дата') : null}
+          {components.includes('hourAndMinute') ? pill(value.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }), 'время') : null}
+        </View>
+        <DateSheet visible={open} title={title} components={components} value={value} range={range} tint={tint} onChange={onDateChange} onClose={() => setOpen(false)} />
+      </View>
+    );
+  }
 
   const time = value.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
   const shown = !withDate
@@ -528,7 +749,7 @@ function Field({ secure, ...props }: FieldProps & { secure?: boolean }) {
 export const TextField = (props: FieldProps) => <Field {...props} />;
 export const SecureField = (props: FieldProps) => <Field {...props} secure />;
 
-export function ColorPicker({ selection, onSelectionChange, label, modifiers }: Mods & {
+export function ColorPicker({ selection, onSelectionChange, label, modifiers, supportsOpacity }: Mods & {
   selection?: string;
   supportsOpacity?: boolean;
   label?: string;
@@ -536,6 +757,19 @@ export function ColorPicker({ selection, onSelectionChange, label, modifiers }: 
 }) {
   const m = resolve(modifiers);
   const [open, setOpen] = useState(false);
+  const settled = useSettled();
+  if (HAS_ISLANDS) {
+    return (
+      <View style={[styles.listRow, m.style]}>
+        {label ? <RNText style={[styles.text, styles.rowLabel]}>{label}</RNText> : <View style={styles.rowLabel} />}
+        {settled ? (
+          <ColorIsland selection={selection ?? null} onSelectionChange={onSelectionChange} supportsOpacity={supportsOpacity} />
+        ) : (
+          <View style={[styles.swatch, { backgroundColor: selection ?? colors.accent }]} />
+        )}
+      </View>
+    );
+  }
   // Значение уезжает на сервер строкой, поэтому палитра — фиксированные hex, а не PlatformColor.
   const palette = ['#7C5CFF', '#0A84FF', '#30B0C7', '#34C759', '#FF9F0A', '#FF453A', '#FF375F', '#5E5CE6', '#8E8E93'];
   return (
@@ -563,18 +797,29 @@ export function ColorPicker({ selection, onSelectionChange, label, modifiers }: 
  * SwiftUI Form — прокручиваемый сгруппированный список. Раньше здесь был простой View:
  * на Android шторка смены и форма входа не прокручивались, а секции липли к краям.
  */
+/** Сколько секций длинной формы рисуется сразу (аналитика — ~12 секций, это ~140 мс). */
+const FIRST_SECTIONS = 4;
+
 export function Form({ children, modifiers }: Mods & WithChildren) {
   const m = resolve(modifiers);
+  // Секции ниже края экрана дорисовываются после въезда — как длинные списки в Section.
+  const sections = Children.toArray(children);
+  const long = sections.length > FIRST_SECTIONS;
+  const settled = useSettled(long);
   // Форма в разделе прокручивается под плавающей панелью вкладок — последняя секция над ней.
   const tabBar = useTabBarClearance();
   return (
     <ScrollView
-      style={styles.list}
+      style={[styles.list, !m.hideScrollBackground && styles.formBackground]}
       contentContainerStyle={[styles.form, tabBar > 0 && { paddingBottom: tabBar + space.xl }, m.style]}
       keyboardShouldPersistTaps="handled"
-      keyboardDismissMode="on-drag"
+      keyboardDismissMode={IOS ? 'interactive' : 'on-drag'}
+      // iOS: содержимое уходит под стеклянную шапку и панель вкладок, крупный заголовок
+      // сворачивается при прокрутке, поле ввода не прячется за клавиатурой.
+      contentInsetAdjustmentBehavior={IOS ? 'automatic' : undefined}
+      automaticallyAdjustKeyboardInsets={IOS}
       refreshControl={m.refresh ? <Refresher onRefresh={m.refresh} /> : undefined}>
-      {children}
+      {long && !settled ? sections.slice(0, FIRST_SECTIONS) : sections}
     </ScrollView>
   );
 }
@@ -599,12 +844,20 @@ function Refresher({ onRefresh, ...rest }: { onRefresh: () => Promise<void> | vo
   );
 }
 
+/** Сколько строк длинной секции рисуется сразу — остальные после въезда экрана. */
+const FIRST_ROWS = 12;
+
 export function Section({ title, footer, children, modifiers }: Mods & WithChildren & { title?: string; footer?: ReactNode }) {
   const m = resolve(modifiers);
+  // Длинные списки (клиенты, товары) монтировались целиком прямо в анимации перехода.
+  // Первые строки видны сразу, остальные ниже края экрана дорисовываются после въезда.
+  const rows = rowsOf(children);
+  const long = rows.length > FIRST_ROWS;
+  const settled = useSettled(long);
   return (
     <View style={[styles.section, m.style]}>
-      {title ? <RNText style={styles.sectionTitle}>{title.toUpperCase()}</RNText> : null}
-      <View style={styles.card}>{separated(children)}</View>
+      {title ? <RNText style={styles.sectionTitle}>{IOS ? title : title.toUpperCase()}</RNText> : null}
+      <View style={styles.card}>{separated(long && !settled ? rows.slice(0, FIRST_ROWS) : rows)}</View>
       {footer ? (
         <View style={styles.sectionFooter}>
           {typeof footer === 'string' ? <RNText style={styles.footnote}>{footer}</RNText> : <FootnoteContext.Provider value>{footer}</FootnoteContext.Provider>}
@@ -674,8 +927,9 @@ export function List({ children, modifiers, style }: Mods & WithChildren & { sty
   const tabBar = useTabBarClearance();
   return (
     <ScrollView
-      style={[styles.list, style]}
+      style={[styles.list, !m.hideScrollBackground && styles.formBackground, style]}
       contentContainerStyle={[styles.listContent, inset && styles.listInset, tabBar > 0 && { paddingBottom: tabBar + space.xl }]}
+      contentInsetAdjustmentBehavior={IOS ? 'automatic' : undefined}
       refreshControl={m.refresh ? <Refresher onRefresh={m.refresh} /> : undefined}>
       {children}
     </ScrollView>
@@ -716,15 +970,32 @@ export function LabeledContent({ label, children, modifiers }: Mods & WithChildr
   return (
     <View style={[styles.listRow, m.style]}>
       <RNText style={[styles.text, styles.rowLabel]}>{label}</RNText>
-      <View style={styles.row}>{children}</View>
+      <CellContext.Provider value="inside">
+        <View style={styles.row}>{children}</View>
+      </CellContext.Provider>
     </View>
   );
+}
+
+type MenuAction = { label: string; systemImage?: string; role?: string; onPress?: () => void };
+
+/** Кнопки меню, включая вложенные во фрагменты и условия — для всплывающего меню iOS. */
+function menuActions(children: ReactNode): MenuAction[] {
+  const out: MenuAction[] = [];
+  Children.forEach(children, (child) => {
+    if (!isValidElement(child)) return;
+    const props = child.props as { children?: ReactNode; label?: string; systemImage?: string; role?: string; onPress?: () => void };
+    if (child.type === Fragment) out.push(...menuActions(props.children));
+    else if (props.label) out.push({ label: props.label, systemImage: props.systemImage, role: props.role, onPress: props.onPress });
+  });
+  return out;
 }
 
 export function Menu({ label, systemImage, children, modifiers }: Mods & WithChildren & { label?: string; systemImage?: string }) {
   const m = resolve(modifiers);
   const tint = useTint(m.tint) as string;
   const [open, setOpen] = useState(false);
+  const { ref: popoverRef, anchor: popoverAnchor, open: openPopover, close: closePopover } = usePopover();
   // glassProminent / borderedProminent + круглая форма — заметная круглая кнопка «+», как в iOS.
   const prominent = m.buttonStyle === 'glassProminent' || m.buttonStyle === 'borderedProminent';
   const round = prominent && (m.borderShape === 'circle' || m.labelStyle === 'iconOnly');
@@ -733,20 +1004,29 @@ export function Menu({ label, systemImage, children, modifiers }: Mods & WithChi
   return (
     <>
       <Pressable
-        onPress={() => setOpen(true)}
+        ref={popoverRef}
+        onPress={IOS ? openPopover : () => setOpen(true)}
         accessibilityRole="button"
         accessibilityLabel={label}
         style={({ pressed }) => [
           round ? [styles.roundButton, large && styles.roundButtonLarge] : styles.button,
           prominent && { backgroundColor: tint },
+          prominent && IOS && styles.prominentShadow,
           m.style,
           pressed && styles.pressed,
         ]}>
         {systemImage ? <SymbolView name={systemImage} size={large ? 22 : 19} tintColor={iconColor} /> : null}
         {label && !systemImage ? <RNText style={[styles.text, { color: iconColor }]}>{label}</RNText> : null}
       </Pressable>
+      {IOS ? (
+        <PopoverMenu
+          anchor={popoverAnchor}
+          onClose={closePopover}
+          items={menuActions(children).map((action) => ({ label: action.label, systemImage: action.systemImage, destructive: action.role === 'destructive', onPress: action.onPress }))}
+        />
+      ) : null}
       <Sheet visible={open} onClose={() => setOpen(false)} title={label}>
-        <MenuCloseContext.Provider value={() => setOpen(false)}>{separated(children)}</MenuCloseContext.Provider>
+        <MenuCloseContext.Provider value={() => setOpen(false)}>{separated(rowsOf(children))}</MenuCloseContext.Provider>
       </Sheet>
     </>
   );
@@ -773,15 +1053,29 @@ export function ContentUnavailableView({ title, systemImage, description, modifi
 
 type ChartPoint = { x: string | number; y: number; color?: ColorValue };
 
-export function Chart({ type = 'bar', data = [], showGrid, barStyle, modifiers }: Mods & {
+type ChartProps = Mods & {
   type?: 'bar' | 'line' | 'pie' | 'area' | 'point';
   data?: ChartPoint[];
   animate?: boolean;
   showGrid?: boolean;
   barStyle?: { cornerRadius?: number };
   pieStyle?: { innerRadius?: number; angularInset?: number };
-}) {
+  lineStyle?: Record<string, unknown>;
+  referenceLines?: ChartPoint[];
+  ruleStyle?: Record<string, unknown>;
+};
+
+export function Chart(props: ChartProps) {
+  const { type = 'bar', data = [], showGrid, barStyle, modifiers } = props;
   const m = resolve(modifiers);
+  const settled = useSettled();
+  if (HAS_ISLANDS) {
+    const height = typeof m.style.height === 'number' ? m.style.height : 180;
+    // Пока экран въезжает — пустое место той же высоты; график появится со своей анимацией.
+    if (!settled) return <View style={{ height }} />;
+    const { modifiers: _drop, ...chart } = props;
+    return <ChartIsland {...chart} type={type} data={data} showGrid={showGrid} barStyle={barStyle} height={height} />;
+  }
   const total = data.reduce((sum, point) => sum + Math.max(0, point.y), 0);
 
   // Круговую диаграмму на Android заменяет стековая полоса: те же доли и цвета,
@@ -840,14 +1134,35 @@ export function useNativeState<T>(initialValue: T): ObservableState<T> {
 // ——— вспомогательное ———
 
 /** Сгруппированный список iOS: разделители между строками, но не после последней. */
-function separated(children: ReactNode) {
-  const items = Children.toArray(children).filter(Boolean);
-  return items.map((child, index) => (
-    <View key={index}>
-      {index > 0 ? <View style={styles.separator} /> : null}
+type Row = { key: string; node: ReactNode };
+
+/**
+ * Строки секции: фрагменты `<>…</>` в SwiftUI прозрачны — каждая строка внутри отдельная.
+ * Ключ — позиция в разметке (Children.toArray), а не номер среди видимых: иначе при
+ * появлении условной строки соседние пересоздавались и теряли введённый текст.
+ */
+function rowsOf(children: ReactNode, prefix = ''): Row[] {
+  const out: Row[] = [];
+  Children.toArray(children).forEach((child, index) => {
+    const key = prefix + (isValidElement(child) && child.key != null ? String(child.key) : `#${index}`);
+    if (isValidElement(child) && child.type === Fragment) out.push(...rowsOf((child.props as WithChildren).children, `${key}/`));
+    else if (child !== '') out.push({ key, node: child });
+  });
+  return out;
+}
+
+function separated(items: Row[]) {
+  return items.map(({ key, node: child }, index) => (
+    <View key={key}>
+      {index > 0 ? <View style={[styles.separator, IOS && hasIcon(child) && styles.separatorAfterIcon]} /> : null}
       {cellChild(child)}
     </View>
   ));
+}
+
+/** Строка со значком-плашкой (LinkRow с icon): в iOS разделитель начинается от текста, а не от края. */
+function hasIcon(child: ReactNode): boolean {
+  return isValidElement(child) && !!(child.props as { icon?: unknown }).icon;
 }
 
 /**
@@ -863,9 +1178,10 @@ function cellChild(child: ReactNode, key?: number) {
     );
   }
   // Контролы слоя сами рисуют строку с отступами — их подписи и дети уже «внутри».
+  // 'control' — контрол и есть строка секции: кнопка-действие берёт высоту строки.
   const selfPadded = isValidElement(child) && SELF_PADDED.has(child.type as unknown);
   return (
-    <CellContext.Provider key={key} value={selfPadded ? 'inside' : 'root'}>
+    <CellContext.Provider key={key} value={selfPadded ? 'control' : 'root'}>
       {child}
     </CellContext.Provider>
   );
@@ -878,6 +1194,103 @@ const SELF_PADDED = new Set<unknown>([Button, Toggle, Picker, DatePicker, ColorP
 function needsCellPadding(child: ReactNode): boolean {
   if (!isValidElement(child)) return typeof child === 'string';
   return child.type === HStack || child.type === VStack || child.type === Text || child.type === Label || child.type === ProgressView;
+}
+
+type Anchor = { x: number; y: number; width: number; height: number };
+
+/** Кнопка, открывающая всплывающее меню: где она на экране — туда меню и прикрепится. */
+function usePopover() {
+  const ref = useRef<View>(null);
+  const [anchor, setAnchor] = useState<Anchor | null>(null);
+  const open = () => {
+    haptic.selection();
+    ref.current?.measureInWindow((x, y, width, height) => setAnchor({ x, y, width, height }));
+  };
+  return { ref, anchor, open, close: () => setAnchor(null) };
+}
+
+type PopoverItem = { label: string; systemImage?: string; checked?: boolean; destructive?: boolean; onPress?: () => void };
+
+const POPOVER_WIDTH = 250;
+const POPOVER_ROW = 46;
+/** Меню «вырастает» из кнопки: лёгкое увеличение и проявление, как контекстные меню iOS 26. */
+const popIn = new Keyframe({
+  0: { opacity: 0, transform: [{ scale: 0.86 }] },
+  100: { opacity: 1, transform: [{ scale: 1 }], easing: Easing.out(Easing.cubic) },
+}).duration(180);
+
+/**
+ * Всплывающее меню iOS на RN — для выбора значения и меню действий. Раньше это были
+ * вставки SwiftUI (Picker .menu, Menu): каждая стоила 50–100 мс на каждом переходе.
+ * Выбранный вариант отмечен галочкой слева, значки — справа, как в системных меню.
+ */
+function PopoverMenu({ anchor, items, checks, onClose }: { anchor: Anchor | null; items: PopoverItem[]; checks?: boolean; onClose: () => void }) {
+  const { width: screenWidth, height: screenHeight } = useWindowDimensions();
+  if (!anchor) return null;
+  const height = items.length * POPOVER_ROW;
+  const below = anchor.y + anchor.height + 8 + height < screenHeight - 40;
+  const top = below ? anchor.y + anchor.height + 6 : Math.max(56, anchor.y - height - 6);
+  const left = Math.min(Math.max(12, anchor.x + anchor.width - POPOVER_WIDTH), screenWidth - POPOVER_WIDTH - 12);
+  return (
+    <Modal visible transparent animationType="none" onRequestClose={onClose} statusBarTranslucent>
+      <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel="Закрыть меню" />
+      <Animated.View entering={popIn} style={[styles.popover, { top, left, width: POPOVER_WIDTH, transformOrigin: below ? 'top right' : 'bottom right' }]}>
+        <View style={styles.popoverClip}>
+          {items.map((item, index) => (
+            <Pressable
+              key={index}
+              onPress={() => {
+                onClose();
+                item.onPress?.();
+              }}
+              style={({ pressed }) => [styles.popoverRow, index > 0 && styles.popoverSeparator, pressed && styles.rowPressed]}
+              accessibilityRole={checks ? 'radio' : 'button'}
+              accessibilityState={checks ? { selected: !!item.checked } : undefined}>
+              {checks ? <View style={styles.popoverCheck}>{item.checked ? <SymbolView name="checkmark" size={15} weight="semibold" tintColor={colors.label} /> : null}</View> : null}
+              <RNText numberOfLines={1} style={[styles.popoverText, item.destructive && styles.destructiveText]}>
+                {item.label}
+              </RNText>
+              {item.systemImage ? <SymbolView name={item.systemImage} size={17} tintColor={item.destructive ? colors.red : colors.label} /> : null}
+            </Pressable>
+          ))}
+        </View>
+      </Animated.View>
+    </Modal>
+  );
+}
+
+/**
+ * Панель выбора даты на iOS: нативный календарь (или колесо для времени) в SwiftUI-вставке.
+ * Вставка создаётся только при открытии — переход на экран с датами её не ждёт.
+ */
+function DateSheet({ visible, title, components, value, range, tint, onChange, onClose }: {
+  visible: boolean;
+  title?: string;
+  components: ('date' | 'hourAndMinute')[];
+  value: Date;
+  range?: DateRange;
+  tint: string;
+  onChange?: (date: Date) => void;
+  onClose: () => void;
+}) {
+  const insets = useSafeAreaInsets();
+  if (!visible) return null;
+  return (
+    <Modal visible transparent animationType="fade" onRequestClose={onClose} statusBarTranslucent>
+      <Pressable style={styles.backdrop} onPress={onClose} accessibilityLabel="Закрыть" />
+      <Animated.View entering={SlideInDown.duration(260).easing(Easing.out(Easing.cubic))} style={[styles.dateSheet, { paddingBottom: Math.max(insets.bottom, space.lg) }]}>
+        <View style={styles.dateSheetHead}>
+          <RNText style={styles.dateSheetTitle} numberOfLines={1}>
+            {title ?? ''}
+          </RNText>
+          <Pressable onPress={onClose} hitSlop={12} accessibilityRole="button">
+            <RNText style={[styles.dateSheetDone, { color: tint }]}>Готово</RNText>
+          </Pressable>
+        </View>
+        <DateIsland selection={value} displayedComponents={components} range={range} onDateChange={onChange} tintColor={tint} />
+      </Animated.View>
+    </Modal>
+  );
 }
 
 function Sheet({ visible, onClose, title, children }: { visible: boolean; onClose: () => void; title?: string; children: ReactNode }) {
@@ -900,35 +1313,68 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
   rowLabel: { flex: 1 },
   spacer: { flexGrow: 1 },
+  noShrink: { flexShrink: 0 },
 
   button: { flexDirection: 'row', alignItems: 'center', gap: space.sm, paddingVertical: space.sm, paddingHorizontal: space.md, borderRadius: radius.control },
   buttonLarge: { paddingVertical: space.md, justifyContent: 'center' },
+  actionRow: { minHeight: IOS ? 52 : 48, paddingHorizontal: space.lg, borderRadius: 0 },
   buttonPill: { borderRadius: 999, paddingHorizontal: space.lg, justifyContent: 'center' },
   pressed: { opacity: 0.55 },
-  rowButton: { paddingHorizontal: space.lg, paddingVertical: space.sm + 2, minHeight: 48, justifyContent: 'center' },
+  rowButton: { paddingHorizontal: space.lg, paddingVertical: space.sm + 2, minHeight: IOS ? 52 : 48, justifyContent: 'center' },
   rowButtonContent: { flex: 1, justifyContent: 'center' },
   rowPressed: { backgroundColor: colors.fill },
 
   segments: { flexDirection: 'row', backgroundColor: colors.fill, borderRadius: 9, padding: 2 },
+  segmentInCell: { marginHorizontal: space.lg, marginVertical: space.sm + 2 },
+  iosSegments: { flexDirection: 'row', height: 36, borderRadius: 18, padding: SEGMENT_PAD, backgroundColor: colors.fill },
+  iosThumb: {
+    position: 'absolute', top: SEGMENT_PAD, bottom: SEGMENT_PAD, left: 0, borderRadius: 15,
+    backgroundColor: SEGMENT_THUMB, boxShadow: '0 2px 6px rgba(0,0,0,0.12)',
+  },
+  iosSegment: { flexGrow: 1, flexShrink: 1, flexBasis: 'auto', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 10 },
+  iosSegmentText: { fontSize: 14, fontWeight: '500', color: colors.label },
+  iosSegmentTextActive: { fontWeight: '600' },
+  datePill: { backgroundColor: colors.fill, borderRadius: 8, borderCurve: 'continuous', paddingHorizontal: 11, paddingVertical: 6 },
+  popover: { position: 'absolute', borderRadius: 20, borderCurve: 'continuous', backgroundColor: POPOVER_BG, boxShadow: '0 12px 36px rgba(0,0,0,0.22)' },
+  popoverClip: { borderRadius: 20, borderCurve: 'continuous', overflow: 'hidden' },
+  popoverRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm + 2, height: POPOVER_ROW, paddingHorizontal: space.lg - 2 },
+  popoverSeparator: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.separator },
+  popoverCheck: { width: 18, alignItems: 'center' },
+  popoverText: { flex: 1, fontSize: 17, color: colors.label },
+  destructiveText: { color: colors.red },
+  prominentShadow: { boxShadow: '0 4px 14px rgba(124,58,237,0.35)' },
+  dateSheet: {
+    position: 'absolute', left: 0, right: 0, bottom: 0, paddingTop: space.md, paddingHorizontal: space.lg,
+    backgroundColor: colors.background, borderTopLeftRadius: 28, borderTopRightRadius: 28, borderCurve: 'continuous',
+  },
+  dateSheetHead: { flexDirection: 'row', alignItems: 'center', gap: space.md, paddingBottom: space.sm, paddingHorizontal: space.xs },
+  dateSheetTitle: { flex: 1, fontSize: 17, fontWeight: '600', color: colors.label },
+  dateSheetDone: { fontSize: 17, fontWeight: '600' },
   segment: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 7, borderRadius: 7 },
   segmentActive: { backgroundColor: colors.card },
   segmentText: { fontSize: 14, color: colors.label },
 
-  form: { gap: space.xl, paddingHorizontal: space.lg, paddingTop: space.lg, paddingBottom: space.xxxl },
-  cell: { paddingHorizontal: space.lg, paddingVertical: space.md },
+  form: { gap: IOS ? space.xl + 4 : space.xl, paddingHorizontal: space.lg, paddingTop: space.lg, paddingBottom: space.xxxl },
+  formBackground: { backgroundColor: colors.groupedBackground },
+  cellText: { paddingHorizontal: space.lg, paddingVertical: space.md + (IOS ? 3 : 0) },
+  cell: { paddingHorizontal: space.lg, paddingVertical: space.md, minHeight: IOS ? 52 : undefined, justifyContent: 'center' },
   menuItem: { paddingVertical: space.md, paddingHorizontal: space.lg },
   roundButton: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
   roundButtonLarge: { width: 50, height: 50, borderRadius: 25 },
   moveRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm, paddingLeft: space.lg, paddingRight: space.sm, minHeight: 52 },
   moveButton: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.fill },
   section: { gap: space.xs },
-  sectionTitle: { color: colors.secondaryLabel, fontSize: 12, letterSpacing: 0.6, marginLeft: space.lg, marginBottom: space.xs },
-  sectionFooter: { marginHorizontal: space.lg, marginTop: space.xs },
+  // iOS 26: заголовок секции — крупный, полужирный, без капса; Android — мелкий капс Material.
+  sectionTitle: IOS
+    ? { color: colors.secondaryLabel, fontSize: 17, fontWeight: '600', marginLeft: space.lg, marginBottom: space.xs + 2 }
+    : { color: colors.secondaryLabel, fontSize: 12, letterSpacing: 0.6, marginLeft: space.lg, marginBottom: space.xs },
+  sectionFooter: { marginHorizontal: space.lg, marginTop: IOS ? space.xs + 2 : space.xs },
   footnote: { color: colors.secondaryLabel, fontSize: 13 },
-  card: { backgroundColor: colors.card, borderRadius: radius.card, overflow: 'hidden' },
+  card: { backgroundColor: colors.card, borderRadius: IOS ? 26 : radius.card, borderCurve: 'continuous', overflow: 'hidden' },
   swipeRow: { backgroundColor: colors.card },
-  separator: { height: StyleSheet.hairlineWidth, backgroundColor: colors.separator, marginLeft: space.lg },
-  listRow: { flexDirection: 'row', alignItems: 'center', gap: space.md, paddingHorizontal: space.lg, paddingVertical: space.md, minHeight: 48 },
+  separator: { height: StyleSheet.hairlineWidth, backgroundColor: colors.separator, marginLeft: space.lg, marginRight: IOS ? space.lg : 0 },
+  separatorAfterIcon: { marginLeft: space.lg + 30 + 12 },
+  listRow: { flexDirection: 'row', alignItems: 'center', gap: space.md, paddingHorizontal: space.lg, paddingVertical: space.md, minHeight: IOS ? 52 : 48 },
   list: { flex: 1 },
   listContent: { paddingVertical: space.md, gap: space.xl },
   listInset: { paddingHorizontal: space.lg },
@@ -976,3 +1422,4 @@ const styles = StyleSheet.create({
   sheet: { backgroundColor: colors.groupedBackground, borderTopLeftRadius: radius.card, borderTopRightRadius: radius.card, paddingVertical: space.lg, paddingBottom: space.xxxl },
   sheetTitle: { color: colors.secondaryLabel, fontSize: 13, textAlign: 'center', marginBottom: space.sm },
 });
+

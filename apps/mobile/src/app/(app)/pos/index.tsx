@@ -124,6 +124,7 @@ export default function PosScreen() {
   const selectedId = usePosSelection((s) => s.selectedCheckId);
   const setSelectedId = usePosSelection((s) => s.select);
   const onAccessoryScroll = useRef(createAccessoryScrollHandler()).current;
+  const scrolledRef = useRef(false);
   // Android: сетка прокручивается под плавающей панелью с плашкой смены.
   const tabBarClearance = useTabBarClearance(true);
   const topBlur = useSharedValue(0);
@@ -351,8 +352,13 @@ export default function PosScreen() {
         scrollEventThrottle={32}
         onScroll={(e) => {
           const y = e.nativeEvent.contentOffset.y;
-          onAccessoryScroll(y);
-          topBlur.set(withTiming(y > 8 ? 1 : 0, { duration: 160 }));
+          if (Platform.OS === 'android') onAccessoryScroll(y);
+          // Анимацию размытия запускаем только при пересечении порога, а не на каждом событии.
+          const blurred = y > 8;
+          if (blurred !== scrolledRef.current) {
+            scrolledRef.current = blurred;
+            topBlur.set(withTiming(blurred ? 1 : 0, { duration: 160 }));
+          }
         }}
         refreshControl={
           <RefreshControl tintColor={colors.accent} progressViewOffset={insets.top} refreshing={pulling} onRefresh={refresh} />

@@ -1,7 +1,7 @@
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
 import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
-import { useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Linking, Platform, StyleSheet, useColorScheme } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
@@ -15,6 +15,7 @@ import { NotificationBanner } from '@/components/notification-banner';
 import { OfflineBanner } from '@/components/offline-banner';
 import { SessionLock } from '@/components/session-lock';
 import { CACHE_MAX_AGE, queryClient, queryPersister, subscribeAppFocus, subscribeNetwork } from '@/lib/query';
+import { NEEDS_WARMUP, SwiftUIWarmup } from '@/components/swiftui-warmup';
 import { useRealtime } from '@/lib/realtime';
 import { useDevicePrefs } from '@/lib/device-prefs';
 import { devLogin, localAutoLogin, useSession } from '@/lib/session';
@@ -42,9 +43,12 @@ export default function RootLayout() {
     void useSession.getState().hydrate().then(localAutoLogin);
   }, []);
 
+  // Заставка держится, пока не прогреты нативные вставки (components/swiftui-warmup.tsx).
+  const [warm, setWarm] = useState(!NEEDS_WARMUP);
+  const finishWarmup = useCallback(() => setWarm(true), []);
   useEffect(() => {
-    if (hydrated) void SplashScreen.hideAsync();
-  }, [hydrated]);
+    if (hydrated && warm) void SplashScreen.hideAsync();
+  }, [hydrated, warm]);
 
   // Служебная ссылка входа на локальный стенд (lib/session.ts → devLogin); в релизе пустая.
   useEffect(() => {
@@ -116,6 +120,7 @@ export default function RootLayout() {
             <Stack.Screen name="tai" options={{ presentation: 'modal', headerShown: false }} />
           </Stack.Protected>
         </Stack>
+        {!warm && <SwiftUIWarmup onDone={finishWarmup} />}
         {signedIn && <Realtime />}
         {signedIn && <LocalTour />}
         {signedIn && <NotificationBanner />}
