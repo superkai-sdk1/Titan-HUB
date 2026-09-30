@@ -1,15 +1,11 @@
+import { ContentUnavailableView, Form, Host, LabeledContent, ProgressView, Section, Text, Toggle } from '@expo/ui/swift-ui';
+import { foregroundStyle, refreshable } from '@expo/ui/swift-ui/modifiers';
 import { Stack, useRouter } from 'expo-router';
-import { useState } from 'react';
-import { Alert, ScrollView, StyleSheet, Text } from 'react-native';
+import { Alert } from 'react-native';
 
-import { AppRefreshControl } from '@/components/refresh-control';
-import { AmbientBackdrop } from '@/components/ambient-backdrop';
-import { Group, ListNote, Row, SwitchRow } from '@/components/settings-parts';
+import { ActionRow, LinkRow } from '@/components/native-form';
 import { setPollCollect, setPollCommandsAdminOnly, usePollChats, usePollCollect, usePolls, WEEKDAY_LABELS, type PollConfig } from '@/lib/admin-api';
 import { haptic } from '@/lib/haptics';
-import { usePageGutter } from '@/lib/layout';
-import { colors, space, type } from '@/lib/theme';
-import { ToolbarButton } from '@/components/toolbar';
 
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
@@ -21,18 +17,10 @@ function scheduleText(poll: PollConfig): string {
 
 /** Опросы в Telegram: бот выкладывает сбор на игру по расписанию. */
 export default function PollsScreen() {
-  const gutter = usePageGutter();
   const router = useRouter();
   const polls = usePolls();
   const chats = usePollChats();
   const collect = usePollCollect();
-  const [pulling, setPulling] = useState(false);
-
-  const refresh = async () => {
-    setPulling(true);
-    await Promise.allSettled([polls.refetch(), chats.refetch(), collect.refetch()]);
-    setPulling(false);
-  };
 
   const chatName = (poll: PollConfig) => {
     const chat = chats.data?.find((item) => String(item.id) === String(poll.chatId));
@@ -42,78 +30,44 @@ export default function PollsScreen() {
 
   const configs = polls.data?.configs ?? [];
   const tokenConfigured = polls.data?.tokenConfigured ?? false;
+  const saved = (promise: Promise<unknown>) =>
+    void promise.then(() => haptic.success()).catch((error: unknown) => Alert.alert('Не сохранено', errorText(error)));
 
   return (
-    <AmbientBackdrop style={styles.screen}>
+    <>
       <Stack.Title>Опросы</Stack.Title>
-      <Stack.Toolbar placement="right">
-        <ToolbarButton
-          icon="plus"
-          accessibilityLabel="Новый опрос"
-          onPress={() => {
-            haptic.light();
-            router.push('/manage/polls/edit');
-          }}
-        />
-      </Stack.Toolbar>
+      <Host style={{ flex: 1 }} useViewportSizeMeasurement>
+        <Form modifiers={[refreshable(async () => void (await Promise.allSettled([polls.refetch(), chats.refetch(), collect.refetch()])))]}>
+          <Section title="Опросы" footer={<Text>Бот выкладывает опрос в выбранный чат в указанные дни. Чтобы чат появился в списке, добавьте бота в группу.</Text>}>
+            {polls.isLoading ? (
+              <ProgressView />
+            ) : configs.length === 0 ? (
+              <ContentUnavailableView title="Опросов пока нет" systemImage="checklist" description="Бот будет выкладывать опрос по расписанию." />
+            ) : (
+              configs.map((poll) => (
+                <LinkRow
+                  key={poll.id}
+                  icon="checklist"
+                  color={poll.enabled ? '#FF3B30' : '#8E8E93'}
+                  title={poll.title || 'Без названия'}
+                  subtitle={`${chatName(poll)} · ${scheduleText(poll)}`}
+                  value={poll.enabled ? undefined : 'Выкл.'}
+                  onPress={() => router.push({ pathname: '/manage/polls/edit', params: { pollId: poll.id } })}
+                />
+              ))
+            )}
+            <ActionRow title="Новый опрос" icon="plus.circle.fill" onPress={() => router.push('/manage/polls/edit')} />
+          </Section>
 
-      <ScrollView
-        contentInsetAdjustmentBehavior="automatic"
-        contentContainerStyle={[styles.content, gutter]}
-        refreshControl={<AppRefreshControl tintColor={colors.accent} refreshing={pulling} onRefresh={refresh} />}>
-        <Group title="Бот" footer={tokenConfigured ? 'Токен бота опросов задан в веб-кассе.' : 'Без токена бот не сможет выложить опрос. Токен задаётся в веб-кассе.'}>
-          <Row icon={tokenConfigured ? 'checkmark.seal' : 'exclamationmark.triangle'} color={tokenConfigured ? '#22C55E' : '#F59E0B'} title="Токен бота" value={tokenConfigured ? (polls.data?.tokenMasked ?? 'задан') : 'не задан'} />
-          <SwitchRow
-            icon="person.badge.shield.checkmark"
-            color="#6366F1"
-            title="Команды только админам"
-            subtitle="Обычные участники не смогут дёргать бота"
-            value={polls.data?.commandsAdminOnly ?? false}
-            onChange={(on) =>
-              void setPollCommandsAdminOnly(on)
-                .then(() => haptic.success())
-                .catch((error: unknown) => Alert.alert('Не сохранено', errorText(error)))
-            }
-          />
-          <SwitchRow
-            icon="tray.and.arrow.down"
-            color="#0EA5E9"
-            title="Собирать ответы"
-            subtitle="Бот запоминает, кто как проголосовал"
-            value={collect.data?.enabled ?? false}
-            onChange={(on) =>
-              void setPollCollect(on)
-                .then(() => haptic.success())
-                .catch((error: unknown) => Alert.alert('Не сохранено', errorText(error)))
-            }
-          />
-        </Group>
-
-        <Group title="Опросы">
-          {configs.map((poll) => (
-            <Row
-              key={poll.id}
-              icon="checklist"
-              color={poll.enabled ? '#EF4444' : colors.tertiaryLabel}
-              title={poll.title || 'Без названия'}
-              subtitle={`${chatName(poll)}\n${scheduleText(poll)}`}
-              value={poll.enabled ? undefined : 'выкл'}
-              dim={!poll.enabled}
-              chevron
-              onPress={() => router.push({ pathname: '/manage/polls/edit', params: { pollId: poll.id } })}
-            />
-          ))}
-        </Group>
-        {configs.length === 0 && <ListNote loading={polls.isLoading} text="Опросов пока нет" systemImage="checklist" description="Добавьте опрос кнопкой «+» — бот будет выкладывать его по расписанию." />}
-
-        <Text style={[type.footnote, styles.note]}>Бот выкладывает опрос в выбранный чат в указанные дни. Чтобы чат появился в списке, добавьте бота в группу.</Text>
-      </ScrollView>
-    </AmbientBackdrop>
+          <Section title="Бот" footer={<Text>{tokenConfigured ? 'Токен бота опросов задан в веб-кассе.' : 'Без токена бот не сможет выложить опрос. Токен задаётся в веб-кассе.'}</Text>}>
+            <LabeledContent label="Токен бота">
+              <Text modifiers={[foregroundStyle(tokenConfigured ? '#34C759' : '#FF9500')]}>{tokenConfigured ? (polls.data?.tokenMasked ?? 'задан') : 'не задан'}</Text>
+            </LabeledContent>
+            <Toggle label="Команды только админам" isOn={polls.data?.commandsAdminOnly ?? false} onIsOnChange={(on) => saved(setPollCommandsAdminOnly(on))} />
+            <Toggle label="Собирать ответы" isOn={collect.data?.enabled ?? false} onIsOnChange={(on) => saved(setPollCollect(on))} />
+          </Section>
+        </Form>
+      </Host>
+    </>
   );
 }
-
-const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.groupedBackground },
-  content: { paddingHorizontal: space.lg, paddingBottom: 140, gap: space.lg },
-  note: { color: colors.secondaryLabel, paddingHorizontal: space.xs, textAlign: 'center' },
-});

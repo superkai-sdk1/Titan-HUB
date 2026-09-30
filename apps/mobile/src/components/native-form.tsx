@@ -1,5 +1,6 @@
 import { Button, DatePicker, HStack, Image, SecureField, Spacer, Text, TextField, useNativeState, VStack } from '@expo/ui/swift-ui';
 import {
+  autocorrectionDisabled,
   background,
   font,
   foregroundStyle,
@@ -270,4 +271,23 @@ export function TimeRow({ label, value, fallback, onChange }: { label: string; v
 export function normalizeHex(value: string | null | undefined, fallback: string): string {
   const match = /^#?([0-9a-f]{6})/i.exec(value ?? '');
   return match ? `#${match[1].toUpperCase()}` : fallback;
+}
+
+/**
+ * Поиск строкой вверху списка, как в «Настройках» iOS: лупа и поле. Значение отдаётся
+ * сразу; задержку перед запросом делает экран (useDebounced).
+ */
+export function SearchRow({ placeholder, onChange }: { placeholder: string; onChange: (next: string) => void }) {
+  const text = useNativeState('');
+  return (
+    <HStack spacing={8}>
+      <Image systemName="magnifyingglass" size={15} modifiers={[secondary]} />
+      <TextField
+        text={text}
+        placeholder={placeholder}
+        onTextChange={onChange}
+        modifiers={[autocorrectionDisabled(), textInputAutocapitalization('never'), submitLabel('search')]}
+      />
+    </HStack>
+  );
 }

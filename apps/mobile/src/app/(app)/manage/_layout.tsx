@@ -71,11 +71,11 @@ export default function ManageLayout() {
       <Stack.Screen name="clients/telegram" options={tallSheet} />
       <Stack.Screen name="clients/tg-roster" options={tallSheet} />
 
-      <Stack.Screen name="balances/index" options={glassHeader({ title: 'Депозиты и долги' })} />
+      <Stack.Screen name="balances/index" options={formHeader({ title: 'Депозиты и долги' })} />
       <Stack.Screen name="balances/find" options={compactSheet} />
 
-      <Stack.Screen name="customers/index" options={glassHeader({ title: 'Заказчики' })} />
-      <Stack.Screen name="customers/edit" options={compactSheet} />
+      <Stack.Screen name="customers/index" options={formHeader({ title: 'Заказчики' })} />
+      <Stack.Screen name="customers/edit" options={editorModal} />
 
       <Stack.Screen name="collections/index" options={glassHeader({ title: 'Сбор средств' })} />
       <Stack.Screen name="collections/[collectionId]" options={glassHeader()} />
@@ -101,8 +101,8 @@ export default function ManageLayout() {
       <Stack.Screen name="settings/reviews" options={formHeader({ title: 'Отзывы гостей' })} />
       <Stack.Screen name="settings/integrations" options={formHeader({ title: 'Интеграции' })} />
 
-      <Stack.Screen name="polls/index" options={glassHeader({ title: 'Опросы' })} />
-      <Stack.Screen name="polls/edit" options={tallSheet} />
+      <Stack.Screen name="polls/index" options={formHeader({ title: 'Опросы' })} />
+      <Stack.Screen name="polls/edit" options={editorModal} />
 
       <Stack.Screen name="about/index" options={formHeader({ title: 'О системе' })} />
     </Stack>
