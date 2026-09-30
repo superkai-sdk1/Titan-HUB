@@ -50,7 +50,7 @@ export function EventCard({
               {eventTitle(event)}
             </Text>
             <Text style={[type.subhead, styles.secondary]} numberOfLines={1}>
-              {`${timeRange(event)}${event.billingMode === 'hourly' && event.plannedHours ? ` · ${event.plannedHours} ч` : ''}${amount ? ` · ${amount}` : ''}`}
+              {`${timeRange(event)}${event.billingMode === 'hourly' && event.plannedHours ? ` · ${event.plannedHours} ч` : ''}${event.billingMode === 'rental' ? ' · по ставке зоны' : amount ? ` · ${amount}` : ''}`}
             </Text>
           </View>
 

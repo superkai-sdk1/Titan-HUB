@@ -31,6 +31,7 @@ interface CheckData {
   guestName?: string
   spaceId?: string | null
   spaceStartAt?: string | null
+  spaceEndAt?: string | null
   spaceHourlyRate?: string | null
 }
 
@@ -365,7 +366,10 @@ function TabletMain({ space, onLogout }: { space: TabletSpace; onLogout: () => v
   useEffect(() => {
     if (!activeCheck?.spaceId || !activeCheck?.spaceStartAt || !activeCheck?.spaceHourlyRate) return
     const calc = () => {
-      const mins = differenceInMinutes(new Date(), new Date(activeCheck.spaceStartAt!))
+      // До заданного конца аренды (если кассир его поставил), иначе до «сейчас»;
+      // целые минуты — как бэкенд (lib/money.ts).
+      const end = activeCheck.spaceEndAt ? new Date(activeCheck.spaceEndAt) : new Date()
+      const mins = Math.max(0, differenceInMinutes(end, new Date(activeCheck.spaceStartAt!)))
       setSpaceRental(Math.ceil(mins / 60) * parseFloat(activeCheck.spaceHourlyRate ?? '0'))
     }
     calc()

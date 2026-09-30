@@ -11,6 +11,7 @@ import { AddressField } from '@/components/address-field';
 import { GlassCard, GlassChip, PrimaryButton, SheetHeader, sheetStyles } from '@/components/new-check-parts';
 import { FormField, FormSection } from '@/components/form-parts';
 import {
+  packagePrice,
   createEvent,
   defaultEventStart,
   eventErrorMessage,
@@ -85,7 +86,11 @@ function EventForm({ initial, onDone }: { initial: EventRow | undefined; onDone:
   const customers = useCustomers(pickedCustomer ? '' : customerName);
   const suggestions = (customers.data ?? []).filter((c) => c.name && c.name.toLowerCase() !== customerName.trim().toLowerCase()).slice(0, 4);
   const rateList = rates.data?.length ? rates.data : [1, 2, 3, 4, 5, 6].map((h) => ({ hours: h, price: '0' }));
-  const hourlyBase = toNumber(rateList.find((r) => r.hours === hours)?.price);
+  const hourlyBase = packagePrice(hours, rates.data);
+  // «По ставке зоны» — только для мероприятия в клубе: у выезда зоны нет.
+  const billingModes: EventBillingMode[] = kind === 'titan' ? ['amount', 'hourly', 'rental'] : ['amount', 'hourly'];
+  const mode: EventBillingMode = billing === 'rental' && kind !== 'titan' ? 'amount' : billing;
+  const rentalSpace = (spaces.data ?? []).find((s) => s.id === spaceId) ?? null;
   const staffAvailable = (staff.data ?? []).length > 0;
 
   /** Имя и телефон заказчика из адресной книги — системный выбор, без доступа ко всей книге. */
@@ -108,6 +113,7 @@ function EventForm({ initial, onDone }: { initial: EventRow | undefined; onDone:
     if (kind === 'exit' && staffAvailable && !responsibleId) return Alert.alert('Для выезда укажите ответственного');
     if (kind === 'titan' && !name) return Alert.alert('Укажите имя заказчика');
     if (kind === 'exit' && !place) return Alert.alert('Укажите адрес выезда');
+    if (mode === 'rental' && !spaceId) return Alert.alert('Выберите зону', 'Чек посчитает аренду по ставке выбранной зоны.');
 
     const input: EventInput = {
       type: kind,
@@ -118,9 +124,9 @@ function EventForm({ initial, onDone }: { initial: EventRow | undefined; onDone:
       startTime: toTimeString(start),
       endTime: hasEnd ? toTimeString(end) : null,
       paymentType: 'fixed',
-      billingMode: billing,
-      fixedAmount: billing === 'amount' ? (parseAmount(amountText) ?? 0) : null,
-      plannedHours: billing === 'hourly' ? hours : null,
+      billingMode: mode,
+      fixedAmount: mode === 'amount' ? (parseAmount(amountText) ?? 0) : null,
+      plannedHours: mode === 'hourly' ? hours : null,
       comment: comment.trim() || null,
       responsibleStaffId: responsibleId,
       customerName: name || null,
@@ -287,17 +293,26 @@ function EventForm({ initial, onDone }: { initial: EventRow | undefined; onDone:
         <FormSection title="ОПЛАТА">
           <Host matchContents={{ vertical: true }} style={styles.stretch}>
             <Picker
-              selection={billing}
+              selection={mode}
               onSelectionChange={(value) => {
                 haptic.selection();
                 setBilling(value as EventBillingMode);
               }}
               modifiers={[pickerStyle('segmented')]}>
-              <SwiftText modifiers={[tag('amount')]}>Фикс</SwiftText>
-              <SwiftText modifiers={[tag('hourly')]}>Почасовая</SwiftText>
+              {billingModes.map((mode) => (
+                <SwiftText key={mode} modifiers={[tag(mode)]}>
+                  {mode === 'hourly' ? 'Пакет' : mode === 'rental' ? 'По ставке' : 'Фикс'}
+                </SwiftText>
+              ))}
             </Picker>
           </Host>
-          {billing === 'amount' ? (
+          {mode === 'rental' ? (
+            <Text style={[type.footnote, styles.hint]}>
+              {rentalSpace
+                ? `При старте откроется чек аренды «${rentalSpace.name}»: ${formatMoney(toNumber(rentalSpace.hourlyRate))}/ч по факту — начатый час считается целым.`
+                : 'Выберите зону выше — чек посчитает её аренду по ставке зоны, по факту.'}
+            </Text>
+          ) : mode === 'amount' ? (
             <GlassCard style={styles.card}>
               <FormField icon="rublesign" value={amountText} onChange={setAmountText} placeholder="Сумма, ₽" keyboardType="decimal-pad" />
             </GlassCard>

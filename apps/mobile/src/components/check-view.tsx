@@ -396,6 +396,8 @@ function LinkedEventCard({ check, isOpen, base }: { check: CheckDetail; isOpen: 
   const event = useEvent(check.linkedEventId ?? undefined);
   const data = event.data;
   const hourly = data?.billingMode === 'hourly';
+  // «По ставке зоны»: денег у мероприятия нет — их считает аренда зоны в этом же чеке.
+  const rental = data?.billingMode === 'rental';
   const rates = useEventRates();
   const [busy, setBusy] = useState(false);
   const editable = isOpen && !!data && data.checkId === check.id && data.format !== 'minicap' && data.status !== 'completed' && data.status !== 'cancelled';
@@ -446,8 +448,12 @@ function LinkedEventCard({ check, isOpen, base }: { check: CheckDetail; isOpen: 
         detail={hourly && data?.plannedHours ? `${data.plannedHours} ч` : undefined}
       />
       <View style={styles.lineRow}>
-        <Text style={[type.subhead, styles.secondary, styles.flex]}>{hourly ? 'Почасовой тариф' : 'Сумма мероприятия'}</Text>
-        {busy ? <ActivityIndicator /> : <RollingText text={formatMoney(base)} style={[type.headline, type.amount, styles.label]} />}
+        <Text style={[type.subhead, styles.secondary, styles.flex]}>{rental ? 'Оплата по ставке зоны' : hourly ? 'Пакет по часам' : 'Сумма мероприятия'}</Text>
+        {busy ? <ActivityIndicator /> : rental ? (
+          <Text style={[type.subhead, styles.secondary]}>по факту</Text>
+        ) : (
+          <RollingText text={formatMoney(base)} style={[type.headline, type.amount, styles.label]} />
+        )}
       </View>
       {editable && hourly && (rates.data?.length ?? 0) > 0 && (
         <View style={styles.hoursGrid}>
@@ -471,7 +477,7 @@ function LinkedEventCard({ check, isOpen, base }: { check: CheckDetail; isOpen: 
           })}
         </View>
       )}
-      {editable && !hourly && (
+      {editable && !hourly && !rental && (
         <Pressable onPress={editAmount} disabled={busy} style={({ pressed }) => [styles.softButton, pressed && styles.pressed]} accessibilityRole="button">
           <SymbolView name="pencil" size={15} weight="semibold" tintColor={colors.accent} />
           <Text style={[type.subhead, styles.softButtonText]}>Изменить сумму</Text>

@@ -25,7 +25,7 @@ export default function CheckScreen() {
   const { checkId } = useLocalSearchParams<{ checkId: string }>();
   const router = useRouter();
   const check = useCheck(checkId);
-  const now = useNow(15_000);
+  const now = useNow(5_000);
   const host = useSession((s) => s.club?.host);
   const data = check.data;
   const spaceId = data?.spaceId ?? null;
@@ -45,9 +45,12 @@ export default function CheckScreen() {
       {data && (
         <Stack.Toolbar placement="right">
           <ToolbarMenu icon="ellipsis" accessibilityLabel="Действия с чеком">
-            <ToolbarMenuAction icon="bubble.left" onPress={() => router.push({ pathname: '/pos/chat', params: { checkId } })}>
-              Чат с кабинкой
-            </ToolbarMenuAction>
+            {/* Чат идёт через планшет кабинки — у чека без зоны его нет. */}
+            {spaceId && (
+              <ToolbarMenuAction icon="bubble.left" onPress={() => router.push({ pathname: '/pos/chat', params: { checkId } })}>
+                Чат с кабинкой
+              </ToolbarMenuAction>
+            )}
             {data.status === 'open' && (
               <>
                 <ToolbarMenuAction icon="person.crop.circle" onPress={actions.onOpenPlayer}>

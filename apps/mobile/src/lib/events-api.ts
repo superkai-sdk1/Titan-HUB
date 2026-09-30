@@ -16,7 +16,8 @@ import type { NumericString } from './types';
 export type EventType = 'titan' | 'exit';
 export type EventFormat = 'regular' | 'minicap';
 export type EventStatus = 'planned' | 'needs_clarification' | 'active' | 'completed' | 'cancelled';
-export type EventBillingMode = 'amount' | 'hourly';
+/** amount — фикс-сумма; hourly — пакет мероприятия по часам; rental — аренда зоны по её ставке. */
+export type EventBillingMode = 'amount' | 'hourly' | 'rental';
 
 export type EventRow = {
   id: string;
@@ -95,15 +96,35 @@ export function eventKind(event: Pick<EventRow, 'type' | 'format'>): { label: st
 export const eventTitle = (event: EventRow) => event.title || eventKind(event).label;
 export const isUpcoming = (event: EventRow) => event.status !== 'completed' && event.status !== 'cancelled';
 
-/** База мероприятия — как `computeEventBase` на сервере. */
+/** База мероприятия — как `computeEventBase` на сервере. «По ставке зоны» — 0: считает аренда в чеке. */
 export function eventBase(event: EventRow, rates: EventRate[] | undefined): number {
-  if (event.billingMode === 'hourly') {
-    const rate = rates?.find((r) => r.hours === event.plannedHours);
-    return rate ? toNumber(rate.price) : 0;
-  }
+  if (event.billingMode === 'rental') return 0;
+  if (event.billingMode === 'hourly') return packagePrice(event.plannedHours ?? 0, rates);
   if (event.manualAmount !== null) return toNumber(event.manualAmount);
   return toNumber(event.fixedAmount);
 }
+
+/**
+ * Цена пакета на h часов — как `hourlyPackagePrice` на сервере: точный тариф, иначе
+ * ближайший меньший пакет плюс остаток по его цене часа (раньше выходило 0 ₽).
+ */
+export function packagePrice(h: number, rates: EventRate[] | undefined): number {
+  if (!h) return 0;
+  const list = (rates ?? []).map((r) => ({ hours: r.hours, price: toNumber(r.price) })).filter((r) => r.hours > 0).sort((a, b) => a.hours - b.hours);
+  const exact = list.find((r) => r.hours === h);
+  if (exact) return exact.price;
+  const lower = list.filter((r) => r.hours < h).pop();
+  if (lower) return Math.round(lower.price + (h - lower.hours) * (lower.price / lower.hours));
+  const upper = list.find((r) => r.hours > h);
+  return upper ? Math.round(h * (upper.price / upper.hours)) : 0;
+}
+
+/** Подпись режима оплаты мероприятия. */
+export const BILLING_LABEL: Record<EventBillingMode, string> = {
+  amount: 'Фикс',
+  hourly: 'Пакет по часам',
+  rental: 'По ставке зоны',
+};
 
 export const timeRange = (event: Pick<EventRow, 'startTime' | 'endTime'>) =>
   event.endTime ? `${event.startTime}–${event.endTime}` : `с ${event.startTime}`;

@@ -464,7 +464,8 @@ export function CheckDetailView({ checkId, onBack, onClose }: CheckDetailViewPro
     const rate = parseFloat(check.spaceHourlyRate ?? '0')
     const calc = () => {
       const endMs = check.spaceEndAt ? new Date(check.spaceEndAt).getTime() : Date.now()
-      const mins = Math.max(0, (endMs - startMs) / 60000)
+      // Целые минуты — как бэкенд (lib/money.ts).
+      const mins = Math.floor(Math.max(0, endMs - startMs) / 60000)
       setSpaceRental(Math.ceil(mins / 60) * rate)
     }
     calc()

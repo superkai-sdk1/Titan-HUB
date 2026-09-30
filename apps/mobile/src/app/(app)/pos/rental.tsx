@@ -64,7 +64,7 @@ export default function RentalSheet() {
             selection={startAt}
             range={{ end: endAt ?? new Date(now + 60_000) }}
             displayedComponents={['date', 'hourAndMinute']}
-            onDateChange={(date) => setStart(date)}
+            onDateChange={(date) => setStart(toMinute(date))}
           />
         </Host>
         <View style={sheetStyles.separator} />
@@ -74,7 +74,7 @@ export default function RentalSheet() {
             isOn={live}
             onIsOnChange={(on) => {
               haptic.selection();
-              setEnd(on ? null : new Date(Math.max(Date.now(), startAt.getTime() + 60_000)));
+              setEnd(on ? null : toMinute(new Date(Math.max(Date.now(), startAt.getTime() + 60_000))));
             }}
             modifiers={[tint(accent)]}
           />
@@ -88,7 +88,7 @@ export default function RentalSheet() {
                 selection={endAt}
                 range={{ start: new Date(startAt.getTime() + 60_000) }}
                 displayedComponents={['date', 'hourAndMinute']}
-                onDateChange={(date) => setEnd(date)}
+                onDateChange={(date) => setEnd(toMinute(date))}
               />
             </Host>
           </>
@@ -104,6 +104,17 @@ export default function RentalSheet() {
       <PrimaryButton title={busy ? 'Сохраняем…' : 'Сохранить'} busy={busy} disabled={invalid || data?.status !== 'open'} onPress={() => void save()} />
     </View>
   );
+}
+
+/**
+ * Выбор времени меняет только часы и минуты, а секунды оставляет от прежнего значения:
+ * «14:00» превращалось в 14:00:27, и ровно 3 часа аренды считались как 4. Храним время
+ * аренды с точностью до минуты.
+ */
+function toMinute(date: Date): Date {
+  const next = new Date(date);
+  next.setSeconds(0, 0);
+  return next;
 }
 
 const styles = StyleSheet.create({

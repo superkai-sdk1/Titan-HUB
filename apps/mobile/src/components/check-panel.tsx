@@ -63,7 +63,7 @@ function SelectedCheck({ checkId }: { checkId: string }) {
   const router = useRouter();
   const accent = useAccentHex();
   const check = useCheck(checkId);
-  const now = useNow(15_000);
+  const now = useNow(5_000);
   const host = useSession((s) => s.club?.host);
   const data = check.data;
   const spaceId = data?.spaceId ?? null;
@@ -99,7 +99,8 @@ function SelectedCheck({ checkId }: { checkId: string }) {
         </Text>
         <Host matchContents>
           <Menu label="Действия" systemImage="ellipsis.circle">
-            <Button label="Чат с кабинкой" systemImage="bubble.left" onPress={() => router.push({ pathname: '/pos/chat', params: { checkId } })} />
+            {/* Чат идёт через планшет кабинки — у чека без зоны его нет. */}
+            {data.spaceId && <Button label="Чат с кабинкой" systemImage="bubble.left" onPress={() => router.push({ pathname: '/pos/chat', params: { checkId } })} />}
             {isOpen && (
               <>
                 <Button label={data.playerId ? 'Клиенты чека' : 'Добавить клиента'} systemImage="person.crop.circle" onPress={actions.onOpenPlayer} />

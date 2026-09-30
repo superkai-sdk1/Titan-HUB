@@ -11,6 +11,7 @@ import { MinicapLineup } from '@/components/minicap-lineup';
 import { GlassCard, PrimaryButton } from '@/components/new-check-parts';
 import { api } from '@/lib/api';
 import {
+  BILLING_LABEL,
   dayLabel,
   eventBase,
   eventErrorMessage,
@@ -282,8 +283,12 @@ export default function EventScreen() {
             {responsible && <InfoRow icon="person.badge.shield.checkmark" label="Ответственный" value={responsible} />}
             <InfoRow
               icon="rublesign.circle"
-              label={data.billingMode === 'hourly' ? 'Почасовая' : 'Сумма'}
-              value={`${data.billingMode === 'hourly' && data.plannedHours ? `${data.plannedHours} ч · ` : ''}${formatMoney(base)}`}
+              label={BILLING_LABEL[data.billingMode] ?? 'Сумма'}
+              value={
+                data.billingMode === 'rental'
+                  ? 'аренда зоны, по факту'
+                  : `${data.billingMode === 'hourly' && data.plannedHours ? `${data.plannedHours} ч · ` : ''}${formatMoney(base)}`
+              }
             />
             {(data.attendeesCount > 0 || data.maxGuests) && (
               <InfoRow icon="person.2" label="Гостей" value={data.maxGuests ? `${data.attendeesCount} из ${data.maxGuests}` : String(data.attendeesCount)} />

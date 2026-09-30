@@ -6,7 +6,10 @@ import type { CheckDetail, CheckListItem, CheckRow } from './types';
  * Окончательную сумму при оплате всё равно пересчитывает сервер.
  */
 
-/** Аренда: любая начатая минута — полный час; пока spaceEndAt пуст, считаем до «сейчас». */
+/**
+ * Аренда: целые минуты, начатая минута сверх часа — полный час; пока spaceEndAt пуст,
+ * считаем до «сейчас». Секунды не учитываем — как сервер (apps/api/src/lib/money.ts).
+ */
 export function computeRental(
   startAt: string | null,
   endAt: string | null,
@@ -15,7 +18,7 @@ export function computeRental(
 ): number {
   if (!startAt || !hourlyRate) return 0;
   const end = endAt ? new Date(endAt).getTime() : now;
-  const minutes = Math.max(0, (end - new Date(startAt).getTime()) / 60_000);
+  const minutes = Math.floor(Math.max(0, end - new Date(startAt).getTime()) / 60_000);
   return Math.ceil(minutes / 60) * toNumber(hourlyRate);
 }
 

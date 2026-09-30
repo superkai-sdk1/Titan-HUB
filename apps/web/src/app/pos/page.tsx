@@ -121,7 +121,8 @@ function formatElapsed(createdAt: string, now: number): string {
 function computeRental(startAt: string | null | undefined, endAt: string | null | undefined, hourlyRate: string | null | undefined, now: number): number {
   if (!startAt || !hourlyRate) return 0
   const end = endAt ? new Date(endAt).getTime() : now
-  const mins = Math.max(0, (end - new Date(startAt).getTime()) / 60000)
+  // Целые минуты — как бэкенд (lib/money.ts): секунды не делают из 3 ч аренды 4 ч.
+  const mins = Math.floor(Math.max(0, end - new Date(startAt).getTime()) / 60000)
   return Math.ceil(mins / 60) * (parseFloat(hourlyRate) || 0)
 }
 

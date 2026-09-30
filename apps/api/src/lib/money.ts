@@ -50,6 +50,8 @@ export function computeRental(
 ): number {
   if (!spaceStartAt || !hourlyRate) return 0
   const endMs = spaceEndAt ? new Date(spaceEndAt).getTime() : nowMs
-  const mins = Math.max(0, (endMs - new Date(spaceStartAt).getTime()) / 60000)
+  // Целые минуты: секунды/миллисекунды (выбор времени оставляет «хвост» от исходного
+  // значения) не должны превращать ровно 3 часа в 4. Начатая минута сверх часа — час.
+  const mins = Math.floor(Math.max(0, endMs - new Date(spaceStartAt).getTime()) / 60000)
   return Math.ceil(mins / 60) * parseFloat(hourlyRate)
 }
