@@ -1,41 +1,25 @@
+import { ContentUnavailableView, Form, Host, ProgressView, Section, Text } from '@expo/ui/swift-ui';
+import { refreshable } from '@expo/ui/swift-ui/modifiers';
 import { Stack, useRouter } from 'expo-router';
-import { SymbolView } from 'expo-symbols';
 import { useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { AppRefreshControl } from '@/components/refresh-control';
-import { BottomSearch, useSearchClearance } from '@/components/bottom-search';
-import { AmbientBackdrop } from '@/components/ambient-backdrop';
-import { MenuItemRow } from '@/components/menu-item-row';
-import { GlassCard, sheetStyles } from '@/components/new-check-parts';
+import { MenuItemLine } from '@/components/menu-item-line';
+import { LinkRow, SearchRow } from '@/components/native-form';
 import { useDebounced } from '@/components/player-picker';
-import { Unavailable } from '@/components/unavailable';
+import { ToolbarButton, ToolbarMenu, ToolbarMenuAction } from '@/components/toolbar';
 import { categoryHex, categorySymbol, useMenuAdmin } from '@/lib/catalog-api';
 import { plural } from '@/lib/format';
-import { haptic } from '@/lib/haptics';
-import { usePageGutter } from '@/lib/layout';
-import { colors, space, type } from '@/lib/theme';
-import { ToolbarButton, ToolbarMenu, ToolbarMenuAction } from '@/components/toolbar';
 
 /**
- * Меню клуба: категории папками (тап — позиции), поиск по всем позициям в шапке,
- * новая позиция или категория — «+», порядок категорий — перетаскиванием.
+ * Меню клуба: категории папками (нажатие — позиции), поиск по всем позициям,
+ * новая позиция или категория — «+», порядок категорий — кнопкой в шапке.
  */
 export default function MenuAdminScreen() {
-  const gutter = usePageGutter();
-  const searchClearance = useSearchClearance();
   const router = useRouter();
   const menu = useMenuAdmin();
   const [query, setQuery] = useState('');
   const search = useDebounced(query, 200).trim().toLowerCase();
-  const [pulling, setPulling] = useState(false);
   const data = menu.data;
-
-  const refresh = async () => {
-    setPulling(true);
-    await menu.refetch();
-    setPulling(false);
-  };
 
   const counts = useMemo(() => {
     const map = new Map<string, number>();
@@ -50,9 +34,12 @@ export default function MenuAdminScreen() {
   const found = search
     ? (data?.items ?? []).filter((i) => i.name.toLowerCase().includes(search) || (i.searchTags ?? []).some((t) => t.toLowerCase().includes(search)))
     : [];
+  const categories = data
+    ? [...data.categories, ...((counts.get('none') ?? 0) > 0 ? [{ id: 'none', name: 'Без категории', icon: 'other', color: '#94A3B8', isTabletVisible: true }] : [])]
+    : [];
 
   return (
-    <AmbientBackdrop style={styles.screen}>
+    <>
       <Stack.Title>Меню</Stack.Title>
       <Stack.Toolbar placement="right">
         <ToolbarButton icon="arrow.up.arrow.down" accessibilityLabel="Порядок категорий" onPress={() => router.push({ pathname: '/manage/menu/reorder', params: { scope: 'categories' } })} />
@@ -66,98 +53,56 @@ export default function MenuAdminScreen() {
         </ToolbarMenu>
       </Stack.Toolbar>
 
-      <ScrollView
-        contentInsetAdjustmentBehavior="automatic"
-        contentContainerStyle={[styles.content, gutter, { paddingBottom: searchClearance }]}
-        keyboardDismissMode="on-drag"
-        keyboardShouldPersistTaps="handled"
-        automaticallyAdjustKeyboardInsets
-        refreshControl={<AppRefreshControl tintColor={colors.accent} refreshing={pulling} onRefresh={refresh} />}>
-        {!data ? (
-          menu.isError ? (
-            <View style={styles.empty}>
-              <Unavailable title="Меню не загрузилось" systemImage="wifi.exclamationmark" description={menu.error.message} />
-            </View>
+      <Host style={{ flex: 1 }} useViewportSizeMeasurement>
+        <Form modifiers={[refreshable(async () => void (await menu.refetch()))]}>
+          <Section>
+            <SearchRow placeholder="Название или тег позиции" onChange={setQuery} />
+          </Section>
+
+          {!data ? (
+            <Section>{menu.isError ? <ContentUnavailableView title="Меню не загрузилось" systemImage="wifi.exclamationmark" description={menu.error.message} /> : <ProgressView />}</Section>
+          ) : search ? (
+            <Section title={`Найдено · ${found.length}`}>
+              {found.length === 0 ? (
+                <ContentUnavailableView title="Ничего не нашли" systemImage="magnifyingglass" />
+              ) : (
+                found.map((item) => (
+                  <MenuItemLine
+                    key={item.id}
+                    item={item}
+                    category={data.categories.find((c) => c.id === item.category)}
+                    onPress={() => router.push({ pathname: '/manage/menu/item', params: { itemId: item.id } })}
+                  />
+                ))
+              )}
+            </Section>
           ) : (
-            <ActivityIndicator style={styles.loading} />
-          )
-        ) : search ? (
-          <>
-            <Text style={[type.footnote, sheetStyles.sectionTitle]}>{`НАЙДЕНО · ${found.length}`}</Text>
-            {found.length === 0 ? (
-              <Text style={[type.subhead, styles.secondary, styles.centered]}>Ничего не нашли</Text>
-            ) : (
-              <GlassCard>
-                {found.map((item, index) => (
-                  <View key={item.id}>
-                    {index > 0 && <View style={[sheetStyles.separator, styles.itemSeparator]} />}
-                    <MenuItemRow item={item} category={data.categories.find((c) => c.id === item.category)} onPress={() => router.push({ pathname: '/manage/menu/item', params: { itemId: item.id } })} />
-                  </View>
-                ))}
-              </GlassCard>
-            )}
-          </>
-        ) : (
-          <>
-            <Text style={[type.footnote, styles.caption]}>
-              {`${data.categories.length} ${plural(data.categories.length, ['категория', 'категории', 'категорий'])} · ${data.items.length} ${plural(data.items.length, ['позиция', 'позиции', 'позиций'])}. Тарифы настраиваются в «Тарифах и аренде».`}
-            </Text>
-            {data.categories.length === 0 ? (
-              <View style={styles.empty}>
-                <Unavailable title="Категорий нет" systemImage="folder" description="Создайте первую категорию кнопкой «+»." />
-              </View>
-            ) : (
-              <GlassCard>
-                {[...data.categories, ...((counts.get('none') ?? 0) > 0 ? [{ id: 'none', name: 'Без категории', icon: 'other', color: '#94A3B8', isTabletVisible: true }] : [])].map((category, index) => {
-                  const color = categoryHex(category.color);
-                  const count = counts.get(category.id) ?? 0;
-                  return (
-                    <View key={category.id}>
-                      {index > 0 && <View style={[sheetStyles.separator, styles.separator]} />}
-                      <Pressable
-                        onPress={() => {
-                          haptic.selection();
-                          router.push({ pathname: '/manage/menu/[categoryId]', params: { categoryId: category.id, name: category.name } });
-                        }}
-                        style={({ pressed }) => [styles.row, pressed && sheetStyles.pressedRow]}
-                        accessibilityRole="button">
-                        <View style={[styles.icon, { backgroundColor: color }]}>
-                          <SymbolView name={categorySymbol(category.icon)} size={17} weight="semibold" tintColor="white" />
-                        </View>
-                        <View style={styles.flex}>
-                          <Text style={[type.body, styles.label]} numberOfLines={1}>
-                            {category.name}
-                          </Text>
-                          {category.id !== 'none' && category.isTabletVisible === false && <Text style={[type.caption1, styles.secondary]}>скрыта с планшета</Text>}
-                        </View>
-                        <Text style={[type.subhead, styles.secondary]}>{count}</Text>
-                        <SymbolView name="chevron.right" size={13} weight="semibold" tintColor={colors.tertiaryLabel} />
-                      </Pressable>
-                    </View>
-                  );
-                })}
-              </GlassCard>
-            )}
-          </>
-        )}
-      </ScrollView>
-      <BottomSearch value={query} onChange={setQuery} placeholder="Название или тег позиции" />
-    </AmbientBackdrop>
+            <Section
+              title="Категории"
+              footer={
+                <Text>
+                  {`${data.categories.length} ${plural(data.categories.length, ['категория', 'категории', 'категорий'])} · ${data.items.length} ${plural(data.items.length, ['позиция', 'позиции', 'позиций'])}. Тарифы настраиваются в «Тарифах и аренде».`}
+                </Text>
+              }>
+              {categories.length === 0 ? (
+                <ContentUnavailableView title="Категорий нет" systemImage="folder" description="Создайте первую категорию кнопкой «+»." />
+              ) : (
+                categories.map((category) => (
+                  <LinkRow
+                    key={category.id}
+                    icon={categorySymbol(category.icon)}
+                    color={categoryHex(category.color)}
+                    title={category.name}
+                    subtitle={category.id !== 'none' && category.isTabletVisible === false ? 'скрыта с планшета' : undefined}
+                    value={String(counts.get(category.id) ?? 0)}
+                    onPress={() => router.push({ pathname: '/manage/menu/[categoryId]', params: { categoryId: category.id, name: category.name } })}
+                  />
+                ))
+              )}
+            </Section>
+          )}
+        </Form>
+      </Host>
+    </>
   );
 }
-
-const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.groupedBackground },
-  flex: { flex: 1 },
-  content: { paddingHorizontal: space.lg, paddingBottom: 140, gap: space.md },
-  label: { color: colors.label },
-  secondary: { color: colors.secondaryLabel },
-  centered: { textAlign: 'center', paddingVertical: space.xl },
-  caption: { color: colors.secondaryLabel, paddingHorizontal: space.xs },
-  loading: { paddingTop: 60 },
-  empty: { height: 360 },
-  separator: { marginLeft: 62 },
-  itemSeparator: { marginLeft: space.lg },
-  row: { flexDirection: 'row', alignItems: 'center', gap: space.md, paddingHorizontal: space.lg, minHeight: 58 },
-  icon: { width: 34, height: 34, borderRadius: 10, borderCurve: 'continuous', alignItems: 'center', justifyContent: 'center' },
-});

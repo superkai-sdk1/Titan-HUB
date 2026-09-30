@@ -38,11 +38,11 @@ export default function ManageLayout() {
       {/* Корень — нативная форма, как «Настройки» iOS: крупный заголовок в шапке Liquid Glass. */}
       <Stack.Screen name="index" options={formHeader({ title: 'Управление', headerLargeTitle: true })} />
 
-      <Stack.Screen name="menu/index" options={glassHeader({ title: 'Меню' })} />
-      <Stack.Screen name="menu/[categoryId]" options={glassHeader()} />
-      <Stack.Screen name="menu/item" options={tallSheet} />
-      <Stack.Screen name="menu/category" options={tallSheet} />
-      <Stack.Screen name="menu/reorder" options={tallSheet} />
+      <Stack.Screen name="menu/index" options={formHeader({ title: 'Меню' })} />
+      <Stack.Screen name="menu/[categoryId]" options={formHeader()} />
+      <Stack.Screen name="menu/item" options={editorModal} />
+      <Stack.Screen name="menu/category" options={editorModal} />
+      <Stack.Screen name="menu/reorder" options={editorModal} />
 
       <Stack.Screen name="pricing/index" options={formHeader({ title: 'Тарифы и аренда' })} />
       <Stack.Screen name="pricing/tariff" options={editorModal} />

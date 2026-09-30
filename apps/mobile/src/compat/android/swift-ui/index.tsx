@@ -182,7 +182,8 @@ export function Toggle({ label, isOn, onIsOnChange, modifiers, children }: Mods 
 function readOptions(children: ReactNode): { value: unknown; label: ReactNode }[] {
   return Children.toArray(children)
     .filter((child): child is ReactElement<Mods & WithChildren> => isValidElement(child))
-    .map((child) => ({ value: resolve(child.props.modifiers).tag, label: child.props.children }));
+    // Вариант бывает Text (подпись — дети) и Label (подпись — title, как в SwiftUI-меню со значками).
+    .map((child) => ({ value: resolve(child.props.modifiers).tag, label: child.props.children ?? (child.props as { title?: ReactNode }).title }));
 }
 
 export function Picker({ selection, onSelectionChange, options, modifiers, children, label }: Mods & WithChildren & {

@@ -1,44 +1,36 @@
-import { Host, Toggle } from '@expo/ui/swift-ui';
-import { tint } from '@expo/ui/swift-ui/modifiers';
+import { ColorPicker, Form, HStack, Host, Label, Picker, ProgressView, Section, Text, Toggle } from '@expo/ui/swift-ui';
+import { font, lineLimit, pickerStyle, tag } from '@expo/ui/swift-ui/modifiers';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { SymbolView } from 'expo-symbols';
 import { useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Alert } from 'react-native';
 
-import { GlassView } from '@/components/glass';
-import { FormField, FormSection } from '@/components/form-parts';
-import { DangerRow, GlassCard, PrimaryButton, SheetHeader, sheetStyles } from '@/components/new-check-parts';
-import { CATEGORY_PRESETS, categoryHex, categorySymbol, deleteCategory, PALETTE, saveCategory, useMenuAdmin } from '@/lib/catalog-api';
+import { EditorToolbar } from '@/components/editor-toolbar';
+import { ActionRow, FieldRow, normalizeHex, primary, RowIcon } from '@/components/native-form';
+import { CATEGORY_PRESETS, categoryHex, categorySymbol, deleteCategory, saveCategory, useMenuAdmin } from '@/lib/catalog-api';
 import { haptic } from '@/lib/haptics';
-import { KEYBOARD_DISMISS } from '@/lib/layout';
 import type { MenuCategory } from '@/lib/pos-api';
 import { useSession } from '@/lib/session';
-import { space, type, useAccentHex } from '@/lib/theme';
 
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
 /** Категория меню: название, значок из набора веб-кассы, цвет и видимость на планшетах. */
 export default function MenuCategorySheet() {
   const { categoryId } = useLocalSearchParams<{ categoryId?: string }>();
-  const router = useRouter();
   const menu = useMenuAdmin();
 
   if (categoryId && !menu.data) {
     return (
-      <View style={styles.loading}>
-        <ActivityIndicator />
-      </View>
+      <Host style={{ flex: 1 }} useViewportSizeMeasurement>
+        <ProgressView />
+      </Host>
     );
   }
-
-  return <CategoryForm original={categoryId ? (menu.data?.categories.find((c) => c.id === categoryId) ?? null) : null} onClose={() => router.back()} onDeleted={() => router.dismissTo('/manage/menu')} />;
+  const original = categoryId ? (menu.data?.categories.find((c) => c.id === categoryId) ?? null) : null;
+  return <CategoryForm key={original?.id ?? 'new'} original={original} />;
 }
 
-function CategoryForm({ original, onClose, onDeleted }: { original: MenuCategory | null; onClose: () => void; onDeleted: () => void }) {
-  const insets = useSafeAreaInsets();
-  const accent = useAccentHex();
+function CategoryForm({ original }: { original: MenuCategory | null }) {
+  const router = useRouter();
   const isOwner = useSession((s) => s.user?.role === 'owner');
   const [name, setName] = useState(original?.name ?? '');
   const [icon, setIcon] = useState(original?.icon && CATEGORY_PRESETS.some((p) => p.id === original.icon) ? original.icon : 'food');
@@ -47,16 +39,14 @@ function CategoryForm({ original, onClose, onDeleted }: { original: MenuCategory
   const [tablet, setTablet] = useState(original?.isTabletVisible ?? true);
   const [busy, setBusy] = useState(false);
 
-  const colors6 = [...new Set([color, ...CATEGORY_PRESETS.filter((p) => p.id === icon).map((p) => p.color), ...PALETTE])].slice(0, 10);
-
   const save = async () => {
-    if (!name.trim()) return Alert.alert('Укажите название');
+    if (!name.trim()) return;
     haptic.medium();
     setBusy(true);
     try {
       await saveCategory(original?.id ?? null, { name, icon, color, isTabletVisible: tablet });
       haptic.success();
-      onClose();
+      router.back();
     } catch (error) {
       haptic.error();
       Alert.alert('Категория не сохранена', errorText(error));
@@ -76,122 +66,65 @@ function CategoryForm({ original, onClose, onDeleted }: { original: MenuCategory
           deleteCategory(original.id)
             .then(() => {
               haptic.success();
-              onDeleted();
+              router.dismissTo('/manage/menu');
             })
             .catch((error: unknown) => Alert.alert('Категория не удалена', errorText(error))),
       },
     ]);
 
   return (
-    <KeyboardAvoidingView behavior="padding" style={styles.flex}>
-      <ScrollView
-        contentContainerStyle={[styles.content, { paddingBottom: Math.max(insets.bottom, space.lg) }]}
-        keyboardShouldPersistTaps="handled"
-        keyboardDismissMode={KEYBOARD_DISMISS}
-        showsVerticalScrollIndicator={false}>
-        <SheetHeader title={original ? 'Категория' : 'Новая категория'} onClose={onClose} />
+    <>
+      <EditorToolbar title={original ? 'Категория' : 'Новая категория'} canSave={name.trim().length > 0} busy={busy} onSave={() => void save()} />
+      <Host style={{ flex: 1 }} useViewportSizeMeasurement>
+        <Form>
+          <Section>
+            <HStack spacing={14}>
+              <RowIcon name={categorySymbol(icon)} color={color} />
+              <Text modifiers={[font({ textStyle: 'headline' }), primary, lineLimit(1)]}>{name.trim() || 'Название категории'}</Text>
+            </HStack>
+          </Section>
 
-        <View style={styles.preview}>
-          <View style={[styles.previewIcon, { backgroundColor: color }]}>
-            <SymbolView name={categorySymbol(icon)} size={30} weight="semibold" tintColor="white" />
-          </View>
-          <Text style={[type.headline, sheetStyles.label]}>{name.trim() || 'Название категории'}</Text>
-        </View>
+          <Section title="Название">
+            <FieldRow value={name} placeholder="Например, Горячие напитки" autoFocus={!original} maxLength={60} onChange={setName} />
+          </Section>
 
-        <FormSection title="НАЗВАНИЕ">
-          <GlassCard style={styles.card}>
-            <FormField icon="folder" value={name} onChange={setName} placeholder="Например, Горячие напитки" autoCapitalize="sentences" autoFocus={!original} />
-          </GlassCard>
-        </FormSection>
+          <Section footer={<Text>Значок подставляет свой цвет, пока цвет не выбран вручную.</Text>}>
+            <Picker
+              label="Значок"
+              selection={icon}
+              onSelectionChange={(value) => {
+                const preset = CATEGORY_PRESETS.find((p) => p.id === value);
+                setIcon(String(value));
+                if (preset && !colorTouched) setColor(preset.color);
+                if (preset && !name.trim()) setName(preset.label);
+              }}
+              modifiers={[pickerStyle('menu')]}>
+              {CATEGORY_PRESETS.map((preset) => (
+                <Label key={preset.id} title={preset.label} systemImage={categorySymbol(preset.id)} modifiers={[tag(preset.id)]} />
+              ))}
+            </Picker>
+            <ColorPicker
+              label="Цвет"
+              selection={color}
+              supportsOpacity={false}
+              onSelectionChange={(next) => {
+                setColor(normalizeHex(next, color));
+                setColorTouched(true);
+              }}
+            />
+          </Section>
 
-        <FormSection title="ЗНАЧОК">
-          <View style={styles.grid}>
-            {CATEGORY_PRESETS.map((preset) => {
-              const active = icon === preset.id;
-              return (
-                <Pressable
-                  key={preset.id}
-                  style={styles.cell}
-                  onPress={() => {
-                    haptic.selection();
-                    setIcon(preset.id);
-                    if (!colorTouched) setColor(preset.color);
-                    if (!name.trim()) setName(preset.label);
-                  }}
-                  accessibilityRole="button"
-                  accessibilityLabel={preset.label}
-                  accessibilityState={{ selected: active }}>
-                  <GlassView isInteractive tintColor={active ? `${preset.color}55` : undefined} style={styles.iconTile}>
-                    <SymbolView name={categorySymbol(preset.id)} size={20} tintColor={preset.color} />
-                    <Text style={[type.caption2, sheetStyles.label]} numberOfLines={1}>
-                      {preset.label}
-                    </Text>
-                  </GlassView>
-                </Pressable>
-              );
-            })}
-          </View>
-        </FormSection>
+          <Section footer={<Text>Категория видна гостям в меню кабинки.</Text>}>
+            <Toggle label="Показывать на планшетах" isOn={tablet} onIsOnChange={setTablet} />
+          </Section>
 
-        <FormSection title="ЦВЕТ">
-          <View style={styles.palette}>
-            {colors6.map((hex) => (
-              <Pressable
-                key={hex}
-                onPress={() => {
-                  haptic.selection();
-                  setColor(hex);
-                  setColorTouched(true);
-                }}
-                style={[styles.swatch, { backgroundColor: hex }, color === hex && styles.swatchActive]}
-                accessibilityRole="button"
-                accessibilityState={{ selected: color === hex }}>
-                {color === hex && <SymbolView name="checkmark" size={14} weight="bold" tintColor="white" />}
-              </Pressable>
-            ))}
-          </View>
-        </FormSection>
-
-        <GlassCard style={styles.card}>
-          <View style={styles.toggleRow}>
-            <View style={styles.flex}>
-              <Text style={[type.body, sheetStyles.label]}>Показывать на планшетах</Text>
-              <Text style={[type.caption1, sheetStyles.secondary]}>Категория видна гостям в меню кабинки</Text>
-            </View>
-            <Host matchContents seedColor={accent}>
-              <Toggle
-                isOn={tablet}
-                onIsOnChange={(on) => {
-                  haptic.selection();
-                  setTablet(on);
-                }}
-                modifiers={[tint(accent)]}
-              />
-            </Host>
-          </View>
-        </GlassCard>
-
-        <PrimaryButton title={busy ? 'Сохраняем…' : original ? 'Сохранить' : 'Создать категорию'} icon="checkmark" busy={busy} disabled={!name.trim()} onPress={() => void save()} />
-        {original && isOwner && (
-          <DangerRow title="Удалить категорию" icon="trash" onPress={remove} />
-        )}
-      </ScrollView>
-    </KeyboardAvoidingView>
+          {original && isOwner && (
+            <Section>
+              <ActionRow title="Удалить категорию" icon="trash" destructive onPress={remove} />
+            </Section>
+          )}
+        </Form>
+      </Host>
+    </>
   );
 }
-
-const styles = StyleSheet.create({
-  flex: { flex: 1 },
-  loading: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  content: { paddingHorizontal: space.lg, paddingTop: space.xl, gap: space.lg },
-  preview: { alignItems: 'center', gap: space.sm },
-  previewIcon: { width: 64, height: 64, borderRadius: 18, borderCurve: 'continuous', alignItems: 'center', justifyContent: 'center' },
-  card: { paddingHorizontal: space.lg },
-  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm },
-  cell: { width: '23.3%', flexGrow: 1 },
-  iconTile: { alignItems: 'center', gap: 4, paddingVertical: space.sm, paddingHorizontal: 4, borderRadius: 16, borderCurve: 'continuous' },
-  palette: { flexDirection: 'row', flexWrap: 'wrap', gap: space.md, paddingHorizontal: space.xs },
-  swatch: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
-  swatchActive: { borderWidth: 3, borderColor: 'rgba(255,255,255,0.85)' },
-  toggleRow: { flexDirection: 'row', alignItems: 'center', gap: space.md, minHeight: 60 },
-});

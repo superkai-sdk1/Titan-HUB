@@ -1,14 +1,12 @@
-import { Host, Label, List } from '@expo/ui/swift-ui';
-import { environment, foregroundStyle, listStyle, scrollContentBackground } from '@expo/ui/swift-ui/modifiers';
+import { ContentUnavailableView, Host, Label, List, ProgressView, Section, Text as SwiftText } from '@expo/ui/swift-ui';
+import { environment, foregroundStyle, listStyle } from '@expo/ui/swift-ui/modifiers';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
-import { ActivityIndicator, Alert, Platform, StyleSheet, Text, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Alert, Platform } from 'react-native';
 
-import { PrimaryButton, SheetHeader, sheetStyles } from '@/components/new-check-parts';
+import { EditorToolbar } from '@/components/editor-toolbar';
 import { categoryHex, categorySymbol, reorderCategories, reorderItems, useMenuAdmin } from '@/lib/catalog-api';
 import { haptic } from '@/lib/haptics';
-import { space, type } from '@/lib/theme';
 
 type Row = { id: string; title: string; icon: ReturnType<typeof categorySymbol>; color: string };
 
@@ -33,9 +31,9 @@ export default function ReorderSheet() {
 
   if (!data) {
     return (
-      <View style={styles.loading}>
-        <ActivityIndicator />
-      </View>
+      <Host style={{ flex: 1 }} useViewportSizeMeasurement>
+        <ProgressView />
+      </Host>
     );
   }
 
@@ -61,7 +59,6 @@ function ReorderList({
   data: NonNullable<ReturnType<typeof useMenuAdmin>['data']>;
   onClose: () => void;
 }) {
-  const insets = useSafeAreaInsets();
   const [order, setOrder] = useState(rows);
   const [busy, setBusy] = useState(false);
   const changed = order.some((row, index) => row.id !== rows[index]?.id);
@@ -93,42 +90,28 @@ function ReorderList({
   };
 
   return (
-    <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, space.lg) }]}>
-      <View style={styles.header}>
-        <SheetHeader title={scope === 'categories' ? 'Порядок категорий' : 'Порядок позиций'} onClose={onClose} />
-        <Text style={[type.footnote, sheetStyles.secondary]}>
-          {Platform.OS === 'ios' ? 'Потяните за полоски справа.' : 'Двигайте строки стрелками справа.'} Так же порядок увидят касса и планшеты.
-        </Text>
-      </View>
-      {order.length === 0 ? (
-        <Text style={[type.subhead, sheetStyles.secondary, styles.empty]}>Переставлять нечего</Text>
-      ) : (
-        <Host style={styles.list}>
-          <List modifiers={[environment('editMode', 'active'), listStyle('insetGrouped'), scrollContentBackground('hidden')]}>
-            <List.ForEach
-              onMove={(sources, destination) => {
-                haptic.selection();
-                setOrder((current) => moveRows(current, sources, destination));
-              }}>
-              {order.map((row) => (
-                <Label key={row.id} title={row.title} systemImage={row.icon} modifiers={[foregroundStyle(row.color)]} />
-              ))}
-            </List.ForEach>
+    <>
+      <EditorToolbar title={scope === 'categories' ? 'Порядок категорий' : 'Порядок позиций'} canSave={changed} busy={busy} onSave={() => void save()} />
+      <Host style={{ flex: 1 }} useViewportSizeMeasurement>
+        {order.length === 0 ? (
+          <ContentUnavailableView title="Переставлять нечего" systemImage="arrow.up.arrow.down" />
+        ) : (
+          <List modifiers={[environment('editMode', 'active'), listStyle('insetGrouped')]}>
+            <Section footer={<SwiftText>{`${Platform.OS === 'ios' ? 'Потяните за полоски справа.' : 'Двигайте строки стрелками справа.'} Так же порядок увидят касса и планшеты.`}</SwiftText>}>
+              <List.ForEach
+                onMove={(sources, destination) => {
+                  haptic.selection();
+                  setOrder((current) => moveRows(current, sources, destination));
+                }}>
+                {order.map((row) => (
+                  <Label key={row.id} title={row.title} systemImage={row.icon} modifiers={[foregroundStyle(row.color)]} />
+                ))}
+              </List.ForEach>
+            </Section>
           </List>
-        </Host>
-      )}
-      <View style={styles.footer}>
-        <PrimaryButton title={busy ? 'Сохраняем…' : 'Сохранить порядок'} icon="checkmark" busy={busy} disabled={!changed} onPress={() => void save()} />
-      </View>
-    </View>
+        )}
+      </Host>
+    </>
   );
 }
 
-const styles = StyleSheet.create({
-  loading: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  sheet: { flex: 1, paddingTop: space.xl, gap: space.sm },
-  header: { paddingHorizontal: space.lg, gap: space.sm },
-  list: { flex: 1 },
-  empty: { textAlign: 'center', paddingVertical: space.xxl },
-  footer: { paddingHorizontal: space.lg },
-});

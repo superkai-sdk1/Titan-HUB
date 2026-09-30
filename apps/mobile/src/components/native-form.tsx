@@ -185,6 +185,7 @@ export function FieldRow({
   multiline,
   autoFocus,
   secure,
+  trailing,
   onChange,
   onCommit,
 }: {
@@ -196,6 +197,8 @@ export function FieldRow({
   autoFocus?: boolean;
   /** Пароль: символы скрыты. */
   secure?: boolean;
+  /** Значение прижато вправо — поле после подписи в строке («Цена … 150 ₽»). */
+  trailing?: boolean;
   onChange?: (next: string) => void;
   onCommit?: (next: string) => void;
 }) {
@@ -235,7 +238,11 @@ export function FieldRow({
       onFocusChange={(focused) => {
         if (!focused) commit();
       }}
-      modifiers={[keyboardTypeModifier(keyboard), ...(multiline ? [lineLimit(5)] : [submitLabel('done'), onSubmit(commit)])]}
+      modifiers={[
+        keyboardTypeModifier(keyboard),
+        ...(trailing ? [multilineTextAlignment('trailing')] : []),
+        ...(multiline ? [lineLimit(5)] : [submitLabel('done'), onSubmit(commit)]),
+      ]}
     />
   );
 }
