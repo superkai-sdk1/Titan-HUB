@@ -33,6 +33,7 @@ export const scrollContentBackground = (visibility: 'visible' | 'hidden' | strin
 export const multilineTextAlignment = (alignment: 'center' | 'leading' | 'trailing') => mod('multilineTextAlignment', { alignment });
 export const lineLimit = (limit?: number) => mod('lineLimit', { limit });
 export const labelsHidden = () => mod('labelsHidden');
+export const layoutPriority = (value: number) => mod('layoutPriority', { value });
 
 /** Текстовые поля. */
 export const keyboardType = (type: KeyboardTypeOptions | string) => mod('keyboardType', { type });

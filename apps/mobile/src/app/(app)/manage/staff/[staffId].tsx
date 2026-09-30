@@ -1,76 +1,61 @@
+import { ContentUnavailableView, Form, HStack, Host, Picker, ProgressView, RNHostView, Section, Text, Toggle, VStack } from '@expo/ui/swift-ui';
+import { font, lineLimit, pickerStyle, refreshable, tag } from '@expo/ui/swift-ui/modifiers';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import { useState } from 'react';
-import { ActivityIndicator, Alert, Linking, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Linking } from 'react-native';
 
-import { AppRefreshControl } from '@/components/refresh-control';
-import { AmbientBackdrop } from '@/components/ambient-backdrop';
-import { Avatar, DangerRow, GlassCard, GlassChip } from '@/components/new-check-parts';
-import { Group, promptValue, Row, SwitchRow } from '@/components/settings-parts';
+import { ActionRow, LinkRow, primary, secondary, TextRow } from '@/components/native-form';
+import { Avatar } from '@/components/new-check-parts';
+import { promptValue } from '@/components/settings-parts';
 import { deleteStaff, deleteStaffPasskey, PERMISSIONS, permissionOn, resetStaffPin, staffTelegramLink, updateStaff, useStaffAdmin, useStaffPasskeys } from '@/lib/admin-api';
 import { haptic } from '@/lib/haptics';
-import { usePageGutter } from '@/lib/layout';
 import { useMe } from '@/lib/queries';
 import { useSession } from '@/lib/session';
-import { colors, space, type } from '@/lib/theme';
+import { colors } from '@/lib/theme';
 
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
 const isPin = (value: string) => /^\d{4}$/.test(value);
 
-/** Карточка сотрудника: роль, права, пароль и PIN, Telegram и ключи входа. */
+/** Карточка сотрудника: профиль, роль, права, пароль и PIN, Telegram и ключи входа. */
 export default function StaffMemberScreen() {
-  const gutter = usePageGutter();
   const { staffId } = useLocalSearchParams<{ staffId: string }>();
   const router = useRouter();
   const isOwner = useSession((s) => s.user?.role === 'owner');
   const me = useMe();
   const staff = useStaffAdmin(isOwner);
   const passkeys = useStaffPasskeys(staffId, isOwner);
-  // Какую именно строку сейчас сохраняем — иначе спиннер крутится сразу во всех.
-  const [pending, setPending] = useState<string | null>(null);
-  const [pulling, setPulling] = useState(false);
-
-  const refresh = async () => {
-    setPulling(true);
-    await Promise.allSettled([staff.refetch(), passkeys.refetch()]);
-    setPulling(false);
-  };
 
   const row = staff.data?.find((item) => item.id === staffId);
   const isSelf = me.data?.id === staffId;
 
   if (!row) {
     return (
-      <AmbientBackdrop style={styles.screen}>
-        <Stack.Title>Сотрудник</Stack.Title>
-        <View style={styles.loading}>{staff.isLoading ? <ActivityIndicator /> : <Text style={[type.subhead, styles.secondary]}>Сотрудник не найден</Text>}</View>
-      </AmbientBackdrop>
+      <Host style={{ flex: 1 }} useViewportSizeMeasurement>
+        {staff.isLoading ? <ProgressView /> : <ContentUnavailableView title="Сотрудник не найден" systemImage="person.crop.circle.badge.questionmark" />}
+      </Host>
     );
   }
 
-  const patch = (field: string, body: Parameters<typeof updateStaff>[1], failure: string) => {
-    setPending(field);
+  const patch = (body: Parameters<typeof updateStaff>[1], failure: string) =>
     updateStaff(row.id, body)
       .then(() => haptic.success())
       .catch((error: unknown) => {
         haptic.error();
         Alert.alert(failure, errorText(error));
-      })
-      .finally(() => setPending(null));
-  };
+      });
 
   const setRole = (role: 'owner' | 'staff') => {
     if (role === row.role) return;
     haptic.light();
     Alert.alert(role === 'owner' ? `Сделать ${row.nickname} владельцем?` : `Сделать ${row.nickname} сотрудником?`, role === 'owner' ? 'Владелец видит деньги, аналитику и настройки клуба.' : 'Доступ ограничится правами сотрудника.', [
       { text: 'Отмена', style: 'cancel' },
-      { text: 'Сменить роль', onPress: () => patch('role', { role }, 'Роль не изменена') },
+      { text: 'Сменить роль', onPress: () => void patch({ role }, 'Роль не изменена') },
     ]);
   };
 
   const togglePermission = (key: string, on: boolean) => {
     const permissions: Record<string, boolean> = {};
     for (const item of PERMISSIONS) permissions[item.key] = item.key === key ? on : permissionOn(row, item.key);
-    patch(`perm:${key}`, { permissions }, 'Права не изменены');
+    void patch({ permissions }, 'Права не изменены');
   };
 
   const changePassword = () =>
@@ -80,7 +65,7 @@ export default function StaffMemberScreen() {
       value: '',
       onSubmit: (password) => {
         if (password.length < 4) return Alert.alert('Пароль короче 4 символов');
-        patch('password', { password }, 'Пароль не изменён');
+        void patch({ password }, 'Пароль не изменён');
       },
     });
 
@@ -92,20 +77,17 @@ export default function StaffMemberScreen() {
       keyboard: 'number-pad',
       onSubmit: (pin) => {
         if (!isPin(pin)) return Alert.alert('PIN — ровно 4 цифры');
-        setPending('pin');
         resetStaffPin(row.id, pin)
           .then(() => {
             haptic.success();
             Alert.alert('PIN обновлён', `Передайте ${row.nickname} новый PIN.`);
           })
-          .catch((error: unknown) => Alert.alert('PIN не изменён', errorText(error)))
-          .finally(() => setPending(null));
+          .catch((error: unknown) => Alert.alert('PIN не изменён', errorText(error)));
       },
     });
 
   const linkTelegram = () => {
     haptic.light();
-    setPending('tg');
     staffTelegramLink(row.id)
       .then(({ deepLink, linked, tgUsername }) =>
         Alert.alert(linked ? `Telegram привязан${tgUsername ? `: @${tgUsername}` : ''}` : 'Привязка Telegram', linked ? 'Ссылка ниже перепривяжет аккаунт к другому Telegram.' : `Откройте ссылку на телефоне ${row.nickname} — бот свяжет аккаунт с кассой.`, [
@@ -113,8 +95,7 @@ export default function StaffMemberScreen() {
           { text: 'Открыть в Telegram', onPress: () => void Linking.openURL(deepLink).catch(() => Alert.alert('Не удалось открыть Telegram')) },
         ]),
       )
-      .catch((error: unknown) => Alert.alert('Ссылка не получена', errorText(error)))
-      .finally(() => setPending(null));
+      .catch((error: unknown) => Alert.alert('Ссылка не получена', errorText(error)));
   };
 
   const removePasskey = (passkeyId: string) =>
@@ -147,69 +128,78 @@ export default function StaffMemberScreen() {
     ]);
 
   return (
-    <AmbientBackdrop style={styles.screen}>
+    <>
       <Stack.Title>{row.nickname}</Stack.Title>
+      <Host style={{ flex: 1 }} useViewportSizeMeasurement>
+        <Form modifiers={[refreshable(async () => void (await Promise.allSettled([staff.refetch(), passkeys.refetch()])))]}>
+          <Section>
+            <HStack spacing={14}>
+              <RNHostView matchContents>
+                <Avatar name={row.nickname} photoUrl={row.photoUrl} size={60} />
+              </RNHostView>
+              <VStack alignment="leading" spacing={2}>
+                <Text modifiers={[font({ textStyle: 'title2', weight: 'semibold' }), primary, lineLimit(1)]}>{row.nickname}</Text>
+                <Text modifiers={[secondary]}>{row.role === 'owner' ? 'Владелец' : 'Сотрудник'}</Text>
+              </VStack>
+            </HStack>
+          </Section>
 
-      <ScrollView
-        contentInsetAdjustmentBehavior="automatic"
-        contentContainerStyle={[styles.content, gutter]}
-        refreshControl={<AppRefreshControl tintColor={colors.accent} refreshing={pulling} onRefresh={refresh} />}>
-        <GlassCard style={styles.hero}>
-          <Avatar name={row.nickname} photoUrl={row.photoUrl} size={64} />
-          <Text style={[type.title2, styles.label]} numberOfLines={1}>
-            {row.nickname}
-          </Text>
-          <Text style={[type.subhead, styles.secondary]}>{row.role === 'owner' ? 'Владелец' : 'Сотрудник'}</Text>
-        </GlassCard>
+          <Section title="Профиль" footer={<Text>Под никнеймом сотрудник входит в кассу.</Text>}>
+            <TextRow
+              label="Никнейм"
+              value={row.nickname}
+              capitalize="never"
+              onCommit={(nickname) => (nickname.length < 2 ? Alert.alert('Слишком короткий никнейм') : void patch({ nickname }, 'Никнейм не изменён'))}
+            />
+            <TextRow label="Телефон" value={row.phone ?? ''} placeholder="Не указан" keyboard="phone-pad" onCommit={(phone) => void patch({ phone }, 'Телефон не изменён')} />
+          </Section>
 
-        <Group title="Профиль">
-          <Row icon="person" color="#64748B" title="Никнейм" value={row.nickname} busy={pending === 'nickname'} onPress={() => promptValue({ title: 'Никнейм', message: 'Под этим именем сотрудник входит в кассу', value: row.nickname, onSubmit: (nickname) => (nickname.length < 2 ? Alert.alert('Слишком короткий никнейм') : patch('nickname', { nickname }, 'Никнейм не изменён')) })} />
-          <Row icon="phone" color="#10B981" title="Телефон" value={row.phone ?? 'не указан'} busy={pending === 'phone'} onPress={() => promptValue({ title: 'Телефон', value: row.phone ?? '', keyboard: 'phone-pad', onSubmit: (phone) => patch('phone', { phone }, 'Телефон не изменён') })} />
-        </Group>
+          <Section
+            title="Роль"
+            footer={<Text>{row.role === 'owner' ? 'Владелец видит всё и может менять настройки клуба.' : 'Сотрудник работает в кассе; разделы «Управления» открываются правами ниже.'}</Text>}>
+            <Picker selection={row.role === 'owner' ? 'owner' : 'staff'} onSelectionChange={(value) => setRole(value as 'owner' | 'staff')} modifiers={[pickerStyle('segmented')]}>
+              <Text modifiers={[tag('staff')]}>Сотрудник</Text>
+              <Text modifiers={[tag('owner')]}>Владелец</Text>
+            </Picker>
+          </Section>
 
-        <Group title="Роль" footer={row.role === 'owner' ? 'Владелец видит всё и может менять настройки клуба.' : 'Сотрудник работает в кассе; разделы «Управления» открываются правами ниже.'}>
-          <View style={styles.chips}>
-            <GlassChip label="Сотрудник" icon="person" active={row.role !== 'owner'} onPress={() => setRole('staff')} />
-            <GlassChip label="Владелец" icon="crown" active={row.role === 'owner'} onPress={() => setRole('owner')} />
-          </View>
-        </Group>
+          {row.role !== 'owner' && (
+            <Section title="Права" footer={<Text>Выключенное право убирает раздел из «Управления» у этого сотрудника.</Text>}>
+              {PERMISSIONS.map((item) => (
+                <Toggle key={item.key} label={item.label} isOn={permissionOn(row, item.key)} onIsOnChange={(on) => togglePermission(item.key, on)} />
+              ))}
+            </Section>
+          )}
 
-        {row.role !== 'owner' && (
-          <Group title="Права" inset={16} footer="Выключенное право убирает раздел из «Управления» у этого сотрудника.">
-            {PERMISSIONS.map((item) => (
-              <SwitchRow key={item.key} title={item.label} value={permissionOn(row, item.key)} disabled={pending?.startsWith('perm:')} onChange={(on) => togglePermission(item.key, on)} />
-            ))}
-          </Group>
-        )}
+          <Section title="Вход">
+            <LinkRow icon="key.fill" color="#FF9500" title="Сменить пароль" chevron={false} onPress={changePassword} />
+            <LinkRow icon="number.circle.fill" color="#AF52DE" title="Сбросить PIN" chevron={false} onPress={changePin} />
+            <LinkRow icon="paperplane.fill" color="#32ADE6" title="Telegram" value={row.tgUsername ? `@${row.tgUsername}` : row.tgId ? 'привязан' : 'не привязан'} onPress={linkTelegram} />
+          </Section>
 
-        <Group title="Вход">
-          <Row icon="key" color="#F59E0B" title="Сменить пароль" busy={pending === 'password'} onPress={changePassword} />
-          <Row icon="number.circle" color="#8B5CF6" title="Сбросить PIN" busy={pending === 'pin'} onPress={changePin} />
-          <Row icon="paperplane" color="#0EA5E9" title="Telegram" value={row.tgUsername ? `@${row.tgUsername}` : row.tgId ? 'привязан' : 'не привязан'} busy={pending === 'tg'} onPress={linkTelegram} />
-        </Group>
+          {(passkeys.data ?? []).length > 0 && (
+            <Section title="Ключи входа" footer={<Text>Face ID на устройствах сотрудника. Удаление ключа не трогает пароль.</Text>}>
+              {(passkeys.data ?? []).map((key) => (
+                <LinkRow
+                  key={key.id}
+                  icon="faceid"
+                  color="#34C759"
+                  title={key.deviceType === 'multiDevice' ? 'Ключ в iCloud Keychain' : 'Ключ на устройстве'}
+                  subtitle={new Date(key.createdAt).toLocaleDateString('ru-RU')}
+                  value="Удалить"
+                  valueColor={colors.red}
+                  chevron={false}
+                  onPress={() => removePasskey(key.id)}
+                />
+              ))}
+            </Section>
+          )}
 
-        <Group title="Ключи входа" footer="Face ID на устройствах сотрудника. Удаление ключа не трогает пароль.">
-          {(passkeys.data ?? []).map((key) => (
-            <Row key={key.id} icon="faceid" color="#22C55E" title={key.deviceType === 'multiDevice' ? 'Ключ в iCloud Keychain' : 'Ключ на устройстве'} subtitle={new Date(key.createdAt).toLocaleDateString('ru-RU')} value="Удалить" valueColor={colors.red} onPress={() => removePasskey(key.id)} />
-          ))}
-        </Group>
-
-        {!isSelf && (
-          <DangerRow title="Уволить сотрудника" icon="person.badge.minus" onPress={remove} />
-        )}
-        {isSelf && <Text style={[type.footnote, styles.secondary, styles.centered]}>Это ваш профиль — удалить себя нельзя.</Text>}
-      </ScrollView>
-    </AmbientBackdrop>
+          <Section footer={isSelf ? <Text>Это ваш профиль — удалить себя нельзя.</Text> : undefined}>
+            {!isSelf && <ActionRow title="Уволить сотрудника" icon="person.badge.minus" destructive onPress={remove} />}
+          </Section>
+        </Form>
+      </Host>
+    </>
   );
 }
-
-const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.groupedBackground },
-  content: { paddingHorizontal: space.lg, paddingBottom: 140, gap: space.lg },
-  loading: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  hero: { alignItems: 'center', gap: space.xs, paddingVertical: space.xl },
-  label: { color: colors.label },
-  secondary: { color: colors.secondaryLabel },
-  centered: { textAlign: 'center' },
-  chips: { flexDirection: 'row', gap: space.sm, padding: space.lg },
-});

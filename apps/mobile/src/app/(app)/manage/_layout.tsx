@@ -83,15 +83,17 @@ export default function ManageLayout() {
       <Stack.Screen name="collections/pay" options={compactSheet} />
       <Stack.Screen name="collections/member" options={compactSheet} />
 
-      <Stack.Screen name="loyalty/index" options={glassHeader({ title: 'Лояльность' })} />
-      <Stack.Screen name="loyalty/discount" options={tallSheet} />
-      <Stack.Screen name="loyalty/tier-rule" options={compactSheet} />
+      <Stack.Screen name="loyalty/index" options={formHeader({ title: 'Лояльность' })} />
+      <Stack.Screen name="loyalty/bonus" options={formHeader({ title: 'Бонусная программа' })} />
+      <Stack.Screen name="loyalty/certificates" options={formHeader({ title: 'Сертификаты' })} />
+      <Stack.Screen name="loyalty/discount" options={editorModal} />
+      <Stack.Screen name="loyalty/tier-rule" options={editorModal} />
 
-      <Stack.Screen name="staff/index" options={glassHeader({ title: 'Пользователи' })} />
-      <Stack.Screen name="staff/[staffId]" options={glassHeader()} />
+      <Stack.Screen name="staff/index" options={formHeader({ title: 'Сотрудники' })} />
+      <Stack.Screen name="staff/[staffId]" options={formHeader()} />
       <Stack.Screen name="staff/me" options={formHeader({ title: 'Мой профиль' })} />
-      <Stack.Screen name="staff/notifications" options={glassHeader({ title: 'Уведомления' })} />
-      <Stack.Screen name="staff/new" options={tallSheet} />
+      <Stack.Screen name="staff/notifications" options={formHeader({ title: 'Уведомления' })} />
+      <Stack.Screen name="staff/new" options={editorModal} />
 
       <Stack.Screen name="settings/index" options={formHeader({ title: 'Настройки клуба' })} />
       <Stack.Screen name="settings/payment" options={formHeader({ title: 'Оплата и чеки' })} />
@@ -102,7 +104,7 @@ export default function ManageLayout() {
       <Stack.Screen name="polls/index" options={glassHeader({ title: 'Опросы' })} />
       <Stack.Screen name="polls/edit" options={tallSheet} />
 
-      <Stack.Screen name="about/index" options={glassHeader({ title: 'О системе' })} />
+      <Stack.Screen name="about/index" options={formHeader({ title: 'О системе' })} />
     </Stack>
   );
 }

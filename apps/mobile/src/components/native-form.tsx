@@ -1,10 +1,11 @@
-import { Button, DatePicker, HStack, Image, Spacer, Text, TextField, useNativeState, VStack } from '@expo/ui/swift-ui';
+import { Button, DatePicker, HStack, Image, SecureField, Spacer, Text, TextField, useNativeState, VStack } from '@expo/ui/swift-ui';
 import {
   background,
   font,
   foregroundStyle,
   frame,
   keyboardType as keyboardTypeModifier,
+  layoutPriority,
   lineLimit,
   multilineTextAlignment,
   onSubmit,
@@ -152,7 +153,8 @@ export function TextRow({
   };
   return (
     <HStack spacing={12}>
-      <Text modifiers={[primary]}>{label}</Text>
+      {/* Подпись в одну строку и в приоритете: поле значения ужимается, а не переносит подпись. */}
+      <Text modifiers={[primary, lineLimit(1), layoutPriority(1)]}>{label}</Text>
       <TextField
         text={text}
         placeholder={placeholder}
@@ -181,6 +183,7 @@ export function FieldRow({
   maxLength,
   multiline,
   autoFocus,
+  secure,
   onChange,
   onCommit,
 }: {
@@ -190,6 +193,8 @@ export function FieldRow({
   maxLength?: number;
   multiline?: boolean;
   autoFocus?: boolean;
+  /** Пароль: символы скрыты. */
+  secure?: boolean;
   onChange?: (next: string) => void;
   onCommit?: (next: string) => void;
 }) {
@@ -201,6 +206,20 @@ export function FieldRow({
     setCommitted(draft.trim());
     onCommit(draft.trim());
   };
+  if (secure) {
+    return (
+      <SecureField
+        text={text}
+        placeholder={placeholder}
+        autoFocus={autoFocus}
+        onTextChange={(next) => {
+          setDraft(next);
+          onChange?.(next);
+        }}
+        modifiers={[submitLabel('done'), onSubmit(commit)]}
+      />
+    );
+  }
   return (
     <TextField
       text={text}

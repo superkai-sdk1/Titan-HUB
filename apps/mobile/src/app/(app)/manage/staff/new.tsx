@@ -1,22 +1,19 @@
+import { Form, Host, Picker, Section, Text } from '@expo/ui/swift-ui';
+import { pickerStyle, tag } from '@expo/ui/swift-ui/modifiers';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { Alert, ScrollView, StyleSheet, View } from 'react-native';
-import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Alert } from 'react-native';
 
-import { FormField, FormSection } from '@/components/form-parts';
-import { GlassCard, GlassChip, PrimaryButton, SheetHeader, sheetStyles } from '@/components/new-check-parts';
+import { EditorToolbar } from '@/components/editor-toolbar';
+import { FieldRow } from '@/components/native-form';
 import { createStaff } from '@/lib/admin-api';
 import { haptic } from '@/lib/haptics';
-import { KEYBOARD_DISMISS } from '@/lib/layout';
-import { space } from '@/lib/theme';
 
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
-/** Новый сотрудник: никнейм и пароль для входа, PIN для быстрого входа, роль. */
+/** Новый сотрудник: никнейм и пароль для входа, PIN для быстрого входа, телефон, роль. */
 export default function NewStaffSheet() {
   const router = useRouter();
-  const insets = useSafeAreaInsets();
   const [nickname, setNickname] = useState('');
   const [password, setPassword] = useState('');
   const [pin, setPin] = useState('');
@@ -24,11 +21,11 @@ export default function NewStaffSheet() {
   const [role, setRole] = useState<'owner' | 'staff'>('staff');
   const [busy, setBusy] = useState(false);
 
-  const ready = nickname.trim().length >= 2 && password.length >= 4;
+  const pinValid = !pin || /^\d{4}$/.test(pin);
+  const ready = nickname.trim().length >= 2 && password.length >= 4 && pinValid;
 
   const save = async () => {
     if (!ready) return;
-    if (pin && !/^\d{4}$/.test(pin)) return Alert.alert('PIN — ровно 4 цифры');
     haptic.medium();
     setBusy(true);
     try {
@@ -44,54 +41,34 @@ export default function NewStaffSheet() {
   };
 
   return (
-    <KeyboardAvoidingView behavior="padding" style={styles.flex}>
-      <ScrollView contentContainerStyle={[styles.content, { paddingBottom: Math.max(insets.bottom, space.lg) }]} keyboardShouldPersistTaps="handled" keyboardDismissMode={KEYBOARD_DISMISS} showsVerticalScrollIndicator={false}>
-        <SheetHeader title="Новый сотрудник" onClose={() => router.back()} />
-
-        <FormSection title="ВХОД" footer="Никнейм и пароль сотрудник вводит при первом входе. PIN — быстрый вход на устройстве кассы.">
-          <GlassCard style={styles.card}>
-            <FormField icon="person" value={nickname} onChange={setNickname} placeholder="Никнейм" autoFocus />
-            <View style={sheetStyles.separator} />
-            <FormField icon="key" value={password} onChange={setPassword} placeholder="Пароль, не меньше 4 символов" />
-            <View style={sheetStyles.separator} />
-            <FormField icon="number.circle" value={pin} onChange={setPin} placeholder="PIN из 4 цифр, необязательно" keyboardType="number-pad" />
-            <View style={sheetStyles.separator} />
-            <FormField icon="phone" value={phone} onChange={setPhone} placeholder="Телефон, необязательно" keyboardType="phone-pad" />
-          </GlassCard>
-        </FormSection>
-
-        <FormSection title="РОЛЬ" footer={role === 'owner' ? 'Владелец видит деньги, аналитику и настройки клуба.' : 'Сотруднику потом можно настроить права на разделы «Управления».'}>
-          <View style={styles.chips}>
-            <GlassChip
-              label="Сотрудник"
-              icon="person"
-              active={role === 'staff'}
-              onPress={() => {
+    <>
+      <EditorToolbar title="Новый сотрудник" canSave={ready} busy={busy} saveLabel="Добавить" onSave={() => void save()} />
+      <Host style={{ flex: 1 }} useViewportSizeMeasurement>
+        <Form>
+          <Section title="Никнейм" footer={<Text>Под ним сотрудник входит в кассу и виден в чеках.</Text>}>
+            <FieldRow value={nickname} placeholder="Например, Кай" autoFocus maxLength={40} onChange={setNickname} />
+          </Section>
+          <Section title="Пароль" footer={<Text>Не меньше 4 символов — для первого входа.</Text>}>
+            <FieldRow value={password} placeholder="Пароль" secure onChange={setPassword} />
+          </Section>
+          <Section title="PIN и телефон" footer={<Text>{pinValid ? 'PIN — 4 цифры для быстрого входа на устройстве кассы. Необязательно.' : 'PIN — ровно 4 цифры.'}</Text>}>
+            <FieldRow value={pin} placeholder="PIN, необязательно" keyboard="numeric" maxLength={4} onChange={setPin} />
+            <FieldRow value={phone} placeholder="Телефон, необязательно" keyboard="phone-pad" onChange={setPhone} />
+          </Section>
+          <Section title="Роль" footer={<Text>{role === 'owner' ? 'Владелец видит деньги, аналитику и настройки клуба.' : 'Сотруднику потом можно настроить права на разделы «Управления».'}</Text>}>
+            <Picker
+              selection={role}
+              onSelectionChange={(value) => {
                 haptic.selection();
-                setRole('staff');
+                setRole(value as 'owner' | 'staff');
               }}
-            />
-            <GlassChip
-              label="Владелец"
-              icon="crown"
-              active={role === 'owner'}
-              onPress={() => {
-                haptic.selection();
-                setRole('owner');
-              }}
-            />
-          </View>
-        </FormSection>
-
-        <PrimaryButton title={busy ? 'Добавляем…' : 'Добавить сотрудника'} icon="person.badge.plus" busy={busy} disabled={!ready} onPress={() => void save()} />
-      </ScrollView>
-    </KeyboardAvoidingView>
+              modifiers={[pickerStyle('segmented')]}>
+              <Text modifiers={[tag('staff')]}>Сотрудник</Text>
+              <Text modifiers={[tag('owner')]}>Владелец</Text>
+            </Picker>
+          </Section>
+        </Form>
+      </Host>
+    </>
   );
 }
-
-const styles = StyleSheet.create({
-  flex: { flex: 1 },
-  content: { paddingHorizontal: space.lg, paddingTop: space.xl, gap: space.lg },
-  card: { paddingHorizontal: space.lg },
-  chips: { flexDirection: 'row', gap: space.sm },
-});
