@@ -1,38 +1,44 @@
+import { Button, ContentUnavailableView, Form, HStack, Host, LabeledContent, ProgressView, Section, Spacer, Text, VStack } from '@expo/ui/swift-ui';
+import {
+  Animation,
+  animation,
+  buttonStyle,
+  contentTransition,
+  controlSize,
+  font,
+  foregroundStyle,
+  frame,
+  lineLimit,
+  monospacedDigit,
+  refreshable,
+} from '@expo/ui/swift-ui/modifiers';
 import { Stack, useRouter } from 'expo-router';
-import { SymbolView } from 'expo-symbols';
-import { useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import Animated, { FadeIn, FadeOut, LinearTransition } from 'react-native-reanimated';
 import type { SFSymbol } from 'sf-symbols-typescript';
 
-import { AppRefreshControl } from '@/components/refresh-control';
-import { AmbientBackdrop } from '@/components/ambient-backdrop';
-import { GlassCard, GlassChip, PrimaryButton, sheetStyles } from '@/components/new-check-parts';
-import { RollingText } from '@/components/rolling-text';
+import { ActionRow, LinkRow, primary, secondary } from '@/components/native-form';
 import { formatDuration, formatMoney, formatTime, toNumber } from '@/lib/format';
 import { haptic } from '@/lib/haptics';
-import { usePageGutter } from '@/lib/layout';
 import { useShiftSummary } from '@/lib/queries';
 import { EVENING_LABEL, useCashOps, useShiftHistory, type CashOpItem } from '@/lib/shift-api';
-import { colors, space, type } from '@/lib/theme';
+import { colors } from '@/lib/theme';
 import { useNow } from '@/lib/use-now';
 
 const dateFormat = new Intl.DateTimeFormat('ru-RU', { timeZone: 'Europe/Moscow', day: 'numeric', month: 'long', weekday: 'short' });
 
 const OP_LOOK: Record<CashOpItem['type'], { title: string; symbol: SFSymbol; color: string; sign: 1 | -1 }> = {
-  deposit: { title: 'Внесение', symbol: 'arrow.down.circle.fill', color: '#10B981', sign: 1 },
-  withdrawal: { title: 'Изъятие', symbol: 'arrow.up.circle.fill', color: '#F59E0B', sign: -1 },
-  salary: { title: 'Зарплата', symbol: 'person.crop.circle.badge.checkmark', color: '#06B6D4', sign: -1 },
+  deposit: { title: 'Внесение', symbol: 'arrow.down.circle.fill', color: '#34C759', sign: 1 },
+  withdrawal: { title: 'Изъятие', symbol: 'arrow.up.circle.fill', color: '#FF9500', sign: -1 },
+  salary: { title: 'Зарплата', symbol: 'person.crop.circle.badge.checkmark', color: '#32ADE6', sign: -1 },
 };
 
 const money = (value: number, sign = false) => formatMoney(value, { sign, kopecks: 'auto' });
+const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
 /**
  * «Смены»: текущая смена — сколько в кассе и откуда, операции с наличными, быстрые действия;
  * ниже история смен, каждая открывается подробным отчётом.
  */
 export default function ShiftsScreen() {
-  const gutter = usePageGutter();
   const router = useRouter();
   const now = useNow(60_000);
   const summary = useShiftSummary();
@@ -40,251 +46,158 @@ export default function ShiftsScreen() {
   const shift = open?.shift ?? null;
   const cashOps = useCashOps(!!shift);
   const history = useShiftHistory();
-  const [pulling, setPulling] = useState(false);
 
   const balance = cashOps.data?.balance;
   const operations = cashOps.data?.operations ?? [];
   const pastShifts = (history.data?.pages.flat() ?? []).filter((row) => row.shift.status === 'closed');
+  const inRegister = balance?.expected ?? open?.cashInRegister ?? 0;
 
-  const refresh = async () => {
-    setPulling(true);
-    await Promise.allSettled([summary.refetch(), cashOps.refetch(), history.refetch()]);
-    setPulling(false);
-  };
+  const line = (label: string, value: number, sign = false, positive = false) => (
+    <LabeledContent key={label} label={label}>
+      <Text modifiers={[positive ? foregroundStyle(colors.green) : secondary, monospacedDigit()]}>{money(value, sign)}</Text>
+    </LabeledContent>
+  );
 
   return (
-    <AmbientBackdrop style={styles.screen}>
+    <>
       <Stack.Title>Смены</Stack.Title>
-      <ScrollView
-        contentInsetAdjustmentBehavior="automatic"
-        contentContainerStyle={[styles.content, gutter]}
-        refreshControl={<AppRefreshControl tintColor={colors.accent} refreshing={pulling} onRefresh={refresh} />}>
-        {summary.isLoading ? (
-          <ActivityIndicator style={styles.loading} />
-        ) : shift ? (
-          <GlassCard style={styles.card}>
-            <View style={styles.cardTop}>
-              <View style={[styles.statusDot, { backgroundColor: colors.green }]} />
-              <Text style={[type.headline, styles.label, styles.flex]}>{`Открыта в ${formatTime(shift.openedAt)}`}</Text>
-              <Text style={[type.subhead, styles.secondary]}>{formatDuration(shift.openedAt, now)}</Text>
-            </View>
-            {EVENING_LABEL[shift.eveningType] && (
-              <View style={styles.evening}>
-                <SymbolView name="moon.stars" size={13} tintColor={colors.accent} />
-                <Text style={[type.footnote, styles.eveningText]}>{EVENING_LABEL[shift.eveningType]}</Text>
-              </View>
-            )}
+      <Host style={{ flex: 1 }} useViewportSizeMeasurement>
+        <Form modifiers={[refreshable(async () => void (await Promise.allSettled([summary.refetch(), cashOps.refetch(), history.refetch()])))]}>
+          {summary.isLoading ? (
+            <Section>
+              <ProgressView />
+            </Section>
+          ) : shift ? (
+            <>
+              <Section footer={<Text>{`Открыта в ${formatTime(shift.openedAt)} · идёт ${formatDuration(shift.openedAt, now)}${EVENING_LABEL[shift.eveningType] ? ` · ${EVENING_LABEL[shift.eveningType]}` : ''}`}</Text>}>
+                <VStack alignment="leading" spacing={2}>
+                  <Text modifiers={[font({ textStyle: 'footnote', weight: 'semibold' }), secondary]}>В КАССЕ</Text>
+                  <Text
+                    modifiers={[
+                      font({ size: 36, weight: 'bold', design: 'rounded' }),
+                      primary,
+                      monospacedDigit(),
+                      contentTransition('numericText'),
+                      animation(Animation.default, inRegister),
+                    ]}>
+                    {money(inRegister)}
+                  </Text>
+                </VStack>
+                <HStack spacing={10}>
+                  <Button
+                    label="Внести"
+                    systemImage="arrow.down.circle"
+                    onPress={() => {
+                      haptic.light();
+                      router.push({ pathname: '/shift/cash', params: { type: 'deposit' } });
+                    }}
+                    modifiers={[buttonStyle('bordered'), controlSize('large'), frame({ maxWidth: 10_000 })]}
+                  />
+                  <Button
+                    label="Изъять"
+                    systemImage="arrow.up.circle"
+                    onPress={() => {
+                      haptic.light();
+                      router.push({ pathname: '/shift/cash', params: { type: 'withdrawal' } });
+                    }}
+                    modifiers={[buttonStyle('bordered'), controlSize('large'), frame({ maxWidth: 10_000 })]}
+                  />
+                </HStack>
+              </Section>
 
-            <View style={styles.cash}>
-              <Text style={[type.footnote, styles.caption]}>В КАССЕ</Text>
-              <RollingText text={money(balance?.expected ?? open?.cashInRegister ?? 0)} style={[styles.cashAmount, type.amount]} />
-            </View>
+              {balance && (
+                <Section title="Откуда наличные">
+                  {line('Начало смены', balance.cashStart)}
+                  {!!balance.cashPayments && line('Наличные оплаты', balance.cashPayments, true)}
+                  {!!balance.deposits && line('Внесения', balance.deposits, true, true)}
+                  {!!balance.withdrawals && line('Изъятия', -balance.withdrawals)}
+                  {!!balance.salaries && line('Зарплаты', -balance.salaries)}
+                  {!!balance.cashRefundTotal && line('Возвраты наличными', -balance.cashRefundTotal)}
+                </Section>
+              )}
 
-            {balance && (
-              <View style={styles.breakdown}>
-                <Line label="Начало смены" value={money(balance.cashStart)} />
-                {!!balance.cashPayments && <Line label="Наличные оплаты" value={money(balance.cashPayments, true)} />}
-                {!!balance.deposits && <Line label="Внесения" value={money(balance.deposits, true)} positive />}
-                {!!balance.withdrawals && <Line label="Изъятия" value={money(-balance.withdrawals)} />}
-                {!!balance.salaries && <Line label="Зарплаты" value={money(-balance.salaries)} />}
-                {!!balance.cashRefundTotal && <Line label="Возвраты наличными" value={money(-balance.cashRefundTotal)} />}
-              </View>
-            )}
+              {operations.length > 0 && (
+                <Section title="Операции с наличными">
+                  {operations.map((op) => {
+                    const look = OP_LOOK[op.type];
+                    return (
+                      <LinkRow
+                        key={op.id}
+                        icon={look.symbol}
+                        color={look.color}
+                        title={op.description || look.title}
+                        subtitle={[formatTime(op.createdAt), op.createdBy].filter(Boolean).join(' · ')}
+                        value={money(look.sign * toNumber(op.amount), look.sign > 0)}
+                        valueColor={look.sign > 0 ? colors.green : undefined}
+                      />
+                    );
+                  })}
+                </Section>
+              )}
 
-            <View style={styles.actions}>
-              <GlassChip
-                style={styles.flex}
-                label="Внести"
-                icon="arrow.down.circle"
-                tint="#10B981"
-                active={false}
-                onPress={() => {
-                  haptic.light();
-                  router.push({ pathname: '/shift/cash', params: { type: 'deposit' } });
-                }}
-              />
-              <GlassChip
-                style={styles.flex}
-                label="Изъять"
-                icon="arrow.up.circle"
-                tint="#F59E0B"
-                active={false}
-                onPress={() => {
-                  haptic.light();
-                  router.push({ pathname: '/shift/cash', params: { type: 'withdrawal' } });
-                }}
-              />
-            </View>
-            <Pressable
-              onPress={() => {
-                haptic.light();
-                router.push('/shift/close');
-              }}
-              style={({ pressed }) => [styles.closeShift, pressed && styles.pressed]}
-              accessibilityRole="button">
-              <SymbolView name="moon" size={15} tintColor={colors.red} />
-              <Text style={[type.body, styles.closeShiftText]}>Закрыть смену</Text>
-            </Pressable>
-          </GlassCard>
-        ) : (
-          <GlassCard style={[styles.card, styles.closedCard]}>
-            <SymbolView name="moon.zzz" size={40} tintColor={colors.secondaryLabel} />
-            <Text style={[type.title3, styles.label]}>Смена закрыта</Text>
-            <Text style={[type.subhead, styles.secondary, styles.centered]}>Чтобы открывать чеки, начните смену и пересчитайте наличные.</Text>
-            <View style={styles.stretch}>
-              <PrimaryButton
-                title="Открыть смену"
-                icon="sunrise"
+              <Section>
+                <ActionRow
+                  title="Закрыть смену"
+                  icon="moon"
+                  destructive
+                  onPress={() => {
+                    haptic.light();
+                    router.push('/shift/close');
+                  }}
+                />
+              </Section>
+            </>
+          ) : (
+            <Section>
+              <ContentUnavailableView title="Смена закрыта" systemImage="moon.zzz" description="Чтобы открывать чеки, начните смену и пересчитайте наличные." />
+              <Button
+                label="Открыть смену"
+                systemImage="sunrise"
                 onPress={() => {
                   haptic.light();
                   router.push('/shift/open');
                 }}
+                modifiers={[buttonStyle('borderedProminent'), controlSize('large'), frame({ maxWidth: 10_000 })]}
               />
-            </View>
-          </GlassCard>
-        )}
-
-        {shift && operations.length > 0 && (
-          <View style={styles.section}>
-            <Text style={[type.footnote, sheetStyles.sectionTitle]}>ОПЕРАЦИИ С НАЛИЧНЫМИ</Text>
-            <GlassCard>
-              {operations.map((op, index) => {
-                const look = OP_LOOK[op.type];
-                return (
-                  <Animated.View key={op.id} entering={FadeIn} exiting={FadeOut} layout={LinearTransition}>
-                    {index > 0 && <View style={[sheetStyles.separator, styles.opSeparator]} />}
-                    <View style={styles.opRow}>
-                      <SymbolView name={look.symbol} size={26} tintColor={look.color} />
-                      <View style={styles.flex}>
-                        <Text style={[type.body, styles.label]} numberOfLines={1}>
-                          {op.description || look.title}
-                        </Text>
-                        <Text style={[type.footnote, styles.secondary]} numberOfLines={1}>
-                          {[formatTime(op.createdAt), op.createdBy].filter(Boolean).join(' · ')}
-                        </Text>
-                      </View>
-                      <Text style={[type.body, type.amount, { color: look.sign > 0 ? colors.green : colors.label }]}>
-                        {money(look.sign * toNumber(op.amount), look.sign > 0)}
-                      </Text>
-                    </View>
-                  </Animated.View>
-                );
-              })}
-            </GlassCard>
-          </View>
-        )}
-
-        <View style={styles.section}>
-          <Text style={[type.footnote, sheetStyles.sectionTitle]}>ИСТОРИЯ</Text>
-          {history.isLoading ? (
-            <ActivityIndicator style={styles.loadingSmall} />
-          ) : pastShifts.length === 0 ? (
-            <Text style={[type.subhead, styles.secondary, styles.empty]}>Закрытых смен пока нет</Text>
-          ) : (
-            <GlassCard>
-              {pastShifts.map(({ shift: row, openedByNickname }, index) => (
-                <View key={row.id}>
-                  {index > 0 && <View style={[sheetStyles.separator, styles.historySeparator]} />}
-                  <Pressable
-                    onPress={() => {
-                      haptic.selection();
-                      router.push({ pathname: '/manage/shifts/[shiftId]', params: { shiftId: row.id } });
-                    }}
-                    style={({ pressed }) => [styles.historyRow, pressed && sheetStyles.pressedRow]}
-                    accessibilityRole="button">
-                    <View style={styles.historyDate}>
-                      <SymbolView name="calendar" size={16} tintColor={colors.accent} />
-                    </View>
-                    <View style={styles.flex}>
-                      <Text style={[type.body, styles.label]} numberOfLines={1}>
-                        {capitalize(dateFormat.format(new Date(row.openedAt)))}
-                      </Text>
-                      <Text style={[type.footnote, styles.secondary]} numberOfLines={1}>
-                        {[`${formatTime(row.openedAt)}–${row.closedAt ? formatTime(row.closedAt) : '…'}`, openedByNickname, EVENING_LABEL[row.eveningType]]
-                          .filter(Boolean)
-                          .join(' · ')}
-                      </Text>
-                    </View>
-                    <View style={styles.historyCash}>
-                      <Text style={[type.subhead, type.amount, styles.label]}>{row.cashEnd !== null ? money(toNumber(row.cashEnd)) : '—'}</Text>
-                      <Text style={[type.caption2, styles.tertiary]}>в кассе</Text>
-                    </View>
-                    <SymbolView name="chevron.right" size={12} weight="semibold" tintColor={colors.tertiaryLabel} />
-                  </Pressable>
-                </View>
-              ))}
-            </GlassCard>
+            </Section>
           )}
-          {history.hasNextPage && (
-            <Pressable
-              onPress={() => void history.fetchNextPage()}
-              disabled={history.isFetchingNextPage}
-              style={({ pressed }) => [styles.more, pressed && styles.pressed]}
-              accessibilityRole="button">
-              {history.isFetchingNextPage ? <ActivityIndicator /> : <Text style={[type.subhead, styles.moreText]}>Показать ещё</Text>}
-            </Pressable>
-          )}
-        </View>
-      </ScrollView>
-    </AmbientBackdrop>
+
+          <Section title="История" footer={history.hasNextPage ? undefined : <Text>Нажмите на смену — откроется отчёт: итоги, чеки, товары, игроки.</Text>}>
+            {history.isLoading ? (
+              <ProgressView />
+            ) : pastShifts.length === 0 ? (
+              <Text modifiers={[secondary]}>Закрытых смен пока нет</Text>
+            ) : (
+              pastShifts.map(({ shift: row, openedByNickname }) => (
+                <Button
+                  key={row.id}
+                  onPress={() => {
+                    haptic.selection();
+                    router.push({ pathname: '/manage/shifts/[shiftId]', params: { shiftId: row.id } });
+                  }}>
+                  <HStack spacing={10}>
+                    <VStack alignment="leading" spacing={1}>
+                      <Text modifiers={[primary, lineLimit(1)]}>{capitalize(dateFormat.format(new Date(row.openedAt)))}</Text>
+                      <Text modifiers={[font({ textStyle: 'footnote' }), secondary, lineLimit(1)]}>
+                        {[`${formatTime(row.openedAt)}–${row.closedAt ? formatTime(row.closedAt) : '…'}`, openedByNickname, EVENING_LABEL[row.eveningType]].filter(Boolean).join(' · ')}
+                      </Text>
+                    </VStack>
+                    <Spacer />
+                    <VStack alignment="trailing" spacing={1}>
+                      <Text modifiers={[primary, monospacedDigit()]}>{row.cashEnd !== null ? money(toNumber(row.cashEnd)) : '—'}</Text>
+                      <Text modifiers={[font({ textStyle: 'caption2' }), secondary]}>в кассе</Text>
+                    </VStack>
+                  </HStack>
+                </Button>
+              ))
+            )}
+            {history.hasNextPage && (
+              <ActionRow title={history.isFetchingNextPage ? 'Загружаем…' : 'Показать ещё'} icon="arrow.down.circle" disabled={history.isFetchingNextPage} onPress={() => void history.fetchNextPage()} />
+            )}
+          </Section>
+        </Form>
+      </Host>
+    </>
   );
 }
 
-function Line({ label, value, positive }: { label: string; value: string; positive?: boolean }) {
-  return (
-    <View style={styles.line}>
-      <Text style={[type.subhead, styles.secondary, styles.flex]}>{label}</Text>
-      <Text style={[type.subhead, type.amount, positive ? styles.green : styles.label]}>{value}</Text>
-    </View>
-  );
-}
-
-const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
-
-const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.groupedBackground },
-  flex: { flex: 1 },
-  stretch: { alignSelf: 'stretch' },
-  content: { paddingHorizontal: space.lg, paddingBottom: 140, gap: space.lg },
-  loading: { paddingTop: 80 },
-  loadingSmall: { paddingVertical: space.xl },
-  label: { color: colors.label },
-  secondary: { color: colors.secondaryLabel },
-  tertiary: { color: colors.tertiaryLabel },
-  green: { color: colors.green },
-  centered: { textAlign: 'center' },
-  pressed: { opacity: 0.6 },
-  card: { padding: space.lg, gap: space.md },
-  closedCard: { alignItems: 'center', paddingVertical: space.xxl },
-  cardTop: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
-  statusDot: { width: 10, height: 10, borderRadius: 5 },
-  evening: {
-    alignSelf: 'flex-start',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 999,
-    backgroundColor: colors.fill,
-  },
-  eveningText: { color: colors.label, fontWeight: '600' },
-  cash: { alignItems: 'center', gap: 2, paddingVertical: space.sm },
-  caption: { color: colors.secondaryLabel, fontWeight: '600', letterSpacing: 0.6 },
-  cashAmount: { fontSize: 44, lineHeight: 52, color: colors.label },
-  breakdown: { gap: 6 },
-  line: { flexDirection: 'row', alignItems: 'center', gap: space.md },
-  actions: { flexDirection: 'row', gap: space.sm, marginTop: space.xs },
-  closeShift: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: space.sm },
-  closeShiftText: { color: colors.red, fontWeight: '600' },
-  section: { gap: space.sm },
-  opRow: { flexDirection: 'row', alignItems: 'center', gap: space.md, paddingHorizontal: space.lg, minHeight: 56 },
-  opSeparator: { marginLeft: 56 },
-  empty: { paddingHorizontal: space.xs },
-  historyRow: { flexDirection: 'row', alignItems: 'center', gap: space.md, paddingHorizontal: space.lg, minHeight: 60 },
-  historyDate: { width: 32, height: 32, borderRadius: 9, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.fill },
-  historySeparator: { marginLeft: 60 },
-  historyCash: { alignItems: 'flex-end' },
-  more: { alignSelf: 'center', paddingHorizontal: space.xl, paddingVertical: space.md, minHeight: 44, justifyContent: 'center' },
-  moreText: { color: colors.accent, fontWeight: '600' },
-});

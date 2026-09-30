@@ -59,10 +59,10 @@ export default function ManageLayout() {
       <Stack.Screen name="inventory/revision-editor" options={glassHeader()} />
       <Stack.Screen name="inventory/expense-new" options={tallSheet} />
 
-      <Stack.Screen name="salary/index" options={glassHeader({ title: 'Зарплата' })} />
+      <Stack.Screen name="salary/index" options={formHeader({ title: 'Зарплата' })} />
 
-      <Stack.Screen name="shifts/index" options={glassHeader({ title: 'Смены' })} />
-      <Stack.Screen name="shifts/[shiftId]" options={glassHeader({ title: 'Отчёт смены' })} />
+      <Stack.Screen name="shifts/index" options={formHeader({ title: 'Смены' })} />
+      <Stack.Screen name="shifts/[shiftId]" options={formHeader({ title: 'Отчёт смены' })} />
 
       <Stack.Screen name="clients/index" options={glassHeader({ title: 'Клиенты' })} />
       <Stack.Screen name="clients/[clientId]" options={glassHeader()} />
