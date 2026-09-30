@@ -556,6 +556,141 @@ analyticsRouter.get('/overview', zValidator('query', dateRangeQuerySchema), asyn
   })
 })
 
+// ─── Insights: структура, ритм клуба, гости, тренд ─────────────────────────────
+// Одним запросом — то, чего не было в «Обзоре»:
+//  • structure — из чего сложилась выручка закрытых чеков: бар (позиции и
+//    модификаторы), игры (позиции-тарифы), аренда зон (остаток итога сверх позиций
+//    и базы), мероприятия (база события на чеке) и скидки отдельной строкой;
+//  • hours — оборот и чеки по часу открытия чека (МСК), heat — день недели × час;
+//  • weekdays — по дню недели БИЗНЕС-дня (ночной чек в 01:00 — вечер прошлого дня),
+//    среднее на один такой день периода;
+//  • guests — уникальные гости, из них впервые за всё время, анонимные чеки;
+//  • months — 12 месяцев до конца периода (оборот, чеки) для тренда.
+// Списания на персонал (staff_comp) не входят — у них итог 0.
+analyticsRouter.get('/insights', zValidator('query', dateRangeQuerySchema), async (c) => {
+  const db = c.var.db
+  const q = c.req.valid('query')
+  const h = await getBusinessDayStartHour(db)
+  const from = q.from ?? bizDayStr(29, h)
+  const to = q.to ?? bizDayStr(0, h)
+  const start = bizDayBounds(from, h).start.toISOString()
+  const end = bizDayBounds(to, h).end.toISOString()
+  const rowsOf = (res: any) => (res?.rows ?? res ?? []) as any[]
+
+  const [structureRes, hoursRes, weekdaysRes, guestsRes, monthsRes] = await Promise.all([
+    db.execute(sql`
+      WITH c AS (
+        SELECT id, total_amount::numeric AS total, coalesce(event_base_amount, 0)::numeric AS base,
+               coalesce(discount_total, 0)::numeric AS disc
+        FROM checks
+        WHERE status = 'closed' AND staff_comp_id IS NULL
+          AND created_at >= ${start}::timestamptz AND created_at < ${end}::timestamptz
+      ),
+      it AS (
+        SELECT ci.check_id,
+          coalesce(sum(ci.quantity * ci.price_at_time) FILTER (WHERE t.id IS NOT NULL), 0) AS tariff,
+          coalesce(sum(ci.quantity * ci.price_at_time) FILTER (WHERE t.id IS NULL), 0) AS bar
+        FROM check_items ci
+        JOIN c ON c.id = ci.check_id
+        LEFT JOIN tariffs t ON t.item_id = ci.item_id
+        GROUP BY ci.check_id
+      ),
+      md AS (
+        SELECT ci.check_id, sum(m.price_at_time * ci.quantity) AS mods
+        FROM check_item_modifiers m
+        JOIN check_items ci ON ci.id = m.check_item_id
+        JOIN c ON c.id = ci.check_id
+        GROUP BY ci.check_id
+      )
+      SELECT
+        coalesce(sum(coalesce(it.bar, 0) + coalesce(md.mods, 0)), 0) AS bar,
+        coalesce(sum(coalesce(it.tariff, 0)), 0) AS games,
+        coalesce(sum(c.base), 0) AS events,
+        coalesce(sum(c.disc), 0) AS discounts,
+        coalesce(sum(greatest(0, c.total - c.base - (coalesce(it.tariff, 0) + coalesce(it.bar, 0) + coalesce(md.mods, 0) - c.disc))), 0) AS rental,
+        coalesce(sum(c.total), 0) AS total
+      FROM c LEFT JOIN it ON it.check_id = c.id LEFT JOIN md ON md.check_id = c.id
+    `),
+    db.execute(sql`
+      SELECT extract(isodow FROM (created_at AT TIME ZONE 'Europe/Moscow') - make_interval(hours => ${h}))::int AS dow,
+             extract(hour FROM created_at AT TIME ZONE 'Europe/Moscow')::int AS hour,
+             count(*)::int AS checks, coalesce(sum(total_amount), 0)::float AS revenue
+      FROM checks
+      WHERE status = 'closed' AND staff_comp_id IS NULL
+        AND created_at >= ${start}::timestamptz AND created_at < ${end}::timestamptz
+      GROUP BY 1, 2
+    `),
+    db.execute(sql`
+      SELECT extract(isodow FROM d)::int AS dow, count(*)::int AS days
+      FROM generate_series(${from}::date, ${to}::date, interval '1 day') AS d
+      GROUP BY 1
+    `),
+    db.execute(sql`
+      WITH p AS (
+        SELECT DISTINCT player_id FROM checks
+        WHERE status = 'closed' AND player_id IS NOT NULL AND staff_comp_id IS NULL
+          AND created_at >= ${start}::timestamptz AND created_at < ${end}::timestamptz
+      ),
+      firsts AS (
+        SELECT c.player_id, min(c.created_at) AS first_at
+        FROM checks c JOIN p ON p.player_id = c.player_id
+        WHERE c.status = 'closed'
+        GROUP BY c.player_id
+      )
+      SELECT
+        (SELECT count(*) FROM p)::int AS unique_guests,
+        (SELECT count(*) FROM firsts WHERE first_at >= ${start}::timestamptz)::int AS new_guests,
+        (SELECT count(*) FROM checks WHERE status = 'closed' AND player_id IS NULL AND staff_comp_id IS NULL
+           AND created_at >= ${start}::timestamptz AND created_at < ${end}::timestamptz)::int AS anonymous_checks
+    `),
+    db.execute(sql`
+      SELECT to_char(date_trunc('month', (created_at AT TIME ZONE 'Europe/Moscow') - make_interval(hours => ${h})), 'YYYY-MM') AS month,
+             count(*)::int AS checks, coalesce(sum(total_amount), 0)::float AS revenue
+      FROM checks
+      WHERE status = 'closed' AND staff_comp_id IS NULL
+        AND created_at >= (date_trunc('month', ${to}::date) - interval '11 months')::timestamp AT TIME ZONE 'Europe/Moscow'
+        AND created_at < ${end}::timestamptz
+      GROUP BY 1 ORDER BY 1
+    `),
+  ])
+
+  const st = rowsOf(structureRes)[0] ?? {}
+  const structure = {
+    bar: parseNum(st.bar), games: parseNum(st.games), rental: parseNum(st.rental), events: parseNum(st.events),
+    discounts: parseNum(st.discounts), total: parseNum(st.total),
+  }
+
+  const cells = rowsOf(hoursRes).map((r) => ({ dow: Number(r.dow), hour: Number(r.hour), checks: Number(r.checks), revenue: parseNum(r.revenue) }))
+  const hours = Array.from({ length: 24 }, (_, hour) => {
+    const at = cells.filter((x) => x.hour === hour)
+    return { hour, checks: at.reduce((a, x) => a + x.checks, 0), revenue: Math.round(at.reduce((a, x) => a + x.revenue, 0)) }
+  })
+  const dayCount = new Map(rowsOf(weekdaysRes).map((r) => [Number(r.dow), Number(r.days)]))
+  const weekdays = [1, 2, 3, 4, 5, 6, 7].map((dow) => {
+    const at = cells.filter((x) => x.dow === dow)
+    const revenue = at.reduce((a, x) => a + x.revenue, 0)
+    const checksCount = at.reduce((a, x) => a + x.checks, 0)
+    const days = dayCount.get(dow) ?? 0
+    return { dow, days, checks: checksCount, revenue: Math.round(revenue), avgRevenue: days > 0 ? Math.round(revenue / days) : 0 }
+  })
+  const heat = cells.filter((x) => x.checks > 0).map((x) => ({ dow: x.dow, hour: x.hour, checks: x.checks, revenue: Math.round(x.revenue) }))
+
+  const g = rowsOf(guestsRes)[0] ?? {}
+  const uniqueGuests = Number(g.unique_guests ?? 0)
+  const newGuests = Number(g.new_guests ?? 0)
+  const guests = { unique: uniqueGuests, new: newGuests, returning: Math.max(0, uniqueGuests - newGuests), anonymousChecks: Number(g.anonymous_checks ?? 0) }
+
+  const monthRows = new Map(rowsOf(monthsRes).map((r) => [String(r.month), { checks: Number(r.checks), revenue: Math.round(parseNum(r.revenue)) }]))
+  const [ty, tm] = to.split('-').map(Number)
+  const months = Array.from({ length: 12 }, (_, i) => {
+    const d = new Date(Date.UTC(ty, tm - 1 - (11 - i), 1))
+    const key = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`
+    return { month: key, ...(monthRows.get(key) ?? { checks: 0, revenue: 0 }) }
+  })
+
+  return c.json({ period: { from, to }, structure, hours, weekdays, heat, guests, months })
+})
+
 // ─── Revenue by day ───────────────────────────────────────────────────────────
 analyticsRouter.get('/revenue', zValidator('query', dateRangeQuerySchema), async (c) => {
   // Период по МСК. from/to — YYYY-MM-DD (включительно). Окно по timestamptz —
