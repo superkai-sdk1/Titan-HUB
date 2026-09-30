@@ -1,20 +1,22 @@
+import { Button, ContentUnavailableView, ProgressView, Section, SwipeActions, Text } from '@expo/ui/swift-ui';
 import { useRouter } from 'expo-router';
-import { SymbolView } from 'expo-symbols';
-import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, type ColorValue } from 'react-native';
 
-import { GlassCard, PrimaryButton, sheetStyles } from '@/components/new-check-parts';
+import { ActionRow, LinkRow } from '@/components/native-form';
 import { formatMoney, plural } from '@/lib/format';
 import { haptic } from '@/lib/haptics';
 import { deleteRevisionDraft, useRevisions, type RevisionSummary } from '@/lib/inventory-api';
-import { colors, space, type } from '@/lib/theme';
+import { colors } from '@/lib/theme';
 
 const dateFormat = new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Moscow' });
 
-/** История ревизий: черновики сверху, у проведённых — излишки и недостачи в рублях. */
+/** Ревизии: черновики отдельно, у проведённых — итог расхождений в рублях. */
 export function RevisionsTab() {
   const router = useRouter();
   const revisions = useRevisions();
   const list = revisions.data ?? [];
+  const drafts = list.filter((r) => r.status === 'draft');
+  const applied = list.filter((r) => r.status !== 'draft');
 
   const removeDraft = (revision: RevisionSummary) =>
     Alert.alert('Удалить черновик ревизии?', 'Остатки не изменятся.', [
@@ -29,90 +31,74 @@ export function RevisionsTab() {
       },
     ]);
 
+  const caption = (revision: RevisionSummary) =>
+    [`${revision.positions} ${plural(revision.positions, ['позиция', 'позиции', 'позиций'])}`, revision.author].filter(Boolean).join(' · ');
+
+  /** Чистая ревизия — «сходится»; иначе перевешивающее расхождение со знаком. */
+  const result = (revision: RevisionSummary): { value: string; color?: ColorValue } => {
+    const surplus = revision.surplusValue >= 0.005 ? revision.surplusValue : 0;
+    const shortage = revision.shortageValue >= 0.005 ? revision.shortageValue : 0;
+    if (!surplus && !shortage) return { value: 'сходится' };
+    const net = surplus - shortage;
+    return { value: formatMoney(net, { sign: true, kopecks: 'auto' }), color: net >= 0 ? colors.green : colors.red };
+  };
+
   return (
-    <View style={styles.tab}>
-      <PrimaryButton title="Новая ревизия" icon="checklist" onPress={() => router.push('/manage/inventory/revision-editor')} />
-      {revisions.isLoading ? (
-        <ActivityIndicator style={styles.state} />
-      ) : list.length === 0 ? (
-        <View style={styles.emptyBox}>
-          <SymbolView name="checklist" size={30} tintColor={colors.tertiaryLabel} />
-          <Text style={[type.headline, styles.label]}>Ревизий ещё не было</Text>
-          <Text style={[type.subhead, styles.secondary, styles.centered]}>Добавьте товары и сверьте фактические остатки — обновятся только они.</Text>
-        </View>
-      ) : (
-        <View style={styles.group}>
-          <Text style={[type.footnote, sheetStyles.sectionTitle]}>{`ИСТОРИЯ · ${list.length}`}</Text>
-          <GlassCard>
-            {list.map((revision, index) => {
-              const draft = revision.status === 'draft';
-              const clean = revision.surplusValue < 0.005 && revision.shortageValue < 0.005;
-              return (
-                <View key={revision.id}>
-                  {index > 0 && <View style={[sheetStyles.separator, styles.separator]} />}
-                  <Pressable
-                    onPress={() => {
-                      haptic.selection();
-                      if (draft) router.push({ pathname: '/manage/inventory/revision-editor', params: { draftId: revision.id } });
-                      else router.push({ pathname: '/manage/inventory/revision/[revisionId]', params: { revisionId: revision.id } });
-                    }}
-                    style={({ pressed }) => [styles.row, pressed && sheetStyles.pressedRow]}
-                    accessibilityRole="button">
-                    <View style={[styles.icon, { backgroundColor: draft ? 'rgba(139,92,246,0.16)' : 'rgba(245,158,11,0.16)' }]}>
-                      <SymbolView name={draft ? 'pencil' : 'checklist'} size={17} tintColor={draft ? '#8B5CF6' : '#F59E0B'} />
-                    </View>
-                    <View style={styles.flex}>
-                      <View style={styles.titleRow}>
-                        <Text style={[type.body, styles.label]}>{dateFormat.format(new Date(revision.createdAt))}</Text>
-                        {draft && (
-                          <View style={styles.draftBadge}>
-                            <Text style={[type.caption2, styles.draftText]}>ЧЕРНОВИК</Text>
-                          </View>
-                        )}
-                      </View>
-                      <Text style={[type.footnote, styles.secondary]} numberOfLines={1}>
-                        {`${revision.positions} ${plural(revision.positions, ['позиция', 'позиции', 'позиций'])}${revision.author ? ` · ${revision.author}` : ''}${draft ? ' · продолжить' : ''}`}
-                      </Text>
-                    </View>
-                    {draft ? (
-                      <Pressable onPress={() => removeDraft(revision)} hitSlop={10} accessibilityRole="button" accessibilityLabel="Удалить черновик">
-                        <SymbolView name="trash" size={17} tintColor={colors.red} />
-                      </Pressable>
-                    ) : clean ? (
-                      <Text style={[type.footnote, styles.secondary]}>без расхождений</Text>
-                    ) : (
-                      <View style={styles.values}>
-                        {revision.surplusValue >= 0.005 && <Text style={[type.subhead, type.amount, styles.surplus]}>{formatMoney(revision.surplusValue, { sign: true })}</Text>}
-                        {revision.shortageValue >= 0.005 && <Text style={[type.subhead, type.amount, styles.shortage]}>{formatMoney(-revision.shortageValue)}</Text>}
-                      </View>
-                    )}
-                  </Pressable>
-                </View>
-              );
-            })}
-          </GlassCard>
-        </View>
+    <>
+      <Section footer={<Text>Добавьте товары и сверьте фактические остатки — обновятся только они.</Text>}>
+        <ActionRow title="Новая ревизия" icon="checklist" onPress={() => router.push('/manage/inventory/revision-editor')} />
+      </Section>
+
+      {drafts.length > 0 && (
+        <Section title={`Черновики · ${drafts.length}`} footer={<Text>Смахните влево, чтобы удалить черновик.</Text>}>
+          {drafts.map((revision) => (
+            <SwipeActions key={revision.id}>
+              <LinkRow
+                icon="pencil"
+                color="#8B5CF6"
+                title={dateFormat.format(new Date(revision.updatedAt ?? revision.createdAt))}
+                subtitle={`${caption(revision)} · продолжить`}
+                onPress={() => router.push({ pathname: '/manage/inventory/revision-editor', params: { draftId: revision.id } })}
+              />
+              <SwipeActions.Actions edge="trailing" allowsFullSwipe={false}>
+                <Button role="destructive" label="Удалить" systemImage="trash" onPress={() => removeDraft(revision)} />
+              </SwipeActions.Actions>
+            </SwipeActions>
+          ))}
+        </Section>
       )}
-    </View>
+
+      <Section title={applied.length ? `История · ${applied.length}` : undefined} footer={applied.length ? <Text>Справа — итог ревизии: излишки минус недостачи по себестоимости.</Text> : undefined}>
+        {revisions.isLoading ? (
+          <ProgressView />
+        ) : revisions.isError && list.length === 0 ? (
+          <ContentUnavailableView title="Нет связи" systemImage="wifi.exclamationmark" description={revisions.error.message} />
+        ) : applied.length === 0 ? (
+          <ContentUnavailableView title="Ревизий ещё не было" systemImage="checklist" description="Пересчитайте товары — расхождения попадут в журнал склада." />
+        ) : (
+          applied.map((revision) => {
+            const r = result(revision);
+            return (
+              <LinkRow
+                key={revision.id}
+                icon="checklist"
+                color="#F59E0B"
+                title={dateFormat.format(new Date(revision.createdAt))}
+                subtitle={[
+                  caption(revision),
+                  revision.surplusValue >= 0.005 ? `излишек ${formatMoney(revision.surplusValue, { kopecks: 'auto' })}` : null,
+                  revision.shortageValue >= 0.005 ? `недостача ${formatMoney(revision.shortageValue, { kopecks: 'auto' })}` : null,
+                ]
+                  .filter(Boolean)
+                  .join(' · ')}
+                value={r.value}
+                valueColor={r.color}
+                onPress={() => router.push({ pathname: '/manage/inventory/revision/[revisionId]', params: { revisionId: revision.id } })}
+              />
+            );
+          })
+        )}
+      </Section>
+    </>
   );
 }
-
-const styles = StyleSheet.create({
-  tab: { gap: space.md },
-  flex: { flex: 1 },
-  label: { color: colors.label },
-  secondary: { color: colors.secondaryLabel },
-  centered: { textAlign: 'center' },
-  state: { paddingVertical: space.xxl },
-  emptyBox: { alignItems: 'center', gap: space.sm, paddingVertical: space.xxl, paddingHorizontal: space.xl },
-  group: { gap: space.sm },
-  separator: { marginLeft: 64 },
-  row: { flexDirection: 'row', alignItems: 'center', gap: space.md, paddingHorizontal: space.lg, minHeight: 60 },
-  icon: { width: 36, height: 36, borderRadius: 11, alignItems: 'center', justifyContent: 'center' },
-  titleRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  draftBadge: { paddingHorizontal: 6, paddingVertical: 1, borderRadius: 999, backgroundColor: 'rgba(139,92,246,0.16)' },
-  draftText: { color: '#8B5CF6', fontWeight: '800' },
-  values: { alignItems: 'flex-end' },
-  surplus: { color: colors.green },
-  shortage: { color: colors.red },
-});

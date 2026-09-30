@@ -1,11 +1,11 @@
-import { Form, Host, Picker, Section, Text } from '@expo/ui/swift-ui';
+import { Form, Picker, Section, Text } from '@expo/ui/swift-ui';
 import { pickerStyle, tag } from '@expo/ui/swift-ui/modifiers';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Alert } from 'react-native';
 
 import { EditorToolbar } from '@/components/editor-toolbar';
-import { FieldRow } from '@/components/native-form';
+import { FieldRow, FormHost } from '@/components/native-form';
 import { createStaff } from '@/lib/admin-api';
 import { haptic } from '@/lib/haptics';
 
@@ -43,7 +43,7 @@ export default function NewStaffSheet() {
   return (
     <>
       <EditorToolbar title="Новый сотрудник" canSave={ready} busy={busy} saveLabel="Добавить" onSave={() => void save()} />
-      <Host style={{ flex: 1 }} useViewportSizeMeasurement>
+      <FormHost>
         <Form>
           <Section title="Никнейм" footer={<Text>Под ним сотрудник входит в кассу и виден в чеках.</Text>}>
             <FieldRow value={nickname} placeholder="Например, Кай" autoFocus maxLength={40} onChange={setNickname} />
@@ -68,7 +68,7 @@ export default function NewStaffSheet() {
             </Picker>
           </Section>
         </Form>
-      </Host>
+      </FormHost>
     </>
   );
 }

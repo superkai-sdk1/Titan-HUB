@@ -1,24 +1,26 @@
+import { Button, ContentUnavailableView, ProgressView, Section, SwipeActions, Text } from '@expo/ui/swift-ui';
 import { useRouter } from 'expo-router';
-import { SymbolView } from 'expo-symbols';
-import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert } from 'react-native';
 
-import { GlassCard, PrimaryButton, sheetStyles } from '@/components/new-check-parts';
+import { ActionRow, LinkRow } from '@/components/native-form';
 import { formatMoney, plural, toNumber } from '@/lib/format';
 import { haptic } from '@/lib/haptics';
 import { deleteSupply, useSupplies, type SupplyListItem } from '@/lib/inventory-api';
-import { colors, space, type } from '@/lib/theme';
 
 const dateFormat = new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long', timeZone: 'Europe/Moscow' });
 const timeFormat = new Intl.DateTimeFormat('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Moscow' });
+const positions = (n: number) => `${n} ${plural(n, ['позиция', 'позиции', 'позиций'])}`;
 
-/** Закупки: черновики сверху (продолжить или удалить), ниже проведённые — дата, позиции, сумма. */
+/** Закупки: черновики отдельно (продолжить или смахнуть), ниже проведённые — дата, позиции, сумма. */
 export function SuppliesTab() {
   const router = useRouter();
   const supplies = useSupplies();
   const list = supplies.data ?? [];
+  const drafts = list.filter((s) => s.status === 'draft');
+  const posted = list.filter((s) => s.status !== 'draft');
 
   const removeDraft = (supply: SupplyListItem) =>
-    Alert.alert('Удалить черновик закупки?', `${supply.items.length} ${plural(supply.items.length, ['позиция', 'позиции', 'позиций'])} — склад не изменится.`, [
+    Alert.alert('Удалить черновик закупки?', `${positions(supply.items.length)} — склад не изменится.`, [
       { text: 'Отмена', style: 'cancel' },
       {
         text: 'Удалить',
@@ -30,81 +32,59 @@ export function SuppliesTab() {
       },
     ]);
 
+  const caption = (supply: SupplyListItem) =>
+    [timeFormat.format(new Date(supply.createdAt)), positions(supply.items.length), supply.supplier].filter(Boolean).join(' · ');
+
   return (
-    <View style={styles.tab}>
-      <PrimaryButton title="Новая закупка" icon="shippingbox" onPress={() => router.push('/manage/inventory/supply-editor')} />
-      {supplies.isLoading ? (
-        <ActivityIndicator style={styles.state} />
-      ) : list.length === 0 ? (
-        <Text style={[type.subhead, styles.secondary, styles.empty]}>Закупок пока не было</Text>
-      ) : (
-        <View style={styles.group}>
-          <Text style={[type.footnote, sheetStyles.sectionTitle]}>{`ПОСЛЕДНИЕ ЗАКУПКИ · ${list.length}`}</Text>
-          <GlassCard>
-            {list.map((supply, index) => {
-              const draft = supply.status === 'draft';
-              const date = new Date(supply.createdAt);
-              const total = draft ? supply.items.reduce((sum, l) => sum + l.quantity * l.costPerUnit, 0) : toNumber(supply.totalCost);
-              return (
-                <View key={supply.id}>
-                  {index > 0 && <View style={[sheetStyles.separator, styles.separator]} />}
-                  <Pressable
-                    onPress={() => {
-                      haptic.selection();
-                      if (draft) router.push({ pathname: '/manage/inventory/supply-editor', params: { draftId: supply.id } });
-                      else router.push({ pathname: '/manage/inventory/supply/[supplyId]', params: { supplyId: supply.id } });
-                    }}
-                    style={({ pressed }) => [styles.row, pressed && sheetStyles.pressedRow]}
-                    accessibilityRole="button">
-                    <View style={[styles.icon, { backgroundColor: draft ? 'rgba(139,92,246,0.16)' : 'rgba(16,185,129,0.16)' }]}>
-                      <SymbolView name={draft ? 'pencil' : 'shippingbox.fill'} size={17} tintColor={draft ? '#8B5CF6' : '#10B981'} />
-                    </View>
-                    <View style={styles.flex}>
-                      <View style={styles.titleRow}>
-                        <Text style={[type.body, styles.label]}>{dateFormat.format(date)}</Text>
-                        {draft && (
-                          <View style={styles.draftBadge}>
-                            <Text style={[type.caption2, styles.draftText]}>ЧЕРНОВИК</Text>
-                          </View>
-                        )}
-                      </View>
-                      <Text style={[type.footnote, styles.secondary]} numberOfLines={1}>
-                        {`${timeFormat.format(date)} · ${supply.items.length} ${plural(supply.items.length, ['позиция', 'позиции', 'позиций'])}${draft ? ' · продолжить' : ''}${supply.supplier ? ` · ${supply.supplier}` : ''}`}
-                      </Text>
-                    </View>
-                    {draft ? (
-                      <Pressable onPress={() => removeDraft(supply)} hitSlop={10} accessibilityRole="button" accessibilityLabel="Удалить черновик">
-                        <SymbolView name="trash" size={17} tintColor={colors.red} />
-                      </Pressable>
-                    ) : (
-                      <>
-                        <Text style={[type.body, type.amount, styles.label]}>{formatMoney(total, { kopecks: 'auto' })}</Text>
-                        <SymbolView name="chevron.right" size={13} weight="semibold" tintColor={colors.tertiaryLabel} />
-                      </>
-                    )}
-                  </Pressable>
-                </View>
-              );
-            })}
-          </GlassCard>
-        </View>
+    <>
+      <Section footer={<Text>Товары склада придут в остаток, себестоимость пересчитается по средней.</Text>}>
+        <ActionRow title="Новая закупка" icon="shippingbox" onPress={() => router.push('/manage/inventory/supply-editor')} />
+      </Section>
+
+      {drafts.length > 0 && (
+        <Section title={`Черновики · ${drafts.length}`} footer={<Text>Смахните влево, чтобы удалить черновик.</Text>}>
+          {drafts.map((supply) => (
+            <SwipeActions key={supply.id}>
+              <LinkRow
+                icon="pencil"
+                color="#8B5CF6"
+                title={dateFormat.format(new Date(supply.createdAt))}
+                subtitle={`${caption(supply)} · продолжить`}
+                value={formatMoney(
+                  supply.items.reduce((sum, l) => sum + l.quantity * l.costPerUnit, 0),
+                  { kopecks: 'auto' },
+                )}
+                onPress={() => router.push({ pathname: '/manage/inventory/supply-editor', params: { draftId: supply.id } })}
+              />
+              <SwipeActions.Actions edge="trailing" allowsFullSwipe={false}>
+                <Button role="destructive" label="Удалить" systemImage="trash" onPress={() => removeDraft(supply)} />
+              </SwipeActions.Actions>
+            </SwipeActions>
+          ))}
+        </Section>
       )}
-    </View>
+
+      <Section title={posted.length ? `Проведённые · ${posted.length}` : undefined}>
+        {supplies.isLoading ? (
+          <ProgressView />
+        ) : supplies.isError && list.length === 0 ? (
+          <ContentUnavailableView title="Нет связи" systemImage="wifi.exclamationmark" description={supplies.error.message} />
+        ) : posted.length === 0 ? (
+          <ContentUnavailableView title="Закупок пока не было" systemImage="shippingbox" description="Проведите первую — остатки и себестоимость обновятся сами." />
+        ) : (
+          posted.map((supply) => (
+            <LinkRow
+              key={supply.id}
+              icon="shippingbox.fill"
+              color="#10B981"
+              title={dateFormat.format(new Date(supply.createdAt))}
+              subtitle={caption(supply)}
+              value={formatMoney(toNumber(supply.totalCost), { kopecks: 'auto' })}
+              onPress={() => router.push({ pathname: '/manage/inventory/supply/[supplyId]', params: { supplyId: supply.id } })}
+            />
+          ))
+        )}
+      </Section>
+    </>
   );
 }
-
-const styles = StyleSheet.create({
-  tab: { gap: space.md },
-  flex: { flex: 1 },
-  label: { color: colors.label },
-  secondary: { color: colors.secondaryLabel },
-  state: { paddingVertical: space.xxl },
-  empty: { textAlign: 'center', paddingVertical: space.xxl },
-  group: { gap: space.sm },
-  separator: { marginLeft: 64 },
-  row: { flexDirection: 'row', alignItems: 'center', gap: space.md, paddingHorizontal: space.lg, minHeight: 60 },
-  icon: { width: 36, height: 36, borderRadius: 11, alignItems: 'center', justifyContent: 'center' },
-  titleRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  draftBadge: { paddingHorizontal: 6, paddingVertical: 1, borderRadius: 999, backgroundColor: 'rgba(139,92,246,0.16)' },
-  draftText: { color: '#8B5CF6', fontWeight: '800' },
-});

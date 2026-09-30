@@ -1,9 +1,9 @@
-import { ContentUnavailableView, Form, Host, ProgressView, Section, Text } from '@expo/ui/swift-ui';
+import { ContentUnavailableView, Form, ProgressView, Section, Text } from '@expo/ui/swift-ui';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { Alert } from 'react-native';
 
-import { LinkRow, SearchRow } from '@/components/native-form';
+import { FormHost, LinkRow, SearchRow } from '@/components/native-form';
 import { ToolbarButton } from '@/components/toolbar';
 import { linkClientTg, useClient, useTgRoster, type TgRosterUser } from '@/lib/clients-api';
 import { haptic } from '@/lib/haptics';
@@ -62,7 +62,7 @@ export default function TgRosterSheet() {
       <Stack.Toolbar placement="left">
         <ToolbarButton onPress={() => router.back()}>Отмена</ToolbarButton>
       </Stack.Toolbar>
-      <Host style={{ flex: 1 }} useViewportSizeMeasurement>
+      <FormHost>
         <Form>
           <Section footer={<Text>Кто писал в чатах клуба при боте. Выберите аккаунт гостя.</Text>}>
             <SearchRow placeholder="Имя или @username" onChange={setQuery} />
@@ -95,7 +95,7 @@ export default function TgRosterSheet() {
             )}
           </Section>
         </Form>
-      </Host>
+      </FormHost>
     </>
   );
 }

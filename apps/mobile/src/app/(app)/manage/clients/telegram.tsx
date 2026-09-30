@@ -1,10 +1,10 @@
-import { Form, HStack, Host, ProgressView, RNHostView, Section, Spacer, Text } from '@expo/ui/swift-ui';
+import { Form, HStack, ProgressView, RNHostView, Section, Spacer, Text } from '@expo/ui/swift-ui';
 import { Image } from 'expo-image';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
 import { ActivityIndicator, Alert, Linking, Share, View } from 'react-native';
 
-import { ActionRow, LinkRow } from '@/components/native-form';
+import { ActionRow, FormHost, LinkRow } from '@/components/native-form';
 import { ToolbarButton } from '@/components/toolbar';
 import { unlinkClientTg, useClient, useClientTelegramLink, useClientTgAccounts } from '@/lib/clients-api';
 import { haptic } from '@/lib/haptics';
@@ -48,11 +48,11 @@ export default function ClientTelegramSheet() {
     <>
       <Stack.Title>Telegram клиента</Stack.Title>
       <Stack.Toolbar placement="right">
-        <ToolbarButton variant="done" onPress={() => router.back()}>
+        <ToolbarButton variant="done" tintColor={colors.accent} onPress={() => router.back()}>
           Готово
         </ToolbarButton>
       </Stack.Toolbar>
-      <Host style={{ flex: 1 }} useViewportSizeMeasurement>
+      <FormHost>
         <Form>
           <Section footer={<Text>{`Покажите ${client.data?.nickname ?? 'гостю'} этот код — он откроет бота и привяжет свой Telegram. Код действует 15 минут.`}</Text>}>
             <HStack>
@@ -99,7 +99,7 @@ export default function ClientTelegramSheet() {
             )}
           </Section>
         </Form>
-      </Host>
+      </FormHost>
     </>
   );
 }

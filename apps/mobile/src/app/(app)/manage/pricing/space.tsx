@@ -1,11 +1,11 @@
-import { Form, HStack, Host, Picker, ProgressView, Section, Text, Toggle } from '@expo/ui/swift-ui';
+import { Form, HStack, Picker, ProgressView, Section, Text, Toggle } from '@expo/ui/swift-ui';
 import { pickerStyle, tag } from '@expo/ui/swift-ui/modifiers';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Alert } from 'react-native';
 
 import { EditorToolbar } from '@/components/editor-toolbar';
-import { ActionRow, FieldRow, secondary } from '@/components/native-form';
+import { ActionRow, FieldRow, FormHost, secondary } from '@/components/native-form';
 import { createTabletLinkCode, saveSpace, useSpacesAdmin } from '@/lib/catalog-api';
 import { moneyText } from '@/lib/format';
 import { haptic } from '@/lib/haptics';
@@ -22,9 +22,9 @@ export default function SpaceEditor() {
 
   if (spaceId && !spaces.data) {
     return (
-      <Host style={{ flex: 1 }} useViewportSizeMeasurement>
+      <FormHost>
         <ProgressView />
-      </Host>
+      </FormHost>
     );
   }
   const original = spaceId ? (spaces.data?.find((s) => s.id === spaceId) ?? null) : null;
@@ -80,7 +80,7 @@ function SpaceForm({ original }: { original: Space | null }) {
   return (
     <>
       <EditorToolbar title={original ? 'Зона' : 'Новая зона'} canSave={canSave} busy={busy} onSave={() => void save()} />
-      <Host style={{ flex: 1 }} useViewportSizeMeasurement>
+      <FormHost>
         <Form>
           <Section title="Название">
             <FieldRow value={name} placeholder="Например, «Кабинка 3»" autoFocus={!original} maxLength={80} onChange={setName} />
@@ -122,7 +122,7 @@ function SpaceForm({ original }: { original: Space | null }) {
             </Section>
           )}
         </Form>
-      </Host>
+      </FormHost>
     </>
   );
 }

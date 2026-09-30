@@ -1,11 +1,11 @@
-import { Form, HStack, Host, Picker, ProgressView, Section, Text, Toggle } from '@expo/ui/swift-ui';
+import { Form, HStack, Picker, ProgressView, Section, Text, Toggle } from '@expo/ui/swift-ui';
 import { pickerStyle, tag } from '@expo/ui/swift-ui/modifiers';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Alert } from 'react-native';
 
 import { EditorToolbar } from '@/components/editor-toolbar';
-import { ActionRow, FieldRow, secondary } from '@/components/native-form';
+import { ActionRow, FieldRow, FormHost, secondary } from '@/components/native-form';
 import { deleteDiscount, saveDiscount, useDiscounts, type Discount } from '@/lib/admin-api';
 import { moneyText } from '@/lib/format';
 import { haptic } from '@/lib/haptics';
@@ -20,9 +20,9 @@ export default function DiscountEditor() {
 
   if (discountId && !discounts.data) {
     return (
-      <Host style={{ flex: 1 }} useViewportSizeMeasurement>
+      <FormHost>
         <ProgressView />
-      </Host>
+      </FormHost>
     );
   }
   const original = discountId ? (discounts.data?.find((d) => d.id === discountId) ?? null) : null;
@@ -90,7 +90,7 @@ function DiscountForm({ original }: { original: Discount | null }) {
   return (
     <>
       <EditorToolbar title={original ? 'Скидка' : 'Новая скидка'} canSave={canSave} busy={busy} onSave={() => void save()} />
-      <Host style={{ flex: 1 }} useViewportSizeMeasurement>
+      <FormHost>
         <Form>
           <Section
             title="Название"
@@ -133,7 +133,7 @@ function DiscountForm({ original }: { original: Discount | null }) {
             </Section>
           )}
         </Form>
-      </Host>
+      </FormHost>
     </>
   );
 }

@@ -25,6 +25,7 @@ import { haptic } from '@/lib/haptics';
 import { normalizeClubHost, useSession } from '@/lib/session';
 import type { ClubContext } from '@/lib/types';
 import { ToolbarButton } from '@/components/toolbar';
+import { colors } from '@/lib/theme';
 
 /** Выбор клуба: API различает клубы только по поддомену. */
 export default function ClubScreen() {
@@ -63,7 +64,7 @@ export default function ClubScreen() {
     <>
       <Stack.Title large>Titan HUB</Stack.Title>
       <Stack.Toolbar placement="right">
-        <ToolbarButton variant="done" disabled={!host || check.isPending} onPress={submit}>
+        <ToolbarButton variant="done" tintColor={colors.accent} disabled={!host || check.isPending} onPress={submit}>
           Далее
         </ToolbarButton>
       </Stack.Toolbar>

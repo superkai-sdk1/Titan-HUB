@@ -1,11 +1,11 @@
-import { Form, HStack, Host, Picker, ProgressView, Section, Text, Toggle } from '@expo/ui/swift-ui';
+import { Form, HStack, Picker, ProgressView, Section, Text, Toggle } from '@expo/ui/swift-ui';
 import { pickerStyle, tag } from '@expo/ui/swift-ui/modifiers';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Alert } from 'react-native';
 
 import { EditorToolbar } from '@/components/editor-toolbar';
-import { FieldRow, secondary } from '@/components/native-form';
+import { FieldRow, FormHost, secondary } from '@/components/native-form';
 import { createCollection, updateCollection, useCollection, useCollections, type CollectionKind } from '@/lib/collections-api';
 import { moneyText } from '@/lib/format';
 import { haptic } from '@/lib/haptics';
@@ -26,9 +26,9 @@ export default function CollectionEditSheet() {
 
   if (collectionId && !initial) {
     return (
-      <Host style={{ flex: 1 }} useViewportSizeMeasurement>
+      <FormHost>
         <ProgressView />
-      </Host>
+      </FormHost>
     );
   }
 
@@ -83,7 +83,7 @@ function CollectionForm({ initial, onCreated }: { initial: Initial | undefined; 
   return (
     <>
       <EditorToolbar title={initial ? 'Сбор' : 'Новый сбор'} canSave={canSave} busy={busy} saveLabel={initial ? 'Сохранить' : 'Создать'} onSave={() => void save()} />
-      <Host style={{ flex: 1 }} useViewportSizeMeasurement>
+      <FormHost>
         <Form>
           {!initial && (
             <Section footer={<Text>{kind === 'recurring' ? 'Ежемесячный — новый период открывается каждый месяц (например, Фонд клуба).' : 'Разовый — один сбор на конкретную цель.'}</Text>}>
@@ -118,7 +118,7 @@ function CollectionForm({ initial, onCreated }: { initial: Initial | undefined; 
             <Toggle label="Обязательный для резидентов" isOn={mandatory} onIsOnChange={setMandatory} />
           </Section>
         </Form>
-      </Host>
+      </FormHost>
     </>
   );
 }

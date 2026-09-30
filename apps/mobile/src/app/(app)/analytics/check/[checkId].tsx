@@ -1,10 +1,10 @@
-import { ContentUnavailableView, Form, HStack, Host, LabeledContent, ProgressView, Section, Spacer, Text, VStack } from '@expo/ui/swift-ui';
+import { ContentUnavailableView, Form, HStack, LabeledContent, ProgressView, Section, Spacer, Text, VStack } from '@expo/ui/swift-ui';
 import { font, foregroundStyle, lineLimit, monospacedDigit } from '@expo/ui/swift-ui/modifiers';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 
 import { LegendRow } from '@/components/analytics/native';
 import { methodLook, money } from '@/components/analytics/parts';
-import { ActionRow, primary, secondary } from '@/components/native-form';
+import { ActionRow, FormHost, primary, secondary } from '@/components/native-form';
 import { ToolbarButton } from '@/components/toolbar';
 import { analyticsErrorText, useAnalyticsCheck } from '@/lib/analytics-api';
 import { REFUND_REASONS, type RefundReason } from '@/lib/refunds-api';
@@ -23,7 +23,7 @@ export default function AnalyticsCheckSheet() {
 
   const done = (
     <Stack.Toolbar placement="right">
-      <ToolbarButton variant="done" onPress={() => router.back()}>
+      <ToolbarButton variant="done" tintColor={colors.accent} onPress={() => router.back()}>
         Готово
       </ToolbarButton>
     </Stack.Toolbar>
@@ -33,9 +33,9 @@ export default function AnalyticsCheckSheet() {
     return (
       <>
         {done}
-        <Host style={{ flex: 1 }} useViewportSizeMeasurement>
+        <FormHost>
           {detail.error ? <ContentUnavailableView title="Чек не загрузился" systemImage="receipt" description={analyticsErrorText(detail.error)} /> : <ProgressView />}
-        </Host>
+        </FormHost>
       </>
     );
   }
@@ -57,7 +57,7 @@ export default function AnalyticsCheckSheet() {
     <>
       {done}
       <Stack.Title>Чек</Stack.Title>
-      <Host style={{ flex: 1 }} useViewportSizeMeasurement>
+      <FormHost>
         <Form>
           <Section>
             <VStack alignment="leading" spacing={3}>
@@ -144,7 +144,7 @@ export default function AnalyticsCheckSheet() {
             />
           </Section>
         </Form>
-      </Host>
+      </FormHost>
     </>
   );
 }

@@ -1,9 +1,10 @@
-import { ContentUnavailableView, Form, Host, Picker, Section, Text } from '@expo/ui/swift-ui';
+import { ContentUnavailableView, Form, Picker, Section, Text } from '@expo/ui/swift-ui';
 import { pickerStyle, tag } from '@expo/ui/swift-ui/modifiers';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Alert } from 'react-native';
 
+import { FormHost } from '@/components/native-form';
 import { EditorToolbar } from '@/components/editor-toolbar';
 import { createTierRule, discountValueText, useDiscounts } from '@/lib/admin-api';
 import { tierLook, useClientTiers } from '@/lib/clients-api';
@@ -41,7 +42,7 @@ export default function TierRuleSheet() {
   return (
     <>
       <EditorToolbar title="Скидка для статуса" canSave={!!tier && !!discountId} busy={busy} saveLabel="Добавить" onSave={() => void save()} />
-      <Host style={{ flex: 1 }} useViewportSizeMeasurement>
+      <FormHost>
         <Form>
           <Section title="Статус клиента" footer={<Text>Клиент с этим статусом получит скидку в кассе автоматически.</Text>}>
             <Picker selection={tier} onSelectionChange={(value) => setTier(String(value))} modifiers={[pickerStyle('inline')]}>
@@ -67,7 +68,7 @@ export default function TierRuleSheet() {
             )}
           </Section>
         </Form>
-      </Host>
+      </FormHost>
     </>
   );
 }

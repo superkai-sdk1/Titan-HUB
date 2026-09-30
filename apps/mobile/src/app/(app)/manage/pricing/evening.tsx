@@ -1,10 +1,10 @@
-import { ColorPicker, Form, Host, ProgressView, Section, Text } from '@expo/ui/swift-ui';
+import { ColorPicker, Form, ProgressView, Section, Text } from '@expo/ui/swift-ui';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Alert } from 'react-native';
 
 import { EditorToolbar } from '@/components/editor-toolbar';
-import { ActionRow, FieldRow, normalizeHex } from '@/components/native-form';
+import { ActionRow, FieldRow, FormHost, normalizeHex } from '@/components/native-form';
 import { deleteEveningType, saveEveningType, useEveningTypesAdmin, type EveningTypeRow } from '@/lib/catalog-api';
 import { haptic } from '@/lib/haptics';
 
@@ -17,9 +17,9 @@ export default function EveningTypeEditor() {
 
   if (key && !evenings.data) {
     return (
-      <Host style={{ flex: 1 }} useViewportSizeMeasurement>
+      <FormHost>
         <ProgressView />
-      </Host>
+      </FormHost>
     );
   }
   const original = key ? (evenings.data?.find((e) => e.key === key) ?? null) : null;
@@ -63,7 +63,7 @@ function EveningForm({ original }: { original: EveningTypeRow | null }) {
         busy={busy}
         onSave={() => void run(() => saveEveningType(original?.key ?? null, { label, color }), 'Тип вечера не сохранён')}
       />
-      <Host style={{ flex: 1 }} useViewportSizeMeasurement>
+      <FormHost>
         <Form>
           <Section title="Название" footer={<Text>Выбирается при открытии смены; по нему аналитика делит игровые вечера.</Text>}>
             <FieldRow value={label} placeholder="Спортивная мафия, настолки…" autoFocus={!original} maxLength={60} onChange={setLabel} />
@@ -77,7 +77,7 @@ function EveningForm({ original }: { original: EveningTypeRow | null }) {
             </Section>
           )}
         </Form>
-      </Host>
+      </FormHost>
     </>
   );
 }

@@ -3,7 +3,7 @@ import type { Database } from '@titan/database'
 import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
-import { inventory, stockMovements, supplies, supplyItems, checks, checkItems, revisions, revisionItems, profiles, eq, asc, isNull, and, gt, gte, lte, desc, sum, inArray, sql } from '@titan/database'
+import { inventory, stockMovements, supplies, supplyItems, checks, checkItems, revisions, revisionItems, profiles, eq, ne, asc, isNull, and, gte, lte, desc, sum, inArray, sql } from '@titan/database'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
 import { recordMovement } from './ledger.js'
 
@@ -102,6 +102,14 @@ inventoryRouter.post(
   }
 )
 
+/**
+ * Условие «ревизия новее данной». Сравниваем в SQL: created_at хранится с микросекундами,
+ * а Date из драйвера — с миллисекундами, и ревизия выходила «новее самой себя» — последнюю
+ * нельзя было поправить ни в приложении, ни в вебе.
+ */
+const newerThan = (revisionId: string) =>
+  and(ne(revisions.id, revisionId), sql`${revisions.createdAt} > (select r.created_at from revisions r where r.id = ${revisionId})`)
+
 // GET /api/inventory/revisions/:id — детали ревизии с позициями (в порядке добавления).
 inventoryRouter.get('/revisions/:id', async (c) => {
   const db = c.var.db
@@ -116,7 +124,7 @@ inventoryRouter.get('/revisions/:id', async (c) => {
   }
   // Корректировать можно только ПОСЛЕДНЮЮ ревизию: более новая уже зафиксировала
   // свои expected от текущих остатков — правка старой перемешала бы динамику.
-  const [newer] = await db.select({ id: revisions.id }).from(revisions).where(gt(revisions.createdAt, rev.createdAt)).limit(1)
+  const [newer] = await db.select({ id: revisions.id }).from(revisions).where(newerThan(rev.id)).limit(1)
   return c.json({ revision: { ...rev, author, isLatest: !newer }, items })
 })
 
@@ -229,7 +237,7 @@ inventoryRouter.patch(
       if (!rev) return null
       // Жёсткий гард: правки разрешены только у последней ревизии (проверяем
       // внутри транзакции — параллельно созданная новая ревизия тоже учтётся).
-      const [newer] = await tx.select({ id: revisions.id }).from(revisions).where(gt(revisions.createdAt, rev.createdAt)).limit(1)
+      const [newer] = await tx.select({ id: revisions.id }).from(revisions).where(newerThan(rev.id)).limit(1)
       if (newer) return 'not_latest' as const
       const changes: { name: string; from: number; to: number; stockDelta: number }[] = []
       for (const ch of items) {

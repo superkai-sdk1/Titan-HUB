@@ -28,6 +28,7 @@ import { Stack, useRouter } from 'expo-router';
 import { formatMoney, formatTime, plural } from '@/lib/format';
 import { useShiftSummary } from '@/lib/queries';
 import { ToolbarButton } from '@/components/toolbar';
+import { colors } from '@/lib/theme';
 
 const secondary = foregroundStyle({ type: 'hierarchical', style: 'secondary' });
 
@@ -39,7 +40,7 @@ export default function ShiftSheet() {
 
   const doneButton = (
     <Stack.Toolbar placement="right">
-      <ToolbarButton variant="done" onPress={() => router.back()}>
+      <ToolbarButton variant="done" tintColor={colors.accent} onPress={() => router.back()}>
         Готово
       </ToolbarButton>
     </Stack.Toolbar>

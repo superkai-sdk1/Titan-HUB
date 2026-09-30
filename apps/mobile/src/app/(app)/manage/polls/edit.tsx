@@ -1,11 +1,11 @@
-import { Button, ContentUnavailableView, Form, HStack, Host, Image, Picker, ProgressView, Section, Spacer, Text, Toggle } from '@expo/ui/swift-ui';
+import { Button, ContentUnavailableView, Form, HStack, Image, Picker, ProgressView, Section, Spacer, Text, Toggle } from '@expo/ui/swift-ui';
 import { pickerStyle, tag } from '@expo/ui/swift-ui/modifiers';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Alert } from 'react-native';
 
 import { EditorToolbar } from '@/components/editor-toolbar';
-import { ActionRow, FieldRow, primary, TimeRow } from '@/components/native-form';
+import { ActionRow, FieldRow, FormHost, primary, TimeRow } from '@/components/native-form';
 import { POLL_DEFAULT_OPTIONS, postPollToday, savePolls, testPoll, usePollChats, usePolls, WEEKDAY_LABELS, type PollConfig } from '@/lib/admin-api';
 import { haptic } from '@/lib/haptics';
 import { newIdempotencyKey } from '@/lib/shift-api';
@@ -25,9 +25,9 @@ export default function PollEditSheet() {
 
   if (!polls.data) {
     return (
-      <Host style={{ flex: 1 }} useViewportSizeMeasurement>
+      <FormHost>
         <ProgressView />
-      </Host>
+      </FormHost>
     );
   }
 
@@ -123,7 +123,7 @@ function PollForm({ all, original, tokenConfigured }: { all: PollConfig[]; origi
   return (
     <>
       <EditorToolbar title={original ? 'Опрос' : 'Новый опрос'} canSave={!problem()} busy={busy === 'save'} onSave={() => void save()} />
-      <Host style={{ flex: 1 }} useViewportSizeMeasurement>
+      <FormHost>
         <Form>
           <Section title="Название">
             <FieldRow value={draft.title} placeholder="Например, «Спортивная мафия»" autoFocus={!original} maxLength={120} onChange={(title) => patch({ title })} />
@@ -229,7 +229,7 @@ function PollForm({ all, original, tokenConfigured }: { all: PollConfig[]; origi
             </Section>
           )}
         </Form>
-      </Host>
+      </FormHost>
     </>
   );
 }

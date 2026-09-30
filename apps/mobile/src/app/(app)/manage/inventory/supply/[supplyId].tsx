@@ -1,25 +1,24 @@
+import { ContentUnavailableView, Form, HStack, Host, ProgressView, Section, Text } from '@expo/ui/swift-ui';
+import { refreshable } from '@expo/ui/swift-ui/modifiers';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import { SymbolView } from 'expo-symbols';
-import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert } from 'react-native';
 
-import { AmbientBackdrop } from '@/components/ambient-backdrop';
-import { GlassCard, sheetStyles } from '@/components/new-check-parts';
+import { Tile } from '@/components/analytics/native';
+import { ActionRow, LinkRow } from '@/components/native-form';
+import { ToolbarButton } from '@/components/toolbar';
 import { formatMoney, plural, toNumber } from '@/lib/format';
 import { haptic } from '@/lib/haptics';
 import { deleteSupply, useSupply } from '@/lib/inventory-api';
-import { usePageGutter } from '@/lib/layout';
 import { useSession } from '@/lib/session';
-import { colors, space, type } from '@/lib/theme';
-import { ToolbarMenu, ToolbarMenuAction } from '@/components/toolbar';
+import { colors } from '@/lib/theme';
 
 const money = (n: number) => formatMoney(n, { kopecks: 'auto' });
 const longDate = new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Europe/Moscow' });
 const time = new Intl.DateTimeFormat('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Moscow' });
 const correctionDate = new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Moscow' });
 
-/** Проведённая закупка: позиции, история корректировок, итог; корректировка и удаление — в меню. */
+/** Проведённая закупка: итог, позиции, история корректировок; править — в шапке, удалить — внизу. */
 export default function SupplyScreen() {
-  const gutter = usePageGutter();
   const { supplyId } = useLocalSearchParams<{ supplyId: string }>();
   const router = useRouter();
   const isOwner = useSession((s) => s.user?.role === 'owner');
@@ -28,15 +27,18 @@ export default function SupplyScreen() {
 
   if (!data) {
     return (
-      <AmbientBackdrop style={styles.screen}>
+      <>
         <Stack.Title>Закупка</Stack.Title>
-        <View style={styles.state}>{supply.isError ? <Text style={[type.body, styles.secondary]}>{supply.error.message}</Text> : <ActivityIndicator />}</View>
-      </AmbientBackdrop>
+        <Host style={{ flex: 1 }} useViewportSizeMeasurement>
+          {supply.isError ? <ContentUnavailableView title="Закупка не загрузилась" systemImage="wifi.exclamationmark" description={supply.error.message} /> : <ProgressView />}
+        </Host>
+      </>
     );
   }
 
   const date = new Date(data.supply.createdAt);
   const total = toNumber(data.supply.totalCost);
+  const stocked = data.items.filter((l) => l.itemId).length;
 
   const remove = () =>
     Alert.alert('Удалить закупку?', `Закупка от ${longDate.format(date)} будет удалена, принятый остаток снимется со склада. Себестоимость не пересчитается.`, [
@@ -55,95 +57,60 @@ export default function SupplyScreen() {
     ]);
 
   return (
-    <AmbientBackdrop style={styles.screen}>
+    <>
       <Stack.Title>{longDate.format(date)}</Stack.Title>
       <Stack.Toolbar placement="right">
-        <ToolbarMenu icon="ellipsis" accessibilityLabel="Действия с закупкой">
-          <ToolbarMenuAction icon="pencil" onPress={() => router.push({ pathname: '/manage/inventory/supply-editor', params: { supplyId: data.supply.id } })}>
-            Корректировка
-          </ToolbarMenuAction>
-          {isOwner && (
-            <ToolbarMenuAction icon="trash" destructive onPress={remove}>
-              Удалить закупку
-            </ToolbarMenuAction>
-          )}
-        </ToolbarMenu>
+        <ToolbarButton onPress={() => router.push({ pathname: '/manage/inventory/supply-editor', params: { supplyId: data.supply.id } })}>Править</ToolbarButton>
       </Stack.Toolbar>
+      <Host style={{ flex: 1 }} useViewportSizeMeasurement>
+        <Form modifiers={[refreshable(async () => void (await supply.refetch()))]}>
+          <Section footer={<Text>{[`Проведена в ${time.format(date)}`, data.supply.supplier ? `поставщик ${data.supply.supplier}` : null, data.supply.note].filter(Boolean).join(' · ')}</Text>}>
+            <HStack spacing={12}>
+              <Tile label="Сумма" value={money(total)} />
+              <Tile label="Позиций" value={String(data.items.length)} caption={stocked === data.items.length ? 'все со склада' : `${stocked} со склада`} />
+            </HStack>
+          </Section>
 
-      <ScrollView contentInsetAdjustmentBehavior="automatic" contentContainerStyle={[styles.content, gutter]}>
-        <View style={styles.hero}>
-          <View style={styles.heroIcon}>
-            <SymbolView name="shippingbox.fill" size={26} tintColor="#10B981" />
-          </View>
-          <Text style={[styles.total, type.amount]}>{money(total)}</Text>
-          <Text style={[type.subhead, styles.secondary]}>
-            {`${longDate.format(date)} · ${time.format(date)} · ${data.items.length} ${plural(data.items.length, ['позиция', 'позиции', 'позиций'])}`}
-          </Text>
-          {data.supply.supplier && <Text style={[type.subhead, styles.secondary]}>{`Поставщик: ${data.supply.supplier}`}</Text>}
-        </View>
-
-        <View style={styles.group}>
-          <Text style={[type.footnote, sheetStyles.sectionTitle]}>ПОЗИЦИИ</Text>
-          <GlassCard>
+          <Section title="Позиции">
             {data.items.map((line, index) => (
-              <View key={`${line.itemId ?? line.name}-${index}`}>
-                {index > 0 && <View style={[sheetStyles.separator, styles.separator]} />}
-                <View style={styles.row}>
-                  <SymbolView name={line.itemId ? 'shippingbox' : 'doc.text'} size={17} tintColor={line.itemId ? colors.accent : colors.secondaryLabel} />
-                  <View style={styles.flex}>
-                    <Text style={[type.body, styles.label]} numberOfLines={2}>
-                      {line.name}
-                    </Text>
-                    <Text style={[type.footnote, styles.secondary]}>{`${line.quantity} ${line.unit} × ${money(line.costPerUnit)}${line.itemId ? '' : ' · без склада'}`}</Text>
-                  </View>
-                  <Text style={[type.body, type.amount, styles.label]}>{money(line.quantity * line.costPerUnit)}</Text>
-                </View>
-              </View>
+              <LinkRow
+                key={`${line.itemId ?? line.name}-${index}`}
+                icon={line.itemId ? 'shippingbox.fill' : 'doc.text.fill'}
+                color={line.itemId ? '#10B981' : '#8E8E93'}
+                title={line.name}
+                subtitle={`${String(line.quantity).replace('.', ',')} ${line.unit} × ${money(line.costPerUnit)}${line.itemId ? '' : ' · без склада'}`}
+                value={money(line.quantity * line.costPerUnit)}
+              />
             ))}
-          </GlassCard>
-        </View>
+          </Section>
 
-        {data.corrections.length > 0 && (
-          <View style={styles.group}>
-            <Text style={[type.footnote, sheetStyles.sectionTitle]}>КОРРЕКТИРОВКИ</Text>
-            <GlassCard>
-              {data.corrections.map((c, index) => {
+          {data.corrections.length > 0 && (
+            <Section title={`Корректировки · ${data.corrections.length}`}>
+              {data.corrections.map((c) => {
                 const diff = c.totalAfter - c.totalBefore;
+                const same = Math.abs(diff) < 0.005;
                 return (
-                  <View key={c.id}>
-                    {index > 0 && <View style={[sheetStyles.separator, styles.separator]} />}
-                    <View style={styles.row}>
-                      <SymbolView name="pencil.circle" size={18} tintColor={colors.orange} />
-                      <View style={styles.flex}>
-                        <Text style={[type.body, styles.label]}>{c.reason}</Text>
-                        <Text style={[type.footnote, styles.secondary]}>{`${correctionDate.format(new Date(c.createdAt))} · было ${money(c.totalBefore)}`}</Text>
-                      </View>
-                      <Text style={[type.body, type.amount, { color: Math.abs(diff) < 0.005 ? colors.secondaryLabel : diff > 0 ? colors.red : colors.green }]}>
-                        {Math.abs(diff) < 0.005 ? '0 ₽' : formatMoney(diff, { sign: true, kopecks: 'auto' })}
-                      </Text>
-                    </View>
-                  </View>
+                  <LinkRow
+                    key={c.id}
+                    icon="pencil"
+                    color="#FF9500"
+                    title={c.reason}
+                    subtitle={`${correctionDate.format(new Date(c.createdAt))} · было ${money(c.totalBefore)}`}
+                    value={same ? '0 ₽' : formatMoney(diff, { sign: true, kopecks: 'auto' })}
+                    valueColor={same ? undefined : diff > 0 ? colors.red : colors.green}
+                  />
                 );
               })}
-            </GlassCard>
-          </View>
-        )}
-      </ScrollView>
-    </AmbientBackdrop>
+            </Section>
+          )}
+
+          {isOwner && (
+            <Section footer={<Text>{`Принятые ${stocked} ${plural(stocked, ['позиция', 'позиции', 'позиций'])} снимутся со склада.`}</Text>}>
+              <ActionRow title="Удалить закупку" icon="trash" destructive onPress={remove} />
+            </Section>
+          )}
+        </Form>
+      </Host>
+    </>
   );
 }
-
-const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.groupedBackground },
-  flex: { flex: 1 },
-  state: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: space.xxl },
-  content: { paddingHorizontal: space.lg, paddingBottom: 120, gap: space.lg },
-  label: { color: colors.label },
-  secondary: { color: colors.secondaryLabel },
-  hero: { alignItems: 'center', gap: 4, paddingTop: space.sm },
-  heroIcon: { width: 56, height: 56, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(16,185,129,0.16)', marginBottom: 4 },
-  total: { fontSize: 40, lineHeight: 46, color: colors.label },
-  group: { gap: space.sm },
-  separator: { marginLeft: 50 },
-  row: { flexDirection: 'row', alignItems: 'center', gap: space.md, paddingHorizontal: space.lg, paddingVertical: space.md },
-});

@@ -1,29 +1,23 @@
-import { Host, Toggle } from '@expo/ui/swift-ui';
-import { tint } from '@expo/ui/swift-ui/modifiers';
+import { Button, ContentUnavailableView, Form, HStack, Host, ProgressView, Section, SwipeActions, Text, Toggle } from '@expo/ui/swift-ui';
 import { Stack, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import { usePreventRemove } from 'expo-router/react-navigation';
-import { SymbolView } from 'expo-symbols';
 import { useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
-import Animated, { FadeIn, FadeOut, LinearTransition } from 'react-native-reanimated';
+import { Alert } from 'react-native';
 
-import { GlassView } from '@/components/glass';
-import { ClearButton } from '@/components/clear-button';
-import { AmbientBackdrop } from '@/components/ambient-backdrop';
-import { GlassCard, PrimaryButton, sheetStyles } from '@/components/new-check-parts';
+import { Tile } from '@/components/analytics/native';
+import { ActionRow, InputRow, LinkRow, SearchRow } from '@/components/native-form';
+import { ToolbarButton } from '@/components/toolbar';
+import { chooseAction } from '@/lib/dialog';
 import { formatMoney, plural, toNumber } from '@/lib/format';
 import { haptic } from '@/lib/haptics';
 import { applyRevision, saveRevisionDraft, useInventory, useRevision, type InventoryItem, type RevisionLineInput } from '@/lib/inventory-api';
-import { KEYBOARD_DISMISS, usePageGutter } from '@/lib/layout';
-import { colors, space, type, useAccentHex } from '@/lib/theme';
-import { chooseAction } from '@/lib/dialog';
+import { colors, useAccentHex } from '@/lib/theme';
 
 type Line = { itemId: string; actual: string };
 
-const layout = LinearTransition.springify().damping(24).stiffness(220);
 const money = (n: number) => formatMoney(n, { kopecks: 'auto' });
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
+const positions = (n: number) => `${n} ${plural(n, ['позиция', 'позиции', 'позиций'])}`;
 
 /**
  * Ревизия: добавляете товары, вводите фактический остаток. По умолчанию подсчёт слепой —
@@ -36,11 +30,14 @@ export default function RevisionEditorScreen() {
   const inventory = useInventory();
 
   if ((draftId && !draft.data) || !inventory.data) {
+    const error = draft.error ?? inventory.error;
     return (
-      <AmbientBackdrop style={styles.screen}>
+      <>
         <Stack.Title>Ревизия</Stack.Title>
-        <View style={styles.state}>{draft.isError ? <Text style={[type.body, styles.secondary]}>{draft.error.message}</Text> : <ActivityIndicator />}</View>
-      </AmbientBackdrop>
+        <Host style={{ flex: 1 }} useViewportSizeMeasurement>
+          {error ? <ContentUnavailableView title="Не загрузилось" systemImage="wifi.exclamationmark" description={error.message} /> : <ProgressView />}
+        </Host>
+      </>
     );
   }
 
@@ -49,12 +46,13 @@ export default function RevisionEditorScreen() {
 }
 
 function RevisionEditor({ draftId, items, initialLines }: { draftId: string | undefined; items: InventoryItem[]; initialLines: Line[] }) {
-  const gutter = usePageGutter();
   const router = useRouter();
   const navigation = useNavigation();
   const accent = useAccentHex();
   const [lines, setLines] = useState<Line[]>(initialLines);
   const [query, setQuery] = useState('');
+  // Добавление товара очищает строку поиска — её пересоздаём.
+  const [searchVersion, setSearchVersion] = useState(0);
   const [blind, setBlind] = useState(true);
   const [revealed, setRevealed] = useState(false);
   const [dirty, setDirty] = useState(false);
@@ -65,10 +63,11 @@ function RevisionEditor({ draftId, items, initialLines }: { draftId: string | un
   const showDiff = !blind || revealed;
   const rows = lines.map((line) => {
     const item = byId.get(line.itemId);
-    const actual = line.actual.trim() === '' ? null : Math.max(0, Math.floor(Number(line.actual)));
+    const digits = line.actual.replace(/[^\d]/g, '');
+    const actual = digits === '' ? null : Math.max(0, Math.floor(Number(digits)));
     const expected = item?.stockQuantity ?? 0;
-    const diff = actual === null || Number.isNaN(actual) ? 0 : actual - expected;
-    return { line, item, actual: actual !== null && !Number.isNaN(actual) ? actual : null, expected, diff, value: diff * toNumber(item?.costPrice) };
+    const diff = actual === null ? 0 : actual - expected;
+    return { line, item, actual, expected, diff, value: diff * toNumber(item?.costPrice) };
   });
   const filled = rows.filter((r) => r.actual !== null);
   const surplus = filled.filter((r) => r.diff > 0);
@@ -84,7 +83,20 @@ function RevisionEditor({ draftId, items, initialLines }: { draftId: string | un
 
   const setActual = (itemId: string, text: string) => {
     setDirty(true);
-    setLines((current) => current.map((l) => (l.itemId === itemId ? { ...l, actual: text.replace(/[^\d]/g, '') } : l)));
+    setLines((current) => current.map((l) => (l.itemId === itemId ? { ...l, actual: text } : l)));
+  };
+
+  const add = (item: InventoryItem) => {
+    haptic.selection();
+    setDirty(true);
+    setLines((current) => [{ itemId: item.id, actual: '' }, ...current]);
+    setQuery('');
+    setSearchVersion((v) => v + 1);
+  };
+
+  const remove = (itemId: string) => {
+    setDirty(true);
+    setLines((current) => current.filter((l) => l.itemId !== itemId));
   };
 
   const apply = async (): Promise<string | null> => {
@@ -104,22 +116,18 @@ function RevisionEditor({ draftId, items, initialLines }: { draftId: string | un
   };
 
   const confirmApply = () =>
-    Alert.alert(
-      'Провести ревизию?',
-      `Остатки ${filled.length} ${plural(filled.length, ['позиции', 'позиций', 'позиций'])} станут равны факту, каждое изменение попадёт в журнал склада.`,
-      [
-        { text: 'Отмена', style: 'cancel' },
-        {
-          text: 'Провести',
-          onPress: () =>
-            void apply().then((id) => {
-              if (!id) return;
-              leaving.current = true;
-              router.replace({ pathname: '/manage/inventory/revision/[revisionId]', params: { revisionId: id } });
-            }),
-        },
-      ],
-    );
+    Alert.alert('Провести ревизию?', `Остатки ${filled.length} ${plural(filled.length, ['позиции', 'позиций', 'позиций'])} станут равны факту, каждое изменение попадёт в журнал склада.`, [
+      { text: 'Отмена', style: 'cancel' },
+      {
+        text: 'Провести',
+        onPress: () =>
+          void apply().then((id) => {
+            if (!id) return;
+            leaving.current = true;
+            router.replace({ pathname: '/manage/inventory/revision/[revisionId]', params: { revisionId: id } });
+          }),
+      },
+    ]);
 
   usePreventRemove(dirty && lines.length > 0 && !busy, ({ data }) => {
     if (leaving.current) return navigation.dispatch(data.action);
@@ -142,211 +150,117 @@ function RevisionEditor({ draftId, items, initialLines }: { draftId: string | un
     ]);
   });
 
+  const status = (row: (typeof rows)[number]): { text: string; color?: typeof colors.red } => {
+    if (!showDiff) return { text: row.actual === null ? 'введите факт' : 'посчитано' };
+    if (row.actual === null) return { text: `на складе ${row.expected} шт` };
+    if (row.diff === 0) return { text: `сходится · ${row.expected} шт` };
+    return {
+      text: `${row.diff > 0 ? 'излишек +' : 'недостача −'}${Math.abs(row.diff)} шт · ${formatMoney(row.value, { sign: true, kopecks: 'auto' })}`,
+      color: row.diff > 0 ? colors.green : colors.red,
+    };
+  };
+
   return (
-    <AmbientBackdrop style={styles.screen}>
+    <>
       <Stack.Title>{draftId ? 'Черновик ревизии' : 'Новая ревизия'}</Stack.Title>
-      <KeyboardAvoidingView behavior="padding" style={styles.flex}>
-        <ScrollView contentInsetAdjustmentBehavior="automatic" contentContainerStyle={[styles.content, gutter]} keyboardShouldPersistTaps="handled" keyboardDismissMode={KEYBOARD_DISMISS}>
-          <GlassCard style={styles.options}>
-            <Host matchContents={{ vertical: true }} style={styles.stretch} seedColor={accent}>
-              <Toggle
-                label="Слепой подсчёт"
-                isOn={blind}
-                onIsOnChange={(on) => {
-                  haptic.selection();
-                  setBlind(on);
-                  setRevealed(false);
-                }}
-                modifiers={[tint(accent)]}
-              />
-            </Host>
-            <Text style={[type.footnote, styles.secondary]}>
-              {blind ? 'Ожидаемый остаток скрыт — считаете по факту, без подгонки.' : 'Ожидаемый остаток и расхождения видны сразу.'}
-            </Text>
-          </GlassCard>
+      <Stack.Toolbar placement="right">
+        {blind && !revealed ? (
+          <ToolbarButton
+            disabled={filled.length === 0}
+            onPress={() => {
+              haptic.medium();
+              setRevealed(true);
+            }}>
+            Сверить
+          </ToolbarButton>
+        ) : (
+          <ToolbarButton variant="done" tintColor={colors.accent} disabled={filled.length === 0 || busy} onPress={confirmApply}>
+            {busy ? 'Проводим…' : 'Провести'}
+          </ToolbarButton>
+        )}
+      </Stack.Toolbar>
+      <Host style={{ flex: 1 }} useViewportSizeMeasurement seedColor={accent}>
+        <Form>
+          <Section footer={<Text>{blind ? 'Ожидаемый остаток скрыт — считаете по факту, без подгонки. Расхождения откроет «Сверить».' : 'Ожидаемый остаток и расхождения видны сразу.'}</Text>}>
+            <Toggle
+              label="Слепой подсчёт"
+              isOn={blind}
+              onIsOnChange={(on) => {
+                haptic.selection();
+                setBlind(on);
+                setRevealed(false);
+              }}
+            />
+          </Section>
 
-          <View style={styles.group}>
-            <GlassView style={styles.search}>
-              <SymbolView name="plus.magnifyingglass" size={17} tintColor={colors.accent} />
-              <TextInput
-                value={query}
-                onChangeText={setQuery}
-                placeholder="Добавить товар в ревизию"
-                placeholderTextColor={colors.tertiaryLabel}
-                selectionColor={colors.accent}
-                autoCorrect={false}
-                clearButtonMode="while-editing"
-                style={[type.body, styles.searchInput]}
-              />
-              <ClearButton visible={query.length > 0} onPress={() => setQuery('')} />
-            </GlassView>
-            {q.length > 0 && (
-              <GlassCard>
-                {results.length === 0 ? (
-                  <Text style={[type.subhead, styles.secondary, styles.centered, styles.noResults]}>Ничего не найдено или уже в ревизии</Text>
-                ) : (
-                  results.map((item, index) => (
-                    <View key={item.id}>
-                      {index > 0 && <View style={[sheetStyles.separator, styles.separator]} />}
-                      <Pressable
-                        onPress={() => {
-                          haptic.selection();
-                          setDirty(true);
-                          setLines((current) => [{ itemId: item.id, actual: '' }, ...current]);
-                          setQuery('');
-                        }}
-                        style={({ pressed }) => [styles.result, pressed && sheetStyles.pressedRow]}
-                        accessibilityRole="button">
-                        <SymbolView name="plus.circle.fill" size={20} tintColor={colors.accent} />
-                        <Text style={[type.body, styles.label, styles.flex]} numberOfLines={1}>
-                          {item.name}
-                        </Text>
-                        {!blind && <Text style={[type.footnote, styles.secondary]}>{`склад: ${item.stockQuantity}`}</Text>}
-                      </Pressable>
-                    </View>
-                  ))
-                )}
-              </GlassCard>
-            )}
-          </View>
+          <Section title="Добавить товар" footer={lines.length === 0 ? <Text>Найдите товары, которые пересчитываете, — обновятся только они.</Text> : undefined}>
+            <SearchRow key={`search-${searchVersion}`} placeholder="Название товара" onChange={setQuery} />
+            {q.length > 0 &&
+              (results.length === 0 ? (
+                <Text>Ничего не найдено или уже в ревизии</Text>
+              ) : (
+                results.map((item) => (
+                  <LinkRow
+                    key={item.id}
+                    icon="plus"
+                    color={accent}
+                    title={item.name}
+                    value={blind ? undefined : `склад: ${item.stockQuantity}`}
+                    chevron={false}
+                    onPress={() => add(item)}
+                  />
+                ))
+              ))}
+          </Section>
 
-          {lines.length === 0 ? (
-            <Text style={[type.subhead, styles.secondary, styles.centered, styles.empty]}>
-              Найдите и добавьте товары, которые пересчитываете, — обновятся только они.
-            </Text>
-          ) : (
-            <View style={styles.group}>
-              <Text style={[type.footnote, sheetStyles.sectionTitle]}>{`ПОЗИЦИИ · ${lines.length} · ЗАПОЛНЕНО ${filled.length}`}</Text>
-              <GlassCard>
-                {rows.map((row, index) => (
-                  <Animated.View key={row.line.itemId} entering={FadeIn} exiting={FadeOut} layout={layout}>
-                    {index > 0 && <View style={[sheetStyles.separator, styles.rowSeparator]} />}
-                    <View style={[styles.row, showDiff && row.actual !== null && row.diff !== 0 && { backgroundColor: row.diff > 0 ? 'rgba(52,199,89,0.08)' : 'rgba(255,59,48,0.08)' }]}>
-                      <View style={styles.flex}>
-                        <Text style={[type.body, styles.label]} numberOfLines={2}>
-                          {row.item?.name ?? 'Позиция удалена'}
-                        </Text>
-                        <Text style={[type.footnote, showDiff && row.actual !== null && row.diff !== 0 ? { color: row.diff > 0 ? colors.green : colors.red } : styles.secondary]}>
-                          {!showDiff
-                            ? row.actual === null
-                              ? 'введите факт'
-                              : 'посчитано'
-                            : row.actual === null
-                              ? `на складе ${row.expected} шт`
-                              : row.diff === 0
-                                ? `сходится · ${row.expected} шт`
-                                : `${row.diff > 0 ? 'Излишек +' : 'Недостача −'}${Math.abs(row.diff)} шт · ${formatMoney(row.value, { sign: true, kopecks: 'auto' })}`}
-                        </Text>
-                      </View>
-                      <TextInput
-                        value={row.line.actual}
-                        onChangeText={(text) => setActual(row.line.itemId, text)}
-                        keyboardType="number-pad"
-                        placeholder="Факт"
-                        placeholderTextColor={colors.tertiaryLabel}
-                        selectionColor={colors.accent}
-                        selectTextOnFocus
-                        style={[type.headline, type.amount, styles.actual]}
-                        accessibilityLabel={`Факт: ${row.item?.name ?? ''}`}
-                      />
-                      <Pressable
-                        onPress={() => {
-                          haptic.light();
-                          setDirty(true);
-                          setLines((current) => current.filter((l) => l.itemId !== row.line.itemId));
-                        }}
-                        hitSlop={8}
-                        accessibilityRole="button"
-                        accessibilityLabel="Убрать из ревизии">
-                        <SymbolView name="xmark.circle.fill" size={20} tintColor={colors.tertiaryLabel} />
-                      </Pressable>
-                    </View>
-                  </Animated.View>
-                ))}
-              </GlassCard>
-            </View>
+          {lines.length > 0 && (
+            <Section title={`Позиции · ${lines.length} · заполнено ${filled.length}`} footer={<Text>Справа — сколько есть по факту. Смахните строку влево, чтобы убрать её из ревизии.</Text>}>
+              {rows.map((row) => {
+                const s = status(row);
+                return (
+                  <SwipeActions key={row.line.itemId}>
+                    <InputRow
+                      label={row.item?.name ?? 'Позиция удалена'}
+                      caption={s.text}
+                      captionColor={s.color}
+                      value={row.line.actual}
+                      placeholder="Факт"
+                      keyboard="numeric"
+                      maxLength={6}
+                      onChange={(text) => setActual(row.line.itemId, text)}
+                    />
+                    <SwipeActions.Actions edge="trailing">
+                      <Button role="destructive" label="Убрать" systemImage="minus.circle" onPress={() => remove(row.line.itemId)} />
+                    </SwipeActions.Actions>
+                  </SwipeActions>
+                );
+              })}
+            </Section>
           )}
 
           {showDiff && filled.length > 0 && (
-            <GlassCard style={styles.summary}>
-              <Text style={[type.footnote, sheetStyles.sectionTitle]}>СВОДКА РАСХОЖДЕНИЙ</Text>
-              {surplus.length === 0 && shortage.length === 0 ? (
-                <Text style={[type.body, styles.label]}>Расхождений нет — всё сходится</Text>
-              ) : (
-                <>
-                  <SummaryLine label={`Излишек · ${surplus.length} ${plural(surplus.length, ['позиция', 'позиции', 'позиций'])}`} value={surplusValue} color={colors.green} />
-                  <SummaryLine label={`Недостача · ${shortage.length} ${plural(shortage.length, ['позиция', 'позиции', 'позиций'])}`} value={-shortageValue} color={colors.red} />
-                </>
-              )}
-            </GlassCard>
+            <Section title="Сводка расхождений" footer={surplus.length === 0 && shortage.length === 0 ? <Text>Расхождений нет — всё сходится.</Text> : undefined}>
+              <HStack spacing={12}>
+                <Tile label={`Излишек · ${positions(surplus.length)}`} value={formatMoney(surplusValue, { sign: surplusValue > 0, kopecks: 'auto' })} />
+                <Tile label={`Недостача · ${positions(shortage.length)}`} value={money(-shortageValue)} />
+              </HStack>
+            </Section>
           )}
 
-          {lines.length > 0 && (
-            <View style={styles.progress}>
-              <View style={styles.track}>
-                <View style={[styles.fill, { width: `${(filled.length / lines.length) * 100}%` }]} />
-              </View>
-              <Text style={[type.footnote, styles.secondary]}>{`Заполнено ${filled.length} из ${lines.length}`}</Text>
-            </View>
+          {blind && !revealed && filled.length > 0 && (
+            <Section>
+              <ActionRow
+                title={`Показать расхождения · ${filled.length}`}
+                icon="eye"
+                onPress={() => {
+                  haptic.medium();
+                  setRevealed(true);
+                }}
+              />
+            </Section>
           )}
-
-          {blind && !revealed ? (
-            <PrimaryButton
-              title={`Показать расхождения · ${filled.length}`}
-              icon="eye"
-              disabled={filled.length === 0}
-              onPress={() => {
-                haptic.medium();
-                setRevealed(true);
-              }}
-            />
-          ) : (
-            <PrimaryButton
-              title={busy ? 'Проводим…' : `Провести ревизию · ${filled.length}`}
-              icon="checkmark.seal"
-              busy={busy}
-              disabled={filled.length === 0}
-              onPress={confirmApply}
-            />
-          )}
-        </ScrollView>
-      </KeyboardAvoidingView>
-    </AmbientBackdrop>
+        </Form>
+      </Host>
+    </>
   );
 }
-
-function SummaryLine({ label, value, color }: { label: string; value: number; color: typeof colors.red }) {
-  return (
-    <View style={styles.summaryLine}>
-      <Text style={[type.body, styles.label, styles.flex]}>{label}</Text>
-      <Text style={[type.headline, type.amount, { color }]}>{money(value)}</Text>
-    </View>
-  );
-}
-
-const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.groupedBackground },
-  flex: { flex: 1 },
-  stretch: { alignSelf: 'stretch' },
-  state: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: space.xxl },
-  content: { paddingHorizontal: space.lg, paddingBottom: 140, gap: space.md },
-  label: { color: colors.label },
-  secondary: { color: colors.secondaryLabel },
-  centered: { textAlign: 'center' },
-  options: { padding: space.lg, gap: space.xs },
-  group: { gap: space.sm },
-  search: { flexDirection: 'row', alignItems: 'center', gap: space.sm, height: 48, paddingHorizontal: space.md, borderRadius: 24 },
-  searchInput: { flex: 1, color: colors.label, height: 48 },
-  noResults: { paddingVertical: space.lg },
-  separator: { marginLeft: 52 },
-  result: { flexDirection: 'row', alignItems: 'center', gap: space.md, paddingHorizontal: space.lg, minHeight: 48 },
-  empty: { paddingVertical: space.xxl, paddingHorizontal: space.lg },
-  rowSeparator: { marginLeft: space.lg },
-  row: { flexDirection: 'row', alignItems: 'center', gap: space.md, paddingHorizontal: space.lg, paddingVertical: space.sm, minHeight: 60 },
-  actual: { width: 72, height: 40, borderRadius: 12, backgroundColor: colors.fill, color: colors.label, textAlign: 'center' },
-  summary: { padding: space.lg, gap: space.sm },
-  summaryLine: { flexDirection: 'row', alignItems: 'center', gap: space.md },
-  progress: { gap: 6, paddingHorizontal: space.xs },
-  track: { height: 6, borderRadius: 3, backgroundColor: colors.fill, overflow: 'hidden' },
-  fill: { height: 6, borderRadius: 3, backgroundColor: colors.accent },
-});

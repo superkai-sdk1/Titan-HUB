@@ -1,10 +1,10 @@
-import { Form, Host, Section, Text } from '@expo/ui/swift-ui';
+import { Form, Section, Text } from '@expo/ui/swift-ui';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Alert } from 'react-native';
 
 import { EditorToolbar } from '@/components/editor-toolbar';
-import { ActionRow, FieldRow } from '@/components/native-form';
+import { ActionRow, FieldRow, FormHost } from '@/components/native-form';
 import { deleteCustomer, saveCustomer, type CustomerRow } from '@/lib/clients-api';
 import { haptic } from '@/lib/haptics';
 import { cleanPhone, pickContact } from '@/lib/phone-book';
@@ -80,7 +80,7 @@ function CustomerForm({ initial }: { initial: CustomerRow | undefined }) {
   return (
     <>
       <EditorToolbar title={initial ? 'Заказчик' : 'Новый заказчик'} canSave={!empty} busy={busy} onSave={() => void save()} />
-      <Host style={{ flex: 1 }} useViewportSizeMeasurement>
+      <FormHost>
         <Form>
           <Section title="Контакт" footer={<Text>Имя контактного лица и телефон — хотя бы одно из двух.</Text>}>
             <FieldRow key={`name-${version}`} value={name} placeholder="Имя контактного лица" autoFocus={!initial} onChange={setName} />
@@ -93,7 +93,7 @@ function CustomerForm({ initial }: { initial: CustomerRow | undefined }) {
             </Section>
           )}
         </Form>
-      </Host>
+      </FormHost>
     </>
   );
 }

@@ -1,9 +1,10 @@
-import { ContentUnavailableView, Host, Label, List, ProgressView, Section, Text as SwiftText } from '@expo/ui/swift-ui';
+import { ContentUnavailableView, Label, List, ProgressView, Section, Text as SwiftText } from '@expo/ui/swift-ui';
 import { environment, foregroundStyle, listStyle } from '@expo/ui/swift-ui/modifiers';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Alert, Platform } from 'react-native';
 
+import { FormHost } from '@/components/native-form';
 import { EditorToolbar } from '@/components/editor-toolbar';
 import { categoryHex, categorySymbol, reorderCategories, reorderItems, useMenuAdmin } from '@/lib/catalog-api';
 import { haptic } from '@/lib/haptics';
@@ -31,9 +32,9 @@ export default function ReorderSheet() {
 
   if (!data) {
     return (
-      <Host style={{ flex: 1 }} useViewportSizeMeasurement>
+      <FormHost>
         <ProgressView />
-      </Host>
+      </FormHost>
     );
   }
 
@@ -92,7 +93,7 @@ function ReorderList({
   return (
     <>
       <EditorToolbar title={scope === 'categories' ? 'Порядок категорий' : 'Порядок позиций'} canSave={changed} busy={busy} onSave={() => void save()} />
-      <Host style={{ flex: 1 }} useViewportSizeMeasurement>
+      <FormHost>
         {order.length === 0 ? (
           <ContentUnavailableView title="Переставлять нечего" systemImage="arrow.up.arrow.down" />
         ) : (
@@ -110,7 +111,7 @@ function ReorderList({
             </Section>
           </List>
         )}
-      </Host>
+      </FormHost>
     </>
   );
 }

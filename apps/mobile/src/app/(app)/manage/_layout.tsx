@@ -3,19 +3,10 @@ import { Stack } from 'expo-router';
 import { colors } from '@/lib/theme';
 import { sheetOptions } from '@/lib/sheet';
 
-import { formHeader, glassHeader, stackHeaderOptions } from '@/components/header-glass';
+import { formHeader, stackHeaderOptions } from '@/components/header-glass';
 import { sheetLayout } from '@/components/sheet-grabber';
 
-/** Контент шторок без фона — под ним системное стекло шторки iOS 26. */
-const tallSheet = {
-  presentation: 'formSheet' as const,
-  ...sheetOptions,
-  sheetAllowedDetents: [1],
-  sheetGrabberVisible: true,
-  headerShown: false,
-  contentStyle: { backgroundColor: colors.sheetBackground },
-};
-
+/** Шторка по высоте содержимого (клавиатура суммы) — без фона, под ней системное стекло iOS 26. */
 const compactSheet = {
   presentation: 'formSheet' as const,
   ...sheetOptions,
@@ -50,14 +41,14 @@ export default function ManageLayout() {
       <Stack.Screen name="pricing/space" options={editorModal} />
       <Stack.Screen name="pricing/rate" options={editorModal} />
 
-      <Stack.Screen name="inventory/index" options={glassHeader({ title: 'Склад' })} />
-      <Stack.Screen name="inventory/[itemId]" options={glassHeader()} />
+      <Stack.Screen name="inventory/index" options={formHeader({ title: 'Склад' })} />
+      <Stack.Screen name="inventory/[itemId]" options={formHeader()} />
       <Stack.Screen name="inventory/stock-action" options={compactSheet} />
-      <Stack.Screen name="inventory/supply/[supplyId]" options={glassHeader()} />
-      <Stack.Screen name="inventory/supply-editor" options={glassHeader()} />
-      <Stack.Screen name="inventory/revision/[revisionId]" options={glassHeader()} />
-      <Stack.Screen name="inventory/revision-editor" options={glassHeader()} />
-      <Stack.Screen name="inventory/expense-new" options={tallSheet} />
+      <Stack.Screen name="inventory/supply/[supplyId]" options={formHeader()} />
+      <Stack.Screen name="inventory/supply-editor" options={formHeader()} />
+      <Stack.Screen name="inventory/revision/[revisionId]" options={formHeader()} />
+      <Stack.Screen name="inventory/revision-editor" options={formHeader()} />
+      <Stack.Screen name="inventory/expense-new" options={editorModal} />
 
       <Stack.Screen name="salary/index" options={formHeader({ title: 'Зарплата' })} />
 

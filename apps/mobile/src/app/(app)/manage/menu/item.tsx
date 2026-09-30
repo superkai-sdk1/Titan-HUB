@@ -1,11 +1,11 @@
-import { ContentUnavailableView, Form, HStack, Host, Picker, ProgressView, Section, Text, Toggle } from '@expo/ui/swift-ui';
+import { ContentUnavailableView, Form, HStack, Picker, ProgressView, Section, Text, Toggle } from '@expo/ui/swift-ui';
 import { pickerStyle, tag } from '@expo/ui/swift-ui/modifiers';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Alert } from 'react-native';
 
 import { EditorToolbar } from '@/components/editor-toolbar';
-import { ActionRow, FieldRow, primary, secondary } from '@/components/native-form';
+import { ActionRow, FieldRow, FormHost, primary, secondary } from '@/components/native-form';
 import { deleteMenuItem, saveMenuItem, useMenuAdmin, type AdminMenuItem } from '@/lib/catalog-api';
 import { formatMoney, moneyText, toNumber } from '@/lib/format';
 import { haptic } from '@/lib/haptics';
@@ -33,9 +33,9 @@ export default function MenuItemSheet() {
 
   if (!menu.data || (itemId && !menu.data.items.some((i) => i.id === itemId))) {
     return (
-      <Host style={{ flex: 1 }} useViewportSizeMeasurement>
+      <FormHost>
         {menu.isError ? <ContentUnavailableView title="Меню не загрузилось" systemImage="wifi.exclamationmark" description={errorText(menu.error)} /> : <ProgressView />}
-      </Host>
+      </FormHost>
     );
   }
 
@@ -122,7 +122,7 @@ function ItemForm({ original, presetCategory, categories, spaces }: { original: 
   return (
     <>
       <EditorToolbar title={original ? 'Позиция' : 'Новая позиция'} canSave={canSave} busy={busy} onSave={() => void save()} />
-      <Host style={{ flex: 1 }} useViewportSizeMeasurement>
+      <FormHost>
         <Form>
           <Section title="Название">
             <FieldRow value={name} placeholder="Например, Капучино" autoFocus={!original} maxLength={120} onChange={setName} />
@@ -184,7 +184,7 @@ function ItemForm({ original, presetCategory, categories, spaces }: { original: 
             </Section>
           )}
         </Form>
-      </Host>
+      </FormHost>
     </>
   );
 }

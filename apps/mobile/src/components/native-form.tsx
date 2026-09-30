@@ -1,4 +1,4 @@
-import { Button, DatePicker, HStack, Image, SecureField, Spacer, Text, TextField, useNativeState, VStack } from '@expo/ui/swift-ui';
+import { Button, DatePicker, HStack, Host, Image, SecureField, Spacer, Text, TextField, useNativeState, VStack } from '@expo/ui/swift-ui';
 import {
   autocorrectionDisabled,
   background,
@@ -14,12 +14,12 @@ import {
   submitLabel,
   textInputAutocapitalization,
 } from '@expo/ui/swift-ui/modifiers';
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import type { ColorValue } from 'react-native';
 import type { SFSymbol } from 'sf-symbols-typescript';
 
 import { haptic } from '@/lib/haptics';
-import { colors } from '@/lib/theme';
+import { colors, useAccentHex } from '@/lib/theme';
 
 /**
  * Строки нативных форм в духе «Настроек» iOS 26: SwiftUI Form, цветные значки-плашки,
@@ -33,6 +33,19 @@ export const primary = foregroundStyle('primary');
 export const secondary = foregroundStyle('secondary');
 export const tertiary = foregroundStyle(colors.tertiaryLabel);
 export const footnote = font({ textStyle: 'footnote' });
+
+/**
+ * Host нативной формы во весь экран с фирменным акцентом. Модальные окна живут вне панели
+ * вкладок, и без явного тона SwiftUI красил переключатели и действия системным синим.
+ */
+export function FormHost({ children }: { children: ReactNode }) {
+  const accent = useAccentHex();
+  return (
+    <Host style={{ flex: 1 }} useViewportSizeMeasurement seedColor={accent}>
+      {children}
+    </Host>
+  );
+}
 
 /** Цветная плашка со значком — как у пунктов «Настроек». */
 export function RowIcon({ name, color }: { name: SFSymbol; color: ColorValue }) {
@@ -171,6 +184,49 @@ export function TextRow({
           submitLabel('done'),
           onSubmit(commit),
         ]}
+      />
+    </HStack>
+  );
+}
+
+/**
+ * Поле с подписью, отдающее значение сразу, без ухода из поля: количество и цена в
+ * закупке, факт в ревизии — итог пересчитывается на лету, а кнопка в шапке видит
+ * последнее введённое. Подставить значение извне — сменить `key` строки.
+ */
+export function InputRow({
+  label,
+  caption,
+  captionColor,
+  value,
+  placeholder,
+  keyboard = 'default',
+  maxLength,
+  onChange,
+}: {
+  label: string;
+  caption?: string;
+  /** Подсветка второй строки: излишек зелёным, недостача красным. */
+  captionColor?: ColorValue;
+  value: string;
+  placeholder?: string;
+  keyboard?: Keyboard;
+  maxLength?: number;
+  onChange: (next: string) => void;
+}) {
+  const text = useNativeState(value);
+  return (
+    <HStack spacing={12}>
+      <VStack alignment="leading" spacing={1} modifiers={[layoutPriority(1)]}>
+        <Text modifiers={[primary, lineLimit(1)]}>{label}</Text>
+        {caption ? <Text modifiers={[footnote, captionColor ? foregroundStyle(captionColor as string) : secondary, lineLimit(2)]}>{caption}</Text> : null}
+      </VStack>
+      <TextField
+        text={text}
+        placeholder={placeholder}
+        maxLength={maxLength}
+        onTextChange={onChange}
+        modifiers={[multilineTextAlignment('trailing'), keyboardTypeModifier(keyboard), submitLabel('done')]}
       />
     </HStack>
   );

@@ -1,4 +1,4 @@
-import { ContentUnavailableView, HStack, Host, Image, List, ProgressView, Section, Spacer, Text, VStack } from '@expo/ui/swift-ui';
+import { ContentUnavailableView, HStack, Image, List, ProgressView, Section, Spacer, Text, VStack } from '@expo/ui/swift-ui';
 import {
   background,
   font,
@@ -11,11 +11,13 @@ import {
 import { Stack, useRouter } from 'expo-router';
 import { useEffect } from 'react';
 
+import { FormHost } from '@/components/native-form';
 import { notificationLook, relativeTime } from '@/lib/notifications';
 import { markAllNotificationsRead, useNotifications } from '@/lib/queries';
 import { useSession } from '@/lib/session';
 import { useNow } from '@/lib/use-now';
 import { ToolbarButton } from '@/components/toolbar';
+import { colors } from '@/lib/theme';
 
 const secondary = foregroundStyle({ type: 'hierarchical', style: 'secondary' });
 
@@ -69,11 +71,11 @@ export default function NotificationsSheet() {
   return (
     <>
       <Stack.Toolbar placement="right">
-        <ToolbarButton variant="done" onPress={() => router.back()}>
+        <ToolbarButton variant="done" tintColor={colors.accent} onPress={() => router.back()}>
           Готово
         </ToolbarButton>
       </Stack.Toolbar>
-      <Host style={{ flex: 1 }} useViewportSizeMeasurement>
+      <FormHost>
         {notifications.isLoading ? (
           <ProgressView />
         ) : items.length === 0 ? (
@@ -94,7 +96,7 @@ export default function NotificationsSheet() {
             {read.length > 0 && <Section title="Прочитанные">{read.map(renderRow)}</Section>}
           </List>
         )}
-      </Host>
+      </FormHost>
     </>
   );
 }

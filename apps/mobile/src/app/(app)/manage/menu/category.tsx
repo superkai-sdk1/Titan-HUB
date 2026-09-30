@@ -1,11 +1,11 @@
-import { ColorPicker, Form, HStack, Host, Label, Picker, ProgressView, Section, Text, Toggle } from '@expo/ui/swift-ui';
+import { ColorPicker, Form, HStack, Label, Picker, ProgressView, Section, Text, Toggle } from '@expo/ui/swift-ui';
 import { font, lineLimit, pickerStyle, tag } from '@expo/ui/swift-ui/modifiers';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Alert } from 'react-native';
 
 import { EditorToolbar } from '@/components/editor-toolbar';
-import { ActionRow, FieldRow, normalizeHex, primary, RowIcon } from '@/components/native-form';
+import { ActionRow, FieldRow, FormHost, normalizeHex, primary, RowIcon } from '@/components/native-form';
 import { CATEGORY_PRESETS, categoryHex, categorySymbol, deleteCategory, saveCategory, useMenuAdmin } from '@/lib/catalog-api';
 import { haptic } from '@/lib/haptics';
 import type { MenuCategory } from '@/lib/pos-api';
@@ -20,9 +20,9 @@ export default function MenuCategorySheet() {
 
   if (categoryId && !menu.data) {
     return (
-      <Host style={{ flex: 1 }} useViewportSizeMeasurement>
+      <FormHost>
         <ProgressView />
-      </Host>
+      </FormHost>
     );
   }
   const original = categoryId ? (menu.data?.categories.find((c) => c.id === categoryId) ?? null) : null;
@@ -75,7 +75,7 @@ function CategoryForm({ original }: { original: MenuCategory | null }) {
   return (
     <>
       <EditorToolbar title={original ? 'Категория' : 'Новая категория'} canSave={name.trim().length > 0} busy={busy} onSave={() => void save()} />
-      <Host style={{ flex: 1 }} useViewportSizeMeasurement>
+      <FormHost>
         <Form>
           <Section>
             <HStack spacing={14}>
@@ -124,7 +124,7 @@ function CategoryForm({ original }: { original: MenuCategory | null }) {
             </Section>
           )}
         </Form>
-      </Host>
+      </FormHost>
     </>
   );
 }

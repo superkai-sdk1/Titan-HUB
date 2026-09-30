@@ -1,10 +1,10 @@
-import { ContentUnavailableView, Form, HStack, Host, ProgressView, RNHostView, Section, Text, VStack } from '@expo/ui/swift-ui';
+import { ContentUnavailableView, Form, HStack, ProgressView, RNHostView, Section, Text, VStack } from '@expo/ui/swift-ui';
 import { font, foregroundStyle, lineLimit } from '@expo/ui/swift-ui/modifiers';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Alert } from 'react-native';
 
-import { ActionRow, FieldRow, primary, secondary } from '@/components/native-form';
+import { ActionRow, FieldRow, FormHost, primary, secondary } from '@/components/native-form';
 import { Avatar } from '@/components/new-check-parts';
 import { ToolbarButton } from '@/components/toolbar';
 import { excludeMember, includeMember, setMemberAmount, useCollection, type ExcludeDuration, type RosterRow } from '@/lib/collections-api';
@@ -30,9 +30,9 @@ export default function MemberSheet() {
 
   if (!detail.data || !row) {
     return (
-      <Host style={{ flex: 1 }} useViewportSizeMeasurement>
+      <FormHost>
         {detail.isLoading ? <ProgressView /> : <ContentUnavailableView title="Участник не найден" systemImage="person.crop.circle.badge.questionmark" />}
-      </Host>
+      </FormHost>
     );
   }
 
@@ -78,11 +78,11 @@ function MemberForm({ collectionId, periodAmount, row }: { collectionId: string;
         <ToolbarButton onPress={() => router.back()}>Отмена</ToolbarButton>
       </Stack.Toolbar>
       <Stack.Toolbar placement="right">
-        <ToolbarButton variant="done" disabled={!amountValid || !!busy} onPress={() => void run('amount', () => setMemberAmount(collectionId, row.playerId, value), 'Сумма не сохранена')}>
+        <ToolbarButton variant="done" tintColor={colors.accent} disabled={!amountValid || !!busy} onPress={() => void run('amount', () => setMemberAmount(collectionId, row.playerId, value), 'Сумма не сохранена')}>
           {busy === 'amount' ? 'Сохраняем…' : 'Сохранить'}
         </ToolbarButton>
       </Stack.Toolbar>
-      <Host style={{ flex: 1 }} useViewportSizeMeasurement>
+      <FormHost>
         <Form>
           <Section>
             <HStack spacing={14}>
@@ -118,7 +118,7 @@ function MemberForm({ collectionId, periodAmount, row }: { collectionId: string;
             )}
           </Section>
         </Form>
-      </Host>
+      </FormHost>
     </>
   );
 }

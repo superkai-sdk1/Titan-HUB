@@ -1,11 +1,11 @@
-import { Form, HStack, Host, LabeledContent, ProgressView, Section, Text } from '@expo/ui/swift-ui';
+import { Form, HStack, LabeledContent, ProgressView, Section, Text } from '@expo/ui/swift-ui';
 import { monospacedDigit } from '@expo/ui/swift-ui/modifiers';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Alert } from 'react-native';
 
 import { EditorToolbar } from '@/components/editor-toolbar';
-import { ActionRow, FieldRow, secondary } from '@/components/native-form';
+import { ActionRow, FieldRow, FormHost, secondary } from '@/components/native-form';
 import { deleteEventRate, saveEventRate } from '@/lib/catalog-api';
 import { useEventRates, type EventRate } from '@/lib/events-api';
 import { formatMoney, moneyText, plural, toNumber } from '@/lib/format';
@@ -24,9 +24,9 @@ export default function EventRateEditor() {
 
   if (hours && !rates.data) {
     return (
-      <Host style={{ flex: 1 }} useViewportSizeMeasurement>
+      <FormHost>
         <ProgressView />
-      </Host>
+      </FormHost>
     );
   }
   const original = hours ? (rates.data?.find((r) => r.hours === Number(hours)) ?? null) : null;
@@ -77,7 +77,7 @@ function RateForm({ original, taken }: { original: EventRate | null; taken: numb
         busy={busy}
         onSave={() => amount !== null && void run(() => saveEventRate(hours, amount), 'Пакет не сохранён')}
       />
-      <Host style={{ flex: 1 }} useViewportSizeMeasurement>
+      <FormHost>
         <Form>
           {!original && (
             <Section title="Часов" footer={<Text>{hint}</Text>}>
@@ -111,7 +111,7 @@ function RateForm({ original, taken }: { original: EventRate | null; taken: numb
             </Section>
           )}
         </Form>
-      </Host>
+      </FormHost>
     </>
   );
 }

@@ -1,7 +1,8 @@
-import { DatePicker, Form, Host, Section, Text } from '@expo/ui/swift-ui';
+import { DatePicker, Form, Section, Text } from '@expo/ui/swift-ui';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
 
+import { FormHost } from '@/components/native-form';
 import { EditorToolbar } from '@/components/editor-toolbar';
 import { daysBetween, useAnalyticsPeriod, useAnalyticsPeriodStore } from '@/lib/analytics-api';
 import { fromDateTime, toDateString } from '@/lib/events-api';
@@ -32,14 +33,14 @@ export default function PeriodSheet() {
           router.back();
         }}
       />
-      <Host style={{ flex: 1 }} useViewportSizeMeasurement>
+      <FormHost>
         <Form>
           <Section footer={<Text>{`${days} ${plural(days, ['бизнес-день', 'бизнес-дня', 'бизнес-дней'])}. День клуба начинается в час из настроек, а не в полночь.`}</Text>}>
             <DatePicker title="С" selection={from} displayedComponents={['date']} range={{ end: new Date() }} onDateChange={setFrom} />
             <DatePicker title="По" selection={to} displayedComponents={['date']} range={{ end: new Date() }} onDateChange={setTo} />
           </Section>
         </Form>
-      </Host>
+      </FormHost>
     </>
   );
 }

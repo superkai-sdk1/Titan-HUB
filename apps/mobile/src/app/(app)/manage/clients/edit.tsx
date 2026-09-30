@@ -1,4 +1,4 @@
-import { Button, ContentUnavailableView, DatePicker, Form, Host, Picker, ProgressView, Section, Text, Toggle } from '@expo/ui/swift-ui';
+import { Button, ContentUnavailableView, DatePicker, Form, Picker, ProgressView, Section, Text, Toggle } from '@expo/ui/swift-ui';
 import { pickerStyle, tag } from '@expo/ui/swift-ui/modifiers';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
@@ -6,7 +6,7 @@ import { Alert, Linking } from 'react-native';
 
 import { RankRow } from '@/components/analytics/native';
 import { EditorToolbar } from '@/components/editor-toolbar';
-import { ActionRow, FieldRow, LinkRow } from '@/components/native-form';
+import { ActionRow, FieldRow, FormHost, LinkRow } from '@/components/native-form';
 import { useDebounced } from '@/components/player-picker';
 import {
   createClientProfile,
@@ -47,9 +47,9 @@ export default function ClientEditSheet() {
 
   if (clientId && !client.data) {
     return (
-      <Host style={{ flex: 1 }} useViewportSizeMeasurement>
+      <FormHost>
         {client.isError ? <ContentUnavailableView title="Клиент не загрузился" systemImage="wifi.exclamationmark" description={errorText(client.error)} /> : <ProgressView />}
-      </Host>
+      </FormHost>
     );
   }
 
@@ -205,7 +205,7 @@ function ClientForm({ initial, onCreated }: { initial: Client | undefined; onCre
   return (
     <>
       <EditorToolbar title={initial ? 'Профиль клиента' : 'Новый клиент'} canSave={nickname.trim().length >= 2} busy={busy} saveLabel={initial ? 'Сохранить' : 'Создать'} onSave={() => void save()} />
-      <Host style={{ flex: 1 }} useViewportSizeMeasurement>
+      <FormHost>
         <Form>
           <Section title="Ник и имя" footer={creating && !gomafia ? <Text>Начните вводить ник — найдём игрока на GoMafia и подставим имя и фото.</Text> : undefined}>
             <FieldRow key={`nick-${fieldsVersion}`} value={nickname} placeholder="Ник" autoFocus={creating && fieldsVersion === 0} maxLength={40} onChange={setNickname} />
@@ -295,7 +295,7 @@ function ClientForm({ initial, onCreated }: { initial: Client | undefined; onCre
             </Section>
           )}
         </Form>
-      </Host>
+      </FormHost>
     </>
   );
 }

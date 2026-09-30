@@ -1,10 +1,10 @@
-import { ColorPicker, Form, HStack, Host, ProgressView, Section, Text } from '@expo/ui/swift-ui';
+import { ColorPicker, Form, HStack, ProgressView, Section, Text } from '@expo/ui/swift-ui';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Alert } from 'react-native';
 
 import { EditorToolbar } from '@/components/editor-toolbar';
-import { ActionRow, FieldRow, normalizeHex, secondary } from '@/components/native-form';
+import { ActionRow, FieldRow, FormHost, normalizeHex, secondary } from '@/components/native-form';
 import { deleteTariff, restoreTariff, saveTariff, useTariffsAdmin, type AdminTariff } from '@/lib/catalog-api';
 import { moneyText } from '@/lib/format';
 import { haptic } from '@/lib/haptics';
@@ -19,9 +19,9 @@ export default function TariffEditor() {
 
   if (tariffId && !tariffs.data) {
     return (
-      <Host style={{ flex: 1 }} useViewportSizeMeasurement>
+      <FormHost>
         <ProgressView />
-      </Host>
+      </FormHost>
     );
   }
   const original = tariffId ? (tariffs.data?.find((t) => t.id === tariffId) ?? null) : null;
@@ -70,7 +70,7 @@ function TariffForm({ original }: { original: AdminTariff | null }) {
   return (
     <>
       <EditorToolbar title={original ? (isStatus ? 'Статус клиента' : 'Тариф') : 'Новый тариф'} canSave={canSave} busy={busy} onSave={save} />
-      <Host style={{ flex: 1 }} useViewportSizeMeasurement>
+      <FormHost>
         <Form>
           <Section title="Название">
             <FieldRow value={name} placeholder="Например, «Одна игра»" autoFocus={!original} maxLength={120} onChange={setName} />
@@ -105,7 +105,7 @@ function TariffForm({ original }: { original: AdminTariff | null }) {
             </Section>
           )}
         </Form>
-      </Host>
+      </FormHost>
     </>
   );
 }

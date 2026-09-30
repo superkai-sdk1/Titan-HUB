@@ -1,6 +1,7 @@
 import { Stack, useRouter } from 'expo-router';
 
 import { ToolbarButton } from '@/components/toolbar';
+import { colors } from '@/lib/theme';
 
 /**
  * Шапка редактора, как в системных формах iOS: «Отмена» слева, «Сохранить» справа.
@@ -15,7 +16,7 @@ export function EditorToolbar({ title, canSave, busy, saveLabel = 'Сохран�
         <ToolbarButton onPress={() => router.back()}>Отмена</ToolbarButton>
       </Stack.Toolbar>
       <Stack.Toolbar placement="right">
-        <ToolbarButton variant="done" disabled={!canSave || busy} onPress={onSave}>
+        <ToolbarButton variant="done" tintColor={colors.accent} disabled={!canSave || busy} onPress={onSave}>
           {busy ? 'Сохраняем…' : saveLabel}
         </ToolbarButton>
       </Stack.Toolbar>

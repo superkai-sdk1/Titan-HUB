@@ -12,6 +12,7 @@ import {
   type ColorValue, type StyleProp, type TextStyle, type ViewStyle,
 } from 'react-native';
 
+import { SwipeToDelete } from '@/components/swipe-to-delete';
 import { useAutoFocus } from '@/lib/auto-focus';
 import { useTabBarClearance } from '@/lib/tab-bar';
 import { colors, radius, space } from '@/lib/theme';
@@ -658,6 +659,33 @@ export function List({ children, modifiers, style }: Mods & WithChildren & { sty
 
 List.ForEach = ForEach;
 
+type SwipeGroupProps = WithChildren & { edge?: 'leading' | 'trailing'; allowsFullSwipe?: boolean };
+
+/** Слот действий: сам ничего не рисует, его кнопки читает SwipeActions. */
+function SwipeActionsGroup(_props: SwipeGroupProps) {
+  return null;
+}
+
+/**
+ * Действия смахиванием строки. На Android — первое действие справа тем же свайпом влево
+ * (RN Swipeable): «Удалить черновик», «Убрать позицию». Без действий — просто строка.
+ */
+function SwipeActionsView({ children }: WithChildren) {
+  const parts = Children.toArray(children);
+  const isGroup = (child: ReactNode): child is ReactElement<SwipeGroupProps> => isValidElement(child) && child.type === SwipeActionsGroup;
+  const group = parts.filter(isGroup).find((g) => (g.props.edge ?? 'trailing') === 'trailing');
+  const action = group ? Children.toArray(group.props.children).find((c): c is ReactElement<{ label?: string; onPress?: () => void }> => isValidElement(c)) : undefined;
+  const body = parts.filter((child) => !isGroup(child)).map((child, index) => (needsCellPadding(child) ? <View key={index} style={styles.cell}>{child}</View> : child));
+  if (!action) return <>{body}</>;
+  return (
+    <SwipeToDelete enabled label={action.props.label ?? 'Удалить'} onDelete={() => action.props.onPress?.()}>
+      <View style={styles.swipeRow}>{body}</View>
+    </SwipeToDelete>
+  );
+}
+
+export const SwipeActions = Object.assign(SwipeActionsView, { Actions: SwipeActionsGroup });
+
 export function LabeledContent({ label, children, modifiers }: Mods & WithChildren & { label?: string }) {
   const m = resolve(modifiers);
   return (
@@ -848,6 +876,7 @@ const styles = StyleSheet.create({
   sectionFooter: { marginHorizontal: space.lg, marginTop: space.xs },
   footnote: { color: colors.secondaryLabel, fontSize: 13 },
   card: { backgroundColor: colors.card, borderRadius: radius.card, overflow: 'hidden' },
+  swipeRow: { backgroundColor: colors.card },
   separator: { height: StyleSheet.hairlineWidth, backgroundColor: colors.separator, marginLeft: space.lg },
   listRow: { flexDirection: 'row', alignItems: 'center', gap: space.md, paddingHorizontal: space.lg, paddingVertical: space.md, minHeight: 48 },
   list: { flex: 1 },
