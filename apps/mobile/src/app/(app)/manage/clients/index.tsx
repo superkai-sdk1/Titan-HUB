@@ -1,30 +1,24 @@
-import { FlashList } from '@shopify/flash-list';
+import { ContentUnavailableView, Form, Host, Picker, ProgressView, Section, Text } from '@expo/ui/swift-ui';
+import { pickerStyle, refreshable, tag } from '@expo/ui/swift-ui/modifiers';
 import { Stack, useRouter } from 'expo-router';
 import { useMemo, useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { SFSymbol } from 'sf-symbols-typescript';
 
-import { AppRefreshControl } from '@/components/refresh-control';
-import { BottomSearch, useSearchClearance } from '@/components/bottom-search';
-import { AmbientBackdrop } from '@/components/ambient-backdrop';
-import { ClientRow } from '@/components/client-row';
-import { GlassChip } from '@/components/new-check-parts';
+import { ClientLine } from '@/components/client-line';
+import { ActionRow, SearchRow } from '@/components/native-form';
 import { useDebounced } from '@/components/player-picker';
-import { Unavailable } from '@/components/unavailable';
+import { ToolbarButton, ToolbarMenu, ToolbarMenuAction } from '@/components/toolbar';
 import { useClientList, useClientTiers, type Client, type ClientSection, type ClientSort } from '@/lib/clients-api';
 import { plural } from '@/lib/format';
 import { haptic } from '@/lib/haptics';
-import { usePageGutter } from '@/lib/layout';
-import { colors, space, type } from '@/lib/theme';
-import { ToolbarButton, ToolbarMenu, ToolbarMenuAction } from '@/components/toolbar';
 
-const SECTIONS: { key: ClientSection; label: string; icon?: SFSymbol }[] = [
+const SECTIONS: { key: ClientSection; label: string }[] = [
   { key: 'all', label: 'Все' },
   { key: 'resident', label: 'Резиденты' },
   { key: 'student', label: 'Студенты' },
   { key: 'newbie', label: 'Новички' },
   { key: 'guest', label: 'Гости' },
-  { key: 'archived', label: 'Архив', icon: 'archivebox' },
+  { key: 'archived', label: 'Архив' },
 ];
 
 const SORTS: { key: ClientSort; label: string; icon: SFSymbol }[] = [
@@ -36,12 +30,10 @@ const SORTS: { key: ClientSort; label: string; icon: SFSymbol }[] = [
 ];
 
 /**
- * Клиенты клуба: поиск в шапке (ник, имя, телефон, теги), разделы по статусу и архив,
- * сортировка в меню. Список догружается страницами по 30, строки — стекло.
+ * Клиенты клуба: поиск строкой (ник, имя, телефон, теги), раздел по статусу и архив —
+ * системным меню, сортировка — в шапке. Список догружается страницами по 30.
  */
 export default function ClientsScreen() {
-  const gutter = usePageGutter();
-  const searchClearance = useSearchClearance();
   const router = useRouter();
   const tiers = useClientTiers();
   const [section, setSection] = useState<ClientSection>('all');
@@ -49,7 +41,6 @@ export default function ClientsScreen() {
   const [query, setQuery] = useState('');
   const search = useDebounced(query, 300);
   const list = useClientList(section, sort, search);
-  const [pulling, setPulling] = useState(false);
 
   const clients = useMemo(() => {
     const seen = new Set<string>();
@@ -57,41 +48,17 @@ export default function ClientsScreen() {
   }, [list.data]);
   const total = list.data?.pages[0]?.total ?? 0;
 
-  const refresh = async () => {
-    setPulling(true);
-    await list.refetch();
-    setPulling(false);
+  const open = (client: Client) => router.push({ pathname: '/manage/clients/[clientId]', params: { clientId: client.id } });
+  const more = () => {
+    if (list.hasNextPage && !list.isFetchingNextPage) void list.fetchNextPage();
   };
 
-  const open = (client: Client) => router.push({ pathname: '/manage/clients/[clientId]', params: { clientId: client.id } });
-
-  const header = (
-    <View style={styles.header}>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chips} contentContainerStyle={styles.chipsContent}>
-        {SECTIONS.map((s) => (
-          <GlassChip
-            key={s.key}
-            label={s.label}
-            icon={s.icon}
-            tint={s.key === 'archived' ? colors.gray : colors.accent}
-            active={section === s.key}
-            onPress={() => {
-              haptic.selection();
-              setSection(s.key);
-            }}
-          />
-        ))}
-      </ScrollView>
-      {list.data && (
-        <Text style={[type.footnote, styles.count]}>
-          {`${total} ${plural(total, ['клиент', 'клиента', 'клиентов'])}${search.trim() ? ' по запросу' : section === 'archived' ? ' в архиве' : ''} · ${SORTS.find((s) => s.key === sort)?.label.toLowerCase()}`}
-        </Text>
-      )}
-    </View>
-  );
+  const title = list.data
+    ? `${total} ${plural(total, ['клиент', 'клиента', 'клиентов'])}${search.trim() ? ' по запросу' : section === 'archived' ? ' в архиве' : ''} · ${SORTS.find((s) => s.key === sort)?.label.toLowerCase()}`
+    : undefined;
 
   return (
-    <AmbientBackdrop style={styles.screen}>
+    <>
       <Stack.Title>Клиенты</Stack.Title>
       <Stack.Toolbar placement="right">
         <ToolbarMenu icon="arrow.up.arrow.down" accessibilityLabel="Сортировка">
@@ -111,64 +78,44 @@ export default function ClientsScreen() {
         <ToolbarButton icon="person.badge.plus" accessibilityLabel="Новый клиент" onPress={() => router.push('/manage/clients/edit')} />
       </Stack.Toolbar>
 
-      <FlashList
-        data={clients}
-        keyExtractor={(client) => client.id}
-        renderItem={({ item }) => <ClientRow client={item} tiers={tiers.data} onPress={() => open(item)} />}
-        ItemSeparatorComponent={Gap}
-        ListHeaderComponent={header}
-        ListEmptyComponent={
-          list.isLoading ? (
-            <ActivityIndicator style={styles.loading} />
-          ) : (
-            <View style={styles.empty}>
-              {list.isError ? (
-                <Unavailable title="Нет связи" systemImage="wifi.exclamationmark" description={list.error.message} />
+      <Host style={{ flex: 1 }} useViewportSizeMeasurement>
+        <Form modifiers={[refreshable(async () => void (await list.refetch()))]}>
+          <Section>
+            <SearchRow placeholder="Ник, имя, телефон или тег" onChange={setQuery} />
+            <Picker
+              label="Раздел"
+              selection={section}
+              onSelectionChange={(value) => {
+                haptic.selection();
+                setSection(value as ClientSection);
+              }}
+              modifiers={[pickerStyle('menu')]}>
+              {SECTIONS.map((s) => (
+                <Text key={s.key} modifiers={[tag(s.key)]}>
+                  {s.label}
+                </Text>
+              ))}
+            </Picker>
+          </Section>
+
+          <Section title={title} footer={clients.length > 0 && !list.hasNextPage ? <Text>{`Все клиенты загружены · ${clients.length}`}</Text> : undefined}>
+            {list.isLoading ? (
+              <ProgressView />
+            ) : clients.length === 0 ? (
+              list.isError ? (
+                <ContentUnavailableView title="Нет связи" systemImage="wifi.exclamationmark" description={list.error.message} />
               ) : section === 'archived' ? (
-                <Unavailable title="Архив пуст" systemImage="archivebox" description="Сюда попадают клиенты, отправленные в архив." />
+                <ContentUnavailableView title="Архив пуст" systemImage="archivebox" description="Сюда попадают клиенты, отправленные в архив." />
               ) : (
-                <Unavailable title="Клиенты не найдены" systemImage="person.2.slash" description="Измените запрос или раздел." />
-              )}
-            </View>
-          )
-        }
-        ListFooterComponent={
-          list.isFetchingNextPage ? (
-            <ActivityIndicator style={styles.footer} />
-          ) : clients.length > 0 && !list.hasNextPage ? (
-            <Text style={[type.footnote, styles.footerText]}>{`Все клиенты загружены · ${clients.length}`}</Text>
-          ) : null
-        }
-        onEndReached={() => {
-          if (list.hasNextPage && !list.isFetchingNextPage) void list.fetchNextPage();
-        }}
-        onEndReachedThreshold={0.6}
-        contentInsetAdjustmentBehavior="automatic"
-        contentContainerStyle={[styles.content, gutter, { paddingBottom: searchClearance }]}
-        keyboardDismissMode="on-drag"
-        keyboardShouldPersistTaps="handled"
-        automaticallyAdjustKeyboardInsets
-        refreshControl={<AppRefreshControl tintColor={colors.accent} refreshing={pulling} onRefresh={refresh} />}
-      />
-      <BottomSearch value={query} onChange={setQuery} placeholder="Ник, имя, телефон или тег" />
-    </AmbientBackdrop>
+                <ContentUnavailableView title="Клиенты не найдены" systemImage="person.2.slash" description="Измените запрос или раздел." />
+              )
+            ) : (
+              clients.map((client) => <ClientLine key={client.id} client={client} tiers={tiers.data} onPress={() => open(client)} />)
+            )}
+            {list.hasNextPage && <ActionRow title={list.isFetchingNextPage ? 'Загружаем…' : `Показать ещё · загружено ${clients.length} из ${total}`} icon="arrow.down.circle" disabled={list.isFetchingNextPage} onPress={more} />}
+          </Section>
+        </Form>
+      </Host>
+    </>
   );
 }
-
-function Gap() {
-  return <View style={styles.gap} />;
-}
-
-const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.groupedBackground },
-  content: { paddingHorizontal: space.lg, paddingBottom: 140 },
-  header: { gap: space.sm, paddingBottom: space.md },
-  chips: { flexGrow: 0, flexShrink: 0, height: 44, marginHorizontal: -space.lg },
-  chipsContent: { paddingHorizontal: space.lg, gap: space.sm, alignItems: 'center' },
-  count: { color: colors.secondaryLabel, paddingHorizontal: space.xs },
-  gap: { height: space.sm },
-  loading: { paddingTop: 80 },
-  empty: { height: 380 },
-  footer: { paddingVertical: space.xl },
-  footerText: { color: colors.tertiaryLabel, textAlign: 'center', paddingVertical: space.xl },
-});

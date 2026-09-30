@@ -1,19 +1,14 @@
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import { SymbolView } from 'expo-symbols';
+import { ContentUnavailableView, Form, Host, ProgressView, Section, Text } from '@expo/ui/swift-ui';
+import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Alert } from 'react-native';
 
-import { ClearButton } from '@/components/clear-button';
-import { GlassCard, SheetHeader, sheetStyles } from '@/components/new-check-parts';
+import { LinkRow, SearchRow } from '@/components/native-form';
+import { ToolbarButton } from '@/components/toolbar';
 import { linkClientTg, useClient, useTgRoster, type TgRosterUser } from '@/lib/clients-api';
 import { haptic } from '@/lib/haptics';
-import { KEYBOARD_DISMISS } from '@/lib/layout';
-import { colors, space, type } from '@/lib/theme';
 
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
-
 const fullName = (u: TgRosterUser) => [u.firstName, u.lastName].filter(Boolean).join(' ');
 
 /**
@@ -24,7 +19,6 @@ const fullName = (u: TgRosterUser) => [u.firstName, u.lastName].filter(Boolean).
 export default function TgRosterSheet() {
   const { clientId } = useLocalSearchParams<{ clientId: string }>();
   const router = useRouter();
-  const insets = useSafeAreaInsets();
   const client = useClient(clientId);
   const roster = useTgRoster();
   const [query, setQuery] = useState('');
@@ -63,85 +57,45 @@ export default function TgRosterSheet() {
   };
 
   return (
-    <KeyboardAvoidingView behavior="padding" style={styles.sheet}>
-      <View style={styles.top}>
-        <SheetHeader title="Участники чата" onClose={() => router.back()} />
-        <Text style={[type.footnote, sheetStyles.secondary]}>Кто писал в чатах клуба при боте. Выберите аккаунт гостя.</Text>
-        <GlassCard style={styles.search}>
-          <SymbolView name="magnifyingglass" size={16} weight="medium" tintColor={colors.secondaryLabel} />
-          <TextInput
-            value={query}
-            onChangeText={setQuery}
-            placeholder="Имя или @username"
-            placeholderTextColor={colors.tertiaryLabel}
-            selectionColor={colors.accent}
-            autoCapitalize="none"
-            autoCorrect={false}
-            clearButtonMode="while-editing"
-            style={[type.body, styles.searchInput]}
-          />
-          <ClearButton visible={query.length > 0} onPress={() => setQuery('')} />
-        </GlassCard>
-      </View>
-
-      <ScrollView
-        contentContainerStyle={[styles.list, { paddingBottom: Math.max(insets.bottom, space.lg) }]}
-        keyboardShouldPersistTaps="handled"
-        keyboardDismissMode={KEYBOARD_DISMISS}>
-        {roster.isLoading ? (
-          <ActivityIndicator style={styles.state} />
-        ) : list.length === 0 ? (
-          <Text style={[type.subhead, sheetStyles.secondary, styles.state]}>
-            {roster.isError ? errorText(roster.error) : query ? 'Никого не нашли' : 'Бот ещё никого не видел в чатах клуба.'}
-          </Text>
-        ) : (
-          <GlassCard>
-            {list.map((user, index) => {
-              const taken = !!user.linkedTo;
-              return (
-                <View key={user.tgId}>
-                  {index > 0 && <View style={[sheetStyles.separator, styles.separator]} />}
-                  <Pressable
-                    disabled={taken || busy !== null}
-                    onPress={() => pick(user)}
-                    style={({ pressed }) => [styles.row, pressed && styles.pressed]}
-                    accessibilityRole="button">
-                    <View style={[styles.icon, taken && styles.iconTaken]}>
-                      <SymbolView name="paperplane.fill" size={14} tintColor="white" />
-                    </View>
-                    <View style={styles.flex}>
-                      <Text style={[type.body, styles.label, taken && styles.dim]} numberOfLines={1}>
-                        {user.username ? `@${user.username}` : fullName(user) || `ID ${user.tgId}`}
-                      </Text>
-                      <Text style={[type.footnote, sheetStyles.secondary]} numberOfLines={1}>
-                        {taken ? `Уже у «${user.linkedTo}»` : fullName(user) || 'без имени'}
-                      </Text>
-                    </View>
-                    {busy === user.tgId ? <ActivityIndicator /> : !taken && <SymbolView name="plus.circle.fill" size={22} tintColor={colors.accent} />}
-                  </Pressable>
-                </View>
-              );
-            })}
-          </GlassCard>
-        )}
-      </ScrollView>
-    </KeyboardAvoidingView>
+    <>
+      <Stack.Title>Участники чата</Stack.Title>
+      <Stack.Toolbar placement="left">
+        <ToolbarButton onPress={() => router.back()}>Отмена</ToolbarButton>
+      </Stack.Toolbar>
+      <Host style={{ flex: 1 }} useViewportSizeMeasurement>
+        <Form>
+          <Section footer={<Text>Кто писал в чатах клуба при боте. Выберите аккаунт гостя.</Text>}>
+            <SearchRow placeholder="Имя или @username" onChange={setQuery} />
+          </Section>
+          <Section>
+            {roster.isLoading ? (
+              <ProgressView />
+            ) : list.length === 0 ? (
+              <ContentUnavailableView
+                title={roster.isError ? 'Нет связи' : query ? 'Никого не нашли' : 'Пока никого'}
+                systemImage="person.2"
+                description={roster.isError ? errorText(roster.error) : query ? undefined : 'Бот ещё никого не видел в чатах клуба.'}
+              />
+            ) : (
+              list.map((user) => {
+                const taken = !!user.linkedTo;
+                return (
+                  <LinkRow
+                    key={user.tgId}
+                    icon="paperplane.fill"
+                    color={taken ? '#8E8E93' : '#32ADE6'}
+                    title={user.username ? `@${user.username}` : fullName(user) || `ID ${user.tgId}`}
+                    subtitle={taken ? `Уже у «${user.linkedTo}»` : fullName(user) || 'без имени'}
+                    value={busy === user.tgId ? '…' : undefined}
+                    chevron={false}
+                    onPress={taken || busy !== null ? undefined : () => pick(user)}
+                  />
+                );
+              })
+            )}
+          </Section>
+        </Form>
+      </Host>
+    </>
   );
 }
-
-const styles = StyleSheet.create({
-  sheet: { flex: 1 },
-  flex: { flex: 1 },
-  top: { paddingHorizontal: space.lg, paddingTop: space.xl, gap: space.md, paddingBottom: space.md },
-  search: { flexDirection: 'row', alignItems: 'center', gap: space.sm, paddingHorizontal: space.lg, height: 48 },
-  searchInput: { flex: 1, color: colors.label, height: 48, paddingVertical: 0 },
-  list: { paddingHorizontal: space.lg, gap: space.md },
-  state: { paddingTop: space.xxl, textAlign: 'center' },
-  row: { flexDirection: 'row', alignItems: 'center', gap: space.md, paddingHorizontal: space.lg, paddingVertical: space.md },
-  separator: { marginLeft: 62 },
-  icon: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: '#0EA5E9' },
-  iconTaken: { backgroundColor: colors.gray },
-  label: { color: colors.label },
-  dim: { color: colors.secondaryLabel },
-  pressed: { opacity: 0.6 },
-});

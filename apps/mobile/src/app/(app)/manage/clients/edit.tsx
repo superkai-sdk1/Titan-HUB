@@ -1,15 +1,12 @@
-import { DatePicker, Host, Toggle } from '@expo/ui/swift-ui';
-import { tint } from '@expo/ui/swift-ui/modifiers';
+import { Button, ContentUnavailableView, DatePicker, Form, Host, Picker, ProgressView, Section, Text, Toggle } from '@expo/ui/swift-ui';
+import { pickerStyle, tag } from '@expo/ui/swift-ui/modifiers';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { SymbolView } from 'expo-symbols';
 import { useState } from 'react';
-import { ActivityIndicator, Alert, Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
-import Animated, { FadeIn, FadeOut, LinearTransition } from 'react-native-reanimated';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Alert, Linking } from 'react-native';
 
-import { FormField, FormSection } from '@/components/form-parts';
-import { Avatar, GlassCard, GlassChip, PrimaryButton, SheetHeader, sheetStyles } from '@/components/new-check-parts';
+import { RankRow } from '@/components/analytics/native';
+import { EditorToolbar } from '@/components/editor-toolbar';
+import { ActionRow, FieldRow, LinkRow } from '@/components/native-form';
 import { useDebounced } from '@/components/player-picker';
 import {
   createClientProfile,
@@ -28,11 +25,8 @@ import {
   type GomafiaPlayer,
 } from '@/lib/clients-api';
 import { haptic } from '@/lib/haptics';
-import { KEYBOARD_DISMISS } from '@/lib/layout';
 import { cleanPhone, pickContact } from '@/lib/phone-book';
-import { colors, space, type, useAccentHex } from '@/lib/theme';
 
-const layout = LinearTransition.springify().damping(24).stiffness(220);
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
 const pad = (n: number) => String(n).padStart(2, '0');
@@ -44,7 +38,7 @@ function parseBirthday(value: string | null | undefined): Date | null {
 
 /**
  * Новый клиент или правка профиля. При создании ник сразу ищется на GoMafia — выбор
- * подставляет ник, имя и фото игрока. Статус — чипами из справочника клуба.
+ * подставляет ник, имя и фото игрока. Статус — списком из справочника клуба.
  */
 export default function ClientEditSheet() {
   const { clientId } = useLocalSearchParams<{ clientId?: string }>();
@@ -53,16 +47,16 @@ export default function ClientEditSheet() {
 
   if (clientId && !client.data) {
     return (
-      <View style={styles.loading}>
-        {client.isError ? <Text style={[type.body, sheetStyles.secondary]}>{errorText(client.error)}</Text> : <ActivityIndicator />}
-      </View>
+      <Host style={{ flex: 1 }} useViewportSizeMeasurement>
+        {client.isError ? <ContentUnavailableView title="Клиент не загрузился" systemImage="wifi.exclamationmark" description={errorText(client.error)} /> : <ProgressView />}
+      </Host>
     );
   }
 
   return (
     <ClientForm
+      key={client.data?.id ?? 'new'}
       initial={clientId ? client.data : undefined}
-      onClose={() => router.back()}
       onCreated={(created) => {
         router.back();
         setTimeout(() => router.push({ pathname: '/manage/clients/[clientId]', params: { clientId: created.id } }), 420);
@@ -71,13 +65,14 @@ export default function ClientEditSheet() {
   );
 }
 
-function ClientForm({ initial, onClose, onCreated }: { initial: Client | undefined; onClose: () => void; onCreated: (client: Client) => void }) {
-  const insets = useSafeAreaInsets();
-  const accent = useAccentHex();
+function ClientForm({ initial, onCreated }: { initial: Client | undefined; onCreated: (client: Client) => void }) {
+  const router = useRouter();
   const tiers = useClientTiers();
   const [nickname, setNickname] = useState(initial?.nickname ?? '');
   const [fullName, setFullName] = useState(initial?.fullName ?? '');
   const [phone, setPhone] = useState(initial?.phone ?? '');
+  // Подстановка из GoMafia или контактов пересоздаёт поля — иначе они держат прежний текст.
+  const [fieldsVersion, setFieldsVersion] = useState(0);
   const initialBirthday = parseBirthday(initial?.birthday);
   const [hasBirthday, setHasBirthday] = useState(!!initial?.birthday);
   const [birthday, setBirthday] = useState<Date>(initialBirthday ?? new Date(2000, 0, 1));
@@ -95,13 +90,21 @@ function ClientForm({ initial, onClose, onCreated }: { initial: Client | undefin
   const gomafiaQuery = useDebounced(creating ? (gomafia ? '' : nickname) : linking ? linkQuery : '', 350);
   const suggestions = useGomafiaSearch(gomafiaQuery);
   const tierList = [...(tiers.data ?? [])].sort((a, b) => a.sortOrder - b.sortOrder);
+  const suggestionList = (suggestions.data ?? []).slice(0, 5);
+  const showSuggestions = gomafiaQuery.length >= 2 && (suggestions.isFetching || suggestionList.length > 0);
 
   const pickGomafia = (player: GomafiaPlayer) => {
     haptic.selection();
     setGomafia(player);
     setNickname(player.login);
     if (player.fullName) setFullName((current) => current || player.fullName || '');
-    else void fetchGomafiaFullName(player.gomafiaId).then((name) => name && setFullName((current) => current || name));
+    else
+      void fetchGomafiaFullName(player.gomafiaId).then((name) => {
+        if (!name) return;
+        setFullName((current) => current || name);
+        setFieldsVersion((v) => v + 1);
+      });
+    setFieldsVersion((v) => v + 1);
   };
 
   const link = async (player: GomafiaPlayer) => {
@@ -134,18 +137,18 @@ function ClientForm({ initial, onClose, onCreated }: { initial: Client | undefin
 
   /** Телефон и имя клиента из адресной книги. Ник оставляем как есть — он игровой. */
   const fromContacts = () => {
-    haptic.light();
     void pickContact().then((contact) => {
       if (!contact) return;
       if (contact.phone) setPhone(cleanPhone(contact.phone));
       if (contact.name && !fullName.trim()) setFullName(contact.name);
+      setFieldsVersion((v) => v + 1);
       haptic.success();
     });
   };
 
   const save = async () => {
     const nick = nickname.trim();
-    if (nick.length < 2) return Alert.alert('Ник — минимум 2 символа');
+    if (nick.length < 2) return;
     const tags = tagsText
       .split(',')
       .map((t) => t.trim())
@@ -166,7 +169,7 @@ function ClientForm({ initial, onClose, onCreated }: { initial: Client | undefin
           searchTags: mergeTags(initial, tags),
         });
         haptic.success();
-        onClose();
+        router.back();
       } else {
         const created = await createClientProfile(
           { nickname: nick, fullName: fullName.trim() || null, phone: phone.trim() || null, birthday: birthdayValue, clientTier: tier, tags },
@@ -183,234 +186,116 @@ function ClientForm({ initial, onClose, onCreated }: { initial: Client | undefin
     }
   };
 
-  const suggestionList = (suggestions.data ?? []).slice(0, 5);
-  const showSuggestions = gomafiaQuery.length >= 2 && (suggestions.isFetching || suggestionList.length > 0);
+  const results = (onPick: (player: GomafiaPlayer) => void) =>
+    suggestionList.length === 0 && suggestions.isFetching ? (
+      <ProgressView />
+    ) : (
+      suggestionList.map((player) => (
+        <Button key={player.gomafiaId} onPress={() => onPick(player)}>
+          <RankRow
+            photo={{ name: player.login, url: player.avatar }}
+            name={player.inClub ? `${player.login} · в клубе` : player.login}
+            caption={[player.clubTitle ?? 'Без клуба', player.elo ? `ELO ${Math.round(player.elo)}` : null].filter(Boolean).join(' · ')}
+            value="＋"
+          />
+        </Button>
+      ))
+    );
 
   return (
-    <KeyboardAvoidingView behavior="padding" style={styles.flex}>
-      <ScrollView
-        contentContainerStyle={[styles.content, { paddingBottom: Math.max(insets.bottom, space.lg) }]}
-        keyboardShouldPersistTaps="handled"
-        keyboardDismissMode={KEYBOARD_DISMISS}
-        showsVerticalScrollIndicator={false}>
-        <SheetHeader title={initial ? 'Профиль клиента' : 'Новый клиент'} onClose={onClose} />
-
-        <FormSection title="НИК И ИМЯ" footer={creating && !gomafia ? 'Начните вводить ник — найдём игрока на GoMafia и подставим имя и фото.' : undefined}>
-          <GlassCard style={styles.card}>
-            <FormField icon="person" value={nickname} onChange={setNickname} placeholder="Ник *" autoFocus={creating} />
-            <View style={sheetStyles.separator} />
-            <FormField icon="person.text.rectangle" value={fullName} onChange={setFullName} placeholder="Реальное имя" autoCapitalize="words" />
-          </GlassCard>
+    <>
+      <EditorToolbar title={initial ? 'Профиль клиента' : 'Новый клиент'} canSave={nickname.trim().length >= 2} busy={busy} saveLabel={initial ? 'Сохранить' : 'Создать'} onSave={() => void save()} />
+      <Host style={{ flex: 1 }} useViewportSizeMeasurement>
+        <Form>
+          <Section title="Ник и имя" footer={creating && !gomafia ? <Text>Начните вводить ник — найдём игрока на GoMafia и подставим имя и фото.</Text> : undefined}>
+            <FieldRow key={`nick-${fieldsVersion}`} value={nickname} placeholder="Ник" autoFocus={creating && fieldsVersion === 0} maxLength={40} onChange={setNickname} />
+            <FieldRow key={`name-${fieldsVersion}`} value={fullName} placeholder="Реальное имя" onChange={setFullName} />
+          </Section>
 
           {creating && gomafia && (
-            <Animated.View entering={FadeIn} exiting={FadeOut} layout={layout}>
-              <GlassCard tint="rgba(139,92,246,0.18)" style={styles.gomafia}>
-                <Avatar name={gomafia.login} photoUrl={gomafia.avatar} size={40} />
-                <View style={styles.flex}>
-                  <Text style={[type.headline, sheetStyles.label]} numberOfLines={1}>{`GoMafia · ${gomafia.login}`}</Text>
-                  <Text style={[type.footnote, sheetStyles.secondary]} numberOfLines={1}>
-                    {[gomafia.fullName, gomafia.clubTitle, gomafia.elo ? `ELO ${Math.round(gomafia.elo)}` : null].filter(Boolean).join(' · ') || `#${gomafia.gomafiaId}`}
-                  </Text>
-                </View>
-                <Pressable onPress={() => setGomafia(null)} hitSlop={10} accessibilityRole="button" accessibilityLabel="Не привязывать GoMafia">
-                  <SymbolView name="xmark.circle.fill" size={22} tintColor={colors.tertiaryLabel} />
-                </Pressable>
-              </GlassCard>
-            </Animated.View>
+            <Section title="GoMafia">
+              <RankRow
+                photo={{ name: gomafia.login, url: gomafia.avatar }}
+                name={gomafia.login}
+                caption={[gomafia.fullName, gomafia.clubTitle, gomafia.elo ? `ELO ${Math.round(gomafia.elo)}` : null].filter(Boolean).join(' · ') || `#${gomafia.gomafiaId}`}
+                value="✓"
+              />
+              <ActionRow title="Не привязывать" icon="xmark.circle" onPress={() => setGomafia(null)} />
+            </Section>
           )}
 
-          {creating && showSuggestions && <GomafiaResults players={suggestionList} loading={suggestions.isFetching} onPick={pickGomafia} />}
-        </FormSection>
+          {creating && !gomafia && showSuggestions && <Section title="Найдено на GoMafia">{results(pickGomafia)}</Section>}
 
-        <FormSection title="КОНТАКТЫ">
-          <GlassCard style={styles.card}>
-            <FormField icon="phone" value={phone} onChange={setPhone} placeholder="Телефон" keyboardType="phone-pad" />
-            <View style={sheetStyles.separator} />
-            <Pressable onPress={fromContacts} style={({ pressed }) => [styles.contactRow, pressed && sheetStyles.pressedRow]} accessibilityRole="button">
-              <SymbolView name="person.crop.circle.badge.plus" size={18} tintColor={colors.accent} />
-              <Text style={[type.body, styles.contactText]}>Взять телефон из контактов</Text>
-            </Pressable>
-            <View style={sheetStyles.separator} />
-            <Host matchContents={{ vertical: true }} style={styles.control} seedColor={accent}>
-              <Toggle
-                label="День рождения"
-                isOn={hasBirthday}
-                onIsOnChange={(on) => {
-                  haptic.selection();
-                  setHasBirthday(on);
+          <Section title="Контакты">
+            <FieldRow key={`phone-${fieldsVersion}`} value={phone} placeholder="Телефон" keyboard="phone-pad" onChange={setPhone} />
+            <ActionRow title="Взять телефон из контактов" icon="person.crop.circle.badge.plus" onPress={fromContacts} />
+            <Toggle
+              label="День рождения"
+              isOn={hasBirthday}
+              onIsOnChange={(on) => {
+                setHasBirthday(on);
+                setBirthdayTouched(true);
+              }}
+            />
+            {hasBirthday && (
+              <DatePicker
+                title="Дата"
+                selection={birthday}
+                displayedComponents={['date']}
+                range={{ end: new Date() }}
+                onDateChange={(date) => {
+                  setBirthday(date);
                   setBirthdayTouched(true);
                 }}
-                modifiers={[tint(accent)]}
               />
-            </Host>
-            {hasBirthday && (
-              <>
-                <View style={sheetStyles.separator} />
-                <Host matchContents={{ vertical: true }} style={styles.control} seedColor={accent}>
-                  <DatePicker
-                    title="Дата"
-                    selection={birthday}
-                    displayedComponents={['date']}
-                    onDateChange={(date) => {
-                      setBirthday(date);
-                      setBirthdayTouched(true);
-                    }}
-                  />
-                </Host>
-              </>
             )}
-          </GlassCard>
-        </FormSection>
+          </Section>
 
-        <FormSection title="СТАТУС">
-          <View style={styles.chips}>
-            {tierList.map((t) => {
-              const look = tierLook(t.key, tiers.data);
-              return (
-                <GlassChip
-                  key={t.key}
-                  label={look.label}
-                  tint={look.color}
-                  active={tier === t.key}
-                  onPress={() => {
-                    haptic.selection();
-                    setTier(t.key);
-                  }}
-                />
-              );
-            })}
-            {tiers.isLoading && <ActivityIndicator />}
-          </View>
-        </FormSection>
+          <Section title="Статус">
+            {tiers.isLoading ? (
+              <ProgressView />
+            ) : (
+              <Picker selection={tier} onSelectionChange={(value) => setTier(String(value))} modifiers={[pickerStyle('inline')]}>
+                {tierList.map((t) => (
+                  <Text key={t.key} modifiers={[tag(t.key)]}>
+                    {tierLook(t.key, tiers.data).label}
+                  </Text>
+                ))}
+              </Picker>
+            )}
+          </Section>
 
-        <FormSection title="ТЕГИ" footer="Через запятую. Поиск клиентов находит и по тегам.">
-          <GlassCard style={styles.card}>
-            <FormField icon="tag" value={tagsText} onChange={setTagsText} placeholder="VIP, друг, постоянный" />
-          </GlassCard>
-        </FormSection>
+          <Section title="Теги" footer={<Text>Через запятую. Поиск клиентов находит и по тегам.</Text>}>
+            <FieldRow value={tagsText} placeholder="VIP, друг, постоянный" onChange={setTagsText} />
+          </Section>
 
-        {initial && (
-          <FormSection title="GOMAFIA">
-            <GlassCard style={styles.card}>
+          {initial && (
+            <Section title="GoMafia">
               {linkedId ? (
-                <View style={styles.linkRow}>
-                  <SymbolView name="checkmark.seal.fill" size={20} tintColor={colors.green} />
-                  <Pressable style={styles.flex} onPress={() => void Linking.openURL(`https://gomafia.pro/stats/${linkedId}`)} accessibilityRole="link">
-                    <Text style={[type.body, sheetStyles.label]}>{`Профиль #${linkedId}`}</Text>
-                    <Text style={[type.footnote, styles.link]}>Открыть на gomafia.pro</Text>
-                  </Pressable>
-                  <Pressable onPress={unlink} hitSlop={8} accessibilityRole="button">
-                    <Text style={[type.subhead, styles.destructive]}>Отвязать</Text>
-                  </Pressable>
-                </View>
+                <>
+                  <LinkRow icon="checkmark.seal.fill" color="#34C759" title={`Профиль #${linkedId}`} subtitle="Открыть на gomafia.pro" onPress={() => void Linking.openURL(`https://gomafia.pro/stats/${linkedId}`)} />
+                  <ActionRow title="Отвязать" icon="link.badge.plus" destructive onPress={unlink} />
+                </>
               ) : linking ? (
-                <View style={styles.linkSearch}>
-                  <SymbolView name="magnifyingglass" size={16} tintColor={colors.secondaryLabel} />
-                  <TextInput
-                    autoFocus
-                    value={linkQuery}
-                    onChangeText={setLinkQuery}
-                    placeholder="Ник игрока на GoMafia"
-                    placeholderTextColor={colors.tertiaryLabel}
-                    selectionColor={colors.accent}
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    style={[type.body, styles.input]}
-                  />
-                  <Pressable onPress={() => setLinking(false)} hitSlop={8} accessibilityRole="button">
-                    <Text style={[type.subhead, styles.link]}>Отмена</Text>
-                  </Pressable>
-                </View>
+                <>
+                  <FieldRow value={linkQuery} placeholder="Ник игрока на GoMafia" autoFocus onChange={setLinkQuery} />
+                  {showSuggestions && results((player) => void link(player))}
+                  <ActionRow title="Отмена" icon="xmark.circle" onPress={() => setLinking(false)} />
+                </>
               ) : (
-                <Pressable
-                  style={styles.linkRow}
+                <ActionRow
+                  title="Сопоставить с GoMafia"
+                  icon="link.badge.plus"
                   onPress={() => {
-                    haptic.light();
                     setLinking(true);
                     setLinkQuery(initial.nickname);
                   }}
-                  accessibilityRole="button">
-                  <SymbolView name="link.badge.plus" size={20} tintColor={colors.accent} />
-                  <Text style={[type.body, styles.link, styles.flex]}>Сопоставить с GoMafia</Text>
-                </Pressable>
+                />
               )}
-            </GlassCard>
-            {linking && showSuggestions && <GomafiaResults players={suggestionList} loading={suggestions.isFetching} onPick={(player) => void link(player)} />}
-          </FormSection>
-        )}
-
-        <PrimaryButton
-          title={busy ? 'Сохраняем…' : initial ? 'Сохранить' : 'Создать клиента'}
-          icon="checkmark"
-          busy={busy}
-          disabled={nickname.trim().length < 2}
-          onPress={() => void save()}
-        />
-      </ScrollView>
-    </KeyboardAvoidingView>
+            </Section>
+          )}
+        </Form>
+      </Host>
+    </>
   );
 }
-
-function GomafiaResults({ players, loading, onPick }: { players: GomafiaPlayer[]; loading: boolean; onPick: (player: GomafiaPlayer) => void }) {
-  return (
-    <Animated.View entering={FadeIn.duration(150)} layout={layout}>
-      <GlassCard>
-        {players.length === 0 && loading ? (
-          <View style={styles.resultsState}>
-            <ActivityIndicator />
-            <Text style={[type.subhead, sheetStyles.secondary]}>Ищем на GoMafia…</Text>
-          </View>
-        ) : (
-          players.map((player, index) => (
-            <View key={player.gomafiaId}>
-              {index > 0 && <View style={[sheetStyles.separator, styles.resultSeparator]} />}
-              <Pressable style={({ pressed }) => [styles.result, pressed && sheetStyles.pressedRow]} onPress={() => onPick(player)} accessibilityRole="button">
-                <Avatar name={player.login} photoUrl={player.avatar} size={36} />
-                <View style={styles.flex}>
-                  <View style={styles.resultTitle}>
-                    <Text style={[type.body, sheetStyles.label, styles.shrink]} numberOfLines={1}>
-                      {player.login}
-                    </Text>
-                    {player.inClub && (
-                      <View style={styles.clubBadge}>
-                        <Text style={[type.caption2, styles.clubBadgeText]}>клуб</Text>
-                      </View>
-                    )}
-                  </View>
-                  <Text style={[type.footnote, sheetStyles.secondary]} numberOfLines={1}>
-                    {[player.clubTitle ?? 'Без клуба', player.elo ? `ELO ${Math.round(player.elo)}` : null].filter(Boolean).join(' · ')}
-                  </Text>
-                </View>
-                <SymbolView name="plus.circle" size={20} tintColor={colors.accent} />
-              </Pressable>
-            </View>
-          ))
-        )}
-      </GlassCard>
-    </Animated.View>
-  );
-}
-
-const styles = StyleSheet.create({
-  contactRow: { flexDirection: 'row', alignItems: 'center', gap: space.md, minHeight: 50 },
-  contactText: { color: colors.accent, fontWeight: '600' },
-  flex: { flex: 1 },
-  shrink: { flexShrink: 1 },
-  loading: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: space.xxl },
-  content: { paddingHorizontal: space.lg, paddingTop: space.xl, gap: space.lg },
-  card: { paddingHorizontal: space.lg },
-  control: { alignSelf: 'stretch', paddingVertical: space.sm },
-  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm, alignItems: 'center' },
-  gomafia: { flexDirection: 'row', alignItems: 'center', gap: space.md, padding: space.md },
-  link: { color: colors.accent },
-  destructive: { color: colors.red, fontWeight: '600' },
-  linkRow: { flexDirection: 'row', alignItems: 'center', gap: space.md, minHeight: 54 },
-  linkSearch: { flexDirection: 'row', alignItems: 'center', gap: space.md, minHeight: 50 },
-  input: { flex: 1, color: colors.label, minHeight: 50 },
-  resultsState: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space.sm, paddingVertical: space.lg },
-  resultSeparator: { marginLeft: 64 },
-  result: { flexDirection: 'row', alignItems: 'center', gap: space.md, paddingHorizontal: space.lg, minHeight: 56 },
-  resultTitle: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  clubBadge: { paddingHorizontal: 6, paddingVertical: 1, borderRadius: 999, backgroundColor: 'rgba(139,92,246,0.18)' },
-  clubBadgeText: { color: '#8B5CF6', fontWeight: '700' },
-});

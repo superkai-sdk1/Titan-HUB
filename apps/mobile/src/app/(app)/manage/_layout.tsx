@@ -64,12 +64,12 @@ export default function ManageLayout() {
       <Stack.Screen name="shifts/index" options={formHeader({ title: 'Смены' })} />
       <Stack.Screen name="shifts/[shiftId]" options={formHeader({ title: 'Отчёт смены' })} />
 
-      <Stack.Screen name="clients/index" options={glassHeader({ title: 'Клиенты' })} />
-      <Stack.Screen name="clients/[clientId]" options={glassHeader()} />
-      <Stack.Screen name="clients/edit" options={tallSheet} />
+      <Stack.Screen name="clients/index" options={formHeader({ title: 'Клиенты' })} />
+      <Stack.Screen name="clients/[clientId]" options={formHeader()} />
+      <Stack.Screen name="clients/edit" options={editorModal} />
       <Stack.Screen name="clients/adjust" options={compactSheet} />
-      <Stack.Screen name="clients/telegram" options={tallSheet} />
-      <Stack.Screen name="clients/tg-roster" options={tallSheet} />
+      <Stack.Screen name="clients/telegram" options={editorModal} />
+      <Stack.Screen name="clients/tg-roster" options={editorModal} />
 
       <Stack.Screen name="balances/index" options={formHeader({ title: 'Депозиты и долги' })} />
       <Stack.Screen name="balances/find" options={compactSheet} />

@@ -1,13 +1,14 @@
+import { Form, HStack, Host, ProgressView, RNHostView, Section, Spacer, Text } from '@expo/ui/swift-ui';
 import { Image } from 'expo-image';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
-import { ActivityIndicator, Alert, Linking, Share, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Linking, Share, View } from 'react-native';
 
-import { GlassCard, GlassChip, PrimaryButton, SheetHeader } from '@/components/new-check-parts';
-import { Row } from '@/components/settings-parts';
+import { ActionRow, LinkRow } from '@/components/native-form';
+import { ToolbarButton } from '@/components/toolbar';
 import { unlinkClientTg, useClient, useClientTelegramLink, useClientTgAccounts } from '@/lib/clients-api';
 import { haptic } from '@/lib/haptics';
-import { colors, space, type } from '@/lib/theme';
+import { colors } from '@/lib/theme';
 
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
@@ -25,6 +26,7 @@ export default function ClientTelegramSheet() {
 
   const link = invite.data ?? null;
   const failed = invite.error ? errorText(invite.error) : null;
+  const linked = accounts.data ?? [];
 
   const unlink = (tgId: string, username: string | null) =>
     Alert.alert(`Отвязать ${username ? `@${username}` : 'Telegram'}?`, 'Клиент перестанет получать уведомления и лишится доступа в Titan Resident с этого аккаунта.', [
@@ -42,68 +44,62 @@ export default function ClientTelegramSheet() {
       },
     ]);
 
-  const linked = accounts.data ?? [];
-
   return (
-    <View style={styles.sheet}>
-      <SheetHeader title="Telegram клиента" onClose={() => router.back()} />
+    <>
+      <Stack.Title>Telegram клиента</Stack.Title>
+      <Stack.Toolbar placement="right">
+        <ToolbarButton variant="done" onPress={() => router.back()}>
+          Готово
+        </ToolbarButton>
+      </Stack.Toolbar>
+      <Host style={{ flex: 1 }} useViewportSizeMeasurement>
+        <Form>
+          <Section footer={<Text>{`Покажите ${client.data?.nickname ?? 'гостю'} этот код — он откроет бота и привяжет свой Telegram. Код действует 15 минут.`}</Text>}>
+            <HStack>
+              <Spacer />
+              <RNHostView matchContents>
+                <View style={{ width: 220, height: 220, alignItems: 'center', justifyContent: 'center', backgroundColor: 'white', borderRadius: 16 }}>
+                  {link ? (
+                    <Image source={{ uri: link.qrDataUrl }} style={{ width: 200, height: 200 }} contentFit="contain" transition={160} accessibilityLabel="QR-код привязки" />
+                  ) : failed ? null : (
+                    <ActivityIndicator />
+                  )}
+                </View>
+              </RNHostView>
+              <Spacer />
+            </HStack>
+            {failed ? <Text>{failed}</Text> : null}
+            <ActionRow title="Открыть в Telegram" icon="paperplane" disabled={!link} onPress={() => link && void Linking.openURL(link.deepLink).catch(() => Alert.alert('Не удалось открыть Telegram'))} />
+            <ActionRow title="Поделиться ссылкой" icon="square.and.arrow.up" disabled={!link} onPress={() => link && void Share.share({ message: link.deepLink })} />
+          </Section>
 
-      <Text style={[type.footnote, styles.caption]}>{`Покажите ${client.data?.nickname ?? 'гостю'} этот код — он откроет бота и привяжет свой Telegram. Код действует 15 минут.`}</Text>
+          <Section footer={<Text>Гость уже писал в чат клуба — привяжите его без QR-кода.</Text>}>
+            <LinkRow icon="person.2.fill" color="#32ADE6" title="Выбрать из чата клуба" onPress={() => router.push({ pathname: '/manage/clients/tg-roster', params: { clientId } })} />
+          </Section>
 
-      <GlassCard style={styles.qrCard}>
-        {link ? (
-          <Image source={{ uri: link.qrDataUrl }} style={styles.qr} contentFit="contain" transition={160} accessibilityLabel="QR-код привязки" />
-        ) : (
-          <View style={styles.qr}>{failed ? <Text style={[type.subhead, styles.caption, styles.centered]}>{failed}</Text> : <ActivityIndicator />}</View>
-        )}
-      </GlassCard>
-
-      <View style={styles.actions}>
-        <GlassChip label="Открыть в Telegram" icon="paperplane" active={false} onPress={() => link && void Linking.openURL(link.deepLink).catch(() => Alert.alert('Не удалось открыть Telegram'))} />
-        <GlassChip label="Поделиться" icon="square.and.arrow.up" active={false} onPress={() => link && void Share.share({ message: link.deepLink })} />
-      </View>
-      {/* Как «Участники чата» в вебе: гость уже писал в чат клуба — привязка без QR. */}
-      <View style={styles.actions}>
-        <GlassChip
-          label="Выбрать из чата клуба"
-          icon="person.2"
-          active={false}
-          onPress={() => router.push({ pathname: '/manage/clients/tg-roster', params: { clientId } })}
-        />
-      </View>
-
-      {linked.length > 0 && (
-        <GlassCard>
-          {linked.map((account, index) => (
-            <View key={account.tgId}>
-              {index > 0 && <View style={styles.separator} />}
-              <Row
-                icon="checkmark.circle"
-                color="#22C55E"
-                title={account.username ? `@${account.username}` : `ID ${account.tgId}`}
-                subtitle={account.primary ? 'Основной аккаунт' : 'Дополнительный'}
-                value="Отвязать"
-                valueColor={colors.red}
-                busy={busy}
-                onPress={() => unlink(account.tgId, account.username)}
-              />
-            </View>
-          ))}
-        </GlassCard>
-      )}
-      {linked.length === 0 && !accounts.isLoading && <Text style={[type.footnote, styles.caption, styles.centered]}>Пока ни один Telegram не привязан.</Text>}
-
-      <PrimaryButton title="Готово" icon="checkmark" onPress={() => router.back()} />
-    </View>
+          <Section title="Привязанные аккаунты">
+            {accounts.isLoading ? (
+              <ProgressView />
+            ) : linked.length === 0 ? (
+              <Text>Пока ни один Telegram не привязан.</Text>
+            ) : (
+              linked.map((account) => (
+                <LinkRow
+                  key={account.tgId}
+                  icon="checkmark.circle.fill"
+                  color="#34C759"
+                  title={account.username ? `@${account.username}` : `ID ${account.tgId}`}
+                  subtitle={account.primary ? 'Основной аккаунт' : 'Дополнительный'}
+                  value={busy ? '…' : 'Отвязать'}
+                  valueColor={colors.red}
+                  chevron={false}
+                  onPress={() => unlink(account.tgId, account.username)}
+                />
+              ))
+            )}
+          </Section>
+        </Form>
+      </Host>
+    </>
   );
 }
-
-const styles = StyleSheet.create({
-  sheet: { paddingHorizontal: space.lg, paddingTop: space.xl, paddingBottom: space.xl, gap: space.md },
-  caption: { color: colors.secondaryLabel, paddingHorizontal: space.xs },
-  centered: { textAlign: 'center' },
-  qrCard: { alignItems: 'center', padding: space.lg },
-  qr: { width: 220, height: 220, alignItems: 'center', justifyContent: 'center', borderRadius: 16, backgroundColor: 'white' },
-  actions: { flexDirection: 'row', gap: space.sm, justifyContent: 'center' },
-  separator: { height: StyleSheet.hairlineWidth, backgroundColor: colors.separator, marginLeft: 62 },
-});
