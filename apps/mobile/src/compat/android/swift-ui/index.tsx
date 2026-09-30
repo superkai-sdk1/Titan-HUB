@@ -35,6 +35,23 @@ const MenuCloseContext = createContext<(() => void) | null>(null);
 /** Текст в подписи секции — мелкий и серый, как footer у SwiftUI Section. */
 const FootnoteContext = createContext(false);
 
+/**
+ * Место в строке секции. В SwiftUI отступы строке даёт ячейка List/Form, а здесь их
+ * добавляем сами: 'root' — строка собрана своим компонентом (LinkRow, TextRow, InputRow…),
+ * и отступы ячейки берёт первый стек или текст внутри него; 'inside' — отступы уже есть,
+ * поле ввода в такой строке компактное; 'none' — вне секции.
+ */
+type CellPlace = 'none' | 'root' | 'inside';
+const CellContext = createContext<CellPlace>('none');
+
+/** Корень строки-обёртки получает отступы ячейки, его потомки — уже «внутри». */
+function useCellRoot(): boolean {
+  return useContext(CellContext) === 'root';
+}
+function insideCell(node: ReactElement): ReactElement {
+  return <CellContext.Provider value="inside">{node}</CellContext.Provider>;
+}
+
 /** Оттенок берётся из seedColor ближайшего Host, если компонент не задал свой. */
 function useTint(own?: ColorValue): ColorValue {
   const inherited = useContext(TintContext);
@@ -64,13 +81,17 @@ export function Host({ style, children, seedColor, pointerEvents, modifiers }: H
 
 export function VStack({ children, spacing, alignment, modifiers, style }: Mods & WithChildren & { spacing?: number; alignment?: string; style?: StyleProp<ViewStyle> }) {
   const align = alignment === 'leading' ? 'flex-start' : alignment === 'trailing' ? 'flex-end' : 'center';
+  const root = useCellRoot();
   // flexShrink: в строке (HStack) столбец текста должен переноситься, а не вылезать за карточку.
-  return <View style={[{ gap: spacing, alignItems: align, flexShrink: 1 }, resolve(modifiers).style, style]}>{children}</View>;
+  const view = <View style={[root && styles.cell, { gap: spacing, alignItems: align, flexShrink: 1 }, resolve(modifiers).style, style]}>{children}</View>;
+  return root ? insideCell(view) : view;
 }
 
 export function HStack({ children, spacing, alignment, modifiers, style }: Mods & WithChildren & { spacing?: number; alignment?: string; style?: StyleProp<ViewStyle> }) {
   const align = alignment === 'top' ? 'flex-start' : alignment === 'bottom' ? 'flex-end' : 'center';
-  return <View style={[{ flexDirection: 'row', gap: spacing, alignItems: align }, resolve(modifiers).style, style]}>{children}</View>;
+  const root = useCellRoot();
+  const view = <View style={[root && styles.cell, { flexDirection: 'row', gap: spacing, alignItems: align }, resolve(modifiers).style, style]}>{children}</View>;
+  return root ? insideCell(view) : view;
 }
 
 export function Spacer({ modifiers }: Mods) {
@@ -87,7 +108,8 @@ export function RNHostView({ children }: { matchContents?: boolean; children: Re
 export function Text({ children, modifiers, style }: Mods & WithChildren & { style?: StyleProp<TextStyle> }) {
   const m = resolve(modifiers);
   const footnote = useContext(FootnoteContext);
-  return <RNText numberOfLines={m.lineLimit} style={[styles.text, footnote && styles.footnote, m.text, style]}>{children}</RNText>;
+  const root = useCellRoot();
+  return <RNText numberOfLines={m.lineLimit} style={[styles.text, footnote && styles.footnote, root && styles.cell, m.text, style]}>{children}</RNText>;
 }
 
 /** SwiftUI Image(systemName:) — SF Symbol; на Android его рисует наш SymbolView. */
@@ -107,8 +129,9 @@ export function Image({ systemName, size = 17, color, modifiers, onPress }: Mods
 
 export function Label({ title, systemImage, modifiers }: Mods & { title?: string; systemImage?: string }) {
   const m = resolve(modifiers);
+  const root = useCellRoot();
   return (
-    <View style={[styles.row, m.style]}>
+    <View style={[styles.row, root && styles.cell, m.style]}>
       {systemImage ? <SymbolView name={systemImage} size={17} tintColor={m.text.color ?? colors.accent} /> : null}
       <RNText style={[styles.text, m.text]}>{title}</RNText>
     </View>
@@ -130,7 +153,7 @@ export function Button({ label, systemImage, onPress, modifiers, children, role 
   // Кнопка со своей разметкой (без label) в SwiftUI-форме — строка во всю ширину ячейки,
   // как переход в «Настройках». Раньше разметка сжималась, и Spacer не отодвигал шеврон.
   if (children && !label && !systemImage) {
-    return (
+    return insideCell(
       <Pressable
         onPress={() => {
           closeMenu?.();
@@ -139,7 +162,7 @@ export function Button({ label, systemImage, onPress, modifiers, children, role 
         disabled={m.disabled}
         style={({ pressed }) => [styles.rowButton, m.style, pressed && styles.rowPressed, m.disabled && styles.pressed]}>
         <View style={styles.rowButtonContent}>{children}</View>
-      </Pressable>
+      </Pressable>,
     );
   }
   return (
@@ -470,11 +493,13 @@ function Field({ secure, ...props }: FieldProps & { secure?: boolean }) {
   const initial = bound ? bound.value : (typeof props.text === 'string' ? props.text : props.defaultValue);
   const [value, setValue] = useState(initial ?? '');
   const focus = useAutoFocus(!!props.autoFocus);
+  // В строке, где отступы уже есть (TextRow, поиск), поле без своих — иначе строка двоится.
+  const inRow = useContext(CellContext) === 'inside';
   // Обратно в наблюдаемое состояние не пишем: в SwiftUI биндинг задаёт полю начальное
   // значение, а дальше текст уходит через onTextChange — так он и используется в проекте.
   return (
     <TextInput
-      style={[styles.input, m.text, m.style]}
+      style={[styles.input, inRow && styles.inputInRow, m.text, m.style]}
       value={value}
       placeholder={props.placeholder}
       placeholderTextColor={colors.tertiaryLabel}
@@ -675,7 +700,7 @@ function SwipeActionsView({ children }: WithChildren) {
   const isGroup = (child: ReactNode): child is ReactElement<SwipeGroupProps> => isValidElement(child) && child.type === SwipeActionsGroup;
   const group = parts.filter(isGroup).find((g) => (g.props.edge ?? 'trailing') === 'trailing');
   const action = group ? Children.toArray(group.props.children).find((c): c is ReactElement<{ label?: string; onPress?: () => void }> => isValidElement(c)) : undefined;
-  const body = parts.filter((child) => !isGroup(child)).map((child, index) => (needsCellPadding(child) ? <View key={index} style={styles.cell}>{child}</View> : child));
+  const body = parts.filter((child) => !isGroup(child)).map((child, index) => cellChild(child, index));
   if (!action) return <>{body}</>;
   return (
     <SwipeToDelete enabled label={action.props.label ?? 'Удалить'} onDelete={() => action.props.onPress?.()}>
@@ -729,7 +754,8 @@ export function Menu({ label, systemImage, children, modifiers }: Mods & WithChi
 
 export function ProgressView({ modifiers }: Mods & { value?: number; total?: number }) {
   const m = resolve(modifiers);
-  return <ActivityIndicator color={(useTint(m.tint) as string) ?? colors.accent} style={m.style} />;
+  const root = useCellRoot();
+  return <ActivityIndicator color={(useTint(m.tint) as string) ?? colors.accent} style={[root && styles.cell, m.style]} />;
 }
 
 export function ContentUnavailableView({ title, systemImage, description, modifiers }: Mods & { title?: string; systemImage?: string; description?: string }) {
@@ -819,10 +845,34 @@ function separated(children: ReactNode) {
   return items.map((child, index) => (
     <View key={index}>
       {index > 0 ? <View style={styles.separator} /> : null}
-      {needsCellPadding(child) ? <View style={styles.cell}>{child}</View> : child}
+      {cellChild(child)}
     </View>
   ));
 }
+
+/**
+ * Строка секции с отступами ячейки: стек или текст оборачиваем сразу, свой компонент-строку
+ * помечаем 'root' — отступы возьмёт первый стек внутри него (см. CellContext).
+ */
+function cellChild(child: ReactNode, key?: number) {
+  if (needsCellPadding(child)) {
+    return (
+      <CellContext.Provider key={key} value="inside">
+        <View style={styles.cell}>{child}</View>
+      </CellContext.Provider>
+    );
+  }
+  // Контролы слоя сами рисуют строку с отступами — их подписи и дети уже «внутри».
+  const selfPadded = isValidElement(child) && SELF_PADDED.has(child.type as unknown);
+  return (
+    <CellContext.Provider key={key} value={selfPadded ? 'inside' : 'root'}>
+      {child}
+    </CellContext.Provider>
+  );
+}
+
+/** Контролы, которые сами рисуют строку ячейки. Поля ввода сюда не входят: одно поле в строке держит свои отступы. */
+const SELF_PADDED = new Set<unknown>([Button, Toggle, Picker, DatePicker, ColorPicker, LabeledContent, Menu, ContentUnavailableView, Chart]);
 
 /** Строки без собственных полей (стеки, текст) — в SwiftUI их отступы даёт ячейка. */
 function needsCellPadding(child: ReactNode): boolean {
@@ -884,6 +934,7 @@ const styles = StyleSheet.create({
   listInset: { paddingHorizontal: space.lg },
 
   input: { color: colors.label, fontSize: 17, paddingVertical: space.md, paddingHorizontal: space.lg, flex: 1 },
+  inputInRow: { paddingVertical: 0, paddingHorizontal: 0 },
   dateValue: { paddingVertical: space.xs },
 
   calendar: { paddingHorizontal: space.lg, gap: space.sm },
