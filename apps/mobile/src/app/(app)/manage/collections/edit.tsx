@@ -1,20 +1,19 @@
-import { Host, Picker, Text as SwiftText, Toggle } from '@expo/ui/swift-ui';
-import { pickerStyle, tag, tint } from '@expo/ui/swift-ui/modifiers';
+import { Form, HStack, Host, Picker, ProgressView, Section, Text, Toggle } from '@expo/ui/swift-ui';
+import { pickerStyle, tag } from '@expo/ui/swift-ui/modifiers';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
-import { Alert, ScrollView, StyleSheet, View } from 'react-native';
-import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Alert } from 'react-native';
 
-import { FormField, FormSection } from '@/components/form-parts';
-import { GlassCard, PrimaryButton, SheetHeader, sheetStyles } from '@/components/new-check-parts';
+import { EditorToolbar } from '@/components/editor-toolbar';
+import { FieldRow, secondary } from '@/components/native-form';
 import { createCollection, updateCollection, useCollection, useCollections, type CollectionKind } from '@/lib/collections-api';
+import { moneyText } from '@/lib/format';
 import { haptic } from '@/lib/haptics';
-import { KEYBOARD_DISMISS } from '@/lib/layout';
 import { parseAmount } from '@/lib/shift-api';
-import { space, useAccentHex } from '@/lib/theme';
 
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
+
+type Initial = { id: string; name: string; description: string | null; kind: CollectionKind; defaultAmount: number; isMandatory: boolean };
 
 /** Новый сбор или правка: название, описание, тип (только при создании), сумма взноса, обязательность. */
 export default function CollectionEditSheet() {
@@ -25,12 +24,18 @@ export default function CollectionEditSheet() {
   const fromList = collectionId ? list.data?.collections.find((c) => c.id === collectionId) : undefined;
   const initial = collectionId ? (detail.data?.collection ?? fromList) : undefined;
 
-  if (collectionId && !initial) return <View style={styles.loading} />;
+  if (collectionId && !initial) {
+    return (
+      <Host style={{ flex: 1 }} useViewportSizeMeasurement>
+        <ProgressView />
+      </Host>
+    );
+  }
 
   return (
     <CollectionForm
+      key={initial?.id ?? 'new'}
       initial={initial}
-      onClose={() => router.back()}
       onCreated={(id, name) => {
         router.back();
         setTimeout(() => router.push({ pathname: '/manage/collections/[collectionId]', params: { collectionId: id, name } }), 420);
@@ -39,38 +44,29 @@ export default function CollectionEditSheet() {
   );
 }
 
-function CollectionForm({
-  initial,
-  onClose,
-  onCreated,
-}: {
-  initial: { id: string; name: string; description: string | null; kind: CollectionKind; isMandatory: boolean; defaultAmount: number } | undefined;
-  onClose: () => void;
-  onCreated: (id: string, name: string) => void;
-}) {
-  const insets = useSafeAreaInsets();
-  const accent = useAccentHex();
+function CollectionForm({ initial, onCreated }: { initial: Initial | undefined; onCreated: (id: string, name: string) => void }) {
+  const router = useRouter();
   const [name, setName] = useState(initial?.name ?? '');
   const [description, setDescription] = useState(initial?.description ?? '');
   const [kind, setKind] = useState<CollectionKind>(initial?.kind ?? 'recurring');
-  const [amount, setAmount] = useState(initial && initial.defaultAmount > 0 ? String(initial.defaultAmount) : '');
+  const [amount, setAmount] = useState(initial && initial.defaultAmount > 0 ? moneyText(initial.defaultAmount) : '');
   const [mandatory, setMandatory] = useState(initial?.isMandatory ?? true);
   const [busy, setBusy] = useState(false);
 
-  const save = async () => {
-    const title = name.trim();
-    if (title.length < 2) return Alert.alert('Название — минимум 2 символа');
-    const defaultAmount = amount.trim() ? parseAmount(amount) : 0;
-    if (defaultAmount === null) return Alert.alert('Проверьте сумму взноса');
-    const input = { name: title, description: description.trim() || null, defaultAmount, isMandatory: mandatory };
+  const defaultAmount = amount.trim() ? parseAmount(amount) : 0;
+  const canSave = name.trim().length >= 2 && defaultAmount !== null;
 
+  const save = async () => {
+    if (!canSave || defaultAmount === null) return;
+    const title = name.trim();
+    const input = { name: title, description: description.trim() || null, defaultAmount, isMandatory: mandatory };
     haptic.medium();
     setBusy(true);
     try {
       if (initial) {
         await updateCollection(initial.id, input);
         haptic.success();
-        onClose();
+        router.back();
       } else {
         const created = await createCollection({ ...input, kind });
         haptic.success();
@@ -85,72 +81,44 @@ function CollectionForm({
   };
 
   return (
-    <KeyboardAvoidingView behavior="padding" style={styles.flex}>
-      <ScrollView
-        contentContainerStyle={[styles.content, { paddingBottom: Math.max(insets.bottom, space.lg) }]}
-        keyboardShouldPersistTaps="handled"
-        keyboardDismissMode={KEYBOARD_DISMISS}
-        showsVerticalScrollIndicator={false}>
-        <SheetHeader title={initial ? 'Сбор' : 'Новый сбор'} onClose={onClose} />
-
-        {!initial && (
-          <Host matchContents={{ vertical: true }} style={styles.stretch}>
-            <Picker
-              selection={kind}
-              onSelectionChange={(value) => {
-                haptic.selection();
-                setKind(value as CollectionKind);
-              }}
-              modifiers={[pickerStyle('segmented')]}>
-              <SwiftText modifiers={[tag('recurring')]}>Ежемесячный</SwiftText>
-              <SwiftText modifiers={[tag('oneoff')]}>Разовый</SwiftText>
-            </Picker>
-          </Host>
-        )}
-
-        <FormSection title="НАЗВАНИЕ">
-          <GlassCard style={styles.card}>
-            <FormField icon="banknote" value={name} onChange={setName} placeholder={kind === 'recurring' ? 'Например, Фонд клуба' : 'Например, Подарок ведущему'} autoCapitalize="sentences" autoFocus={!initial} />
-            <View style={sheetStyles.separator} />
-            <FormField icon="text.alignleft" value={description} onChange={setDescription} placeholder="На что собираем" autoCapitalize="sentences" />
-          </GlassCard>
-        </FormSection>
-
-        <FormSection
-          title={kind === 'recurring' ? 'ВЗНОС В МЕСЯЦ' : 'ВЗНОС'}
-          footer="Единый для всех. Участнику можно задать свою сумму прямо в сборе. Новая сумма действует на следующие периоды.">
-          <GlassCard style={styles.card}>
-            <FormField icon="rublesign" value={amount} onChange={setAmount} placeholder="Сумма взноса" keyboardType="decimal-pad" suffix="₽" />
-          </GlassCard>
-        </FormSection>
-
-        <FormSection title="УЧАСТИЕ" footer="Участвуют резиденты, студенты и новички клуба.">
-          <GlassCard style={styles.card}>
-            <Host matchContents={{ vertical: true }} style={styles.control} seedColor={accent}>
-              <Toggle
-                label="Обязательный для резидентов"
-                isOn={mandatory}
-                onIsOnChange={(on) => {
+    <>
+      <EditorToolbar title={initial ? 'Сбор' : 'Новый сбор'} canSave={canSave} busy={busy} saveLabel={initial ? 'Сохранить' : 'Создать'} onSave={() => void save()} />
+      <Host style={{ flex: 1 }} useViewportSizeMeasurement>
+        <Form>
+          {!initial && (
+            <Section footer={<Text>{kind === 'recurring' ? 'Ежемесячный — новый период открывается каждый месяц (например, Фонд клуба).' : 'Разовый — один сбор на конкретную цель.'}</Text>}>
+              <Picker
+                selection={kind}
+                onSelectionChange={(value) => {
                   haptic.selection();
-                  setMandatory(on);
+                  setKind(value as CollectionKind);
                 }}
-                modifiers={[tint(accent)]}
-              />
-            </Host>
-          </GlassCard>
-        </FormSection>
+                modifiers={[pickerStyle('segmented')]}>
+                <Text modifiers={[tag('recurring')]}>Ежемесячный</Text>
+                <Text modifiers={[tag('oneoff')]}>Разовый</Text>
+              </Picker>
+            </Section>
+          )}
 
-        <PrimaryButton title={busy ? 'Сохраняем…' : initial ? 'Сохранить' : 'Создать сбор'} icon="checkmark" busy={busy} disabled={name.trim().length < 2} onPress={() => void save()} />
-      </ScrollView>
-    </KeyboardAvoidingView>
+          <Section title="Название">
+            <FieldRow value={name} placeholder={kind === 'recurring' ? 'Например, Фонд клуба' : 'Например, Подарок ведущему'} autoFocus={!initial} maxLength={120} onChange={setName} />
+            <FieldRow value={description ?? ''} placeholder="На что собираем" multiline onChange={setDescription} />
+          </Section>
+
+          <Section
+            title={kind === 'recurring' ? 'Взнос в месяц' : 'Взнос'}
+            footer={<Text>Единый для всех. Участнику можно задать свою сумму прямо в сборе. Новая сумма действует на следующие периоды.</Text>}>
+            <HStack spacing={8}>
+              <FieldRow value={amount} placeholder="0" keyboard="decimal-pad" onChange={setAmount} />
+              <Text modifiers={[secondary]}>₽</Text>
+            </HStack>
+          </Section>
+
+          <Section title="Участие" footer={<Text>Участвуют резиденты, студенты и новички клуба.</Text>}>
+            <Toggle label="Обязательный для резидентов" isOn={mandatory} onIsOnChange={setMandatory} />
+          </Section>
+        </Form>
+      </Host>
+    </>
   );
 }
-
-const styles = StyleSheet.create({
-  flex: { flex: 1 },
-  loading: { height: 300 },
-  content: { paddingHorizontal: space.lg, paddingTop: space.xl, gap: space.lg },
-  stretch: { alignSelf: 'stretch' },
-  card: { paddingHorizontal: space.lg },
-  control: { alignSelf: 'stretch', paddingVertical: space.sm },
-});

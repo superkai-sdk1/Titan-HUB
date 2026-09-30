@@ -1,54 +1,58 @@
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import { SymbolView } from 'expo-symbols';
+import { ContentUnavailableView, Form, HStack, Host, ProgressView, RNHostView, Section, Text, VStack } from '@expo/ui/swift-ui';
+import { font, foregroundStyle, lineLimit } from '@expo/ui/swift-ui/modifiers';
+import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert } from 'react-native';
 
-import { FormField } from '@/components/form-parts';
-import { Avatar, GlassCard, GlassChip, PrimaryButton, SheetHeader, sheetStyles } from '@/components/new-check-parts';
+import { ActionRow, FieldRow, primary, secondary } from '@/components/native-form';
+import { Avatar } from '@/components/new-check-parts';
+import { ToolbarButton } from '@/components/toolbar';
 import { excludeMember, includeMember, setMemberAmount, useCollection, type ExcludeDuration, type RosterRow } from '@/lib/collections-api';
 import { formatMoney } from '@/lib/format';
 import { haptic } from '@/lib/haptics';
 import { parseAmount } from '@/lib/shift-api';
-import { colors, space, type } from '@/lib/theme';
+import { colors } from '@/lib/theme';
 
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
 const untilFormat = new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Europe/Moscow' });
 
 const DURATIONS: { key: ExcludeDuration; label: string }[] = [
-  { key: '1m', label: 'На месяц' },
-  { key: '3m', label: 'На 3 месяца' },
-  { key: 'forever', label: 'Навсегда' },
+  { key: '1m', label: 'Исключить на месяц' },
+  { key: '3m', label: 'Исключить на 3 месяца' },
+  { key: 'forever', label: 'Исключить навсегда' },
 ];
 
 /** Участник сбора: своя сумма взноса и исключение на месяц, три месяца или навсегда. */
 export default function MemberSheet() {
   const params = useLocalSearchParams<{ collectionId: string; periodKey?: string; playerId: string }>();
-  const router = useRouter();
   const detail = useCollection(params.collectionId, params.periodKey || null);
   const row = detail.data?.roster.find((r) => r.playerId === params.playerId);
 
   if (!detail.data || !row) {
     return (
-      <View style={styles.loading}>
-        {detail.isLoading ? <ActivityIndicator /> : <Text style={[type.body, sheetStyles.secondary]}>Участник не найден</Text>}
-      </View>
+      <Host style={{ flex: 1 }} useViewportSizeMeasurement>
+        {detail.isLoading ? <ProgressView /> : <ContentUnavailableView title="Участник не найден" systemImage="person.crop.circle.badge.questionmark" />}
+      </Host>
     );
   }
 
-  return <MemberForm key={row.playerId} collectionId={params.collectionId} periodAmount={detail.data.period.amount} row={row} onClose={() => router.back()} />;
+  return <MemberForm key={row.playerId} collectionId={params.collectionId} periodAmount={detail.data.period.amount} row={row} />;
 }
 
-function MemberForm({ collectionId, periodAmount, row, onClose }: { collectionId: string; periodAmount: number; row: RosterRow; onClose: () => void }) {
-  const [amount, setAmount] = useState(row.amountOverride !== null ? String(row.amountOverride) : '');
+function MemberForm({ collectionId, periodAmount, row }: { collectionId: string; periodAmount: number; row: RosterRow }) {
+  const router = useRouter();
+  const [amount, setAmount] = useState(row.amountOverride !== null ? String(row.amountOverride).replace('.', ',') : '');
   const [busy, setBusy] = useState<string | null>(null);
+  const value = amount.trim() ? parseAmount(amount) : null;
+  const amountValid = !amount.trim() || value !== null;
 
-  const run = async (key: string, action: () => Promise<void>, failTitle: string, close = false) => {
+  const run = async (key: string, action: () => Promise<void>, failTitle: string) => {
     haptic.medium();
     setBusy(key);
     try {
       await action();
       haptic.success();
-      if (close) onClose();
+      router.back();
     } catch (error) {
       haptic.error();
       Alert.alert(failTitle, errorText(error));
@@ -57,14 +61,8 @@ function MemberForm({ collectionId, periodAmount, row, onClose }: { collectionId
     }
   };
 
-  const saveAmount = () => {
-    const value = amount.trim() ? parseAmount(amount) : null;
-    if (amount.trim() && value === null) return Alert.alert('Проверьте сумму');
-    void run('amount', () => setMemberAmount(collectionId, row.playerId, value), 'Сумма не сохранена', true);
-  };
-
   const exclude = (duration: ExcludeDuration) => {
-    const doIt = () => void run(`exclude-${duration}`, () => excludeMember(collectionId, row.playerId, duration), 'Участник не исключён', true);
+    const doIt = () => void run(`exclude-${duration}`, () => excludeMember(collectionId, row.playerId, duration), 'Участник не исключён');
     if (duration === 'forever') {
       Alert.alert(`Исключить ${row.nickname} навсегда?`, 'Вернуть в сбор можно будет здесь же.', [
         { text: 'Отмена', style: 'cancel' },
@@ -74,64 +72,53 @@ function MemberForm({ collectionId, periodAmount, row, onClose }: { collectionId
   };
 
   return (
-    <View style={styles.sheet}>
-      <SheetHeader title="Участник сбора" onClose={onClose} />
+    <>
+      <Stack.Title>Участник сбора</Stack.Title>
+      <Stack.Toolbar placement="left">
+        <ToolbarButton onPress={() => router.back()}>Отмена</ToolbarButton>
+      </Stack.Toolbar>
+      <Stack.Toolbar placement="right">
+        <ToolbarButton variant="done" disabled={!amountValid || !!busy} onPress={() => void run('amount', () => setMemberAmount(collectionId, row.playerId, value), 'Сумма не сохранена')}>
+          {busy === 'amount' ? 'Сохраняем…' : 'Сохранить'}
+        </ToolbarButton>
+      </Stack.Toolbar>
+      <Host style={{ flex: 1 }} useViewportSizeMeasurement>
+        <Form>
+          <Section>
+            <HStack spacing={14}>
+              <RNHostView matchContents>
+                <Avatar name={row.nickname} photoUrl={row.photoUrl} size={56} />
+              </RNHostView>
+              <VStack alignment="leading" spacing={2}>
+                <Text modifiers={[font({ textStyle: 'title3', weight: 'semibold' }), primary, lineLimit(1)]}>{row.nickname}</Text>
+                {row.fullName ? <Text modifiers={[secondary, lineLimit(1)]}>{row.fullName}</Text> : null}
+              </VStack>
+            </HStack>
+          </Section>
 
-      <View style={styles.hero}>
-        <Avatar name={row.nickname} photoUrl={row.photoUrl} size={64} />
-        <Text style={[type.title3, sheetStyles.label]}>{row.nickname}</Text>
-        {row.fullName && <Text style={[type.subhead, sheetStyles.secondary]}>{row.fullName}</Text>}
-      </View>
+          <Section title="Персональная сумма взноса" footer={<Text>{amountValid ? 'Действует на все месяцы сбора, включая прошлые. Пустое поле — общая сумма.' : 'Проверьте сумму.'}</Text>}>
+            <HStack spacing={8}>
+              <FieldRow value={amount} placeholder={`По умолчанию ${formatMoney(periodAmount, { kopecks: 'auto' })}`} keyboard="decimal-pad" onChange={setAmount} />
+              <Text modifiers={[secondary]}>₽</Text>
+            </HStack>
+          </Section>
 
-      <View style={styles.section}>
-        <Text style={[type.footnote, sheetStyles.sectionTitle]}>ПЕРСОНАЛЬНАЯ СУММА ВЗНОСА</Text>
-        <GlassCard style={styles.card}>
-          <FormField icon="rublesign" value={amount} onChange={setAmount} placeholder={`По умолчанию ${formatMoney(periodAmount, { kopecks: 'auto' })}`} keyboardType="decimal-pad" suffix="₽" />
-        </GlassCard>
-        <Text style={[type.footnote, styles.footnote]}>Действует на все месяцы сбора, включая прошлые. Пустое поле — общая сумма.</Text>
-        <PrimaryButton title={busy === 'amount' ? 'Сохраняем…' : amount.trim() ? 'Сохранить сумму' : 'Общая сумма взноса'} icon="checkmark" busy={busy === 'amount'} onPress={saveAmount} />
-      </View>
-
-      <View style={styles.section}>
-        <Text style={[type.footnote, sheetStyles.sectionTitle]}>УЧАСТИЕ В СБОРЕ</Text>
-        {row.excluded ? (
-          <GlassCard style={styles.excludedCard}>
-            <SymbolView name="person.crop.circle.badge.xmark" size={24} tintColor={colors.orange} />
-            <Text style={[type.subhead, sheetStyles.label, styles.flex]}>
-              {row.excludedForever ? 'Исключён навсегда' : row.excludedUntil ? `Исключён до ${untilFormat.format(new Date(row.excludedUntil))}` : 'Исключён'}
-            </Text>
-            <Pressable
-              disabled={!!busy}
-              onPress={() => void run('include', () => includeMember(collectionId, row.playerId), 'Участник не возвращён', true)}
-              style={({ pressed }) => [styles.include, pressed && styles.pressed]}
-              accessibilityRole="button">
-              {busy === 'include' ? <ActivityIndicator color="white" /> : <Text style={[type.subhead, styles.includeText]}>Вернуть</Text>}
-            </Pressable>
-          </GlassCard>
-        ) : (
-          <View style={styles.durations}>
-            {DURATIONS.map((d) => (
-              <GlassChip key={d.key} style={styles.flex} label={busy === `exclude-${d.key}` ? '…' : d.label} tint={colors.orange} active={false} onPress={() => exclude(d.key)} />
-            ))}
-          </View>
-        )}
-        {!row.excluded && <Text style={[type.footnote, styles.footnote]}>Исключённый не должен взнос за эти месяцы и не считается в «оплатили из».</Text>}
-      </View>
-    </View>
+          <Section title="Участие в сборе" footer={row.excluded ? undefined : <Text>Исключённый не должен взнос за эти месяцы и не считается в «оплатили из».</Text>}>
+            {row.excluded ? (
+              <>
+                <Text modifiers={[foregroundStyle(colors.orange)]}>
+                  {row.excludedForever ? 'Исключён навсегда' : row.excludedUntil ? `Исключён до ${untilFormat.format(new Date(row.excludedUntil))}` : 'Исключён'}
+                </Text>
+                <ActionRow title={busy === 'include' ? 'Возвращаем…' : 'Вернуть в сбор'} icon="person.crop.circle.badge.checkmark" disabled={!!busy} onPress={() => void run('include', () => includeMember(collectionId, row.playerId), 'Участник не возвращён')} />
+              </>
+            ) : (
+              DURATIONS.map((d) => (
+                <ActionRow key={d.key} title={busy === `exclude-${d.key}` ? 'Исключаем…' : d.label} icon="person.crop.circle.badge.xmark" destructive={d.key === 'forever'} disabled={!!busy} onPress={() => exclude(d.key)} />
+              ))
+            )}
+          </Section>
+        </Form>
+      </Host>
+    </>
   );
 }
-
-const styles = StyleSheet.create({
-  sheet: { paddingHorizontal: space.xl, paddingTop: space.xl, paddingBottom: space.xl, gap: space.lg },
-  loading: { height: 320, alignItems: 'center', justifyContent: 'center' },
-  flex: { flex: 1 },
-  hero: { alignItems: 'center', gap: 4 },
-  section: { gap: space.sm },
-  card: { paddingHorizontal: space.lg },
-  footnote: { color: colors.secondaryLabel, paddingHorizontal: space.xs },
-  durations: { flexDirection: 'row', gap: space.sm },
-  excludedCard: { flexDirection: 'row', alignItems: 'center', gap: space.md, padding: space.md },
-  include: { paddingHorizontal: space.lg, paddingVertical: 8, borderRadius: 999, backgroundColor: colors.accent, minWidth: 90, alignItems: 'center' },
-  includeText: { color: 'white', fontWeight: '600' },
-  pressed: { opacity: 0.7 },
-});

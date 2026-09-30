@@ -77,11 +77,11 @@ export default function ManageLayout() {
       <Stack.Screen name="customers/index" options={formHeader({ title: 'Заказчики' })} />
       <Stack.Screen name="customers/edit" options={editorModal} />
 
-      <Stack.Screen name="collections/index" options={glassHeader({ title: 'Сбор средств' })} />
-      <Stack.Screen name="collections/[collectionId]" options={glassHeader()} />
-      <Stack.Screen name="collections/edit" options={tallSheet} />
+      <Stack.Screen name="collections/index" options={formHeader({ title: 'Сбор средств' })} />
+      <Stack.Screen name="collections/[collectionId]" options={formHeader()} />
+      <Stack.Screen name="collections/edit" options={editorModal} />
       <Stack.Screen name="collections/pay" options={compactSheet} />
-      <Stack.Screen name="collections/member" options={compactSheet} />
+      <Stack.Screen name="collections/member" options={editorModal} />
 
       <Stack.Screen name="loyalty/index" options={formHeader({ title: 'Лояльность' })} />
       <Stack.Screen name="loyalty/bonus" options={formHeader({ title: 'Бонусная программа' })} />
