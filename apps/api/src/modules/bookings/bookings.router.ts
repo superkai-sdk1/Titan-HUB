@@ -315,7 +315,9 @@ bookingsRouter.patch('/:id', requireRole('owner', 'staff'), zValidator('json', P
       startTime: time,
       endTime,
       paymentType: 'fixed',
-      billingMode: 'hourly',
+      // Кабинка в клубе: виджет обещает гостю «ставка зоны × часы, итог по факту» —
+      // значит, чек по ставке зоны живым счётчиком. Выезд — пакет мероприятия по часам.
+      billingMode: !isExit && bk['space_id'] ? 'rental' : 'hourly',
       plannedHours: hours > 0 ? hours : null,
       status: 'planned',
       customerName: String(bk['name']),

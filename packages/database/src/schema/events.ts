@@ -10,8 +10,11 @@ export type EventStatus = (typeof EVENT_STATUSES)[number]
 export const eventPaymentTypeEnum = pgEnum('event_payment_type', ['fixed', 'per_head', 'free'])
 // Как событие списывает деньги за «основу» (помимо допов из меню):
 //  - amount: фиксированная/ручная сумма события (fixedAmount/manualAmount/perHead);
-//  - hourly: почасовая аренда зоны (ставка зоны × время), как обычный аренда-чек.
-export const eventBillingModeEnum = pgEnum('event_billing_mode', ['amount', 'hourly'])
+//  - hourly: пакет мероприятия по плановым часам (цена из event_hourly_rates);
+//  - rental: аренда зоны по её ставке, живым счётчиком (чек открывается с зоной).
+// Колонка — text + CHECK (миграция 063): добавить значение в enum нельзя в транзакции.
+export const EVENT_BILLING_MODES = ['amount', 'hourly', 'rental'] as const
+export type EventBillingMode = (typeof EVENT_BILLING_MODES)[number]
 
 export const events = pgTable('events', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -24,7 +27,7 @@ export const events = pgTable('events', {
   endTime: text('end_time'),
   paymentType: eventPaymentTypeEnum('payment_type').notNull().default('fixed'),
   // Гибкий режим списания основы (amount по умолчанию; hourly — почасовая зона).
-  billingMode: eventBillingModeEnum('billing_mode').notNull().default('amount'),
+  billingMode: text('billing_mode').$type<EventBillingMode>().notNull().default('amount'),
   fixedAmount: numeric('fixed_amount', { precision: 10, scale: 2 }),
   perHeadAmount: numeric('per_head_amount', { precision: 10, scale: 2 }),
   // Плановое число часов для billingMode=hourly — основа = цена тарифа из

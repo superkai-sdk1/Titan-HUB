@@ -5,7 +5,7 @@ import { z } from 'zod'
 import type { Database } from '@titan/database'
 import {
   events, eventHourlyRates, eventParticipants, checks, checkItems, checkPayments, inventory, customers, expenses, profiles,
-  eq, and, gte, lte, desc, sql, or, ne, isNull, inArray,
+  eq, and, gte, lte, asc, desc, sql, or, ne, isNull, inArray,
 } from '@titan/database'
 
 // Хелперы вызываются и вне транзакции (db = c.var.db), и внутри db.transaction
@@ -67,8 +67,9 @@ const EventSchema = z.object({
   startTime: z.string(),
   endTime: z.string().optional().nullable(),
   paymentType: z.enum(['fixed', 'free']).default('fixed'),
-  // amount = «Фикс» (ручная сумма fixedAmount), hourly = «Почасовая» (plannedHours → тариф).
-  billingMode: z.enum(['amount', 'hourly']).default('amount'),
+  // amount = «Фикс» (ручная сумма fixedAmount), hourly = «Пакет по часам» (plannedHours →
+  // тариф мероприятий), rental = «По ставке зоны» (аренда зоны живым счётчиком в чеке).
+  billingMode: z.enum(['amount', 'hourly', 'rental']).default('amount'),
   fixedAmount: z.number().optional().nullable(),
   manualAmount: z.number().optional().nullable(),
   plannedHours: z.number().int().min(1).max(24).optional().nullable(),
@@ -87,22 +88,51 @@ const EventSchema = z.object({
   otherCost: z.number().optional().nullable(),
 })
 
-// Базовая сумма события для чека. «Фикс» (amount) → ручная/фикс сумма; «Почасовая»
-// (hourly) → цена тарифа event_hourly_rates по plannedHours (за весь период).
+// Базовая сумма события для чека. «Фикс» (amount) → ручная/фикс сумма; «Пакет по часам»
+// (hourly) → цена тарифа event_hourly_rates по plannedHours (за весь период);
+// «По ставке зоны» (rental) → 0: деньги считает аренда зоны в самом чеке.
 async function computeEventBase(database: DbOrTx, ev: {
   billingMode: string
   manualAmount: string | null; fixedAmount: string | null
   plannedHours: number | null
 }): Promise<number> {
+  if (ev.billingMode === 'rental') return 0
   if (ev.billingMode === 'hourly') {
     const h = ev.plannedHours ?? 0
     if (!h) return 0
-    const [rate] = await database.select().from(eventHourlyRates).where(eq(eventHourlyRates.hours, h)).limit(1)
-    return rate ? (parseFloat(String(rate.price)) || 0) : 0
+    return hourlyPackagePrice(database, h)
   }
   if (ev.manualAmount != null) return parseFloat(ev.manualAmount) || 0
   if (ev.fixedAmount != null) return parseFloat(ev.fixedAmount) || 0
   return 0
+}
+
+// Цена пакета мероприятия на h часов. Точный тариф — как есть. Если на это число
+// часов тарифа нет (раньше выходило 0 ₽ и чек «не считался»): берём ближайший
+// меньший пакет и досчитываем остаток по его цене часа; если меньших нет — по цене
+// часа ближайшего большего пакета.
+async function hourlyPackagePrice(database: DbOrTx, h: number): Promise<number> {
+  const rates = (await database.select().from(eventHourlyRates).orderBy(asc(eventHourlyRates.hours)))
+    .map((r) => ({ hours: r.hours, price: parseFloat(String(r.price)) || 0 }))
+    .filter((r) => r.hours > 0)
+  const exact = rates.find((r) => r.hours === h)
+  if (exact) return exact.price
+  const lower = rates.filter((r) => r.hours < h).pop()
+  if (lower) return Math.round(lower.price + (h - lower.hours) * (lower.price / lower.hours))
+  const upper = rates.find((r) => r.hours > h)
+  if (upper) return Math.round(h * (upper.price / upper.hours))
+  return 0
+}
+
+// Часы события по времени начала/конца (через полночь — на следующий день),
+// округление вверх: начатый час — целый. null — конец не задан.
+function hoursBetween(start: string | null | undefined, end: string | null | undefined): number | null {
+  if (!start || !end) return null
+  const toMin = (t: string) => { const [hh, mm] = t.split(':').map(Number); return (hh || 0) * 60 + (mm || 0) }
+  let diff = toMin(end) - toMin(start)
+  if (diff <= 0) diff += 24 * 60
+  const hours = Math.ceil(diff / 60)
+  return hours >= 1 && hours <= 24 ? hours : null
 }
 
 export const eventsRouter = new Hono<AppEnv>()
@@ -331,6 +361,13 @@ eventsRouter.patch('/:id', requireRole('owner', 'staff'), zValidator('json', Eve
   if (!prev) return c.json({ error: 'Not found' }, 404)
 
   const update: Record<string, any> = { ...body }
+  // «Пакет по часам»: сдвинули начало/конец и часы явно не прислали — пересчитываем
+  // plannedHours по новому времени (раньше база чека оставалась по старым часам).
+  const nextMode = body.billingMode ?? prev.billingMode
+  if (nextMode === 'hourly' && body.plannedHours === undefined && (body.startTime !== undefined || body.endTime !== undefined)) {
+    const h = hoursBetween(body.startTime ?? prev.startTime, body.endTime !== undefined ? body.endTime : prev.endTime)
+    if (h) update.plannedHours = h
+  }
   if (body.fixedAmount !== undefined) update.fixedAmount = body.fixedAmount != null ? String(body.fixedAmount) : null
   if (body.manualAmount !== undefined) update.manualAmount = body.manualAmount != null ? String(body.manualAmount) : null
   if (body.participationFee !== undefined) update.participationFee = body.participationFee != null ? String(body.participationFee) : null
@@ -387,16 +424,18 @@ eventsRouter.patch('/:id', requireRole('owner', 'staff'), zValidator('json', Eve
     } else if (becomingActive && !prev.checkId) {
       const shift = await getCurrentShift(db)
       if (!shift) throw new Error('NO_SHIFT')
-      // База события (фикс-сумма или цена почасового тарифа по plannedHours) кладётся
-      // в eventBaseAmount чека для ОБОИХ режимов — без отдельной аренды зоны.
+      // «Фикс» и «Пакет по часам»: база события кладётся в eventBaseAmount чека,
+      // без аренды зоны. «По ставке зоны»: чек открывается с зоной события и считает
+      // аренду живым счётчиком с момента старта (как аренда-чек кассы), база = 0.
       const base = await computeEventBase(tx, merged as any)
+      const rentalSpaceId = merged.billingMode === 'rental' ? ((merged.spaceId as string | null) ?? null) : null
       const [chk] = await tx.insert(checks).values({
         staffId: (merged.responsibleStaffId as string) ?? user.sub,
         shiftId: shift.id,
         status: 'open',
         linkedEventId: eventId,
-        spaceId: null,
-        spaceStartAt: null,
+        spaceId: rentalSpaceId,
+        spaceStartAt: rentalSpaceId ? new Date() : null,
         eventBaseAmount: String(base),
         guestNames: merged.title ? [merged.title as string] : [],
         note: `Мероприятие: ${merged.title ?? ''}`.trim(),
@@ -406,16 +445,32 @@ eventsRouter.patch('/:id', requireRole('owner', 'staff'), zValidator('json', Eve
       update.attendeesCount = 1
     }
 
-    // 2) СИНК суммы: если у активного события поменялась база (сумма/режим/тип) —
-    //    обновляем eventBaseAmount его чека (не для hourly — там платим арендой).
+    // 2) СИНК с чеком активного события: база (сумма/режим/часы/время) и аренда зоны.
     const checkId = (update.checkId as string) ?? prev.checkId
-    if (checkId && !becomingActive) {
+    if (checkId && !becomingActive && !isMinicap) {
       const amountTouched = body.manualAmount !== undefined || body.fixedAmount !== undefined
-        || body.billingMode !== undefined || body.paymentType !== undefined || body.plannedHours !== undefined
+        || body.billingMode !== undefined || body.paymentType !== undefined
+        || update.plannedHours !== undefined || body.startTime !== undefined || body.endTime !== undefined
       if (amountTouched) {
         await tx.update(checks)
           .set({ eventBaseAmount: String(await computeEventBase(tx, merged as any)) })
           .where(and(eq(checks.id, checkId), eq(checks.status, 'open')))
+      }
+      // «По ставке зоны»: у чека та же зона, что у события; включили режим — аренда
+      // стартует сейчас (если ещё не шла); выключили — аренда с чека снимается.
+      const spaceTouched = body.spaceId !== undefined || body.billingMode !== undefined
+      if (spaceTouched) {
+        const [chk] = await tx.select().from(checks).where(eq(checks.id, checkId)).limit(1)
+        if (chk && chk.status === 'open') {
+          if (merged.billingMode === 'rental' && merged.spaceId) {
+            await tx.update(checks).set({
+              spaceId: merged.spaceId as string,
+              spaceStartAt: chk.spaceStartAt ?? new Date(),
+            }).where(eq(checks.id, checkId))
+          } else if (prev.billingMode === 'rental' || merged.billingMode === 'rental') {
+            await tx.update(checks).set({ spaceId: null, spaceStartAt: null, spaceEndAt: null }).where(eq(checks.id, checkId))
+          }
+        }
       }
     }
 

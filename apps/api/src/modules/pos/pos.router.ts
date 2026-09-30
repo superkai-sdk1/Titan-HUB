@@ -771,7 +771,8 @@ posRouter.get('/checks/:id/events', requireRole('owner', 'staff', 'tablet'), asy
 })
 
 posRouter.patch('/checks/:id', requireRole('owner', 'staff'), zValidator('json', z.object({
-  spaceId: z.string().uuid().optional(),
+  // null — снять аренду зоны с чека (время аренды тоже сбрасывается).
+  spaceId: z.string().uuid().nullable().optional(),
   // nullable: null снимает привязанного плательщика (можно исправить ошибочную привязку).
   playerId: z.string().uuid().nullable().optional(),
   guestNames: z.array(z.string()).optional(),
@@ -788,9 +789,25 @@ posRouter.patch('/checks/:id', requireRole('owner', 'staff'), zValidator('json',
   const update: Record<string, any> = { ...rest }
   if (spaceStartAt !== undefined) update.spaceStartAt = new Date(spaceStartAt)
   if (spaceEndAt !== undefined) update.spaceEndAt = spaceEndAt === null ? null : new Date(spaceEndAt)
-  const [prev] = await db.select({ playerId: checks.playerId, spaceId: checks.spaceId })
+  const [prev] = await db.select({ playerId: checks.playerId, spaceId: checks.spaceId, spaceStartAt: checks.spaceStartAt, status: checks.status })
     .from(checks).where(eq(checks.id, checkId))
-  const [updated] = await db.update(checks).set(update).where(eq(checks.id, checkId)).returning()
+  if (!prev) return c.json({ error: 'Not found' }, 404)
+  // Закрытый/отменённый чек не правим: иначе меняли бы время аренды уже оплаченного.
+  if (prev.status !== 'open') return c.json({ error: 'Чек уже закрыт' }, 400)
+  if (rest.spaceId === null) {
+    // Сняли зону — аренды больше нет.
+    update.spaceStartAt = null
+    update.spaceEndAt = null
+  } else if (rest.spaceId && !prev.spaceStartAt && spaceStartAt === undefined) {
+    // Назначили зону чеку без аренды: счётчик стартует сейчас (раньше время не
+    // ставилось, и аренда в чеке оставалась 0 ₽).
+    update.spaceStartAt = new Date()
+  }
+  const effStart: Date | null = update.spaceStartAt !== undefined ? update.spaceStartAt : prev.spaceStartAt
+  if (effStart && update.spaceEndAt && update.spaceEndAt <= effStart) {
+    return c.json({ error: 'Конец аренды должен быть позже начала' }, 400)
+  }
+  const [updated] = await db.update(checks).set(update).where(and(eq(checks.id, checkId), eq(checks.status, 'open'))).returning()
   if (!updated) return c.json({ error: 'Not found' }, 404)
   // Смена клиента/зоны влияет на персональные/тировые авто-скидки и итог —
   // пересчитываем сразу, чтобы фронт получил актуальные суммы.
