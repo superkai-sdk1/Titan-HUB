@@ -1,99 +1,111 @@
+import { ColorPicker, Form, HStack, Host, ProgressView, Section, Text } from '@expo/ui/swift-ui';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
-import { ActivityIndicator, Alert, StyleSheet, View } from 'react-native';
+import { Alert } from 'react-native';
 
-import { ColorSwatches } from '@/components/color-swatches';
-import { FormField, FormSection } from '@/components/form-parts';
-import { DangerRow, GlassCard, PrimaryButton, SheetHeader, sheetStyles } from '@/components/new-check-parts';
-import { deleteTariff, saveTariff, useTariffsAdmin, type AdminTariff } from '@/lib/catalog-api';
-import { toNumber } from '@/lib/format';
+import { EditorToolbar } from '@/components/editor-toolbar';
+import { ActionRow, FieldRow, normalizeHex, secondary } from '@/components/native-form';
+import { deleteTariff, restoreTariff, saveTariff, useTariffsAdmin, type AdminTariff } from '@/lib/catalog-api';
+import { moneyText } from '@/lib/format';
 import { haptic } from '@/lib/haptics';
 import { parseAmount } from '@/lib/shift-api';
-import { space } from '@/lib/theme';
 
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
-/** Тариф или статус клиента: название, сумма за вечер, цвет. Базовые статусы не удаляются. */
-export default function TariffSheet() {
+/** Тариф или статус клиента: название, сумма за вечер, цвет. Базовые статусы не скрываются. */
+export default function TariffEditor() {
   const { tariffId } = useLocalSearchParams<{ tariffId?: string }>();
-  const router = useRouter();
   const tariffs = useTariffsAdmin();
 
   if (tariffId && !tariffs.data) {
     return (
-      <View style={styles.loading}>
-        <ActivityIndicator />
-      </View>
+      <Host style={{ flex: 1 }} useViewportSizeMeasurement>
+        <ProgressView />
+      </Host>
     );
   }
-  return <TariffForm original={tariffId ? (tariffs.data?.find((t) => t.id === tariffId) ?? null) : null} onClose={() => router.back()} />;
+  const original = tariffId ? (tariffs.data?.find((t) => t.id === tariffId) ?? null) : null;
+  return <TariffForm key={original?.id ?? 'new'} original={original} />;
 }
 
-function TariffForm({ original, onClose }: { original: AdminTariff | null; onClose: () => void }) {
+function TariffForm({ original }: { original: AdminTariff | null }) {
+  const router = useRouter();
   const [name, setName] = useState(original?.name ?? '');
-  const [price, setPrice] = useState(original ? String(toNumber(original.price)).replace('.', ',') : '');
-  const [color, setColor] = useState(original && /^#[0-9a-f]{6}$/i.test(original.color) ? original.color : '#8B5CF6');
+  const [price, setPrice] = useState(original ? moneyText(original.price) : '');
+  const [color, setColor] = useState(normalizeHex(original?.color, '#8B5CF6'));
   const [busy, setBusy] = useState(false);
-  const isStatus = !!original?.key;
 
-  const save = async () => {
-    if (!name.trim()) return Alert.alert('Укажите название');
-    const amount = price.trim() ? parseAmount(price) : 0;
-    if (amount === null) return Alert.alert('Проверьте сумму');
+  const isStatus = !!original?.key;
+  const hidden = original?.isActive === false;
+  const amount = price.trim() ? parseAmount(price) : 0;
+  const canSave = name.trim().length > 0 && amount !== null;
+
+  const run = async (action: () => Promise<void>, failure: string) => {
     haptic.medium();
     setBusy(true);
     try {
-      await saveTariff(original?.id ?? null, { name, price: amount, color });
+      await action();
       haptic.success();
-      onClose();
+      router.back();
     } catch (error) {
       haptic.error();
-      Alert.alert('Тариф не сохранён', errorText(error));
+      Alert.alert(failure, errorText(error));
     } finally {
       setBusy(false);
     }
   };
 
-  const remove = () =>
+  const save = () => {
+    if (!canSave || amount === null) return;
+    void run(() => saveTariff(original?.id ?? null, { name, price: amount, color }), 'Тариф не сохранён');
+  };
+
+  const hide = () =>
     original &&
-    Alert.alert(`Убрать «${original.name}»?`, 'Тариф исчезнет из кассы. Прошлые чеки и аналитика сохранятся.', [
+    Alert.alert(`Убрать «${original.name}» из кассы?`, 'Тариф пропадёт из кассы и меню. Прошлые чеки и аналитика сохранятся, а вернуть его можно в разделе «Скрытые».', [
       { text: 'Отмена', style: 'cancel' },
-      {
-        text: 'Убрать',
-        style: 'destructive',
-        onPress: () =>
-          deleteTariff(original.id)
-            .then(() => {
-              haptic.success();
-              onClose();
-            })
-            .catch((error: unknown) => Alert.alert('Тариф не убран', errorText(error))),
-      },
+      { text: 'Убрать', style: 'destructive', onPress: () => void run(() => deleteTariff(original.id), 'Тариф не убран') },
     ]);
 
   return (
-    <View style={styles.sheet}>
-      <SheetHeader title={original ? (isStatus ? 'Статус клиента' : 'Тариф') : 'Новый тариф'} onClose={onClose} />
-      <FormSection title="ТАРИФ" footer={isStatus ? 'Это статус клиента: касса предлагает его тариф игрокам с этим статусом.' : 'Касса добавляет тариф в чек как позицию. Цена меняется и для новых чеков.'}>
-        <GlassCard style={styles.card}>
-          <FormField icon="ticket" value={name} onChange={setName} placeholder="Название, например «Одна игра»" autoCapitalize="sentences" autoFocus={!original} />
-          <View style={sheetStyles.separator} />
-          <FormField icon="rublesign" value={price} onChange={setPrice} placeholder="Сумма за вечер" keyboardType="decimal-pad" suffix="₽" />
-        </GlassCard>
-      </FormSection>
-      <FormSection title="ЦВЕТ">
-        <ColorSwatches value={color} onChange={setColor} />
-      </FormSection>
-      <PrimaryButton title={busy ? 'Сохраняем…' : original ? 'Сохранить' : 'Добавить тариф'} icon="checkmark" busy={busy} disabled={!name.trim()} onPress={() => void save()} />
-      {original && !original.isSystem && (
-        <DangerRow title="Убрать тариф" icon="trash" onPress={remove} />
-      )}
-    </View>
+    <>
+      <EditorToolbar title={original ? (isStatus ? 'Статус клиента' : 'Тариф') : 'Новый тариф'} canSave={canSave} busy={busy} onSave={save} />
+      <Host style={{ flex: 1 }} useViewportSizeMeasurement>
+        <Form>
+          <Section title="Название">
+            <FieldRow value={name} placeholder="Например, «Одна игра»" autoFocus={!original} maxLength={120} onChange={setName} />
+          </Section>
+
+          <Section
+            title="Сумма за вечер"
+            footer={
+              <Text>
+                {isStatus
+                  ? 'Касса предлагает эту сумму игрокам со статусом. Новая цена действует для новых позиций в чеках.'
+                  : 'Касса добавляет тариф в чек как позицию. Новая цена действует для новых позиций в чеках.'}
+              </Text>
+            }>
+            <HStack spacing={8}>
+              <FieldRow value={price} placeholder="0" keyboard="decimal-pad" onChange={setPrice} />
+              <Text modifiers={[secondary]}>₽</Text>
+            </HStack>
+          </Section>
+
+          <Section>
+            <ColorPicker label="Цвет" selection={color} supportsOpacity={false} onSelectionChange={(next) => setColor(normalizeHex(next, color))} />
+          </Section>
+
+          {original && !original.isSystem && (
+            <Section footer={<Text>{hidden ? 'Тариф снова появится в кассе и меню.' : 'Прошлые чеки сохранят тариф, вернуть его можно в разделе «Скрытые».'}</Text>}>
+              {hidden ? (
+                <ActionRow title="Вернуть в кассу" icon="arrow.uturn.backward.circle" disabled={busy} onPress={() => void run(() => restoreTariff(original.id), 'Тариф не вернулся')} />
+              ) : (
+                <ActionRow title="Убрать из кассы" icon="eye.slash" destructive disabled={busy} onPress={hide} />
+              )}
+            </Section>
+          )}
+        </Form>
+      </Host>
+    </>
   );
 }
-
-const styles = StyleSheet.create({
-  loading: { height: 300, alignItems: 'center', justifyContent: 'center' },
-  sheet: { paddingHorizontal: space.lg, paddingTop: space.xl, paddingBottom: space.xl, gap: space.lg },
-  card: { paddingHorizontal: space.lg },
-});

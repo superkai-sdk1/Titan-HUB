@@ -1,64 +1,59 @@
-import { Host, Toggle } from '@expo/ui/swift-ui';
-import { tint } from '@expo/ui/swift-ui/modifiers';
+import { Form, HStack, Host, Picker, ProgressView, Section, Text, Toggle } from '@expo/ui/swift-ui';
+import { pickerStyle, tag } from '@expo/ui/swift-ui/modifiers';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { SymbolView } from 'expo-symbols';
 import { useState } from 'react';
-import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Alert } from 'react-native';
 
-import { FormField, FormSection } from '@/components/form-parts';
-import { GlassCard, GlassChip, PrimaryButton, SheetHeader, sheetStyles } from '@/components/new-check-parts';
-import { createTabletLinkCode, saveSpace, SPACE_LOOK, useSpacesAdmin } from '@/lib/catalog-api';
-import { toNumber } from '@/lib/format';
+import { EditorToolbar } from '@/components/editor-toolbar';
+import { ActionRow, FieldRow, secondary } from '@/components/native-form';
+import { createTabletLinkCode, saveSpace, useSpacesAdmin } from '@/lib/catalog-api';
+import { moneyText } from '@/lib/format';
 import { haptic } from '@/lib/haptics';
-import { KEYBOARD_DISMISS } from '@/lib/layout';
 import { SPACE_TYPE_LABEL, type Space } from '@/lib/pos-api';
 import { parseAmount } from '@/lib/shift-api';
-import { space as gap, type, useAccentHex } from '@/lib/theme';
 
 const TYPES = Object.keys(SPACE_TYPE_LABEL) as Space['type'][];
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
-/** Зона аренды: название, тип, почасовая ставка, вместимость; код привязки планшета кабинки. */
-export default function SpaceSheet() {
+/** Зона аренды: название, тип, почасовая ставка, вместимость, работает ли; код привязки планшета. */
+export default function SpaceEditor() {
   const { spaceId } = useLocalSearchParams<{ spaceId?: string }>();
-  const router = useRouter();
   const spaces = useSpacesAdmin();
 
   if (spaceId && !spaces.data) {
     return (
-      <View style={styles.loading}>
-        <ActivityIndicator />
-      </View>
+      <Host style={{ flex: 1 }} useViewportSizeMeasurement>
+        <ProgressView />
+      </Host>
     );
   }
-  return <SpaceForm original={spaceId ? (spaces.data?.find((s) => s.id === spaceId) ?? null) : null} onClose={() => router.back()} />;
+  const original = spaceId ? (spaces.data?.find((s) => s.id === spaceId) ?? null) : null;
+  return <SpaceForm key={original?.id ?? 'new'} original={original} />;
 }
 
-function SpaceForm({ original, onClose }: { original: Space | null; onClose: () => void }) {
-  const insets = useSafeAreaInsets();
-  const accent = useAccentHex();
+function SpaceForm({ original }: { original: Space | null }) {
+  const router = useRouter();
   const [name, setName] = useState(original?.name ?? '');
   const [kind, setKind] = useState<Space['type']>(original?.type ?? 'small_booth');
-  const [rate, setRate] = useState(original ? String(toNumber(original.hourlyRate)).replace('.', ',') : '');
+  const [rate, setRate] = useState(original ? moneyText(original.hourlyRate) : '');
   const [capacity, setCapacity] = useState(original?.capacity ? String(original.capacity) : '');
   const [active, setActive] = useState(original?.isActive ?? true);
   const [busy, setBusy] = useState(false);
   const [linking, setLinking] = useState(false);
 
+  const hourly = rate.trim() ? parseAmount(rate) : 0;
+  const people = capacity.trim() ? Number(capacity.trim()) : null;
+  const peopleValid = people === null || (Number.isInteger(people) && people >= 0 && people <= 100_000);
+  const canSave = name.trim().length > 0 && hourly !== null && peopleValid;
+
   const save = async () => {
-    if (!name.trim()) return Alert.alert('Укажите название');
-    const hourly = rate.trim() ? parseAmount(rate) : 0;
-    if (hourly === null) return Alert.alert('Проверьте ставку');
-    const people = capacity.trim() ? Math.round(Number(capacity)) : null;
-    if (people !== null && (!Number.isFinite(people) || people < 0)) return Alert.alert('Проверьте вместимость');
+    if (!canSave || hourly === null) return;
     haptic.medium();
     setBusy(true);
     try {
       await saveSpace(original?.id ?? null, { name, type: kind, hourlyRate: hourly, capacity: people, isActive: active });
       haptic.success();
-      onClose();
+      router.back();
     } catch (error) {
       haptic.error();
       Alert.alert('Зона не сохранена', errorText(error));
@@ -69,7 +64,6 @@ function SpaceForm({ original, onClose }: { original: Space | null; onClose: () 
 
   const linkTablet = async () => {
     if (!original) return;
-    haptic.light();
     setLinking(true);
     try {
       const { code, spaceName } = await createTabletLinkCode(original.id);
@@ -84,82 +78,51 @@ function SpaceForm({ original, onClose }: { original: Space | null; onClose: () 
   };
 
   return (
-    <KeyboardAvoidingView behavior="padding" style={styles.flex}>
-      <ScrollView contentContainerStyle={[styles.content, { paddingBottom: Math.max(insets.bottom, gap.lg) }]} keyboardShouldPersistTaps="handled" keyboardDismissMode={KEYBOARD_DISMISS} showsVerticalScrollIndicator={false}>
-        <SheetHeader title={original ? 'Зона' : 'Новая зона'} onClose={onClose} />
+    <>
+      <EditorToolbar title={original ? 'Зона' : 'Новая зона'} canSave={canSave} busy={busy} onSave={() => void save()} />
+      <Host style={{ flex: 1 }} useViewportSizeMeasurement>
+        <Form>
+          <Section title="Название">
+            <FieldRow value={name} placeholder="Например, «Кабинка 3»" autoFocus={!original} maxLength={80} onChange={setName} />
+          </Section>
 
-        <FormSection title="ЗОНА">
-          <GlassCard style={styles.card}>
-            <FormField icon="square.split.bottomrightquarter" value={name} onChange={setName} placeholder="Название, например «Кабинка 3»" autoCapitalize="sentences" autoFocus={!original} />
-            <View style={sheetStyles.separator} />
-            <FormField icon="rublesign" value={rate} onChange={setRate} placeholder="Ставка в час" keyboardType="decimal-pad" suffix="₽/ч" />
-            <View style={sheetStyles.separator} />
-            <FormField icon="person.2" value={capacity} onChange={setCapacity} placeholder="Вместимость, человек" keyboardType="number-pad" />
-          </GlassCard>
-        </FormSection>
+          <Section>
+            <Picker label="Тип" selection={kind} onSelectionChange={(value) => setKind(value as Space['type'])} modifiers={[pickerStyle('menu')]}>
+              {TYPES.map((t) => (
+                <Text key={t} modifiers={[tag(t)]}>
+                  {SPACE_TYPE_LABEL[t]}
+                </Text>
+              ))}
+            </Picker>
+          </Section>
 
-        <FormSection title="ТИП">
-          <View style={styles.chips}>
-            {TYPES.map((t) => (
-              <GlassChip
-                key={t}
-                label={SPACE_TYPE_LABEL[t]}
-                icon={SPACE_LOOK[t].symbol}
-                tint={SPACE_LOOK[t].color}
-                active={kind === t}
-                onPress={() => {
-                  haptic.selection();
-                  setKind(t);
-                }}
-              />
-            ))}
-          </View>
-        </FormSection>
+          <Section title="Ставка в час" footer={<Text>Аренда считается по начатым часам: 1 ч 10 мин — это 2 часа по ставке зоны.</Text>}>
+            <HStack spacing={8}>
+              <FieldRow value={rate} placeholder="0" keyboard="decimal-pad" onChange={setRate} />
+              <Text modifiers={[secondary]}>₽/ч</Text>
+            </HStack>
+          </Section>
 
-        {original && (
-          <GlassCard style={styles.card}>
-            <View style={styles.toggleRow}>
-              <View style={styles.flex}>
-                <Text style={[type.body, sheetStyles.label]}>Зона работает</Text>
-                <Text style={[type.caption1, sheetStyles.secondary]}>Выключенная зона не предлагается при аренде</Text>
-              </View>
-              <Host matchContents seedColor={accent}>
-                <Toggle
-                  isOn={active}
-                  onIsOnChange={(on) => {
-                    haptic.selection();
-                    setActive(on);
-                  }}
-                  modifiers={[tint(accent)]}
-                />
-              </Host>
-            </View>
-          </GlassCard>
-        )}
+          <Section title="Вместимость" footer={<Text>{peopleValid ? 'Оставьте пустым, если не важно.' : 'Целое число человек.'}</Text>}>
+            <HStack spacing={8}>
+              <FieldRow value={capacity} placeholder="Не указана" keyboard="numeric" onChange={setCapacity} />
+              <Text modifiers={[secondary]}>чел.</Text>
+            </HStack>
+          </Section>
 
-        <PrimaryButton title={busy ? 'Сохраняем…' : original ? 'Сохранить' : 'Добавить зону'} icon="checkmark" busy={busy} disabled={!name.trim()} onPress={() => void save()} />
+          {original && (
+            <Section footer={<Text>Выключенная зона не предлагается при аренде и бронировании.</Text>}>
+              <Toggle label="Зона работает" isOn={active} onIsOnChange={setActive} />
+            </Section>
+          )}
 
-        {original && (
-          <GlassCard style={styles.tablet}>
-            <SymbolView name="ipad.landscape" size={22} tintColor={accent} />
-            <View style={styles.flex}>
-              <Text style={[type.body, sheetStyles.label]}>Планшет кабинки</Text>
-              <Text style={[type.caption1, sheetStyles.secondary]}>Одноразовый код привязки на 5 минут</Text>
-            </View>
-            <GlassChip label={linking ? '…' : 'Получить код'} active onPress={() => void linkTablet()} />
-          </GlassCard>
-        )}
-      </ScrollView>
-    </KeyboardAvoidingView>
+          {original && (
+            <Section title="Планшет кабинки" footer={<Text>Одноразовый код привязки, действует 5 минут.</Text>}>
+              <ActionRow title={linking ? 'Получаем код…' : 'Получить код привязки'} icon="ipad.landscape" disabled={linking} onPress={() => void linkTablet()} />
+            </Section>
+          )}
+        </Form>
+      </Host>
+    </>
   );
 }
-
-const styles = StyleSheet.create({
-  flex: { flex: 1 },
-  loading: { height: 300, alignItems: 'center', justifyContent: 'center' },
-  content: { paddingHorizontal: gap.lg, paddingTop: gap.xl, gap: gap.lg },
-  card: { paddingHorizontal: gap.lg },
-  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: gap.sm },
-  toggleRow: { flexDirection: 'row', alignItems: 'center', gap: gap.md, minHeight: 60 },
-  tablet: { flexDirection: 'row', alignItems: 'center', gap: gap.md, padding: gap.lg },
-});

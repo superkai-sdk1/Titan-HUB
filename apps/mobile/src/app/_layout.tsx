@@ -2,7 +2,7 @@ import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client
 import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect } from 'react';
-import { Platform, StyleSheet, useColorScheme } from 'react-native';
+import { Linking, Platform, StyleSheet, useColorScheme } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -10,13 +10,14 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { stackHeaderOptions } from '@/components/header-glass';
 import { sheetLayout } from '@/components/sheet-grabber';
 import { DialogHost } from '@/components/dialog-host';
+import { LocalTour } from '@/components/local-tour';
 import { NotificationBanner } from '@/components/notification-banner';
 import { OfflineBanner } from '@/components/offline-banner';
 import { SessionLock } from '@/components/session-lock';
 import { CACHE_MAX_AGE, queryClient, queryPersister, subscribeAppFocus, subscribeNetwork } from '@/lib/query';
 import { useRealtime } from '@/lib/realtime';
 import { useDevicePrefs } from '@/lib/device-prefs';
-import { useSession } from '@/lib/session';
+import { devLogin, localAutoLogin, useSession } from '@/lib/session';
 import { colors, accentHex } from '@/lib/theme';
 import { sheetOptions } from '@/lib/sheet';
 
@@ -38,11 +39,19 @@ export default function RootLayout() {
   const token = useSession((s) => s.token);
 
   useEffect(() => {
-    void useSession.getState().hydrate();
+    void useSession.getState().hydrate().then(localAutoLogin);
   }, []);
 
   useEffect(() => {
     if (hydrated) void SplashScreen.hideAsync();
+  }, [hydrated]);
+
+  // Служебная ссылка входа на локальный стенд (lib/session.ts → devLogin); в релизе пустая.
+  useEffect(() => {
+    if (!hydrated) return;
+    void Linking.getInitialURL().then(devLogin);
+    const subscription = Linking.addEventListener('url', (event) => void devLogin(event.url));
+    return () => subscription.remove();
   }, [hydrated]);
 
   useEffect(() => subscribeAppFocus(), []);
@@ -108,6 +117,7 @@ export default function RootLayout() {
           </Stack.Protected>
         </Stack>
         {signedIn && <Realtime />}
+        {signedIn && <LocalTour />}
         {signedIn && <NotificationBanner />}
         <OfflineBanner />
         <SessionLock />

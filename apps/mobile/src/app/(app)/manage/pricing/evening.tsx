@@ -1,49 +1,48 @@
+import { ColorPicker, Form, Host, ProgressView, Section, Text } from '@expo/ui/swift-ui';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
-import { ActivityIndicator, Alert, StyleSheet, View } from 'react-native';
+import { Alert } from 'react-native';
 
-import { ColorSwatches } from '@/components/color-swatches';
-import { FormField, FormSection } from '@/components/form-parts';
-import { DangerRow, GlassCard, PrimaryButton, SheetHeader } from '@/components/new-check-parts';
+import { EditorToolbar } from '@/components/editor-toolbar';
+import { ActionRow, FieldRow, normalizeHex } from '@/components/native-form';
 import { deleteEveningType, saveEveningType, useEveningTypesAdmin, type EveningTypeRow } from '@/lib/catalog-api';
 import { haptic } from '@/lib/haptics';
-import { space } from '@/lib/theme';
 
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
-/** Тип игрового вечера: название и цвет. Системные типы не удаляются. */
-export default function EveningTypeSheet() {
+/** Тип игрового вечера: название и цвет. Системные типы переименовываются, но не удаляются. */
+export default function EveningTypeEditor() {
   const { key } = useLocalSearchParams<{ key?: string }>();
-  const router = useRouter();
   const evenings = useEveningTypesAdmin();
 
   if (key && !evenings.data) {
     return (
-      <View style={styles.loading}>
-        <ActivityIndicator />
-      </View>
+      <Host style={{ flex: 1 }} useViewportSizeMeasurement>
+        <ProgressView />
+      </Host>
     );
   }
-  return <EveningForm original={key ? (evenings.data?.find((e) => e.key === key) ?? null) : null} onClose={() => router.back()} />;
+  const original = key ? (evenings.data?.find((e) => e.key === key) ?? null) : null;
+  return <EveningForm key={original?.key ?? 'new'} original={original} />;
 }
 
-function EveningForm({ original, onClose }: { original: EveningTypeRow | null; onClose: () => void }) {
+function EveningForm({ original }: { original: EveningTypeRow | null }) {
+  const router = useRouter();
   const [label, setLabel] = useState(original?.label ?? '');
-  const [color, setColor] = useState(original?.color && /^#[0-9a-f]{6}$/i.test(original.color) ? original.color : '#10B981');
+  const [color, setColor] = useState(normalizeHex(original?.color, '#10B981'));
   const [busy, setBusy] = useState(false);
   const system = !!original && (original.isSystem || original.key === 'none');
 
-  const save = async () => {
-    if (!label.trim()) return Alert.alert('Укажите название');
+  const run = async (action: () => Promise<void>, failure: string) => {
     haptic.medium();
     setBusy(true);
     try {
-      await saveEveningType(original?.key ?? null, { label, color });
+      await action();
       haptic.success();
-      onClose();
+      router.back();
     } catch (error) {
       haptic.error();
-      Alert.alert('Тип вечера не сохранён', errorText(error));
+      Alert.alert(failure, errorText(error));
     } finally {
       setBusy(false);
     }
@@ -53,40 +52,32 @@ function EveningForm({ original, onClose }: { original: EveningTypeRow | null; o
     original &&
     Alert.alert(`Удалить «${original.label}»?`, 'Прошлые смены сохранят этот тип вечера.', [
       { text: 'Отмена', style: 'cancel' },
-      {
-        text: 'Удалить',
-        style: 'destructive',
-        onPress: () =>
-          deleteEveningType(original.key)
-            .then(() => {
-              haptic.success();
-              onClose();
-            })
-            .catch((error: unknown) => Alert.alert('Тип вечера не удалён', errorText(error))),
-      },
+      { text: 'Удалить', style: 'destructive', onPress: () => void run(() => deleteEveningType(original.key), 'Тип вечера не удалён') },
     ]);
 
   return (
-    <View style={styles.sheet}>
-      <SheetHeader title={original ? 'Тип вечера' : 'Новый тип вечера'} onClose={onClose} />
-      <FormSection title="НАЗВАНИЕ" footer="Выбирается при открытии смены.">
-        <GlassCard style={styles.card}>
-          <FormField icon="moon.stars" value={label} onChange={setLabel} placeholder="Спортивная мафия, настолки…" autoCapitalize="sentences" autoFocus={!original} />
-        </GlassCard>
-      </FormSection>
-      <FormSection title="ЦВЕТ">
-        <ColorSwatches value={color} onChange={setColor} />
-      </FormSection>
-      <PrimaryButton title={busy ? 'Сохраняем…' : original ? 'Сохранить' : 'Добавить'} icon="checkmark" busy={busy} disabled={!label.trim()} onPress={() => void save()} />
-      {original && !system && (
-        <DangerRow title="Удалить тип вечера" icon="trash" onPress={remove} />
-      )}
-    </View>
+    <>
+      <EditorToolbar
+        title={original ? 'Тип вечера' : 'Новый тип вечера'}
+        canSave={label.trim().length > 0}
+        busy={busy}
+        onSave={() => void run(() => saveEveningType(original?.key ?? null, { label, color }), 'Тип вечера не сохранён')}
+      />
+      <Host style={{ flex: 1 }} useViewportSizeMeasurement>
+        <Form>
+          <Section title="Название" footer={<Text>Выбирается при открытии смены; по нему аналитика делит игровые вечера.</Text>}>
+            <FieldRow value={label} placeholder="Спортивная мафия, настолки…" autoFocus={!original} maxLength={60} onChange={setLabel} />
+          </Section>
+          <Section>
+            <ColorPicker label="Цвет" selection={color} supportsOpacity={false} onSelectionChange={(next) => setColor(normalizeHex(next, color))} />
+          </Section>
+          {original && !system && (
+            <Section>
+              <ActionRow title="Удалить тип вечера" icon="trash" destructive disabled={busy} onPress={remove} />
+            </Section>
+          )}
+        </Form>
+      </Host>
+    </>
   );
 }
-
-const styles = StyleSheet.create({
-  loading: { height: 300, alignItems: 'center', justifyContent: 'center' },
-  sheet: { paddingHorizontal: space.lg, paddingTop: space.xl, paddingBottom: space.xl, gap: space.lg },
-  card: { paddingHorizontal: space.lg },
-});

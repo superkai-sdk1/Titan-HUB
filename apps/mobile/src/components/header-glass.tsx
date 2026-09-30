@@ -139,6 +139,25 @@ export function glassHeader(extra: Record<string, unknown> = {}) {
   });
 }
 
+/**
+ * Опции экрана с нативной формой (SwiftUI Form/List, components/native-form.tsx).
+ * iOS: системная шапка Liquid Glass — форма уходит под неё, край размывается сам,
+ * крупный заголовок сворачивается при прокрутке. Android: слой совместимости рисует
+ * форму обычным списком, поэтому шапка непрозрачная, в цвет сгруппированного фона.
+ */
+export function formHeader(extra: Record<string, unknown> = {}) {
+  if (Platform.OS === 'ios') {
+    return { headerTransparent: true, scrollEdgeEffects: { top: 'automatic' as const }, ...extra };
+  }
+  return {
+    ...androidHeader,
+    headerTransparent: false,
+    headerStyle: { backgroundColor: colors.groupedBackground },
+    contentStyle: { backgroundColor: colors.groupedBackground },
+    ...extra,
+  };
+}
+
 const styles = StyleSheet.create({
   fill: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
   band: { position: 'absolute', left: 0, right: 0 },

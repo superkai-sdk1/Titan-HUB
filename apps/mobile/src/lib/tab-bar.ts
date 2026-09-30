@@ -39,6 +39,7 @@ export const SHEET_ROUTES: Record<string, ReadonlySet<string>> = {
     'pricing/tariff',
     'pricing/evening',
     'pricing/space',
+    'pricing/rate',
     'inventory/stock-action',
     'inventory/expense-new',
     'clients/edit',

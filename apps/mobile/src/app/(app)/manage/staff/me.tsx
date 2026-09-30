@@ -1,75 +1,60 @@
+import { Button, DatePicker, Form, HStack, Host, ProgressView, RNHostView, Section, Spacer, Text, Toggle, VStack } from '@expo/ui/swift-ui';
+import { font, lineLimit, refreshable } from '@expo/ui/swift-ui/modifiers';
 import { Stack, useRouter } from 'expo-router';
 import { useState } from 'react';
-import { ActivityIndicator, Alert, Linking, Pressable, ScrollView, StyleSheet, Text } from 'react-native';
+import { ActivityIndicator, Alert, Linking, View } from 'react-native';
 
-import { AppRefreshControl } from '@/components/refresh-control';
-import { AmbientBackdrop } from '@/components/ambient-backdrop';
-import { Avatar, DangerRow, GlassCard } from '@/components/new-check-parts';
-import { Group, promptValue, Row, SwitchRow } from '@/components/settings-parts';
+import { ActionRow, LinkRow, primary, secondary, TextRow } from '@/components/native-form';
+import { Avatar } from '@/components/new-check-parts';
+import { promptValue } from '@/components/settings-parts';
 import { PERMISSIONS, permissionOn, setMyPin, updateMe } from '@/lib/admin-api';
 import { clearClubCalendar, ensureCalendarAccess, syncEventsToCalendar } from '@/lib/calendar-sync';
 import { markCalendarSynced, useDevicePrefs } from '@/lib/device-prefs';
 import { useEvents } from '@/lib/events-api';
 import { haptic } from '@/lib/haptics';
-import { usePageGutter } from '@/lib/layout';
 import { pickAndUploadPhoto } from '@/lib/photo';
 import { signOutEverywhere, useMe } from '@/lib/queries';
 import { useSession } from '@/lib/session';
-import { colors, space, type } from '@/lib/theme';
 
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
-/** «ДД.ММ.ГГГГ» → «ГГГГ-ММ-ДД»; пустая строка стирает дату. */
-function parseBirthday(input: string): string | null | undefined {
-  if (!input) return null;
-  const match = /^(\d{1,2})[.\-/](\d{1,2})[.\-/](\d{4})$/.exec(input);
-  if (!match) return undefined;
-  const [, day, month, year] = match;
-  const date = new Date(Number(year), Number(month) - 1, Number(day));
-  if (date.getDate() !== Number(day) || date.getMonth() !== Number(month) - 1) return undefined;
-  return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
-}
+/** «ГГГГ-ММ-ДД» ↔ дата в полдень: без сдвига дня из-за часового пояса. */
+const toDate = (value: string) => new Date(`${value.slice(0, 10)}T12:00:00`);
+const toIsoDay = (date: Date) =>
+  `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 
-const showBirthday = (value: string | null | undefined) => {
-  if (!value) return 'не указан';
-  const [year, month, day] = value.slice(0, 10).split('-');
-  return day && month && year ? `${day}.${month}.${year}` : value;
-};
-
-/** Мой профиль: имя и контакты, PIN, уведомления. Права показываем как есть — их выдаёт владелец. */
+/**
+ * Мой профиль — нативная форма: фото, данные о себе правятся прямо в строках, PIN,
+ * уведомления и календарь. Права показываем как есть — их выдаёт владелец.
+ */
 export default function MyProfileScreen() {
-  const gutter = usePageGutter();
   const router = useRouter();
   const me = useMe();
   const club = useSession((s) => s.club);
-  const [pulling, setPulling] = useState(false);
-  const [pending, setPending] = useState<string | null>(null);
   const [photoBusy, setPhotoBusy] = useState(false);
   const calendarSync = useDevicePrefs((state) => state.calendarSync);
   const setCalendarSync = useDevicePrefs((state) => state.setCalendarSync);
   const events = useEvents();
 
   const profile = me.data;
-  const isOwner = profile?.role === 'owner';
+  if (!profile) {
+    return (
+      <Host style={{ flex: 1 }} useViewportSizeMeasurement>
+        <ProgressView />
+      </Host>
+    );
+  }
+  const isOwner = profile.role === 'owner';
 
-  const refresh = async () => {
-    setPulling(true);
-    await me.refetch();
-    setPulling(false);
-  };
-
-  const patch = (field: string, body: Parameters<typeof updateMe>[0], failure: string) => {
-    setPending(field);
+  const patch = (body: Parameters<typeof updateMe>[0], failure: string) =>
     updateMe(body)
       .then(() => haptic.success())
       .catch((error: unknown) => {
         haptic.error();
         Alert.alert(failure, errorText(error));
-      })
-      .finally(() => setPending(null));
-  };
+      });
 
-  const changePhoto = () => pickAndUploadPhoto('Моё фото', (photoUrl) => patch('photo', { photoUrl }, 'Фото не сохранилось'), setPhotoBusy);
+  const changePhoto = () => pickAndUploadPhoto('Моё фото', (photoUrl) => void patch({ photoUrl }, 'Фото не сохранилось'), setPhotoBusy);
 
   /** Мероприятия клуба в календаре телефона: разрешение спрашиваем при включении. */
   const toggleCalendar = (on: boolean) => {
@@ -116,14 +101,12 @@ export default function MyProfileScreen() {
       keyboard: 'number-pad',
       onSubmit: (pin) => {
         if (!/^\d{4}$/.test(pin)) return Alert.alert('PIN — ровно 4 цифры');
-        setPending('pin');
         setMyPin(pin)
           .then(() => {
             haptic.success();
             Alert.alert('PIN обновлён');
           })
-          .catch((error: unknown) => Alert.alert('PIN не изменён', errorText(error)))
-          .finally(() => setPending(null));
+          .catch((error: unknown) => Alert.alert('PIN не изменён', errorText(error)));
       },
     });
 
@@ -133,87 +116,73 @@ export default function MyProfileScreen() {
       { text: 'Выйти', style: 'destructive', onPress: () => void signOutEverywhere() },
     ]);
 
-  const permissionList = PERMISSIONS.filter((item) => profile && permissionOn(profile, item.key))
+  const permissionList = PERMISSIONS.filter((item) => permissionOn(profile, item.key))
     .map((item) => item.label)
     .join(', ');
 
   return (
-    <AmbientBackdrop style={styles.screen}>
+    <>
       <Stack.Title>Мой профиль</Stack.Title>
+      <Host style={{ flex: 1 }} useViewportSizeMeasurement>
+        <Form modifiers={[refreshable(async () => void (await me.refetch()))]}>
+          <Section footer={<Text>Нажмите на фото, чтобы сменить.</Text>}>
+            <Button onPress={changePhoto}>
+              <HStack spacing={14}>
+                <RNHostView matchContents>
+                  <View>
+                    <Avatar name={profile.nickname} photoUrl={profile.photoUrl} size={64} />
+                    {photoBusy && <ActivityIndicator style={{ position: 'absolute', top: 22, left: 22 }} />}
+                  </View>
+                </RNHostView>
+                <VStack alignment="leading" spacing={2}>
+                  <Text modifiers={[font({ textStyle: 'title2', weight: 'semibold' }), primary, lineLimit(1)]}>{profile.nickname}</Text>
+                  <Text modifiers={[font({ textStyle: 'subheadline' }), secondary, lineLimit(1)]}>{`${isOwner ? 'Владелец' : 'Сотрудник'} · ${club?.name ?? ''}`}</Text>
+                </VStack>
+                <Spacer />
+              </HStack>
+            </Button>
+          </Section>
 
-      <ScrollView
-        contentInsetAdjustmentBehavior="automatic"
-        contentContainerStyle={[styles.content, gutter]}
-        refreshControl={<AppRefreshControl tintColor={colors.accent} refreshing={pulling} onRefresh={refresh} />}>
-        <GlassCard style={styles.hero}>
-          <Pressable onPress={changePhoto} accessibilityRole="button" accessibilityLabel="Сменить фото">
-            <Avatar name={profile?.nickname ?? '··'} photoUrl={profile?.photoUrl} size={72} />
-            {photoBusy && <ActivityIndicator style={styles.photoBusy} />}
-          </Pressable>
-          <Text style={[type.footnote, styles.secondary]}>Нажмите на фото, чтобы сменить</Text>
-          <Text style={[type.title2, styles.label]} numberOfLines={1}>
-            {profile?.nickname ?? ''}
-          </Text>
-          <Text style={[type.subhead, styles.secondary]}>{`${isOwner ? 'Владелец' : 'Сотрудник'} · ${club?.name ?? ''}`}</Text>
-        </GlassCard>
+          <Section title="О себе" footer={<Text>Никнейм видят коллеги и гости в чеках.</Text>}>
+            <TextRow
+              label="Никнейм"
+              value={profile.nickname}
+              maxLength={40}
+              capitalize="never"
+              onCommit={(nickname) => (nickname.length < 2 ? Alert.alert('Слишком короткий никнейм') : void patch({ nickname }, 'Никнейм не изменён'))}
+            />
+            <TextRow label="Имя и фамилия" value={profile.fullName ?? ''} placeholder="Не указаны" capitalize="words" onCommit={(fullName) => void patch({ fullName: fullName || null }, 'Имя не изменено')} />
+            <TextRow label="Телефон" value={profile.phone ?? ''} placeholder="Не указан" keyboard="phone-pad" onCommit={(phone) => void patch({ phone: phone || null }, 'Телефон не изменён')} />
+            {profile.birthday ? (
+              <DatePicker
+                title="День рождения"
+                selection={toDate(profile.birthday)}
+                displayedComponents={['date']}
+                range={{ end: new Date() }}
+                onDateChange={(date) => void patch({ birthday: toIsoDay(date) }, 'Дата не изменена')}
+              />
+            ) : (
+              <ActionRow title="Указать день рождения" icon="gift" onPress={() => void patch({ birthday: '2000-01-01' }, 'Дата не изменена')} />
+            )}
+          </Section>
 
-        <Group title="О себе">
-          <Row icon="person" color="#64748B" title="Никнейм" value={profile?.nickname ?? ''} busy={pending === 'nickname'} onPress={() => promptValue({ title: 'Никнейм', message: 'Имя, которое видят коллеги и гости', value: profile?.nickname ?? '', onSubmit: (nickname) => (nickname.length < 2 ? Alert.alert('Слишком короткий никнейм') : patch('nickname', { nickname }, 'Никнейм не изменён')) })} />
-          <Row icon="signature" color="#8B5CF6" title="Имя и фамилия" value={profile?.fullName ?? 'не указаны'} busy={pending === 'fullName'} onPress={() => promptValue({ title: 'Имя и фамилия', value: profile?.fullName ?? '', onSubmit: (fullName) => patch('fullName', { fullName: fullName || null }, 'Имя не изменено') })} />
-          <Row icon="phone" color="#10B981" title="Телефон" value={profile?.phone ?? 'не указан'} busy={pending === 'phone'} onPress={() => promptValue({ title: 'Телефон', value: profile?.phone ?? '', keyboard: 'phone-pad', onSubmit: (phone) => patch('phone', { phone: phone || null }, 'Телефон не изменён') })} />
-          <Row
-            icon="gift"
-            color="#EC4899"
-            title="День рождения"
-            value={showBirthday(profile?.birthday)}
-            busy={pending === 'birthday'}
-            onPress={() =>
-              promptValue({
-                title: 'День рождения',
-                message: 'В формате ДД.ММ.ГГГГ',
-                value: showBirthday(profile?.birthday) === 'не указан' ? '' : showBirthday(profile?.birthday),
-                keyboard: 'number-pad',
-                onSubmit: (raw) => {
-                  const birthday = parseBirthday(raw);
-                  if (birthday === undefined) return Alert.alert('Дата в формате ДД.ММ.ГГГГ');
-                  patch('birthday', { birthday }, 'Дата не изменена');
-                },
-              })
-            }
-          />
-        </Group>
+          <Section title="Вход и уведомления">
+            <LinkRow icon="number.circle" color="#FF9500" title="Изменить PIN" chevron={false} onPress={changePin} />
+            <LinkRow icon="bell.badge" color="#FF3B30" title="Уведомления" onPress={() => router.push('/manage/staff/notifications')} />
+            <Toggle label="Мероприятия в календаре" isOn={calendarSync} onIsOnChange={toggleCalendar} />
+          </Section>
 
-        <Group title="Вход и уведомления">
-          <Row icon="number.circle" color="#F59E0B" title="Изменить PIN" busy={pending === 'pin'} onPress={changePin} />
-          <Row icon="bell.badge" color="#0EA5E9" title="Уведомления" chevron onPress={() => router.push('/manage/staff/notifications')} />
-          <SwitchRow
-            icon="calendar"
-            color="#F43F5E"
-            title="Мероприятия в календаре"
-            subtitle="Напоминания за час и за 30 минут"
-            value={calendarSync}
-            onChange={toggleCalendar}
-          />
-        </Group>
+          {!isOwner && (
+            <Section title="Права" footer={<Text>Права выдаёт владелец клуба.</Text>}>
+              <Text modifiers={[secondary]}>{permissionList || 'Не настроены'}</Text>
+            </Section>
+          )}
 
-        {!isOwner && (
-          <Group title="Права" footer="Права выдаёт владелец клуба.">
-            <Row icon="checkmark.shield" color="#22C55E" title="Доступные разделы" subtitle={permissionList || 'не настроены'} />
-          </Group>
-        )}
-
-        <DangerRow title="Выйти из кассы" icon="rectangle.portrait.and.arrow.right" onPress={logout} />
-      </ScrollView>
-    </AmbientBackdrop>
+          <Section>
+            <ActionRow title="Выйти из кассы" icon="rectangle.portrait.and.arrow.right" destructive onPress={logout} />
+          </Section>
+        </Form>
+      </Host>
+    </>
   );
 }
-
-const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.groupedBackground },
-  content: { paddingHorizontal: space.lg, paddingBottom: 140, gap: space.lg },
-  hero: { alignItems: 'center', gap: space.xs, paddingVertical: space.xl },
-  photoBusy: { position: 'absolute', left: 0, right: 0, top: 26 },
-  label: { color: colors.label },
-  secondary: { color: colors.secondaryLabel },
-  pressed: { opacity: 0.6 },
-});

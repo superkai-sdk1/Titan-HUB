@@ -50,6 +50,79 @@ export function useIntegrations(enabled: boolean) {
   });
 }
 
+/* ───────────────────── Оплата, бронь, отзывы (владелец) ───────────────────── */
+
+export type PaymentConfig = {
+  sbpProvider: string;
+  sbpProviderLabel: string;
+  sbpConfigured: boolean;
+  fiscalProvider: string;
+  fiscalLabel: string;
+  fiscalStandalone: boolean;
+  testMode: boolean;
+  vatCode: number;
+  defaultPhone: string;
+  itemized: boolean;
+  fiscalMethods: string[];
+  receiptFooter: string;
+};
+
+/** Способы оплаты, которые можно исключить из фискализации (как в веб-настройках). */
+export const FISCAL_METHODS: { key: string; label: string }[] = [
+  { key: 'cash', label: 'Наличные' },
+  { key: 'card', label: 'Карта' },
+  { key: 'transfer', label: 'СБП и перевод' },
+  { key: 'split', label: 'Раздельная оплата' },
+  { key: 'certificate', label: 'Сертификат' },
+  { key: 'deposit', label: 'Депозит' },
+  { key: 'debt', label: 'Долг' },
+  { key: 'bonus', label: 'Бонусы' },
+];
+
+export function usePaymentConfig() {
+  const club = useClubKey();
+  return useQuery({
+    queryKey: [club, 'system', 'payment-config'],
+    queryFn: () => api.get<PaymentConfig>('/system/payment-config'),
+    staleTime: 60_000,
+  });
+}
+
+export async function savePaymentConfig(patch: Partial<Pick<PaymentConfig, 'fiscalProvider' | 'testMode' | 'defaultPhone' | 'itemized' | 'fiscalMethods' | 'receiptFooter'>>): Promise<void> {
+  await api.put('/system/payment-config', patch);
+  invalidate(['system', 'payment-config'], ['system', 'settings']);
+}
+
+export function useBookingConfig() {
+  const club = useClubKey();
+  return useQuery({
+    queryKey: [club, 'system', 'booking-config'],
+    queryFn: () => api.get<{ enabled: boolean }>('/system/booking-config'),
+    staleTime: 60_000,
+  });
+}
+
+export async function saveBookingConfig(enabled: boolean): Promise<void> {
+  await api.put('/system/booking-config', { enabled });
+  invalidate(['system', 'booking-config']);
+}
+
+export type ReviewsConfig = { yandexUrl: string; twogisUrl: string; inviteText: string };
+
+export function useReviewsConfig() {
+  const club = useClubKey();
+  return useQuery({
+    queryKey: [club, 'system', 'reviews-config'],
+    queryFn: () => api.get<ReviewsConfig>('/system/reviews-config'),
+    staleTime: 60_000,
+  });
+}
+
+export async function saveReviewsConfig(patch: Partial<ReviewsConfig>): Promise<void> {
+  await api.put('/system/reviews-config', patch);
+  invalidate(['system', 'reviews-config']);
+}
+
 /* ─────────────────────────── Скидки ─────────────────────────── */
 
 export type Discount = {

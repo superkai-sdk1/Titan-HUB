@@ -1,7 +1,7 @@
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 
-import { useSession } from './session';
+import { hostOrigin, useSession } from './session';
 
 /**
  * Клиент API Titan HUB.
@@ -95,7 +95,7 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
 
   let res: Response;
   try {
-    res = await fetch(`https://${host}/api${path}`, {
+    res = await fetch(`${hostOrigin(host)}/api${path}`, {
       method: options.method ?? 'GET',
       headers,
       body: options.body === undefined ? undefined : isForm ? (options.body as FormData) : JSON.stringify(options.body),

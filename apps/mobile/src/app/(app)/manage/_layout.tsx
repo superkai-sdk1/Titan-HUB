@@ -3,7 +3,7 @@ import { Stack } from 'expo-router';
 import { colors } from '@/lib/theme';
 import { sheetOptions } from '@/lib/sheet';
 
-import { glassHeader, stackHeaderOptions } from '@/components/header-glass';
+import { formHeader, glassHeader, stackHeaderOptions } from '@/components/header-glass';
 import { sheetLayout } from '@/components/sheet-grabber';
 
 /** Контент шторок без фона — под ним системное стекло шторки iOS 26. */
@@ -25,11 +25,18 @@ const compactSheet = {
   contentStyle: { backgroundColor: colors.sheetBackground },
 };
 
+/**
+ * Редактор-форма (SwiftUI Form) с «Отмена» и «Сохранить» в шапке, как системные формы iOS:
+ * на iPhone — карточка поверх раздела, на Android — полноэкранная форма. В отличие от
+ * шторки по высоте содержимого, форма прокручивается и сама уходит от клавиатуры.
+ */
+const editorModal = { presentation: 'modal' as const, ...formHeader() };
+
 export default function ManageLayout() {
   return (
     <Stack screenOptions={{ headerBackButtonDisplayMode: 'minimal', ...stackHeaderOptions }} screenLayout={sheetLayout}>
-      {/* Заголовок «Управление» рисуется в самом экране — как в кассе и событиях. */}
-      <Stack.Screen name="index" options={{ headerShown: false, title: 'Управление' }} />
+      {/* Корень — нативная форма, как «Настройки» iOS: крупный заголовок в шапке Liquid Glass. */}
+      <Stack.Screen name="index" options={formHeader({ title: 'Управление', headerLargeTitle: true })} />
 
       <Stack.Screen name="menu/index" options={glassHeader({ title: 'Меню' })} />
       <Stack.Screen name="menu/[categoryId]" options={glassHeader()} />
@@ -37,10 +44,11 @@ export default function ManageLayout() {
       <Stack.Screen name="menu/category" options={tallSheet} />
       <Stack.Screen name="menu/reorder" options={tallSheet} />
 
-      <Stack.Screen name="pricing/index" options={glassHeader({ title: 'Тарифы и аренда' })} />
-      <Stack.Screen name="pricing/tariff" options={compactSheet} />
-      <Stack.Screen name="pricing/evening" options={compactSheet} />
-      <Stack.Screen name="pricing/space" options={tallSheet} />
+      <Stack.Screen name="pricing/index" options={formHeader({ title: 'Тарифы и аренда' })} />
+      <Stack.Screen name="pricing/tariff" options={editorModal} />
+      <Stack.Screen name="pricing/evening" options={editorModal} />
+      <Stack.Screen name="pricing/space" options={editorModal} />
+      <Stack.Screen name="pricing/rate" options={editorModal} />
 
       <Stack.Screen name="inventory/index" options={glassHeader({ title: 'Склад' })} />
       <Stack.Screen name="inventory/[itemId]" options={glassHeader()} />
@@ -81,11 +89,15 @@ export default function ManageLayout() {
 
       <Stack.Screen name="staff/index" options={glassHeader({ title: 'Пользователи' })} />
       <Stack.Screen name="staff/[staffId]" options={glassHeader()} />
-      <Stack.Screen name="staff/me" options={glassHeader({ title: 'Мой профиль' })} />
+      <Stack.Screen name="staff/me" options={formHeader({ title: 'Мой профиль' })} />
       <Stack.Screen name="staff/notifications" options={glassHeader({ title: 'Уведомления' })} />
       <Stack.Screen name="staff/new" options={tallSheet} />
 
-      <Stack.Screen name="settings/index" options={glassHeader({ title: 'Настройки' })} />
+      <Stack.Screen name="settings/index" options={formHeader({ title: 'Настройки клуба' })} />
+      <Stack.Screen name="settings/payment" options={formHeader({ title: 'Оплата и чеки' })} />
+      <Stack.Screen name="settings/booking" options={formHeader({ title: 'Онлайн-бронирование' })} />
+      <Stack.Screen name="settings/reviews" options={formHeader({ title: 'Отзывы гостей' })} />
+      <Stack.Screen name="settings/integrations" options={formHeader({ title: 'Интеграции' })} />
 
       <Stack.Screen name="polls/index" options={glassHeader({ title: 'Опросы' })} />
       <Stack.Screen name="polls/edit" options={tallSheet} />

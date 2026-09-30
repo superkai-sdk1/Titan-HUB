@@ -2,9 +2,11 @@ import { BlurView } from 'expo-blur';
 import { GlassContainer } from 'expo-glass-effect';
 import { Link, useNavigation, useRouter } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
+import { makeImageFromView } from '@shopify/react-native-skia';
 import { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Platform, Pressable, RefreshControl, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import Animated, {
+  Easing,
   LayoutAnimationConfig,
   LinearTransition,
   useAnimatedStyle,
@@ -20,6 +22,7 @@ import { AmbientBackdrop } from '@/components/ambient-backdrop';
 import { BirthdaysBanner } from '@/components/birthdays-banner';
 import { CheckCard, type CheckCardModel } from '@/components/check-card';
 import { CheckPanel } from '@/components/check-panel';
+import { Dissolve, type DissolveFrame } from '@/components/dissolve';
 import { PrecheckCard } from '@/components/precheck-card';
 import { Unavailable } from '@/components/unavailable';
 import { cardLines, checkTitle, checkTotals, openedLabel } from '@/lib/checks';
@@ -48,7 +51,10 @@ const GRID_PADDING = space.md - 2;
 /** Высота плашки смены над таб-баром (bottom accessory iOS 26). */
 const ACCESSORY_HEIGHT = 72;
 
-/** Новый чек появляется из точки, закрытый — растворяется; соседи переезжают пружиной. */
+/**
+ * Новый чек появляется из точки. Закрытый рассыпается пылью, как удалённое сообщение
+ * в Telegram (components/dissolve.tsx), а соседи быстро съезжают на его место.
+ */
 const cardEntering: EntryExitAnimationFunction = () => {
   'worklet';
   return {
@@ -65,13 +71,18 @@ const cardExiting: EntryExitAnimationFunction = () => {
   return {
     initialValues: { opacity: 1, transform: [{ scale: 1 }] },
     animations: {
-      opacity: withTiming(0, { duration: 220 }),
-      transform: [{ scale: withTiming(0.86, { duration: 220 }) }],
+      opacity: withTiming(0, { duration: 160 }),
+      transform: [{ scale: withTiming(0.9, { duration: 160 }) }],
     },
   };
 };
 
-const cardLayout = LinearTransition.springify().damping(22).stiffness(200);
+/** Раньше соседи переезжали пружиной почти секунду — теперь коротко и без раскачки. */
+const cardLayout = LinearTransition.duration(240).easing(Easing.out(Easing.cubic));
+
+/** Закрытая карточка: держим её в сетке, пока не сняли снимок для распыления. */
+type DyingCard = { model: CheckCardModel; index: number };
+type Ghost = { id: string; image: NonNullable<Awaited<ReturnType<typeof makeImageFromView>>>; frame: DissolveFrame };
 
 type TransitionEvents = {
   addListener: (type: 'transitionStart' | 'transitionEnd', callback: (e: { data: { closing: boolean } }) => void) => () => void;
@@ -155,6 +166,52 @@ export default function PosScreen() {
     };
   }, [navigation]);
   const data = frozen ?? liveData;
+
+  // Исчезнувший из списка чек не убираем сразу: снимаем карточку, кладём поверх снимок,
+  // который рассыпается, и только потом вынимаем её из сетки — соседи съезжают под пылью.
+  const [dying, setDying] = useState<DyingCard[]>([]);
+  const [ghosts, setGhosts] = useState<Ghost[]>([]);
+  const [prevData, setPrevData] = useState(data);
+  if (prevData !== data) {
+    setPrevData(data);
+    const ids = new Set(data.map((m) => m.id));
+    const gone = prevData.flatMap((model, index) => (ids.has(model.id) ? [] : [{ model, index }]));
+    if (gone.length > 0 || dying.some((d) => ids.has(d.model.id))) {
+      setDying((list) => [...list.filter((d) => !ids.has(d.model.id) && !gone.some((g) => g.model.id === d.model.id)), ...gone]);
+    }
+  }
+  const shown = useMemo(() => {
+    const out = [...data];
+    for (const d of [...dying].sort((a, b) => a.index - b.index)) out.splice(Math.min(d.index, out.length), 0, d.model);
+    return out;
+  }, [data, dying]);
+  const ghostIds = new Set(ghosts.map((g) => g.id));
+
+  const cellNodes = useRef(new Map<string, View>());
+  const cellFrames = useRef(new Map<string, DissolveFrame>());
+  const snapping = useRef(new Set<string>());
+  useEffect(() => {
+    const vanish = async (id: string) => {
+      // Первый кадр отдаём сетке: карточка должна успеть отрисоваться на своём месте.
+      await new Promise((r) => requestAnimationFrame(r));
+      const node = cellNodes.current.get(id);
+      const frame = cellFrames.current.get(id);
+      let image: Ghost['image'] | null = null;
+      if (node && frame) image = await makeImageFromView({ current: node }).catch(() => null);
+      if (image && frame) {
+        setGhosts((list) => [...list, { id, image, frame }]);
+        // Карточку вынимаем чуть позже: сначала читается пыль, потом соседи закрывают место.
+        await new Promise((r) => setTimeout(r, 150));
+      }
+      setDying((list) => list.filter((d) => d.model.id !== id));
+      snapping.current.delete(id);
+    };
+    for (const d of dying) {
+      if (snapping.current.has(d.model.id)) continue;
+      snapping.current.add(d.model.id);
+      void vanish(d.model.id);
+    }
+  }, [dying]);
 
   const topBlurStyle = useAnimatedStyle(() => ({ opacity: topBlur.value }));
 
@@ -248,7 +305,9 @@ export default function PosScreen() {
             chooseAction(item.title, undefined, [
               { text: 'Добавить позицию', icon: 'plus.circle', onPress: () => router.push({ pathname: '/pos/menu', params: { checkId: item.id } }) },
               { text: 'Оплатить', icon: 'creditcard', onPress: () => router.push({ pathname: '/pay', params: { checkId: item.id } }) },
-              { text: 'Чат с кабинкой', icon: 'bubble.left', onPress: () => router.push({ pathname: '/pos/chat', params: { checkId: item.id } }) },
+              ...(item.hasRental
+                ? [{ text: 'Чат с кабинкой', icon: 'bubble.left', onPress: () => router.push({ pathname: '/pos/chat', params: { checkId: item.id } }) }]
+                : []),
               { text: 'Отмена', style: 'cancel' },
             ]);
           }}
@@ -263,9 +322,12 @@ export default function PosScreen() {
         </Link.Trigger>
         <Link.Preview />
         <Link.Menu>
-          <Link.MenuAction icon="bubble.left" onPress={() => router.push({ pathname: '/pos/chat', params: { checkId: item.id } })}>
-            Чат с кабинкой
-          </Link.MenuAction>
+          {/* Чат есть только у чеков с арендованной кабинкой. */}
+          {item.hasRental && (
+            <Link.MenuAction icon="bubble.left" onPress={() => router.push({ pathname: '/pos/chat', params: { checkId: item.id } })}>
+              Чат с кабинкой
+            </Link.MenuAction>
+          )}
           <Link.MenuAction icon="plus.circle" onPress={() => router.push({ pathname: '/pos/menu', params: { checkId: item.id } })}>
             Добавить позицию
           </Link.MenuAction>
@@ -319,12 +381,19 @@ export default function PosScreen() {
         {listWidth > 0 && !checks.isLoading && (
           <LayoutAnimationConfig skipEntering>
             <View style={styles.grid}>
-              {data.map((item) => (
+              {shown.map((item) => (
                 <Animated.View
                   key={item.id}
+                  ref={(node: View | null) => {
+                    if (node) cellNodes.current.set(item.id, node);
+                    else cellNodes.current.delete(item.id);
+                  }}
+                  collapsable={false}
+                  onLayout={(e) => cellFrames.current.set(item.id, e.nativeEvent.layout)}
                   layout={cardLayout}
                   entering={cardEntering}
-                  exiting={cardExiting}
+                  // Рассыпавшуюся карточку прячет пыль поверх неё; без снимка — короткое растворение.
+                  exiting={ghostIds.has(item.id) ? undefined : cardExiting}
                   style={[styles.cell, { width: cellWidth }]}>
                   {renderCard(item)}
                 </Animated.View>
@@ -344,6 +413,21 @@ export default function PosScreen() {
                   />
                 </Animated.View>
               ))}
+              {ghosts.length > 0 && (
+                <View pointerEvents="none" style={styles.dust}>
+                  {ghosts.map((g) => (
+                    <Dissolve
+                      key={g.id}
+                      image={g.image}
+                      frame={g.frame}
+                      onDone={() => {
+                        g.image.dispose();
+                        setGhosts((list) => list.filter((x) => x.id !== g.id));
+                      }}
+                    />
+                  ))}
+                </View>
+              )}
             </View>
           </LayoutAnimationConfig>
         )}
@@ -407,6 +491,8 @@ const styles = StyleSheet.create({
   // Карточки одного ряда тянутся до самой высокой — сетка ровная.
   grid: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'stretch' },
   cell: { padding: 6 },
+  // Слой пыли над сеткой: пылинки разлетаются за края карточки, поэтому без обрезки.
+  dust: { position: 'absolute', top: 0, left: 0, width: 0, height: 0, overflow: 'visible', zIndex: 10, elevation: 10 },
   selected: { borderRadius: 24, borderWidth: 2, borderColor: colors.accent, margin: -2 },
   center: { paddingTop: 120, alignItems: 'center' },
   empty: { height: 420 },

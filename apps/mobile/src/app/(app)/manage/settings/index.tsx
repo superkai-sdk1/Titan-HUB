@@ -1,146 +1,155 @@
-import { Stack } from 'expo-router';
-import { useState } from 'react';
-import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ContentUnavailableView, Form, Host, Picker, ProgressView, Section, Text, Toggle } from '@expo/ui/swift-ui';
+import { pickerStyle, refreshable, tag } from '@expo/ui/swift-ui/modifiers';
+import { Stack, useRouter } from 'expo-router';
+import { Alert } from 'react-native';
 
-import { AppRefreshControl } from '@/components/refresh-control';
-import { AmbientBackdrop } from '@/components/ambient-backdrop';
-import { GlassChip } from '@/components/new-check-parts';
-import { Group, promptValue, Row, SwitchRow, useSettingsEditor } from '@/components/settings-parts';
-import { useIntegrations } from '@/lib/admin-api';
+import { LinkRow, TextRow, TimeRow } from '@/components/native-form';
+import { useSettingsEditor } from '@/components/settings-parts';
+import { useBookingConfig, useIntegrations, usePaymentConfig } from '@/lib/admin-api';
 import { haptic } from '@/lib/haptics';
-import { usePageGutter } from '@/lib/layout';
 import { METHODS, type TenderMethod } from '@/lib/payment';
-import { useSession } from '@/lib/session';
-import { colors, space, type } from '@/lib/theme';
 
-/** Способы, которыми касса открывает оплату по умолчанию. */
+/** Способы, которыми касса может открывать оплату по умолчанию. */
 const DEFAULT_METHODS: TenderMethod[] = ['cash', 'card', 'transfer'];
+const HOURS = Array.from({ length: 24 }, (_, hour) => hour);
 const hourText = (hour: number) => `${String(hour).padStart(2, '0')}:00`;
-const isTime = (value: string) => /^([01]?\d|2[0-3]):[0-5]\d$/.test(value);
 
-/** Настройки клуба: заведение, граница суток, поведение кассы и статус интеграций. */
+/**
+ * Настройки клуба — как «Настройки» iOS: правка прямо в строке (название, адрес, время,
+ * пороги), выбор из системного меню, переключатели; всё сохраняется сразу. Большие темы
+ * (оплата и чеки, онлайн-бронь, отзывы, интеграции) — отдельными экранами-переходами.
+ * Раньше каждое поле открывало системный диалог, а оплата и бронь были только в вебе.
+ */
 export default function SettingsScreen() {
-  const gutter = usePageGutter();
-  const isOwner = useSession((s) => s.user?.role === 'owner');
+  const router = useRouter();
   const settings = useSettingsEditor();
-  const integrations = useIntegrations(isOwner);
-  const [pulling, setPulling] = useState(false);
+  const payment = usePaymentConfig();
+  const booking = useBookingConfig();
+  const integrations = useIntegrations(true);
 
   const refresh = async () => {
-    setPulling(true);
-    await Promise.allSettled([settings.refetch(), integrations.refetch()]);
-    setPulling(false);
+    await Promise.allSettled([settings.refetch(), payment.refetch(), booking.refetch(), integrations.refetch()]);
   };
 
-  const editText = (key: string, title: string, message: string) => promptValue({ title, message, value: settings.text(key, ''), onSubmit: (next) => settings.save({ [key]: next }) });
+  if (settings.loading || settings.error) {
+    return (
+      <Host style={{ flex: 1 }} useViewportSizeMeasurement>
+        {settings.error ? (
+          <ContentUnavailableView title="Настройки не загрузились" systemImage="wifi.exclamationmark" description={settings.error.message} />
+        ) : (
+          <ProgressView />
+        )}
+      </Host>
+    );
+  }
 
-  const editTime = (key: string, title: string) =>
-    promptValue({
-      title,
-      message: 'Время в формате ЧЧ:ММ',
-      value: settings.text(key, ''),
-      onSubmit: (next) => {
-        if (next && !isTime(next)) return Alert.alert('Время в формате ЧЧ:ММ');
-        settings.save({ [key]: next });
-      },
-    });
-
-  const editStartHour = () =>
-    promptValue({
-      title: 'Начало суток клуба',
-      message: 'Час, с которого начинается новый рабочий день: смены и отчёты считаются от него, а не от полуночи.',
-      value: String(settings.number('business_day_start_hour', 9)),
-      keyboard: 'number-pad',
-      onSubmit: (next) => {
-        const hour = Math.round(Number(next));
-        if (!Number.isInteger(hour) || hour < 0 || hour > 23) return Alert.alert('Час от 0 до 23');
-        settings.save({ business_day_start_hour: String(hour) });
-      },
-    });
-
+  const startHour = settings.number('business_day_start_hour', 9);
   const defaultPayment = settings.text('default_payment', 'cash') as TenderMethod;
+  const connected = (integrations.data ?? []).filter((item) => item.configured).length;
 
   return (
-    <AmbientBackdrop style={styles.screen}>
-      <Stack.Title>Настройки</Stack.Title>
+    <>
+      <Stack.Title>Настройки клуба</Stack.Title>
+      <Host style={{ flex: 1 }} useViewportSizeMeasurement>
+        <Form modifiers={[refreshable(refresh)]}>
+          <Section title="Заведение" footer={<Text>Название и адрес попадают в чеки и приглашения гостям.</Text>}>
+            <TextRow label="Название" value={settings.text('venue_name')} placeholder="Как клуб называется" maxLength={120} onCommit={(next) => settings.save({ venue_name: next })} />
+            <TextRow label="Адрес" value={settings.text('venue_address')} placeholder="Улица и дом" maxLength={200} onCommit={(next) => settings.save({ venue_address: next })} />
+            <TimeRow label="Открытие" value={settings.text('hours_open')} fallback="12:00" onChange={(next) => settings.save({ hours_open: next })} />
+            <TimeRow label="Закрытие" value={settings.text('hours_close')} fallback="02:00" onChange={(next) => settings.save({ hours_close: next })} />
+          </Section>
 
-      <ScrollView
-        contentInsetAdjustmentBehavior="automatic"
-        contentContainerStyle={[styles.content, gutter]}
-        refreshControl={<AppRefreshControl tintColor={colors.accent} refreshing={pulling} onRefresh={refresh} />}>
-        <Group title="Заведение" footer="Название и адрес попадают в чеки и приглашения гостям.">
-          <Row icon="house" color="#8B5CF6" title="Название" value={settings.text('venue_name', 'не указано')} onPress={() => editText('venue_name', 'Название клуба', 'Как клуб называется для гостей')} />
-          <Row icon="mappin.and.ellipse" color="#F43F5E" title="Адрес" value={settings.text('venue_address', 'не указан')} onPress={() => editText('venue_address', 'Адрес', 'Улица и дом')} />
-          <Row icon="clock" color="#0EA5E9" title="Открытие" value={settings.text('hours_open', '—')} onPress={() => editTime('hours_open', 'Время открытия')} />
-          <Row icon="moon" color="#6366F1" title="Закрытие" value={settings.text('hours_close', '—')} onPress={() => editTime('hours_close', 'Время закрытия')} />
-        </Group>
+          <Section
+            title="Рабочий день"
+            footer={<Text>{`Смены и отчёты считаются от начала суток клуба: смена, открытая после полуночи, относится к предыдущему дню, пока не наступит ${hourText(startHour)}.`}</Text>}>
+            <Picker
+              label="Начало суток"
+              selection={startHour}
+              onSelectionChange={(hour) => {
+                haptic.selection();
+                settings.save({ business_day_start_hour: String(hour) });
+              }}
+              modifiers={[pickerStyle('menu')]}>
+              {HOURS.map((hour) => (
+                <Text key={hour} modifiers={[tag(hour)]}>
+                  {hourText(hour)}
+                </Text>
+              ))}
+            </Picker>
+          </Section>
 
-        <Group title="Сутки клуба" footer={`Смена, открытая после полуночи, относится к предыдущему дню, пока не наступит ${hourText(settings.number('business_day_start_hour', 9))}.`}>
-          <Row icon="sunrise" color="#F59E0B" title="Начало суток" value={hourText(settings.number('business_day_start_hour', 9))} onPress={editStartHour} />
-        </Group>
+          <Section title="Касса" footer={<Text>Способ, который касса предлагает первым при оплате чека.</Text>}>
+            <Picker
+              label="Оплата по умолчанию"
+              selection={DEFAULT_METHODS.includes(defaultPayment) ? defaultPayment : 'cash'}
+              onSelectionChange={(method) => {
+                haptic.selection();
+                settings.save({ default_payment: String(method) });
+              }}
+              modifiers={[pickerStyle('menu')]}>
+              {DEFAULT_METHODS.map((method) => (
+                <Text key={method} modifiers={[tag(method)]}>
+                  {METHODS[method].title}
+                </Text>
+              ))}
+            </Picker>
+          </Section>
 
-        <Group title="Касса" footer="Способ оплаты, который касса предлагает первым.">
-          <View style={styles.chips}>
-            {DEFAULT_METHODS.map((method) => (
-              <GlassChip
-                key={method}
-                label={METHODS[method].title}
-                icon={METHODS[method].symbol}
-                tint={METHODS[method].color}
-                active={defaultPayment === method}
-                onPress={() => {
-                  haptic.selection();
-                  settings.save({ default_payment: method });
-                }}
-              />
-            ))}
-          </View>
-        </Group>
+          <Section title="Смены и склад" footer={<Text>Автозакрытие закрывает смену по расписанию. Склад подсвечивает позиции, которых осталось меньше порога.</Text>}>
+            <Toggle
+              label="Автозакрытие смены"
+              isOn={settings.flag('auto_close_shift', false)}
+              onIsOnChange={(on) => settings.save({ auto_close_shift: String(on) })}
+            />
+            <TextRow
+              label="Порог низкого остатка, шт."
+              value={String(settings.number('low_stock_threshold', 5))}
+              keyboard="numeric"
+              onCommit={(next) => {
+                const value = Math.round(Number(next));
+                if (!Number.isInteger(value) || value < 0) return Alert.alert('Порог — целое число штук');
+                settings.save({ low_stock_threshold: String(value) });
+              }}
+            />
+          </Section>
 
-        <Group title="Смены и склад" inset={16}>
-          <SwitchRow title="Автозакрытие смены" subtitle="Закрывать смену по расписанию" value={settings.flag('auto_close_shift', false)} onChange={(on) => settings.save({ auto_close_shift: String(on) })} />
-          <SwitchRow title="Telegram-уведомления" subtitle="Оповещения клуба в Telegram" value={settings.flag('telegram_notifications', false)} onChange={(on) => settings.save({ telegram_notifications: String(on) })} />
-          <Row
-            title="Порог низкого остатка"
-            subtitle="Склад подсветит позиции с остатком ниже"
-            value={`${settings.number('low_stock_threshold', 5)} шт.`}
-            onPress={() =>
-              promptValue({
-                title: 'Порог низкого остатка',
-                message: 'Сколько штук считать низким остатком',
-                value: String(settings.number('low_stock_threshold', 5)),
-                keyboard: 'number-pad',
-                onSubmit: (next) => {
-                  const value = Math.round(Number(next));
-                  if (!Number.isInteger(value) || value < 0) return Alert.alert('Введите число');
-                  settings.save({ low_stock_threshold: String(value) });
-                },
-              })
-            }
-          />
-        </Group>
+          <Section title="Уведомления" footer={<Text>Оповещения клуба приходят в Telegram.</Text>}>
+            <Toggle
+              label="Уведомления в Telegram"
+              isOn={settings.flag('telegram_notifications', false)}
+              onIsOnChange={(on) => settings.save({ telegram_notifications: String(on) })}
+            />
+          </Section>
 
-        <Group title="Чек" inset={16} footer="Текст печатается внизу чека — например, «Спасибо за игру!».">
-          <Row title="Подпись в чеке" value={settings.text('receipt_footer', 'нет')} onPress={() => editText('receipt_footer', 'Подпись в чеке', 'Текст внизу чека')} />
-        </Group>
+          <Section title="Гости и оплата">
+            <LinkRow
+              icon="creditcard"
+              color="#34C759"
+              title="Оплата и чеки"
+              subtitle={payment.data ? (payment.data.sbpConfigured ? `СБП через ${payment.data.sbpProviderLabel}` : 'Эквайер не подключён') : undefined}
+              onPress={() => router.push('/manage/settings/payment')}
+            />
+            <LinkRow
+              icon="calendar.badge.plus"
+              color="#FF2D55"
+              title="Онлайн-бронирование"
+              value={booking.data ? (booking.data.enabled ? 'Вкл.' : 'Выкл.') : undefined}
+              onPress={() => router.push('/manage/settings/booking')}
+            />
+            <LinkRow icon="star.bubble" color="#FF9500" title="Отзывы гостей" subtitle="Яндекс Карты, 2ГИС" onPress={() => router.push('/manage/settings/reviews')} />
+          </Section>
 
-        {isOwner && (
-          <Group title="Интеграции" footer="Ключи интеграций меняются в веб-кассе — там их безопаснее вводить.">
-            {(integrations.data ?? []).map((item) => (
-              <Row key={item.key} icon={item.configured ? 'checkmark.seal' : 'circle.dashed'} color={item.configured ? '#22C55E' : colors.tertiaryLabel} title={item.label} subtitle={item.masked ?? undefined} value={item.configured ? 'подключено' : 'не настроено'} dim={!item.configured} />
-            ))}
-          </Group>
-        )}
-
-        <Text style={[type.footnote, styles.note]}>Настройки сохраняются сразу.</Text>
-      </ScrollView>
-    </AmbientBackdrop>
+          <Section footer={<Text>Ключи интеграций вводятся в веб-панели — там их безопаснее хранить и проверять.</Text>}>
+            <LinkRow
+              icon="puzzlepiece.extension"
+              color="#5856D6"
+              title="Интеграции"
+              value={integrations.data ? `${connected} из ${integrations.data.length}` : undefined}
+              onPress={() => router.push('/manage/settings/integrations')}
+            />
+          </Section>
+        </Form>
+      </Host>
+    </>
   );
 }
-
-const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.groupedBackground },
-  content: { paddingHorizontal: space.lg, paddingBottom: 140, gap: space.lg },
-  chips: { flexDirection: 'row', gap: space.sm, padding: space.lg, flexWrap: 'wrap' },
-  note: { color: colors.secondaryLabel, textAlign: 'center', paddingHorizontal: space.xs },
-});

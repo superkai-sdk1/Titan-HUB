@@ -30,6 +30,9 @@ export const labelStyle = (style: string) => mod('labelStyle', { style });
 export const menuStyle = (style: string) => mod('menuStyle', { style });
 export const listStyle = (style: string) => mod('listStyle', { style });
 export const scrollContentBackground = (visibility: 'visible' | 'hidden' | string) => mod('scrollContentBackground', { visibility });
+export const multilineTextAlignment = (alignment: 'center' | 'leading' | 'trailing') => mod('multilineTextAlignment', { alignment });
+export const lineLimit = (limit?: number) => mod('lineLimit', { limit });
+export const labelsHidden = () => mod('labelsHidden');
 
 /** Текстовые поля. */
 export const keyboardType = (type: KeyboardTypeOptions | string) => mod('keyboardType', { type });
@@ -106,6 +109,8 @@ export type ResolvedModifiers = {
   tag?: unknown;
   editMode?: boolean;
   hideScrollBackground?: boolean;
+  lineLimit?: number;
+  labelsHidden?: boolean;
 };
 
 /**
@@ -207,6 +212,11 @@ export function resolve(modifiers?: ViewModifier[] | null): ResolvedModifiers {
       case 'disabled': out.disabled = m.value as boolean; break;
       case 'tag': out.tag = m.value; break;
       case 'scrollContentBackground': out.hideScrollBackground = m.visibility === 'hidden'; break;
+      case 'multilineTextAlignment':
+        out.text.textAlign = m.alignment === 'trailing' ? 'right' : m.alignment === 'center' ? 'center' : 'left';
+        break;
+      case 'lineLimit': out.lineLimit = m.limit as number | undefined; break;
+      case 'labelsHidden': out.labelsHidden = true; break;
       case 'environment':
         if (m.key === 'editMode') out.editMode = m.value === 'active';
         break;

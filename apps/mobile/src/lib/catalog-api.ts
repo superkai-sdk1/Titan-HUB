@@ -275,6 +275,12 @@ export async function deleteTariff(tariffId: string): Promise<void> {
   refreshPricing();
 }
 
+/** Вернуть скрытый тариф в кассу (вместе с его позицией в меню). */
+export async function restoreTariff(tariffId: string): Promise<void> {
+  await api.patch(`/pricing/tariffs/${tariffId}`, { isActive: true });
+  refreshPricing();
+}
+
 export async function saveEveningType(key: string | null, input: { label: string; color: string }): Promise<void> {
   const body = { label: input.label.trim(), color: input.color };
   if (key) await api.patch(`/pricing/evening-types/${key}`, body);
@@ -294,7 +300,8 @@ export async function saveSpace(spaceId: string | null, input: SpaceInput): Prom
     name: input.name.trim(),
     type: input.type,
     hourlyRate: input.hourlyRate,
-    ...(input.capacity !== null ? { capacity: input.capacity } : {}),
+    // null стирает вместимость; раньше пустое поле просто не отправлялось, и старое число оставалось.
+    capacity: input.capacity,
     ...(spaceId ? { isActive: input.isActive } : {}),
   };
   if (spaceId) await api.patch(`/spaces/${spaceId}`, body);
@@ -309,5 +316,10 @@ export async function createTabletLinkCode(spaceId: string): Promise<{ code: str
 
 export async function saveEventRate(hours: number, price: number): Promise<void> {
   await api.patch(`/pricing/event-rates/${hours}`, { price });
+  refreshPricing();
+}
+
+export async function deleteEventRate(hours: number): Promise<void> {
+  await api.delete(`/pricing/event-rates/${hours}`);
   refreshPricing();
 }

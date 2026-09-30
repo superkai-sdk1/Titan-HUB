@@ -15,6 +15,11 @@ export function toNumber(value: number | string | null | undefined): number {
  * 12 400 ₽ · −350 ₽ · +1 200 ₽ — как formatMoney в веб-кассе.
  * `kopecks: 'auto'` — копейки только когда они есть (наличные в кассе, сдача).
  */
+/** Сумма для поля ввода: «1500.00» → «1500», «1500.5» → «1500,5» — как её набирает человек. */
+export function moneyText(value: number | string | null | undefined): string {
+  return String(toNumber(value)).replace('.', ',');
+}
+
 export function formatMoney(
   value: number | string | null | undefined,
   options: { sign?: boolean; kopecks?: boolean | 'auto' } = {},

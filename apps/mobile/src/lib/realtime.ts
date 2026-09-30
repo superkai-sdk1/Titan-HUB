@@ -6,7 +6,7 @@ import { useBanner } from './banner';
 import { checkTitle } from './checks';
 import { haptic } from './haptics';
 import { queryClient } from './query';
-import { useSession } from './session';
+import { hostOrigin, useSession } from './session';
 import type { AppNotification, CheckListItem } from './types';
 
 /**
@@ -80,7 +80,7 @@ export function useRealtime() {
         timeoutBeforeConnection: 0,
       };
 
-      updates = new EventSource<UpdateEvent>(`https://${host}/api/system/update`, options);
+      updates = new EventSource<UpdateEvent>(`${hostOrigin(host)}/api/system/update`, options);
 
       const onCheckChanged = (data: string | null) => {
         const payload = parse<{ checkId?: string }>(data);
@@ -128,7 +128,7 @@ export function useRealtime() {
         });
       });
 
-      notifications = new EventSource(`https://${host}/api/notifications/stream`, options);
+      notifications = new EventSource(`${hostOrigin(host)}/api/notifications/stream`, options);
       notifications.addEventListener('message', (e) => {
         const incoming = parse<Omit<AppNotification, 'isRead'>>(e.data);
         if (!incoming?.id) return;

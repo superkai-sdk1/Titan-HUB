@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 
 import { useAutoFocus } from '@/lib/auto-focus';
+import { useTabBarClearance } from '@/lib/tab-bar';
 import { colors, radius, space } from '@/lib/theme';
 
 import { SymbolView } from '../symbols';
@@ -75,12 +76,17 @@ export function Spacer({ modifiers }: Mods) {
   return <View style={[styles.spacer, resolve(modifiers).style]} />;
 }
 
+/** RN-разметка внутри SwiftUI-дерева; на Android дерево и так из RN — просто дети. */
+export function RNHostView({ children }: { matchContents?: boolean; children: ReactElement }) {
+  return children;
+}
+
 // ——— текст и иконки ———
 
 export function Text({ children, modifiers, style }: Mods & WithChildren & { style?: StyleProp<TextStyle> }) {
   const m = resolve(modifiers);
   const footnote = useContext(FootnoteContext);
-  return <RNText style={[styles.text, footnote && styles.footnote, m.text, style]}>{children}</RNText>;
+  return <RNText numberOfLines={m.lineLimit} style={[styles.text, footnote && styles.footnote, m.text, style]}>{children}</RNText>;
 }
 
 /** SwiftUI Image(systemName:) — SF Symbol; на Android его рисует наш SymbolView. */
@@ -120,6 +126,21 @@ export function Button({ label, systemImage, onPress, modifiers, children, role 
   // «Стеклянные» стили iOS 26 на Android — их ближайшие Material-аналоги: залитая и тональная кнопки.
   const filled = m.buttonStyle === 'borderedProminent' || m.buttonStyle === 'glassProminent';
   const tonal = m.buttonStyle === 'bordered' || m.buttonStyle === 'glass';
+  // Кнопка со своей разметкой (без label) в SwiftUI-форме — строка во всю ширину ячейки,
+  // как переход в «Настройках». Раньше разметка сжималась, и Spacer не отодвигал шеврон.
+  if (children && !label && !systemImage) {
+    return (
+      <Pressable
+        onPress={() => {
+          closeMenu?.();
+          onPress?.();
+        }}
+        disabled={m.disabled}
+        style={({ pressed }) => [styles.rowButton, m.style, pressed && styles.rowPressed, m.disabled && styles.pressed]}>
+        <View style={styles.rowButtonContent}>{children}</View>
+      </Pressable>
+    );
+  }
   return (
     <Pressable
       onPress={() => {
@@ -433,7 +454,10 @@ type FieldProps = Mods & {
   multiline?: boolean;
   numberOfLines?: number;
   allowNewlines?: boolean;
+  maxLength?: number;
+  axis?: 'horizontal' | 'vertical';
   onTextChange?: (text: string) => void;
+  onFocusChange?: (focused: boolean) => void;
 };
 
 function Field({ secure, ...props }: FieldProps & { secure?: boolean }) {
@@ -454,8 +478,11 @@ function Field({ secure, ...props }: FieldProps & { secure?: boolean }) {
       placeholderTextColor={colors.tertiaryLabel}
       {...focus}
       editable={!m.disabled}
-      multiline={props.multiline}
+      multiline={props.multiline || props.axis === 'vertical'}
       numberOfLines={props.numberOfLines}
+      maxLength={props.maxLength}
+      onFocus={() => props.onFocusChange?.(true)}
+      onBlur={() => props.onFocusChange?.(false)}
       secureTextEntry={secure}
       selectionColor={tint}
       keyboardType={m.keyboardType}
@@ -511,10 +538,12 @@ export function ColorPicker({ selection, onSelectionChange, label, modifiers }: 
  */
 export function Form({ children, modifiers }: Mods & WithChildren) {
   const m = resolve(modifiers);
+  // Форма в разделе прокручивается под плавающей панелью вкладок — последняя секция над ней.
+  const tabBar = useTabBarClearance();
   return (
     <ScrollView
       style={styles.list}
-      contentContainerStyle={[styles.form, m.style]}
+      contentContainerStyle={[styles.form, tabBar > 0 && { paddingBottom: tabBar + space.xl }, m.style]}
       keyboardShouldPersistTaps="handled"
       keyboardDismissMode="on-drag"
       refreshControl={m.refresh ? <Refresher onRefresh={m.refresh} /> : undefined}>
@@ -615,10 +644,11 @@ function ForEach({ children, onMove, onDelete }: ForEachProps) {
 export function List({ children, modifiers, style }: Mods & WithChildren & { style?: StyleProp<ViewStyle> }) {
   const m = resolve(modifiers);
   const inset = m.listStyle !== 'plain';
+  const tabBar = useTabBarClearance();
   return (
     <ScrollView
       style={[styles.list, style]}
-      contentContainerStyle={[styles.listContent, inset && styles.listInset]}
+      contentContainerStyle={[styles.listContent, inset && styles.listInset, tabBar > 0 && { paddingBottom: tabBar + space.xl }]}
       refreshControl={m.refresh ? <Refresher onRefresh={m.refresh} /> : undefined}>
       {children}
     </ScrollView>
@@ -796,6 +826,9 @@ const styles = StyleSheet.create({
   buttonLarge: { paddingVertical: space.md, justifyContent: 'center' },
   buttonPill: { borderRadius: 999, paddingHorizontal: space.lg, justifyContent: 'center' },
   pressed: { opacity: 0.55 },
+  rowButton: { paddingHorizontal: space.lg, paddingVertical: space.sm + 2, minHeight: 48, justifyContent: 'center' },
+  rowButtonContent: { flex: 1, justifyContent: 'center' },
+  rowPressed: { backgroundColor: colors.fill },
 
   segments: { flexDirection: 'row', backgroundColor: colors.fill, borderRadius: 9, padding: 2 },
   segment: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 7, borderRadius: 7 },
