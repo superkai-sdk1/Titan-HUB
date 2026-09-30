@@ -1,154 +1,120 @@
-import { Chart, Host } from '@expo/ui/swift-ui';
+import { Chart, ContentUnavailableView, Form, HStack, Host, Section, Text } from '@expo/ui/swift-ui';
+import { frame, refreshable } from '@expo/ui/swift-ui/modifiers';
 import { Stack } from 'expo-router';
-import { useState } from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { AppRefreshControl } from '@/components/refresh-control';
-import { BarRow, KpiTile, money, PeriodChips, QueryState, SectionTitle, TileGrid } from '@/components/analytics/parts';
-import { AmbientBackdrop } from '@/components/ambient-backdrop';
-import { GlassCard, sheetStyles } from '@/components/new-check-parts';
-import { Unavailable } from '@/components/unavailable';
+import { LegendRow, PeriodMenu, PeriodSection, RankRow, share, StateSection, Tile } from '@/components/analytics/native';
+import { money } from '@/components/analytics/parts';
 import { useAnalyticsPeriod, useEventsAnalytics } from '@/lib/analytics-api';
 import { plural } from '@/lib/format';
-import { usePageGutter } from '@/lib/layout';
-import { colors, space, type, useAccentHex } from '@/lib/theme';
+import { colors, useAccentHex } from '@/lib/theme';
 
-const CATEGORY_COLOR: Record<string, string> = { Титан: '#8B5CF6', Выезд: '#06B6D4', Миникап: '#A855F7' };
+const CATEGORY_COLOR: Record<string, string> = { Титан: '#8B5CF6', Выезд: '#30B0C7', Миникап: '#FF2D55' };
 const num = (n: number) => n.toString().replace('.', ',');
+const orders = (n: number) => `${n} ${plural(n, ['заказ', 'заказа', 'заказов'])}`;
 
 /**
  * Мероприятия периода по календарной дате: заказы, часы, выручка (факт по чекам и план),
  * средние показатели, форматы, загрузка по дням недели, топ заказчиков и зон.
  */
 export default function EventsAnalyticsScreen() {
-  const gutter = usePageGutter();
   const accent = useAccentHex();
   const period = useAnalyticsPeriod();
   const events = useEventsAnalytics(period.from, period.to);
-  const [pulling, setPulling] = useState(false);
   const data = events.data;
-
-  const refresh = async () => {
-    setPulling(true);
-    await events.refetch();
-    setPulling(false);
-  };
-
-  const categoryMax = Math.max(1, ...(data?.byCategory ?? []).map((c) => c.revenue));
+  const categoryTotal = (data?.byCategory ?? []).reduce((s, c) => s + c.revenue, 0);
 
   return (
-    <AmbientBackdrop style={styles.screen}>
+    <>
       <Stack.Title>Мероприятия</Stack.Title>
-      <ScrollView
-        contentInsetAdjustmentBehavior="automatic"
-        contentContainerStyle={[styles.content, gutter]}
-        refreshControl={<AppRefreshControl tintColor={colors.accent} refreshing={pulling} onRefresh={refresh} />}>
-        <PeriodChips period={period} />
-        <QueryState loading={!data} error={events.error}>
-          {data &&
-            (data.totals.count === 0 ? (
-              <View style={styles.empty}>
-                <Unavailable title="Мероприятий не было" systemImage="calendar" description={data.totals.cancelled > 0 ? `Отменено за период: ${data.totals.cancelled}` : 'Выберите другой период.'} />
-              </View>
-            ) : (
-              <>
-                <TileGrid>
-                  <KpiTile label="Заказов" icon="calendar" value={String(data.totals.count)} caption={`${data.totals.days} ${plural(data.totals.days, ['день', 'дня', 'дней'])} с заказами`} />
-                  <KpiTile label="Часов" icon="clock" color={colors.blue} value={num(data.totals.hours)} caption={`в среднем ${num(data.totals.avgDuration)} ч`} />
-                  <KpiTile label="Выручка" icon="rublesign.circle" color={colors.green} value={money(Math.round(data.totals.revenue))} caption={`факт ${money(data.totals.actualRevenue)} · план ${money(data.totals.plannedRevenue)}`} />
-                  <KpiTile label="Средний заказ" icon="receipt" color={colors.orange} value={money(data.totals.avgCheck)} caption={`${money(data.totals.revenuePerHour)} за час`} />
-                </TileGrid>
-                <Text style={[type.footnote, styles.note]}>
-                  {`Гостей в среднем ${num(data.totals.avgAttendees)}.${data.totals.cancelled ? ` Отменено: ${data.totals.cancelled}.` : ''} План — суммы мероприятий, по которым ещё нет чека.`}
-                </Text>
+      <PeriodMenu period={period} />
+      <Host style={{ flex: 1 }} useViewportSizeMeasurement>
+        <Form modifiers={[refreshable(async () => void (await events.refetch()))]}>
+          <PeriodSection period={period} />
+          {!data ? (
+            <StateSection error={events.error} />
+          ) : data.totals.count === 0 ? (
+            <Section>
+              <ContentUnavailableView
+                title="Мероприятий не было"
+                systemImage="calendar"
+                description={data.totals.cancelled > 0 ? `Отменено за период: ${data.totals.cancelled}` : 'Выберите другой период.'}
+              />
+            </Section>
+          ) : (
+            <>
+              <Section
+                footer={
+                  <Text>
+                    {`Гостей в среднем ${num(data.totals.avgAttendees)}.${data.totals.cancelled ? ` Отменено: ${data.totals.cancelled}.` : ''} Выручка — факт по чекам ${money(data.totals.actualRevenue)} и план ${money(data.totals.plannedRevenue)} по мероприятиям без чека.`}
+                  </Text>
+                }>
+                <HStack spacing={12}>
+                  <Tile label="Заказов" value={String(data.totals.count)} caption={`${data.totals.days} ${plural(data.totals.days, ['день', 'дня', 'дней'])} с заказами`} />
+                  <Tile label="Часов" value={num(data.totals.hours)} caption={`в среднем ${num(data.totals.avgDuration)} ч`} />
+                </HStack>
+                <HStack spacing={12}>
+                  <Tile label="Выручка" value={money(Math.round(data.totals.revenue))} />
+                  <Tile label="Средний заказ" value={money(data.totals.avgCheck)} caption={`${money(data.totals.revenuePerHour)} за час`} />
+                </HStack>
+              </Section>
 
-                {data.byCategory.length > 0 && (
-                  <GlassCard style={styles.bars}>
-                    <View style={styles.pad}>
-                      <SectionTitle>ПО ФОРМАТУ</SectionTitle>
-                    </View>
-                    {data.byCategory.map((c) => (
-                      <BarRow
-                        key={c.label}
-                        label={c.label}
-                        value={money(Math.round(c.revenue))}
-                        share={c.revenue / categoryMax}
-                        color={CATEGORY_COLOR[c.label] ?? colors.accent}
-                        caption={`${c.count} ${plural(c.count, ['заказ', 'заказа', 'заказов'])} · ${num(Math.round(c.hours * 10) / 10)} ч`}
-                      />
-                    ))}
-                  </GlassCard>
-                )}
+              {data.byCategory.length > 0 && (
+                <Section title="По формату">
+                  <Chart
+                    type="pie"
+                    animate
+                    data={data.byCategory.map((c) => ({ x: c.label, y: Math.max(c.revenue, 0.01), color: CATEGORY_COLOR[c.label] ?? accent }))}
+                    pieStyle={{ innerRadius: 0.62, angularInset: 1.5 }}
+                    modifiers={[frame({ height: 170 })]}
+                  />
+                  {data.byCategory.map((c) => (
+                    <LegendRow
+                      key={c.label}
+                      color={CATEGORY_COLOR[c.label] ?? accent}
+                      label={c.label}
+                      caption={`${orders(c.count)} · ${num(Math.round(c.hours * 10) / 10)} ч`}
+                      value={money(Math.round(c.revenue))}
+                      percent={share(c.revenue, categoryTotal)}
+                    />
+                  ))}
+                </Section>
+              )}
 
-                <GlassCard style={styles.bars}>
-                  <View style={styles.pad}>
-                    <SectionTitle>ЗАГРУЗКА ПО ДНЯМ НЕДЕЛИ</SectionTitle>
-                  </View>
-                  <Host style={styles.chart}>
-                    <Chart type="bar" animate showGrid={false} data={data.byWeekday.map((d) => ({ x: d.label, y: d.count, color: d.label === 'Сб' || d.label === 'Вс' ? '#F59E0B' : accent }))} barStyle={{ cornerRadius: 4 }} />
-                  </Host>
-                </GlassCard>
+              <Section title="Загрузка по дням недели" footer={<Text>Сколько мероприятий приходится на каждый день недели.</Text>}>
+                <Chart
+                  type="bar"
+                  animate
+                  data={data.byWeekday.map((d) => ({ x: d.label, y: d.count, color: d.label === 'Сб' || d.label === 'Вс' ? colors.orange : accent }))}
+                  barStyle={{ cornerRadius: 4 }}
+                  modifiers={[frame({ height: 150 })]}
+                />
+              </Section>
 
-                {data.topCustomers.length > 0 && (
-                  <>
-                    <SectionTitle>ТОП ЗАКАЗЧИКОВ</SectionTitle>
-                    <GlassCard>
-                      {data.topCustomers.map((c, index) => (
-                        <View key={`${c.name}|${c.phone ?? ''}`}>
-                          {index > 0 && <View style={[sheetStyles.separator, styles.separator]} />}
-                          <View style={styles.row}>
-                            <View style={styles.flex}>
-                              <Text style={[type.body, styles.label]} numberOfLines={1}>
-                                {c.name}
-                              </Text>
-                              <Text style={[type.footnote, styles.secondary]}>{[`${c.count} ${plural(c.count, ['заказ', 'заказа', 'заказов'])}`, `${num(Math.round(c.hours * 10) / 10)} ч`, c.phone].filter(Boolean).join(' · ')}</Text>
-                            </View>
-                            <Text style={[type.body, type.amount, styles.label]}>{money(Math.round(c.revenue))}</Text>
-                          </View>
-                        </View>
-                      ))}
-                    </GlassCard>
-                  </>
-                )}
+              {data.topCustomers.length > 0 && (
+                <Section title="Топ заказчиков">
+                  {data.topCustomers.map((c, index) => (
+                    <RankRow
+                      key={`${c.name}|${c.phone ?? ''}`}
+                      rank={index + 1}
+                      name={c.name}
+                      caption={[orders(c.count), `${num(Math.round(c.hours * 10) / 10)} ч`, c.phone].filter(Boolean).join(' · ')}
+                      value={money(Math.round(c.revenue))}
+                    />
+                  ))}
+                </Section>
+              )}
 
-                {data.topZones.length > 0 && (
-                  <>
-                    <SectionTitle>ЗОНЫ</SectionTitle>
-                    <GlassCard>
-                      {data.topZones.map((z, index) => (
-                        <View key={z.name}>
-                          {index > 0 && <View style={[sheetStyles.separator, styles.separator]} />}
-                          <View style={styles.row}>
-                            <Text style={[type.body, styles.label, styles.flex]} numberOfLines={1}>
-                              {z.name}
-                            </Text>
-                            <Text style={[type.footnote, styles.secondary]}>{`${z.count} ${plural(z.count, ['заказ', 'заказа', 'заказов'])}`}</Text>
-                            <Text style={[type.body, type.amount, styles.label]}>{money(Math.round(z.revenue))}</Text>
-                          </View>
-                        </View>
-                      ))}
-                    </GlassCard>
-                  </>
-                )}
-              </>
-            ))}
-        </QueryState>
-      </ScrollView>
-    </AmbientBackdrop>
+              {data.topZones.length > 0 && (
+                <Section title="Зоны">
+                  {data.topZones.map((z) => (
+                    <RankRow key={z.name} name={z.name} caption={orders(z.count)} value={money(Math.round(z.revenue))} />
+                  ))}
+                </Section>
+              )}
+            </>
+          )}
+        </Form>
+      </Host>
+    </>
   );
 }
-
-const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.groupedBackground },
-  flex: { flex: 1 },
-  content: { paddingHorizontal: space.lg, paddingBottom: 140, gap: space.md },
-  label: { color: colors.label },
-  secondary: { color: colors.secondaryLabel },
-  note: { color: colors.tertiaryLabel, paddingHorizontal: space.xs },
-  empty: { height: 360 },
-  bars: { paddingVertical: space.lg, gap: 2 },
-  pad: { paddingHorizontal: space.lg, paddingBottom: space.xs },
-  chart: { height: 160, marginHorizontal: space.lg },
-  separator: { marginLeft: space.lg },
-  row: { flexDirection: 'row', alignItems: 'center', gap: space.md, paddingHorizontal: space.lg, minHeight: 56 },
-});

@@ -1,19 +1,16 @@
-import { DatePicker, Host } from '@expo/ui/swift-ui';
+import { DatePicker, Form, Host, Section, Text } from '@expo/ui/swift-ui';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
 
-import { GlassCard, PrimaryButton, SheetHeader, sheetStyles } from '@/components/new-check-parts';
+import { EditorToolbar } from '@/components/editor-toolbar';
 import { daysBetween, useAnalyticsPeriod, useAnalyticsPeriodStore } from '@/lib/analytics-api';
 import { fromDateTime, toDateString } from '@/lib/events-api';
-import { haptic } from '@/lib/haptics';
 import { plural } from '@/lib/format';
-import { space, type, useAccentHex } from '@/lib/theme';
+import { haptic } from '@/lib/haptics';
 
 /** Свой период отчётов: даты начала и конца — бизнес-дни клуба. */
 export default function PeriodSheet() {
   const router = useRouter();
-  const accent = useAccentHex();
   const period = useAnalyticsPeriod();
   const setCustom = useAnalyticsPeriodStore((s) => s.setCustom);
   const [from, setFrom] = useState(() => fromDateTime(period.from, '12:00'));
@@ -24,36 +21,25 @@ export default function PeriodSheet() {
   const days = daysBetween(fromKey <= toKey ? fromKey : toKey, fromKey <= toKey ? toKey : fromKey);
 
   return (
-    <View style={styles.sheet}>
-      <SheetHeader title="Период" onClose={() => router.back()} />
-      <GlassCard style={styles.card}>
-        <Host matchContents={{ vertical: true }} style={styles.control} seedColor={accent}>
-          <DatePicker title="С" selection={from} displayedComponents={['date']} onDateChange={setFrom} />
-        </Host>
-        <View style={sheetStyles.separator} />
-        <Host matchContents={{ vertical: true }} style={styles.control} seedColor={accent}>
-          <DatePicker title="По" selection={to} displayedComponents={['date']} onDateChange={setTo} />
-        </Host>
-      </GlassCard>
-      <Text style={[type.footnote, sheetStyles.secondary, styles.hint]}>
-        {`${days} ${plural(days, ['бизнес-день', 'бизнес-дня', 'бизнес-дней'])}. День клуба начинается в час из настроек, а не в полночь.`}
-      </Text>
-      <PrimaryButton
-        title="Показать отчёты"
-        icon="calendar"
-        onPress={() => {
+    <>
+      <EditorToolbar
+        title="Период"
+        canSave
+        saveLabel="Показать"
+        onSave={() => {
           haptic.selection();
           setCustom(fromKey, toKey);
           router.back();
         }}
       />
-    </View>
+      <Host style={{ flex: 1 }} useViewportSizeMeasurement>
+        <Form>
+          <Section footer={<Text>{`${days} ${plural(days, ['бизнес-день', 'бизнес-дня', 'бизнес-дней'])}. День клуба начинается в час из настроек, а не в полночь.`}</Text>}>
+            <DatePicker title="С" selection={from} displayedComponents={['date']} range={{ end: new Date() }} onDateChange={setFrom} />
+            <DatePicker title="По" selection={to} displayedComponents={['date']} range={{ end: new Date() }} onDateChange={setTo} />
+          </Section>
+        </Form>
+      </Host>
+    </>
   );
 }
-
-const styles = StyleSheet.create({
-  sheet: { paddingHorizontal: space.xl, paddingTop: space.xl, paddingBottom: space.xl, gap: space.md },
-  card: { paddingHorizontal: space.lg },
-  control: { alignSelf: 'stretch', paddingVertical: space.sm },
-  hint: { paddingHorizontal: space.xs },
-});

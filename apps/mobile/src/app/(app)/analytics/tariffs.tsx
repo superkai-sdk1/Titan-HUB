@@ -1,124 +1,97 @@
+import { Chart, Form, HStack, Host, Section, Text } from '@expo/ui/swift-ui';
+import { frame, refreshable } from '@expo/ui/swift-ui/modifiers';
 import { Stack } from 'expo-router';
-import { useState } from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { AppRefreshControl } from '@/components/refresh-control';
-import { GlassView } from '@/components/glass';
-import { BarRow, KpiTile, money, PeriodChips, QueryState, SectionTitle, TileGrid } from '@/components/analytics/parts';
-import { AmbientBackdrop } from '@/components/ambient-backdrop';
-import { GlassCard } from '@/components/new-check-parts';
+import { LegendRow, PeriodMenu, PeriodSection, RankRow, share, StateSection, Tile } from '@/components/analytics/native';
+import { money } from '@/components/analytics/parts';
 import { pct, previousPeriod, useAnalyticsPeriod, useTariffsAnalytics } from '@/lib/analytics-api';
 import { plural } from '@/lib/format';
-import { usePageGutter } from '@/lib/layout';
-import { colors, space, type } from '@/lib/theme';
+import { useAccentHex } from '@/lib/theme';
 
 const EVENING_COLOR: Record<string, string> = {
   city_mafia: '#8B5CF6',
-  sport_mafia: '#10B981',
-  kids_mafia: '#F59E0B',
-  board_games: '#06B6D4',
-  minicap: '#A855F7',
-  none: '#94A3B8',
+  sport_mafia: '#34C759',
+  kids_mafia: '#FF9500',
+  board_games: '#30B0C7',
+  minicap: '#FF2D55',
+  none: '#8E8E93',
 };
 
-/** Игры и тарифы: сколько тарифов продано и на сколько, игровые вечера, разбивка по тарифам и типам вечеров. */
+/** Игры и тарифы: продажи тарифов, игровые вечера по типам, разбивка по тарифам и типам вечеров. */
 export default function TariffsAnalyticsScreen() {
-  const gutter = usePageGutter();
+  const accent = useAccentHex();
   const period = useAnalyticsPeriod();
   const previous = previousPeriod(period);
   const tariffs = useTariffsAnalytics(period.from, period.to);
   const before = useTariffsAnalytics(previous.from, previous.to);
-  const [pulling, setPulling] = useState(false);
   const data = tariffs.data;
-
-  const refresh = async () => {
-    setPulling(true);
-    await Promise.allSettled([tariffs.refetch(), before.refetch()]);
-    setPulling(false);
-  };
-
-  const tariffMax = Math.max(1, ...(data?.byTariff ?? []).map((t) => t.revenue));
-  const eveningMax = Math.max(1, ...(data?.byEvening ?? []).map((e) => e.revenue));
+  const eveningRevenue = (data?.byEvening ?? []).reduce((s, e) => s + e.revenue, 0);
 
   return (
-    <AmbientBackdrop style={styles.screen}>
+    <>
       <Stack.Title>Игры и тарифы</Stack.Title>
-      <ScrollView
-        contentInsetAdjustmentBehavior="automatic"
-        contentContainerStyle={[styles.content, gutter]}
-        refreshControl={<AppRefreshControl tintColor={colors.accent} refreshing={pulling} onRefresh={refresh} />}>
-        <PeriodChips period={period} />
-        <QueryState loading={!data} error={tariffs.error}>
-          {data && (
+      <PeriodMenu period={period} />
+      <Host style={{ flex: 1 }} useViewportSizeMeasurement>
+        <Form modifiers={[refreshable(async () => void (await Promise.allSettled([tariffs.refetch(), before.refetch()])))]}>
+          <PeriodSection period={period} />
+          {!data ? (
+            <StateSection error={tariffs.error} />
+          ) : (
             <>
-              <TileGrid>
-                <KpiTile label="Тарифов продано" icon="ticket" value={String(data.total.count)} delta={before.data ? pct(data.total.count, before.data.total.count) : undefined} />
-                <KpiTile label="Выручка по тарифам" icon="rublesign.circle" color={colors.green} value={money(data.total.revenue)} delta={before.data ? pct(data.total.revenue, before.data.total.revenue) : undefined} />
-              </TileGrid>
+              <Section>
+                <HStack spacing={12}>
+                  <Tile label="Тарифов продано" value={String(data.total.count)} delta={before.data ? pct(data.total.count, before.data.total.count) : undefined} />
+                  <Tile label="Выручка тарифов" value={money(data.total.revenue)} delta={before.data ? pct(data.total.revenue, before.data.total.revenue) : undefined} />
+                </HStack>
+              </Section>
 
-              <SectionTitle>{`ИГРОВЫЕ ВЕЧЕРА · ${data.gameEveningsTotal}`}</SectionTitle>
-              <View style={styles.evenings}>
+              <Section
+                title={`Игровые вечера · ${data.gameEveningsTotal}`}
+                footer={<Text>Вечер засчитывается, если в смене закрыто не меньше трёх чеков с игровым тарифом. Миникапы — по датам мероприятий.</Text>}>
+                <Chart
+                  type="bar"
+                  animate
+                  data={data.gameEvenings.map((e) => ({ x: e.label, y: e.count, color: EVENING_COLOR[e.eveningKey] ?? accent }))}
+                  barStyle={{ cornerRadius: 4 }}
+                  modifiers={[frame({ height: 150 })]}
+                />
                 {data.gameEvenings.map((e) => (
-                  <GlassView key={e.eveningKey} tintColor={`${EVENING_COLOR[e.eveningKey] ?? '#8B5CF6'}1F`} style={styles.evening}>
-                    <Text style={[type.title2, type.amount, styles.label]}>{e.count}</Text>
-                    <Text style={[type.caption1, styles.secondary]} numberOfLines={2}>
-                      {e.label}
-                    </Text>
-                  </GlassView>
+                  <LegendRow key={e.eveningKey} color={EVENING_COLOR[e.eveningKey] ?? accent} label={e.label} value={`${e.count} ${plural(e.count, ['вечер', 'вечера', 'вечеров'])}`} />
                 ))}
-              </View>
-              <Text style={[type.footnote, styles.note]}>Вечер засчитывается, если в смене закрыто не меньше трёх чеков с игровым тарифом. Миникапы — по датам мероприятий.</Text>
+              </Section>
 
               {data.byTariff.length > 0 && (
-                <GlassCard style={styles.bars}>
-                  <View style={styles.pad}>
-                    <SectionTitle>ПО ТАРИФАМ</SectionTitle>
-                  </View>
-                  {data.byTariff.map((t) => (
-                    <BarRow
+                <Section title="По тарифам">
+                  {data.byTariff.map((t, index) => (
+                    <RankRow
                       key={t.tariffId}
-                      label={t.name}
-                      value={money(t.revenue)}
-                      share={t.revenue / tariffMax}
+                      rank={index + 1}
+                      name={t.name}
                       caption={`${t.count} ${plural(t.count, ['продажа', 'продажи', 'продаж'])}${t.count > 0 ? ` · средняя ${money(Math.round(t.revenue / t.count))}` : ''}`}
+                      value={money(t.revenue)}
                     />
                   ))}
-                </GlassCard>
+                </Section>
               )}
 
               {data.byEvening.length > 0 && (
-                <GlassCard style={styles.bars}>
-                  <View style={styles.pad}>
-                    <SectionTitle>ПО ТИПАМ ВЕЧЕРОВ</SectionTitle>
-                  </View>
+                <Section title="Выручка тарифов по типам вечеров">
                   {data.byEvening.map((e) => (
-                    <BarRow
+                    <LegendRow
                       key={e.eveningKey}
+                      color={EVENING_COLOR[e.eveningKey] ?? accent}
                       label={e.label}
-                      value={money(e.revenue)}
-                      share={e.revenue / eveningMax}
-                      color={EVENING_COLOR[e.eveningKey] ?? colors.accent}
                       caption={`${e.count} ${plural(e.count, ['тариф', 'тарифа', 'тарифов'])}`}
+                      value={money(e.revenue)}
+                      percent={share(e.revenue, eveningRevenue)}
                     />
                   ))}
-                </GlassCard>
+                </Section>
               )}
             </>
           )}
-        </QueryState>
-      </ScrollView>
-    </AmbientBackdrop>
+        </Form>
+      </Host>
+    </>
   );
 }
-
-const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.groupedBackground },
-  content: { paddingHorizontal: space.lg, paddingBottom: 140, gap: space.md },
-  label: { color: colors.label },
-  secondary: { color: colors.secondaryLabel },
-  note: { color: colors.tertiaryLabel, paddingHorizontal: space.xs },
-  evenings: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm },
-  evening: { width: '31.5%', flexGrow: 1, padding: space.md, gap: 2, borderRadius: 18, borderCurve: 'continuous', minHeight: 78 },
-  bars: { paddingVertical: space.lg, gap: 2 },
-  pad: { paddingHorizontal: space.lg, paddingBottom: space.xs },
-});

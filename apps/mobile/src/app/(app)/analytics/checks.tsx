@@ -1,162 +1,146 @@
-import { FlashList } from '@shopify/flash-list';
+import { Button, Form, Host, LabeledContent, Picker, Section, Text } from '@expo/ui/swift-ui';
+import { font, foregroundStyle, monospacedDigit, pickerStyle, refreshable, tag } from '@expo/ui/swift-ui/modifiers';
 import { Stack, useRouter } from 'expo-router';
 import { useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { AppRefreshControl } from '@/components/refresh-control';
-import { methodLook, money, PeriodChips, QueryState, SectionTitle } from '@/components/analytics/parts';
-import { AmbientBackdrop } from '@/components/ambient-backdrop';
-import { Avatar, GlassCard } from '@/components/new-check-parts';
+import { PeriodMenu, PeriodSection, RankRow, StateSection } from '@/components/analytics/native';
+import { methodLook, money } from '@/components/analytics/parts';
+import { ActionRow, primary, secondary } from '@/components/native-form';
 import { useAnalyticsChecks, useAnalyticsPeriod, type AnalyticsCheck, type NetBreakdown } from '@/lib/analytics-api';
 import { plural } from '@/lib/format';
 import { haptic } from '@/lib/haptics';
-import { usePageGutter } from '@/lib/layout';
 import { useSession } from '@/lib/session';
-import { colors, space, type } from '@/lib/theme';
+import { colors } from '@/lib/theme';
 
 const time = new Intl.DateTimeFormat('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Moscow' });
 const dayTime = new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Moscow' });
 
+type Sort = 'time' | 'amount';
+const PAGE = 100;
+
 /**
  * Чеки периода: итог «от валовой выручки к чистой прибыли» (себестоимость и расходы — только
- * владельцу) и список закрытых чеков; тап открывает состав чека.
+ * владельцу), фильтр по способу оплаты, сортировка и список закрытых чеков порциями;
+ * тап открывает состав чека.
  */
 export default function AnalyticsChecksScreen() {
-  const gutter = usePageGutter();
   const router = useRouter();
   const isOwner = useSession((s) => s.user?.role === 'owner');
   const period = useAnalyticsPeriod();
   const checks = useAnalyticsChecks(period.from, period.to);
-  const [pulling, setPulling] = useState(false);
-  const list = checks.data?.checks ?? [];
+  const [method, setMethod] = useState<string>('all');
+  const [sort, setSort] = useState<Sort>('time');
+  const [limit, setLimit] = useState(PAGE);
 
-  const refresh = async () => {
-    setPulling(true);
-    await checks.refetch();
-    setPulling(false);
-  };
+  const all = checks.data?.checks ?? [];
+  const methods = [...new Set(all.flatMap((c) => c.payments.map((p) => p.method)))];
+  const filtered = (method === 'all' ? all : method === 'event' ? all.filter((c) => c.linkedEventId) : all.filter((c) => c.payments.some((p) => p.method === method)))
+    .slice()
+    .sort((a, b) => (sort === 'amount' ? b.totalAmount - a.totalAmount : Date.parse(b.closedAt ?? b.createdAt) - Date.parse(a.closedAt ?? a.createdAt)));
+  const shown = filtered.slice(0, limit);
+  const filteredTotal = filtered.reduce((s, c) => s + c.totalAmount, 0);
 
   return (
-    <AmbientBackdrop style={styles.screen}>
+    <>
       <Stack.Title>Чеки</Stack.Title>
-      <FlashList
-        data={checks.data ? list : []}
-        keyExtractor={(check) => check.id}
-        contentInsetAdjustmentBehavior="automatic"
-        contentContainerStyle={[styles.content, gutter]}
-        refreshControl={<AppRefreshControl tintColor={colors.accent} refreshing={pulling} onRefresh={refresh} />}
-        ListHeaderComponent={
-          <View style={styles.header}>
-            <PeriodChips period={period} />
-            <QueryState loading={!checks.data} error={checks.error}>
-              {checks.data && <Summary summary={checks.data.summary} isOwner={isOwner} />}
-            </QueryState>
-            {checks.data && <SectionTitle>{`ЗАКРЫТЫЕ ЧЕКИ · ${list.length}${list.length >= 1000 ? ' (первые 1000)' : ''}`}</SectionTitle>}
-          </View>
-        }
-        ListEmptyComponent={checks.data ? <Text style={[type.subhead, styles.secondary, styles.empty]}>За период закрытых чеков нет</Text> : null}
-        ItemSeparatorComponent={Gap}
-        renderItem={({ item }) => (
-          <CheckRow
-            check={item}
-            multiDay={period.days > 1}
-            onPress={() => {
-              haptic.selection();
-              router.push({ pathname: '/analytics/check/[checkId]', params: { checkId: item.id } });
-            }}
-          />
-        )}
-      />
-    </AmbientBackdrop>
+      <PeriodMenu period={period} />
+      <Host style={{ flex: 1 }} useViewportSizeMeasurement>
+        <Form modifiers={[refreshable(async () => void (await checks.refetch()))]}>
+          <PeriodSection period={period} />
+          {!checks.data ? (
+            <StateSection error={checks.error} />
+          ) : (
+            <>
+              <Summary summary={checks.data.summary} isOwner={isOwner} />
+
+              <Section>
+                <Picker
+                  label="Оплата"
+                  selection={method}
+                  onSelectionChange={(value) => {
+                    haptic.selection();
+                    setMethod(String(value));
+                    setLimit(PAGE);
+                  }}
+                  modifiers={[pickerStyle('menu')]}>
+                  <Text modifiers={[tag('all')]}>Все чеки</Text>
+                  {methods.map((m) => (
+                    <Text key={m} modifiers={[tag(m)]}>
+                      {methodLook(m).title}
+                    </Text>
+                  ))}
+                  <Text modifiers={[tag('event')]}>Мероприятия</Text>
+                </Picker>
+                <Picker selection={sort} onSelectionChange={(value) => setSort(value as Sort)} modifiers={[pickerStyle('segmented')]}>
+                  <Text modifiers={[tag('time')]}>Сначала новые</Text>
+                  <Text modifiers={[tag('amount')]}>Сначала крупные</Text>
+                </Picker>
+              </Section>
+
+              <Section
+                title={`${filtered.length} ${plural(filtered.length, ['чек', 'чека', 'чеков'])} · ${money(filteredTotal)}`}
+                footer={all.length >= 1000 ? <Text>Показаны первые 1000 чеков периода — сузьте период, чтобы увидеть остальные.</Text> : undefined}>
+                {shown.length === 0 ? (
+                  <Text modifiers={[secondary]}>{all.length === 0 ? 'За период закрытых чеков нет' : 'Таких чеков нет'}</Text>
+                ) : (
+                  shown.map((check) => <CheckRow key={check.id} check={check} multiDay={period.days > 1} onPress={() => router.push({ pathname: '/analytics/check/[checkId]', params: { checkId: check.id } })} />)
+                )}
+                {filtered.length > shown.length && <ActionRow title={`Показать ещё ${Math.min(PAGE, filtered.length - shown.length)}`} icon="arrow.down.circle" onPress={() => setLimit((n) => n + PAGE)} />}
+              </Section>
+            </>
+          )}
+        </Form>
+      </Host>
+    </>
   );
 }
 
 function Summary({ summary, isOwner }: { summary: NetBreakdown; isOwner: boolean }) {
-  const lines: { label: string; value: number; tone?: 'minus' | 'total' }[] = [
-    { label: 'Выручка валовая', value: summary.gross },
-    { label: 'Возвраты', value: -summary.refunds, tone: 'minus' },
-    ...(isOwner
-      ? [
-          { label: 'Эквайринг', value: -(summary.commission ?? 0), tone: 'minus' as const },
-          { label: 'Себестоимость', value: -(summary.cogs ?? 0), tone: 'minus' as const },
-          { label: 'Расходы', value: -(summary.opex ?? 0), tone: 'minus' as const },
-          { label: 'Зарплата', value: -(summary.salary ?? 0), tone: 'minus' as const },
-          { label: 'Чистая прибыль', value: summary.net ?? 0, tone: 'total' as const },
-        ]
-      : [{ label: 'Выручка после возвратов', value: summary.revenueNet, tone: 'total' as const }]),
-  ];
+  const minus = (label: string, value: number) => (
+    <LabeledContent key={label} label={label}>
+      <Text modifiers={[secondary, monospacedDigit()]}>{`${value > 0 ? '−' : ''}${money(value)}`}</Text>
+    </LabeledContent>
+  );
+  const net = summary.net ?? 0;
   return (
-    <GlassCard style={styles.summary}>
-      <SectionTitle>ИТОГ ЗА ПЕРИОД</SectionTitle>
-      {lines.map((line) => (
-        <View key={line.label} style={[styles.line, line.tone === 'total' && styles.totalLine]}>
-          <Text style={[line.tone === 'total' ? type.headline : type.subhead, line.tone === 'minus' ? styles.secondary : styles.label, styles.flex]}>{line.label}</Text>
-          <Text style={[line.tone === 'total' ? type.headline : type.subhead, type.amount, line.tone === 'total' && line.value < 0 ? styles.red : styles.label]}>
-            {line.tone === 'minus' && line.value === 0 ? '0 ₽' : money(line.value)}
-          </Text>
-        </View>
-      ))}
-      <Text style={[type.footnote, styles.secondary]}>{`${summary.checks} ${plural(summary.checks, ['чек', 'чека', 'чеков'])} · средний клубный ${money(Math.round(summary.avgCheck))}`}</Text>
-    </GlassCard>
+    <Section title="Итог за период" footer={<Text>{`${summary.checks} ${plural(summary.checks, ['чек', 'чека', 'чеков'])} · средний клубный ${money(Math.round(summary.avgCheck))}`}</Text>}>
+      <LabeledContent label="Выручка валовая">
+        <Text modifiers={[primary, monospacedDigit()]}>{money(summary.gross)}</Text>
+      </LabeledContent>
+      {minus('Возвраты', summary.refunds)}
+      {isOwner ? (
+        <>
+          {minus('Эквайринг', summary.commission ?? 0)}
+          {minus('Себестоимость', summary.cogs ?? 0)}
+          {minus('Расходы', summary.opex ?? 0)}
+          {minus('Зарплата', summary.salary ?? 0)}
+          <LabeledContent label="Чистая прибыль">
+            <Text modifiers={[font({ weight: 'bold' }), foregroundStyle(net >= 0 ? colors.green : colors.red), monospacedDigit()]}>{money(net)}</Text>
+          </LabeledContent>
+        </>
+      ) : (
+        <LabeledContent label="Выручка после возвратов">
+          <Text modifiers={[font({ weight: 'bold' }), primary, monospacedDigit()]}>{money(summary.revenueNet)}</Text>
+        </LabeledContent>
+      )}
+    </Section>
   );
 }
 
 function CheckRow({ check, multiDay, onPress }: { check: AnalyticsCheck; multiDay: boolean; onPress: () => void }) {
   const when = check.closedAt ?? check.createdAt;
+  const paid = check.payments.map((p) => methodLook(p.method).title).join(' + ');
   return (
-    <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={`${check.guestName ?? 'Гость'}, ${money(check.totalAmount)}`}>
-      <GlassCard style={styles.row}>
-        <Avatar name={check.guestName ?? 'Гость'} photoUrl={check.playerPhoto} size={40} />
-        <View style={styles.flex}>
-          <Text style={[type.body, styles.label]} numberOfLines={1}>
-            {check.guestName ?? 'Гость'}
-          </Text>
-          <Text style={[type.footnote, styles.secondary]} numberOfLines={1}>
-            {[(multiDay ? dayTime : time).format(new Date(when)), `${check.itemCount} поз.`, check.staffNickname].filter(Boolean).join(' · ')}
-          </Text>
-          <View style={styles.methods}>
-            {check.payments.map((p, index) => {
-              const look = methodLook(p.method);
-              return (
-                <View key={`${p.method}-${index}`} style={[styles.method, { backgroundColor: `${look.color}1F` }]}>
-                  <Text style={[type.caption2, styles.methodText, { color: look.color }]}>{`${look.title} ${money(p.amount)}`}</Text>
-                </View>
-              );
-            })}
-            {check.linkedEventId && (
-              <View style={[styles.method, styles.eventBadge]}>
-                <Text style={[type.caption2, styles.methodText, styles.eventText]}>мероприятие</Text>
-              </View>
-            )}
-          </View>
-        </View>
-        <Text style={[type.headline, type.amount, styles.label]}>{money(check.totalAmount)}</Text>
-      </GlassCard>
-    </Pressable>
+    <Button
+      onPress={() => {
+        haptic.selection();
+        onPress();
+      }}>
+      <RankRow
+        name={check.guestName ?? 'Гость'}
+        caption={[(multiDay ? dayTime : time).format(new Date(when)), `${check.itemCount} поз.`, paid, check.linkedEventId ? 'мероприятие' : null, check.staffNickname].filter(Boolean).join(' · ')}
+        value={money(check.totalAmount)}
+      />
+    </Button>
   );
 }
-
-function Gap() {
-  return <View style={styles.gap} />;
-}
-
-const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.groupedBackground },
-  flex: { flex: 1 },
-  content: { paddingHorizontal: space.lg, paddingBottom: 140 },
-  header: { gap: space.md, paddingBottom: space.md },
-  label: { color: colors.label },
-  secondary: { color: colors.secondaryLabel },
-  red: { color: colors.red },
-  empty: { textAlign: 'center', paddingVertical: space.xxl },
-  summary: { padding: space.lg, gap: 6 },
-  line: { flexDirection: 'row', alignItems: 'center', gap: space.md },
-  totalLine: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.separator, paddingTop: space.sm, marginTop: 2 },
-  row: { flexDirection: 'row', alignItems: 'center', gap: space.md, padding: space.md },
-  methods: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 4 },
-  method: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 999 },
-  methodText: { fontWeight: '700' },
-  eventBadge: { backgroundColor: 'rgba(139,92,246,0.16)' },
-  eventText: { color: '#8B5CF6' },
-  gap: { height: space.sm },
-});

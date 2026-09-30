@@ -15,7 +15,7 @@ import type { NumericString } from './types';
 
 /* ─────────────────────────── Период ─────────────────────────── */
 
-export type PeriodPreset = 'today' | 'yesterday' | 'week' | 'days30' | 'month' | 'custom';
+export type PeriodPreset = 'today' | 'yesterday' | 'week' | 'days30' | 'month' | 'days90' | 'year' | 'custom';
 
 export const PERIOD_PRESETS: { key: Exclude<PeriodPreset, 'custom'>; label: string }[] = [
   { key: 'today', label: 'Сегодня' },
@@ -23,6 +23,8 @@ export const PERIOD_PRESETS: { key: Exclude<PeriodPreset, 'custom'>; label: stri
   { key: 'week', label: '7 дней' },
   { key: 'days30', label: '30 дней' },
   { key: 'month', label: 'Месяц' },
+  { key: 'days90', label: '90 дней' },
+  { key: 'year', label: 'С начала года' },
 ];
 
 type PeriodState = {
@@ -74,6 +76,12 @@ export function useAnalyticsPeriod(): ResolvedPeriod {
       break;
     case 'month':
       from = `${today.slice(0, 8)}01`;
+      break;
+    case 'days90':
+      from = addDays(today, -89);
+      break;
+    case 'year':
+      from = `${today.slice(0, 5)}01-01`;
       break;
     case 'custom':
       from = customFrom ?? today;
@@ -229,6 +237,18 @@ export type TariffsAnalytics = {
   total: { count: number; revenue: number };
 };
 
+/** Структура выручки, ритм клуба, гости и тренд за 12 месяцев (GET /analytics/insights). */
+export type Insights = {
+  period: { from: string; to: string };
+  structure: { bar: number; games: number; rental: number; events: number; discounts: number; total: number };
+  hours: { hour: number; checks: number; revenue: number }[];
+  /** dow — ISO: 1 = понедельник … 7 = воскресенье (день бизнес-дня клуба). */
+  weekdays: { dow: number; days: number; checks: number; revenue: number; avgRevenue: number }[];
+  heat: { dow: number; hour: number; checks: number; revenue: number }[];
+  guests: { unique: number; new: number; returning: number; anonymousChecks: number };
+  months: { month: string; checks: number; revenue: number }[];
+};
+
 export type StaffComp = {
   staff: { staffId: string; nickname: string; photoUrl: string | null; checksCount: string | number; retail: number; cost: number }[];
   totals: { retail: number; cost: number };
@@ -269,6 +289,7 @@ export const useSegmentMembers = (segment: SegmentKey) => useAnalytics<{ players
 export const usePlayerCard = (playerId: string) => useAnalytics<PlayerCard>(`/analytics/players/${playerId}`, ['player', playerId]);
 export const useEventsAnalytics = (from: string, to: string) => useAnalytics<EventsAnalytics>(`/analytics/events?${range(from, to)}`, ['events', from, to]);
 export const useTariffsAnalytics = (from: string, to: string) => useAnalytics<TariffsAnalytics>(`/analytics/tariffs?${range(from, to)}`, ['tariffs', from, to]);
+export const useInsights = (from: string, to: string) => useAnalytics<Insights>(`/analytics/insights?${range(from, to)}`, ['insights', from, to]);
 export const useStaffComp = (from: string, to: string, enabled: boolean) => useAnalytics<StaffComp>(`/analytics/staff?${range(from, to)}`, ['staff', from, to], { enabled });
 
 /** «+12%» / «−5%» / null при нуле. */

@@ -1,33 +1,25 @@
-import { useState } from 'react';
-import { FlashList } from '@shopify/flash-list';
+import { Button, ContentUnavailableView, Form, Host, ProgressView, Section, Text } from '@expo/ui/swift-ui';
+import { refreshable } from '@expo/ui/swift-ui/modifiers';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { AppRefreshControl } from '@/components/refresh-control';
-import { money, QueryState } from '@/components/analytics/parts';
-import { AmbientBackdrop } from '@/components/ambient-backdrop';
-import { TierBadge } from '@/components/client-row';
-import { Avatar, GlassCard } from '@/components/new-check-parts';
-import { useSegmentMembers, type SegmentKey } from '@/lib/analytics-api';
+import { RankRow } from '@/components/analytics/native';
+import { money } from '@/components/analytics/parts';
+import { analyticsErrorText, useSegmentMembers, type SegmentKey } from '@/lib/analytics-api';
 import { tierLook, useClientTiers } from '@/lib/clients-api';
 import { plural } from '@/lib/format';
 import { haptic } from '@/lib/haptics';
 import { parseStockDate } from '@/lib/inventory-api';
-import { usePageGutter } from '@/lib/layout';
-import { colors, space, type } from '@/lib/theme';
 
 const TITLES: Record<SegmentKey, { title: string; caption: string }> = {
-  new: { title: 'Новые', caption: 'Клиенты, заведённые за последние 30 дней и ещё без закрытых чеков.' },
-  active: { title: 'Активные', caption: 'Последний визит меньше 14 дней назад. Траты — за 90 дней.' },
-  sleeping: { title: 'Спящие', caption: 'Не приходили 14 дней и больше, но были за последние 90. Стоит позвать обратно.' },
+  new: { title: 'Новые', caption: 'Зарегистрированы, но ещё не приходили.' },
+  active: { title: 'Активные', caption: 'Приходили за последние 14 дней.' },
+  sleeping: { title: 'Спящие', caption: 'Не приходили 14 дней и дольше — их стоит пригласить.' },
 };
 
 const lastVisitFormat = new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'short', timeZone: 'Europe/Moscow' });
 
 /** Игроки сегмента; тап открывает карточку игрока. */
 export default function SegmentScreen() {
-  const gutter = usePageGutter();
-  const [pulling, setPulling] = useState(false);
   const { segment } = useLocalSearchParams<{ segment: SegmentKey }>();
   const router = useRouter();
   const key: SegmentKey = segment === 'active' || segment === 'sleeping' ? segment : 'new';
@@ -36,79 +28,47 @@ export default function SegmentScreen() {
   // Сервер группирует и обезличенные чеки — строку без игрока не показываем.
   const list = (members.data?.players ?? []).filter((p) => p.playerId);
 
-  const refresh = async () => {
-    setPulling(true);
-    await Promise.allSettled([members.refetch()]);
-    setPulling(false);
-  };
-
   return (
-    <AmbientBackdrop style={styles.screen}>
+    <>
       <Stack.Title>{TITLES[key].title}</Stack.Title>
-      <FlashList
-        data={members.data ? list : []}
-        keyExtractor={(p) => p.playerId}
-        contentInsetAdjustmentBehavior="automatic"
-        contentContainerStyle={[styles.content, gutter]}
-        refreshControl={<AppRefreshControl tintColor={colors.accent} refreshing={pulling} onRefresh={refresh} />}
-        ListHeaderComponent={
-          <View style={styles.header}>
-            <Text style={[type.subhead, styles.secondary]}>{TITLES[key].caption}</Text>
-            <QueryState loading={!members.data} error={members.error}>
-              <Text style={[type.footnote, styles.tertiary]}>{`${list.length} ${plural(list.length, ['игрок', 'игрока', 'игроков'])}`}</Text>
-            </QueryState>
-          </View>
-        }
-        ListEmptyComponent={members.data ? <Text style={[type.subhead, styles.secondary, styles.empty]}>В сегменте пока никого</Text> : null}
-        ItemSeparatorComponent={Gap}
-        renderItem={({ item }) => {
-          const look = tierLook(item.clientTier ?? 'guest', tiers.data);
-          const last = item.lastVisit ? parseStockDate(item.lastVisit) : null;
-          return (
-            <Pressable
-              onPress={() => {
-                haptic.selection();
-                router.push({ pathname: '/analytics/player/[playerId]', params: { playerId: item.playerId, ...(item.photoUrl ? { photo: item.photoUrl } : {}) } });
-              }}
-              accessibilityRole="button">
-              <GlassCard style={styles.row}>
-                <Avatar name={item.nickname ?? '··'} photoUrl={item.photoUrl} size={40} />
-                <View style={styles.flex}>
-                  <View style={styles.nameRow}>
-                    <Text style={[type.body, styles.label, styles.shrink]} numberOfLines={1}>
-                      {item.nickname ?? 'Игрок'}
-                    </Text>
-                    {item.clientTier && <TierBadge label={look.label} color={look.color} />}
-                  </View>
-                  <Text style={[type.footnote, styles.secondary]}>
-                    {key === 'new' ? 'ещё не приходил' : `${item.visits} ${plural(item.visits, ['чек', 'чека', 'чеков'])}${last ? ` · был ${lastVisitFormat.format(last).replace('.', '')}` : ''}`}
-                  </Text>
-                </View>
-                {key !== 'new' && <Text style={[type.body, type.amount, styles.label]}>{money(item.total)}</Text>}
-              </GlassCard>
-            </Pressable>
-          );
-        }}
-      />
-    </AmbientBackdrop>
+      <Host style={{ flex: 1 }} useViewportSizeMeasurement>
+        {!members.data ? (
+          members.error ? (
+            <ContentUnavailableView title="Нет данных" systemImage="wifi.exclamationmark" description={analyticsErrorText(members.error)} />
+          ) : (
+            <ProgressView />
+          )
+        ) : list.length === 0 ? (
+          <ContentUnavailableView title="В сегменте пока никого" systemImage="person.2" description={TITLES[key].caption} />
+        ) : (
+          <Form modifiers={[refreshable(async () => void (await members.refetch()))]}>
+            <Section title={`${list.length} ${plural(list.length, ['игрок', 'игрока', 'игроков'])}`} footer={<Text>{TITLES[key].caption}</Text>}>
+              {list.map((item) => {
+                const look = tierLook(item.clientTier ?? 'guest', tiers.data);
+                const last = item.lastVisit ? parseStockDate(item.lastVisit) : null;
+                return (
+                  <Button
+                    key={item.playerId}
+                    onPress={() => {
+                      haptic.selection();
+                      router.push({ pathname: '/analytics/player/[playerId]', params: { playerId: item.playerId, ...(item.photoUrl ? { photo: item.photoUrl } : {}) } });
+                    }}>
+                    <RankRow
+                      name={item.nickname ?? 'Игрок'}
+                      caption={
+                        key === 'new'
+                          ? `${look.label} · ещё не приходил`
+                          : `${look.label} · ${item.visits} ${plural(item.visits, ['чек', 'чека', 'чеков'])}${last ? ` · был ${lastVisitFormat.format(last).replace('.', '')}` : ''}`
+                      }
+                      value={key === 'new' ? '' : money(item.total)}
+                    />
+                  </Button>
+                );
+              })}
+            </Section>
+          </Form>
+        )}
+      </Host>
+    </>
   );
 }
-
-function Gap() {
-  return <View style={styles.gap} />;
-}
-
-const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.groupedBackground },
-  flex: { flex: 1 },
-  shrink: { flexShrink: 1 },
-  content: { paddingHorizontal: space.lg, paddingBottom: 140 },
-  header: { gap: space.xs, paddingBottom: space.md, paddingHorizontal: space.xs },
-  label: { color: colors.label },
-  secondary: { color: colors.secondaryLabel },
-  tertiary: { color: colors.tertiaryLabel },
-  empty: { textAlign: 'center', paddingVertical: space.xxl },
-  row: { flexDirection: 'row', alignItems: 'center', gap: space.md, padding: space.md },
-  nameRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  gap: { height: space.sm },
-});
