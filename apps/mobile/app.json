@@ -2,14 +2,14 @@
   "expo": {
     "name": "Titan HUB",
     "slug": "titan-hub",
-    "version": "0.1.0",
+    "version": "0.2.0",
     "orientation": "default",
     "scheme": "titanhub",
     "userInterfaceStyle": "automatic",
     "ios": {
       "icon": "./assets/titan.icon",
       "bundleIdentifier": "ru.titan.hub",
-      "buildNumber": "4",
+      "buildNumber": "5",
       "appleTeamId": "G99YH9UK8C",
       "supportsTablet": true,
       "infoPlist": {
