@@ -247,3 +247,14 @@ pricingRouter.patch('/event-rates/:hours', requireRole('owner'), zValidator('jso
     .returning()
   return c.json({ rate: row })
 })
+
+// Удаление пакета: ошибочно заведённый пакет раньше нельзя было убрать. Мероприятия, уже
+// посчитанные по нему, хранят свою сумму; новые возьмут ближний меньший пакет + часы.
+pricingRouter.delete('/event-rates/:hours', requireRole('owner'), async (c) => {
+  const hours = parseInt(c.req.param('hours'), 10)
+  if (!Number.isInteger(hours) || hours < 1) return c.json({ error: 'Bad hours' }, 400)
+  const db = c.var.db
+  const [row] = await db.delete(eventHourlyRates).where(eq(eventHourlyRates.hours, hours)).returning()
+  if (!row) return c.json({ error: 'Not found' }, 404)
+  return c.json({ ok: true })
+})
