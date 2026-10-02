@@ -26,6 +26,20 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@500;600;700;800&display=swap">
+<script>
+  // Шрифты темы (?theme=…) — подключаем при разборе <head>, чтобы основной скрипт
+  // стартовал уже с ними (иначе первый показ шёл бы на запасном шрифте).
+  (function () {
+    var fam = {
+      neon: 'Comfortaa:wght@700', deco: 'Forum', synth: 'Russo+One', avant: 'Dela+Gothic+One',
+      dossier: 'PT+Mono', halloween: 'Rubik+Wet+Paint&family=Rubik:wght@500;700;800'
+    };
+    // Тема: из ссылки (предпросмотр) или из последнего ответа сервера (выбор в «Настройках»).
+    var m = /[?&]theme=([a-z]+)(&|$)/.exec(location.search), t = m && m[1];
+    if (!t) { try { var c = JSON.parse(localStorage.getItem('titan_menu_screen') || 'null'); t = c && c.theme; } catch (e) { /* хранилище недоступно */ } }
+    if (t && fam[t]) document.write('<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=' + fam[t] + '&display=swap">');
+  })();
+</script>
 <style>
 html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: #0f0b17; }
 body { color: #f3eef8; font-family: Inter, 'Helvetica Neue', Arial, sans-serif; -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; cursor: default; -webkit-user-select: none; user-select: none; }
@@ -106,6 +120,228 @@ body { color: #f3eef8; font-family: Inter, 'Helvetica Neue', Arial, sans-serif; 
 @-webkit-keyframes drift-c { from { -webkit-transform: translate3d(0,0,0); } to { -webkit-transform: translate3d(-18vw,-14vh,0); } }
 @keyframes drift-c { from { transform: translate3d(0,0,0); } to { transform: translate3d(-18vw,-14vh,0); } }
 
+/* ════ Темы оформления (/menu?theme=…). Раскладка общая: темы меняют шрифты, цвета
+   и декор, но НЕ вертикальные метрики (строка 1.2, заголовок 1.06em, поля) — на них
+   построен расчёт. Ширины текста меряются той же вёрсткой, так что шрифт, регистр
+   и межбуквенный интервал темы учитываются автоматически. Декор — слой #deco за
+   контентом; анимации — только transform/opacity. ════ */
+
+#deco { position: absolute; top: 0; left: 0; right: 0; bottom: 0; overflow: hidden; }
+#deco > * { position: absolute; }
+.t-neon .blob, .t-neon .vignette, .t-deco .blob, .t-synth .blob, .t-synth .vignette,
+.t-avant .blob, .t-avant .vignette, .t-dossier .blob, .t-halloween .blob-a, .t-halloween .blob-c { display: none; }
+@-webkit-keyframes spin { to { -webkit-transform: rotate(360deg); } }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── 1. «Неон»: ночной бар, кирпичная стена, вывеска-трубка ─────────────────── */
+html.t-neon, .t-neon body {
+  background-color: #0b0810;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='120' height='60'><g fill='none' stroke='%23ffffff' stroke-opacity='.06' stroke-width='2'><path d='M0 1h120M0 31h120M60 1v30M0 31v29M120 31v29'/></g></svg>");
+  background-size: 16em 8em;
+}
+.t-neon .nglow { left: -20em; top: -30em; width: 80em; height: 60em; border-radius: 50%; background: radial-gradient(ellipse, rgba(168,85,247,.28) 0%, rgba(168,85,247,0) 65%); }
+.t-neon .nglow2 { right: -30em; bottom: -20em; width: 80em; height: 60em; border-radius: 50%; background: radial-gradient(ellipse, rgba(236,72,153,.18) 0%, rgba(236,72,153,0) 65%); }
+.t-neon .title { font-family: Comfortaa, 'Arial Rounded MT Bold', sans-serif; font-weight: 700; font-size: 7.4em; letter-spacing: .02em; color: #fff;
+  text-shadow: 0 0 .05em #fff, 0 0 .18em #e9d5ff, 0 0 .4em #a855f7, 0 0 .8em #7c3aed, 0 0 1.4em #6d28d9;
+  -webkit-animation: rise .8s cubic-bezier(.16,1,.3,1) both, flicker 11s 2s infinite; animation: rise .8s cubic-bezier(.16,1,.3,1) both, flicker 11s 2s infinite; }
+.t-neon .club { color: #67e8f9; text-shadow: 0 0 .3em rgba(103,232,249,.8); }
+.t-neon .clock { color: #a5f3fc; text-shadow: 0 0 .3em rgba(103,232,249,.6); }
+.t-neon .head { color: #f5d0fe; text-shadow: 0 0 .2em rgba(232,121,249,.9), 0 0 .6em rgba(217,70,239,.55); }
+.t-neon .ico { color: #f0abfc; }
+.t-neon .rule { height: .1em; background: #e879f9; box-shadow: 0 0 .35em #d946ef, 0 0 .8em rgba(217,70,239,.5); }
+.t-neon .nm { color: #f3eeff; }
+.t-neon .dt { border-bottom-color: rgba(240,171,252,.3); }
+.t-neon .pr { color: #fff; text-shadow: 0 0 .35em rgba(168,85,247,.9); }
+.t-neon .band { background: rgba(14,9,24,.92); border-radius: .9em; box-shadow: 0 0 0 .12em #c084fc, 0 0 .9em .1em rgba(192,132,252,.6), inset 0 0 1.2em rgba(192,132,252,.22); }
+.t-neon .cell, .t-neon .cell.first { background: transparent; }
+.t-neon .cell + .cell { box-shadow: inset .1em 0 0 rgba(103,232,249,.75); }
+.t-neon .cell .head { color: #cffafe; text-shadow: 0 0 .25em rgba(103,232,249,.9), 0 0 .6em rgba(34,211,238,.5); }
+.t-neon .cell .rule { background: #67e8f9; box-shadow: 0 0 .35em #22d3ee; }
+.t-neon .cell .ico { color: #a5f3fc; }
+.t-neon .cell .pr { text-shadow: 0 0 .35em rgba(34,211,238,.9); }
+.t-neon .cell .dt { border-bottom-color: rgba(165,243,252,.35); }
+.t-neon .sheen { display: none; }
+.t-neon .seg { background: rgba(255,255,255,.12); }
+.t-neon .seg-fill { background: #e879f9; }
+@-webkit-keyframes flicker { 0%, 90%, 92%, 95%, 100% { opacity: 1; } 91% { opacity: .45; } 93.5% { opacity: .75; } }
+@keyframes flicker { 0%, 90%, 92%, 95%, 100% { opacity: 1; } 91% { opacity: .45; } 93.5% { opacity: .75; } }
+
+/* ── 2. «Ар-деко»: Чикаго 20-х — чёрный, золото, лучи веера за заголовком ────── */
+html.t-deco, .t-deco body { background: #0b0a0d; }
+.t-deco .blob-b { display: block; opacity: .35; }
+.t-deco .burst { width: 96em; height: 96em; left: -32em; top: -41em; opacity: .14; -webkit-animation: spin 240s linear infinite; animation: spin 240s linear infinite; }
+.t-deco .burst svg { width: 100%; height: 100%; display: block; }
+.t-deco .frame { top: 1.6em; left: 1.6em; right: 1.6em; bottom: 1.6em; border: 1px solid rgba(217,181,109,.5); }
+.t-deco .frame:after { content: ''; position: absolute; top: .6em; left: .6em; right: .6em; bottom: .6em; border: 1px solid rgba(217,181,109,.2); }
+.t-deco .title { font-family: Forum, Georgia, serif; font-weight: 400; font-size: 7.4em; letter-spacing: .26em; color: #f2dcaa; }
+.t-deco .club { font-family: Forum, Georgia, serif; color: #b89a5c; letter-spacing: .5em; font-weight: 400; }
+.t-deco .clock { font-family: Forum, Georgia, serif; color: #d9b56d; font-weight: 400; }
+.t-deco .head { font-family: Forum, Georgia, serif; font-weight: 400; text-transform: uppercase; letter-spacing: .2em; color: #ecd29a; }
+.t-deco .head-t:before { content: ''; display: inline-block; width: .34em; height: .34em; margin: 0 .6em .12em .1em; border: 1px solid #d9b56d; -webkit-transform: rotate(45deg); transform: rotate(45deg); }
+.t-deco .ico { display: none; }
+.t-deco .rule { height: .24em; background: transparent; border-top: 1px solid rgba(217,181,109,.65); border-bottom: 1px solid rgba(217,181,109,.3); }
+.t-deco .nm { font-weight: 400; color: #ece4d3; }
+.t-deco .dt { border-bottom-color: rgba(217,181,109,.32); }
+.t-deco .pr { font-weight: 600; color: #e9c77f; }
+.t-deco .band { border-radius: 0; box-shadow: 0 0 0 1px #c9a45c, 0 1em 2.4em rgba(0,0,0,.6); }
+.t-deco .cell { background: #120f19; }
+.t-deco .cell.first { background: #1c1430; }
+.t-deco .cell + .cell { box-shadow: inset 1px 0 0 rgba(201,164,92,.55); }
+.t-deco .cell .head { color: #f2dcaa; }
+.t-deco .cell .nm { color: #f6efe0; font-weight: 500; }
+.t-deco .cell .pr { color: #f2dcaa; }
+.t-deco .sheen { background: linear-gradient(105deg, rgba(255,255,255,0) 40%, rgba(242,220,170,.16) 50%, rgba(255,255,255,0) 60%); }
+.t-deco .seg { background: rgba(217,181,109,.18); }
+.t-deco .seg-fill { background: #d9b56d; }
+
+/* ── 3. «Синтвейв»: 1986 — закат, солнце в полоску, бегущая сетка-пол ───────── */
+html.t-synth, .t-synth body { background: #10031d; }
+.t-synth .sky { top: 0; left: 0; right: 0; height: 100%; background: linear-gradient(180deg, #2a0846 0%, #1b0533 26%, #12031f 55%, #0c0216 100%); }
+.t-synth .stars { top: 0; left: 0; right: 0; height: 40%; opacity: .7;
+  background-image: radial-gradient(circle, #fff .12em, transparent .14em), radial-gradient(circle, rgba(255,255,255,.7) .1em, transparent .12em);
+  background-size: 23em 17em, 31em 23em; background-position: 3em 4em, 14em 9em; }
+.t-synth .sun { width: 30em; height: 30em; right: -6em; top: -15em; border-radius: 50%; background: linear-gradient(180deg, #ffe066 0%, #ffa23d 40%, #ff3d9a 75%, #c026d3 100%); box-shadow: 0 0 6em rgba(255,61,154,.35); }
+.t-synth .sun:after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 52%;
+  background: repeating-linear-gradient(180deg, rgba(27,5,51,0) 0, rgba(27,5,51,0) 1.5em, #1b0533 1.5em, #1b0533 2.3em); }
+.t-synth .floor { left: -30%; right: -30%; bottom: 0; height: 30%; overflow: hidden; -webkit-perspective: 26em; perspective: 26em; -webkit-perspective-origin: 50% 0; perspective-origin: 50% 0; }
+.t-synth .plane { position: absolute; left: 0; right: 0; top: 0; height: 400%; -webkit-transform-origin: 50% 0; transform-origin: 50% 0;
+  background-image: linear-gradient(rgba(255,43,214,.75) .14em, transparent .14em), linear-gradient(90deg, rgba(255,43,214,.6) .14em, transparent .14em);
+  background-size: 7em 7em; -webkit-transform: rotateX(74deg); transform: rotateX(74deg);
+  -webkit-animation: plane 1.8s linear infinite; animation: plane 1.8s linear infinite; }
+.t-synth .horizon { left: 0; right: 0; bottom: 30%; height: 8em; margin-bottom: -4em; background: radial-gradient(ellipse at 50% 50%, rgba(255,61,154,.55) 0%, rgba(255,61,154,0) 70%); }
+.t-synth .floorfade { left: 0; right: 0; bottom: 0; height: 30%; background: linear-gradient(180deg, #12031f 0%, rgba(18,3,31,0) 45%); }
+@-webkit-keyframes plane { from { -webkit-transform: rotateX(74deg) translateY(0); } to { -webkit-transform: rotateX(74deg) translateY(7em); } }
+@keyframes plane { from { transform: rotateX(74deg) translateY(0); } to { transform: rotateX(74deg) translateY(7em); } }
+.t-synth .title { font-family: 'Russo One', Impact, sans-serif; font-weight: 400; font-size: 8.2em; letter-spacing: .02em;
+  background: linear-gradient(180deg, #ffffff 0%, #c9f6ff 42%, #ff4fd8 58%, #ffd23f 100%); -webkit-background-clip: text; background-clip: text; color: transparent; -webkit-text-fill-color: transparent;
+  -webkit-transform: skewX(-8deg); transform: skewX(-8deg); -webkit-animation: none; animation: none; }
+.t-synth .club { font-family: 'Russo One', sans-serif; color: #4cd7f6; letter-spacing: .4em; font-weight: 400; }
+.t-synth .clock { font-family: 'Russo One', sans-serif; color: #fff; font-weight: 400; text-shadow: 0 .04em .3em rgba(43,10,79,.95); }
+.t-synth .head { font-family: 'Russo One', sans-serif; font-weight: 400; text-transform: uppercase; letter-spacing: .05em; color: #ff5ce1; }
+.t-synth .ico { color: #4cd7f6; }
+.t-synth .rule { height: .12em; background: linear-gradient(90deg, #ff4fd8, #4cd7f6); }
+.t-synth .nm { color: #f8eeff; }
+.t-synth .dt { border-bottom-color: rgba(255,79,216,.38); }
+.t-synth .pr { color: #5fe3ff; }
+.t-synth .band { border-radius: .5em; box-shadow: 0 0 2.2em rgba(255,43,214,.4); }
+.t-synth .cell { background: #7c1fd6; }
+.t-synth .cell.first { background: #e0249e; }
+.t-synth .cell .head { color: #fff; }
+.t-synth .cell .ico { color: #ffe066; }
+.t-synth .cell .rule { background: rgba(255,255,255,.55); }
+.t-synth .cell .nm, .t-synth .cell .pr { color: #fff; }
+.t-synth .cell .dt { border-bottom-color: rgba(255,255,255,.5); }
+
+/* ── 4. «Конструктивизм»: плакат Родченко — бумага, гротеск, круги и диагонали ─ */
+html.t-avant, .t-avant body { background: #ede3cf; }
+.t-avant .paper { top: 0; left: 0; right: 0; bottom: 0; background: radial-gradient(ellipse at 40% 30%, rgba(255,255,255,.35) 0%, rgba(120,95,60,.14) 100%); }
+.t-avant .av-circle { width: 34em; height: 34em; right: -12em; top: -19em; border-radius: 50%; background: #5e17eb; }
+.t-avant .av-ring { width: 48em; height: 48em; right: -19em; top: -26em; border-radius: 50%; border: .5em solid rgba(17,17,17,.85); border-left-color: transparent; border-bottom-color: transparent; -webkit-animation: spin 90s linear infinite; animation: spin 90s linear infinite; }
+.t-avant .av-bar { left: 47%; width: 28em; height: 1em; top: 5.6em; background: #e2461d; -webkit-transform: rotate(-17deg); transform: rotate(-17deg); }
+.t-avant .av-sq { width: 4.2em; height: 4.2em; left: 47%; top: 1.4em; background: #111; -webkit-transform: rotate(14deg); transform: rotate(14deg); }
+.t-avant .title { font-family: 'Dela Gothic One', Impact, sans-serif; font-weight: 400; font-size: 8.4em; letter-spacing: 0; color: #111; }
+.t-avant .club { font-family: 'Dela Gothic One', sans-serif; color: #5e17eb; font-weight: 400; letter-spacing: .2em; }
+.t-avant .clock { font-family: 'Dela Gothic One', sans-serif; color: #ede3cf; font-weight: 400; }
+.t-avant .head { font-family: 'Dela Gothic One', sans-serif; font-weight: 400; text-transform: uppercase; letter-spacing: .02em; color: #ede3cf; }
+.t-avant .head-t { background: #111; padding: 0 .4em; }
+.t-avant .ico { display: none; }
+.t-avant .rule { height: .2em; margin-left: 0; background: #111; }
+.t-avant .nm { font-weight: 600; color: #171412; }
+.t-avant .dt { border-bottom-color: rgba(17,17,17,.4); }
+.t-avant .pr { font-weight: 800; color: #111; }
+.t-avant .band { border-radius: 0; box-shadow: .45em .45em 0 #111; }
+.t-avant .cell { background: #5e17eb; }
+.t-avant .cell.first { background: #e2461d; }
+.t-avant .cell .head { color: #111; }
+.t-avant .cell .head-t { background: #ede3cf; }
+.t-avant .cell .rule { background: #ede3cf; }
+.t-avant .cell .nm, .t-avant .cell .pr { color: #fff7e8; }
+.t-avant .cell .dt { border-bottom-color: rgba(255,247,232,.55); }
+.t-avant .sheen { display: none; }
+.t-avant .seg { background: rgba(17,17,17,.15); }
+.t-avant .seg-fill { background: #111; }
+
+/* ── 5. «Досье»: дело мафии — старая бумага, машинка, красный штамп ──────────── */
+html.t-dossier, .t-dossier body { background: #e9dec4; }
+.t-dossier .paper { top: 0; left: 0; right: 0; bottom: 0; background: radial-gradient(ellipse at 50% 40%, rgba(255,250,235,.55) 0%, rgba(160,120,60,.22) 100%); }
+.t-dossier .lines { top: 0; left: 0; right: 0; bottom: 0; opacity: .5; background-image: repeating-linear-gradient(180deg, transparent 0, transparent 2.9em, rgba(80,110,160,.12) 2.9em, rgba(80,110,160,.12) 3em); }
+.t-dossier .margin-line { top: 0; bottom: 0; left: 2.6em; width: 1px; background: rgba(179,38,30,.35); }
+.t-dossier .coffee { width: 24em; height: 24em; left: -7em; top: -9em; border-radius: 50%; border: .9em solid rgba(110,70,30,.10); }
+.t-dossier .stamp { top: .9em; right: 7.6em; padding: .35em .7em; border: .32em double #b3261e; color: #b3261e; font: 700 2.3em/1.05 'PT Mono', 'Courier New', monospace; text-transform: uppercase; letter-spacing: .08em; text-align: center; opacity: .82;
+  -webkit-transform: rotate(-11deg); transform: rotate(-11deg); -webkit-animation: stamp .45s 1.1s cubic-bezier(.2,1.4,.4,1) both; animation: stamp .45s 1.1s cubic-bezier(.2,1.4,.4,1) both; }
+@-webkit-keyframes stamp { from { opacity: 0; -webkit-transform: rotate(-11deg) scale(1.8); } to { opacity: .82; -webkit-transform: rotate(-11deg) scale(1); } }
+@keyframes stamp { from { opacity: 0; transform: rotate(-11deg) scale(1.8); } to { opacity: .82; transform: rotate(-11deg) scale(1); } }
+.t-dossier .title, .t-dossier .club, .t-dossier .clock, .t-dossier .head, .t-dossier .nm, .t-dossier .pr { font-family: 'PT Mono', 'Courier New', monospace; }
+.t-dossier .title { font-weight: 700; font-size: 7.2em; letter-spacing: .06em; color: #1f1a14; }
+.t-dossier .club { color: #6b5a44; font-weight: 400; letter-spacing: .25em; }
+.t-dossier .club:before { content: 'Дело · '; }
+.t-dossier .clock { color: #3a3027; font-weight: 400; }
+.t-dossier .head { font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: #1f1a14; }
+.t-dossier .head-t:before { content: '\00a7\00a0'; color: #b3261e; }
+.t-dossier .ico { display: none; }
+.t-dossier .rule { height: 0; background: transparent; border-top: .1em dashed rgba(31,26,20,.55); }
+.t-dossier .nm { font-weight: 400; color: #2a221a; }
+.t-dossier .dt { border-bottom: .12em dotted rgba(42,34,26,.4); }
+.t-dossier .pr { font-weight: 700; color: #111; }
+.t-dossier .band { border-radius: .3em .3em .2em .2em; box-shadow: 0 .4em 1.2em rgba(60,40,10,.28); }
+.t-dossier .cell { background: #d6b47a; }
+.t-dossier .cell.first { background: #cba566; }
+.t-dossier .cell + .cell { box-shadow: inset 1px 0 0 rgba(60,40,10,.25); }
+.t-dossier .cell .head { color: #1f1a14; }
+.t-dossier .cell .nm { color: #1f1a14; }
+.t-dossier .cell .pr { color: #8f1d17; }
+.t-dossier .cell .dt { border-bottom-color: rgba(31,26,20,.45); }
+.t-dossier .sheen { display: none; }
+.t-dossier .seg { background: rgba(31,26,20,.15); }
+.t-dossier .seg-fill { background: #b3261e; }
+
+/* ── ★ «Хеллоуин»: тыквы, летучие мыши, паутина, краска стекает ──────────────── */
+html.t-halloween, .t-halloween body { background: #0b0712; }
+.t-halloween .fog { left: -10%; right: -10%; bottom: -10%; height: 60%; background: radial-gradient(ellipse at 50% 100%, rgba(255,122,26,.20) 0%, rgba(255,122,26,0) 60%), radial-gradient(ellipse at 15% 100%, rgba(124,58,237,.28) 0%, rgba(124,58,237,0) 55%); }
+.t-halloween .moon { width: 19em; height: 19em; left: 50%; top: -8.6em; border-radius: 50%;
+  background: radial-gradient(circle at 38% 38%, #fffbe8 0%, #fbe7a6 55%, #e9c46a 100%); box-shadow: 0 0 5em 1em rgba(251,231,166,.28); }
+.t-halloween .moon:before { content: ''; position: absolute; width: 4em; height: 4em; left: 30%; top: 52%; border-radius: 50%; background: rgba(200,160,70,.35); }
+.t-halloween .moon:after { content: ''; position: absolute; width: 2.4em; height: 2.4em; left: 58%; top: 30%; border-radius: 50%; background: rgba(200,160,70,.3); }
+.t-halloween .web { width: 34em; height: 34em; left: 0; top: 0; opacity: .55; }
+.t-halloween .web svg, .t-halloween .bat svg, .t-halloween .pk svg { display: block; width: 100%; height: 100%; }
+.t-halloween .bat { width: 7em; height: 3.6em; left: 0; top: 0; }
+.t-halloween .bat svg { -webkit-animation: flap .32s ease-in-out infinite alternate; animation: flap .32s ease-in-out infinite alternate; }
+.t-halloween .bat1 { -webkit-animation: fly1 22s linear infinite; animation: fly1 22s linear infinite; }
+.t-halloween .bat2 { width: 5em; height: 2.6em; -webkit-animation: fly2 29s linear 6s infinite; animation: fly2 29s linear 6s infinite; }
+.t-halloween .bat3 { width: 4em; height: 2em; -webkit-animation: fly1 35s linear 15s infinite; animation: fly1 35s linear 15s infinite; }
+@-webkit-keyframes flap { from { -webkit-transform: scaleY(1); } to { -webkit-transform: scaleY(.45); } }
+@keyframes flap { from { transform: scaleY(1); } to { transform: scaleY(.45); } }
+@-webkit-keyframes fly1 { 0% { -webkit-transform: translate3d(-10vw, 7vh, 0); } 50% { -webkit-transform: translate3d(50vw, 2vh, 0); } 100% { -webkit-transform: translate3d(110vw, 9vh, 0); } }
+@keyframes fly1 { 0% { transform: translate3d(-10vw, 7vh, 0); } 50% { transform: translate3d(50vw, 2vh, 0); } 100% { transform: translate3d(110vw, 9vh, 0); } }
+@-webkit-keyframes fly2 { 0% { -webkit-transform: translate3d(110vw, 4vh, 0) scaleX(-1); } 50% { -webkit-transform: translate3d(45vw, 10vh, 0) scaleX(-1); } 100% { -webkit-transform: translate3d(-10vw, 3vh, 0) scaleX(-1); } }
+@keyframes fly2 { 0% { transform: translate3d(110vw, 4vh, 0) scaleX(-1); } 50% { transform: translate3d(45vw, 10vh, 0) scaleX(-1); } 100% { transform: translate3d(-10vw, 3vh, 0) scaleX(-1); } }
+.t-halloween .pk { width: 9.5em; height: 8.4em; visibility: hidden; }
+.t-halloween .pk-glow { -webkit-animation: candle 2.6s ease-in-out infinite alternate; animation: candle 2.6s ease-in-out infinite alternate; }
+@-webkit-keyframes candle { 0% { opacity: 1; } 40% { opacity: .7; } 55% { opacity: .95; } 100% { opacity: .75; } }
+@keyframes candle { 0% { opacity: 1; } 40% { opacity: .7; } 55% { opacity: .95; } 100% { opacity: .75; } }
+.t-halloween .title { font-family: 'Rubik Wet Paint', 'Rubik', sans-serif; font-weight: 400; font-size: 8.4em; letter-spacing: .02em; color: #ff7a1a; text-shadow: 0 0 .35em rgba(255,122,26,.4); }
+.t-halloween .club { font-family: Rubik, sans-serif; color: #b388ff; font-weight: 700; }
+.t-halloween .clock { font-family: Rubik, sans-serif; color: #ffd8a8; font-weight: 700; }
+.t-halloween .head { font-family: Rubik, sans-serif; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; color: #ff8a1f; }
+.t-halloween .ico { color: #b388ff; }
+.t-halloween .rule { height: .12em; background: linear-gradient(90deg, #ff8a1f, rgba(179,136,255,.5)); }
+.t-halloween .nm { color: #f7eddc; }
+.t-halloween .dt { border-bottom-color: rgba(255,138,31,.35); }
+.t-halloween .pr { color: #ffb347; }
+.t-halloween .band { border-radius: .7em; box-shadow: 0 0 2.4em rgba(255,122,26,.3); }
+.t-halloween .cell { background: #5b21b6; }
+.t-halloween .cell.first { background: #ff7a1a; }
+.t-halloween .cell .head { color: #fff; }
+.t-halloween .cell.first .head, .t-halloween .cell.first .nm, .t-halloween .cell.first .pr { color: #170b05; }
+.t-halloween .cell.first .rule { background: rgba(23,11,5,.45); }
+.t-halloween .cell.first .dt { border-bottom-color: rgba(23,11,5,.45); }
+.t-halloween .cell.first .ico { color: #170b05; }
+.t-halloween .cell .nm, .t-halloween .cell .pr { color: #fff; }
+.t-halloween .cell .rule { background: rgba(255,255,255,.5); }
+.t-halloween .cell .ico { color: #ffd8a8; }
+.t-halloween .seg { background: rgba(255,138,31,.2); }
+.t-halloween .seg-fill { background: #ff8a1f; }
+
 @media (prefers-reduced-motion: reduce) {
   .blob, .sheen { -webkit-animation: none; animation: none; }
 }
@@ -113,7 +349,7 @@ body { color: #f3eef8; font-family: Inter, 'Helvetica Neue', Arial, sans-serif; 
 </head>
 <body>
 <div class="root" id="root">
-  <div class="bg"><div class="blob blob-a"></div><div class="blob blob-b"></div><div class="blob blob-c"></div><div class="vignette"></div></div>
+  <div class="bg"><div id="deco"></div><div class="blob blob-a"></div><div class="blob blob-b"></div><div class="blob blob-c"></div><div class="vignette"></div></div>
   <header class="header" id="header">
     <div class="brand"><h1 class="title">Меню</h1><span class="club" id="club"></span></div>
     <div class="meta"><div class="pages" id="pages"></div><span class="clock" id="clock"></span></div>
@@ -127,6 +363,30 @@ body { color: #f3eef8; font-family: Inter, 'Helvetica Neue', Arial, sans-serif; 
   'use strict';
 
   var DEBUG = /[?&]debug(=|&|$)/.test(location.search);
+
+  // Тема оформления: выбирается в «Настройках» заведения (сервер отдаёт theme вместе с
+  // меню, ТВ переключается на лету); /menu?theme=… — предпросмотр, важнее настройки.
+  // Значение — начертания, которые ждём перед показом.
+  var THEMES = {
+    night: [],
+    neon: ['700 100px Comfortaa'],
+    deco: ['400 100px Forum'],
+    synth: ['400 100px "Russo One"'],
+    avant: ['400 100px "Dela Gothic One"'],
+    dossier: ['400 100px "PT Mono"'],
+    halloween: ['400 100px "Rubik Wet Paint"', '700 100px Rubik', '800 100px Rubik']
+  };
+  var FONT_CSS = {
+    neon: 'Comfortaa:wght@700', deco: 'Forum', synth: 'Russo+One', avant: 'Dela+Gothic+One',
+    dossier: 'PT+Mono', halloween: 'Rubik+Wet+Paint&family=Rubik:wght@500;700;800'
+  };
+  function isTheme(t) { return typeof t === 'string' && THEMES.hasOwnProperty(t); }
+  var themeMatch = /[?&]theme=([a-z]+)/.exec(location.search);
+  var URL_THEME = themeMatch && isTheme(themeMatch[1]) ? themeMatch[1] : null;
+  var THEME = URL_THEME || (function () {
+    try { var c = JSON.parse(window.localStorage.getItem('titan_menu_screen') || 'null'); return c && isTheme(c.theme) ? c.theme : 'night'; } catch (e) { return 'night'; }
+  })();
+  document.documentElement.className += ' t-' + THEME;
   var API = '/api/menu/public';
   var CACHE_KEY = 'titan_menu_screen';
   var POLL_MS = 20000;               // проверка изменений меню (перерисовка — только при изменении)
@@ -476,7 +736,7 @@ body { color: #f3eef8; font-family: Inter, 'Helvetica Neue', Arial, sans-serif; 
       var next = plan(regW, bandW, sp.band, geo);
       // Та же раскладка (дозагрузка шрифта, повторный опрос) — не перерисовываем,
       // чтобы не проигрывать появление заново.
-      var sig = JSON.stringify([next, sp, geo.w, geo.h]);
+      var sig = JSON.stringify([next, sp, geo.w, geo.h, THEME]);
       if (sig === state.sig) return;
       state.sig = sig;
       state.plan = next;
@@ -485,14 +745,109 @@ body { color: #f3eef8; font-family: Inter, 'Helvetica Neue', Arial, sans-serif; 
       if (state.page >= next.pages.length) state.page = 0;
       var first = !state.rendered;
       state.renders++;
-      state.lastWhy = first ? 'первый показ' : why === 'data' ? 'меню изменилось' : why === 'resize' ? 'размер экрана' : 'шрифт';
-      renderPage(first ? (state.quiet ? 'silent' : 'enter') : why === 'data' ? 'enter' : 'silent');
+      state.lastWhy = first ? 'первый показ' : why === 'data' ? 'меню изменилось' : why === 'theme' ? 'тема' : why === 'resize' ? 'размер экрана' : 'шрифт';
+      renderPage(first ? (state.quiet ? 'silent' : 'enter') : why === 'data' || why === 'theme' ? 'enter' : 'silent');
     } catch (e) {
       report('Раскладка: ' + (e && e.message ? e.message : e));
     }
   }
 
   function clearTimers() { state.timers.forEach(function (t) { clearTimeout(t); }); state.timers = []; }
+
+  // ── Декор тем (слой #deco за контентом) ─────────────────────────────────
+
+  function n1(x) { return x.toFixed(1); }
+  // Веер лучей ар-деко: n лучей вокруг центра.
+  function sunburstSvg(n) {
+    var out = '<svg viewBox="-100 -100 200 200" xmlns="http://www.w3.org/2000/svg"><g fill="#d9b56d">';
+    for (var i = 0; i < n; i++) {
+      var a1 = 2 * i * Math.PI / n, a2 = a1 + 0.55 * Math.PI / n;
+      out += '<polygon points="0,0 ' + n1(100 * Math.cos(a1)) + ',' + n1(100 * Math.sin(a1)) + ' ' + n1(100 * Math.cos(a2)) + ',' + n1(100 * Math.sin(a2)) + '"/>';
+    }
+    return out + '</g></svg>';
+  }
+  // Паутина в углу: лучи из угла и провисающие нити между ними.
+  function webSvg() {
+    var rays = 7, rings = 6, pts = [], i, j;
+    var out = '<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><g fill="none" stroke="#d8ccff" stroke-width=".5" stroke-opacity=".7">';
+    for (i = 0; i < rays; i++) {
+      var a = i / (rays - 1) * Math.PI / 2;
+      pts.push([Math.cos(a), Math.sin(a)]);
+      out += '<line x1="0" y1="0" x2="' + n1(100 * pts[i][0]) + '" y2="' + n1(100 * pts[i][1]) + '"/>';
+    }
+    for (j = 1; j <= rings; j++) {
+      var r = 100 * j / (rings + 0.5);
+      var d = 'M' + n1(r * pts[0][0]) + ' ' + n1(r * pts[0][1]);
+      for (i = 1; i < rays; i++) {
+        d += ' Q' + n1(r * 0.86 * (pts[i - 1][0] + pts[i][0]) / 2) + ' ' + n1(r * 0.86 * (pts[i - 1][1] + pts[i][1]) / 2) +
+          ' ' + n1(r * pts[i][0]) + ' ' + n1(r * pts[i][1]);
+      }
+      out += '<path d="' + d + '"/>';
+    }
+    return out + '</g></svg>';
+  }
+  var BAT = '<svg viewBox="0 0 100 50" xmlns="http://www.w3.org/2000/svg"><path fill="#2a1640" d="M50 18c3-6 6-8 8-7-1 3 1 5 3 5 7-1 13-6 17-14 2 8 9 15 22 17-9 2-14 7-15 15-5-5-11-6-17-4-6 2-11 7-15 15-4-8-9-13-15-15-6-2-12-1-17 4-1-8-6-13-15-15 13-2 20-9 22-17 4 8 10 13 17 14 2 0 4-2 3-5 2-1 5 1 8 7z"/></svg>';
+  var PUMPKIN = '<svg viewBox="0 0 70 62" xmlns="http://www.w3.org/2000/svg"><path d="M33 12c0-5 2-9 7-11l3 4c-4 1-5 4-5 7z" fill="#4d7c2a"/>' +
+    '<ellipse cx="22" cy="37" rx="15" ry="22" fill="#d9590f"/><ellipse cx="48" cy="37" rx="15" ry="22" fill="#d9590f"/><ellipse cx="35" cy="37" rx="15" ry="24" fill="#ff7a1a"/>' +
+    '<g class="pk-glow" fill="#ffd23f"><path d="M21 30l7 8H16z"/><path d="M49 30l5 8H42z"/><path d="M19 45q16 12 32 0l-4 5-4-4-4 5-4-5-4 5-4-4z"/></g></svg>';
+  var DECO = {
+    neon: function () { return '<div class="nglow"></div><div class="nglow2"></div>'; },
+    deco: function () { return '<div class="burst">' + sunburstSvg(36) + '</div><div class="frame"></div>'; },
+    synth: function () {
+      return '<div class="sky"></div><div class="stars"></div><div class="sun"></div><div class="horizon"></div>' +
+        '<div class="floor"><div class="plane"></div></div><div class="floorfade"></div>';
+    },
+    avant: function () { return '<div class="paper"></div><div class="av-ring"></div><div class="av-circle"></div><div class="av-bar"></div><div class="av-sq"></div>'; },
+    dossier: function () { return '<div class="paper"></div><div class="lines"></div><div class="margin-line"></div><div class="coffee"></div><div class="stamp">Совершенно<br>секретно</div>'; },
+    halloween: function () {
+      return '<div class="fog"></div><div class="moon"></div><div class="web">' + webSvg() + '</div>' +
+        '<div class="bat bat1">' + BAT + '</div><div class="bat bat2">' + BAT + '</div><div class="bat bat3">' + BAT + '</div>' +
+        '<div class="pk" id="pk1">' + PUMPKIN + '</div><div class="pk" id="pk2">' + PUMPKIN + '</div>';
+    }
+  };
+
+  // Смена темы на лету (владелец выбрал другую в «Настройках»): класс, декор, шрифты
+  // темы (ждём, не дольше 3,5 с) — и перерисовка с появлением.
+  function switchTheme(t) {
+    var html = document.documentElement;
+    html.className = (html.className.replace(/(^|\s)t-[a-z]+/g, '') + ' t-' + t).replace(/^\s+/, '');
+    THEME = t;
+    $('deco').innerHTML = DECO[t] ? DECO[t]() : '';
+    var done = false;
+    function go() { if (done) return; done = true; relayout('theme'); }
+    if (!FONT_CSS[t]) { go(); return; }
+    var link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = 'https://fonts.googleapis.com/css2?family=' + FONT_CSS[t] + '&display=swap';
+    link.onload = function () {
+      try {
+        if (document.fonts && document.fonts.load) {
+          Promise.all(THEMES[t].map(function (f) { return document.fonts.load(f, 'Меню Капучино 0123456789'); })).then(go, go);
+          return;
+        }
+      } catch (e) { /* старый движок */ }
+      go();
+    };
+    link.onerror = go;
+    document.getElementsByTagName('head')[0].appendChild(link);
+    setTimeout(go, 3500);
+  }
+
+  // После отрисовки: тыквы «выглядывают» из-за верхнего края ленты (хеллоуин).
+  // Координаты — по раскладке (offset*), а не getBoundingClientRect: лента ещё въезжает.
+  function afterRender() {
+    if (THEME !== 'halloween') return;
+    var band = $('body').querySelector('.band'), p1 = $('pk1'), p2 = $('pk2');
+    if (!p1 || !p2) return;
+    if (!band) { p1.style.visibility = p2.style.visibility = 'hidden'; return; }
+    var body = $('body');
+    var top = body.offsetTop + band.offsetTop, left = body.offsetLeft + band.offsetLeft;
+    var h = p1.offsetHeight, w = p1.offsetWidth;
+    p1.style.left = (left + band.offsetWidth * 0.05) + 'px';
+    p2.style.left = (left + band.offsetWidth * 0.95 - w) + 'px';
+    p1.style.top = p2.style.top = (top - h * 0.62) + 'px';
+    p1.style.visibility = p2.style.visibility = 'visible';
+  }
 
   // mode: 'enter' — появление с каскадом и лентой; 'rotate' — смена страницы (лента
   // на месте); 'silent' — без анимаций (перестройка, тихая перезагрузка).
@@ -538,6 +893,7 @@ body { color: #f3eef8; font-family: Inter, 'Helvetica Neue', Arial, sans-serif; 
       html += '<span class="sheen"></span></div>';
     }
     $('body').innerHTML = html;
+    afterRender();
     state.rendered = true;
     renderPagesIndicator();
     showMsg();
@@ -587,6 +943,8 @@ body { color: #f3eef8; font-family: Inter, 'Helvetica Neue', Arial, sans-serif; 
     if (!parsed || !parsed.sections) return;
     state.raw = raw;
     state.data = parsed;
+    var want = URL_THEME || (isTheme(parsed.theme) ? parsed.theme : 'night');
+    if (want !== THEME) { switchTheme(want); return; }
     relayout('data');
   }
 
@@ -628,6 +986,7 @@ body { color: #f3eef8; font-family: Inter, 'Helvetica Neue', Arial, sans-serif; 
     storageSet('titan_menu_load', JSON.stringify({ t: nowTs, n: state.loads }));
   } catch (e) { state.loads = 1; }
   if (state.quiet) $('root').className += ' quiet';
+  if (DECO[THEME]) $('deco').innerHTML = DECO[THEME]();
 
   tickClock();
   setInterval(tickClock, 10000);
@@ -648,7 +1007,9 @@ body { color: #f3eef8; font-family: Inter, 'Helvetica Neue', Arial, sans-serif; 
   try {
     if (document.fonts && document.fonts.load) {
       var sample = 'Меню Капучино 0123456789 \u20bd';
-      var waits = ['500', '600', '700', '800'].map(function (wt) { return document.fonts.load(wt + ' 100px Inter', sample); });
+      var faces = ['500', '600', '700', '800'].map(function (wt) { return wt + ' 100px Inter'; });
+      faces = faces.concat(THEMES[THEME]);
+      var waits = faces.map(function (face) { return document.fonts.load(face, sample); });
       Promise.all(waits).then(function () { if (state.ready) relayout('fonts'); else markReady(); }, markReady);
     }
   } catch (e) { /* старый движок */ }

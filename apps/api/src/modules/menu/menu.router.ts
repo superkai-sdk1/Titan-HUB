@@ -2,7 +2,7 @@ import type { AppEnv } from '../../types.js'
 import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
-import { menuCategories, inventory, modifiers, spaces, appSettings, eq, and, asc, desc, isNull } from '@titan/database'
+import { menuCategories, inventory, modifiers, spaces, appSettings, eq, and, asc, desc, isNull, inArray } from '@titan/database'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
 
 const CategorySchema = z.object({
@@ -92,6 +92,9 @@ menuRouter.delete('/categories/:id', requireAuth, requireRole('owner'), async (c
   return c.json({ ok: true })
 })
 
+// Темы экрана меню (public/tv-menu.html); выбирает владелец в «Настройках» → menu_screen_theme.
+const SCREEN_THEMES = ['night', 'neon', 'deco', 'synth', 'avant', 'dossier', 'halloween']
+
 // Публичное меню для экранов (/menu — AbleSign/ТВ), без авторизации, клуб по Host.
 // Гостю — простые названия и понятный порядок: сначала «Игровой вечер» (тарифы) и
 // «Кабинки» (почасовая аренда зон) по возрастанию цены, затем разделы меню в порядке
@@ -100,7 +103,7 @@ menuRouter.delete('/categories/:id', requireAuth, requireRole('owner'), async (c
 // цены ещё не настроен); без себестоимости и остатков.
 menuRouter.get('/public', async (c) => {
   const db = c.var.db
-  const [cats, rows, spaceRows, nameRow] = await Promise.all([
+  const [cats, rows, spaceRows, settingRows] = await Promise.all([
     db.select({ id: menuCategories.id, name: menuCategories.name, icon: menuCategories.icon })
       .from(menuCategories).where(eq(menuCategories.isActive, true)).orderBy(asc(menuCategories.sortOrder)),
     db.select({ name: inventory.name, category: inventory.category, price: inventory.price })
@@ -108,8 +111,10 @@ menuRouter.get('/public', async (c) => {
       .where(and(eq(inventory.isActive, true), eq(inventory.isScreenVisible, true), isNull(inventory.deletedAt))),
     db.select({ name: spaces.name, type: spaces.type, hourlyRate: spaces.hourlyRate })
       .from(spaces).where(and(eq(spaces.isActive, true), eq(spaces.isScreenVisible, true))),
-    db.select({ value: appSettings.value }).from(appSettings).where(eq(appSettings.key, 'venue_name')).limit(1),
+    db.select({ key: appSettings.key, value: appSettings.value }).from(appSettings)
+      .where(inArray(appSettings.key, ['venue_name', 'menu_screen_theme'])),
   ])
+  const setting = (key: string) => settingRows.find((r) => r.key === key)?.value || null
 
   type Item = { name: string; price: number; perHour?: boolean }
   type Section = { title: string; icon: string; featured: boolean; items: Item[] }
@@ -155,7 +160,12 @@ menuRouter.get('/public', async (c) => {
   }
   sections.push(...menuSections)
 
-  return c.json({ clubName: nameRow[0]?.value || null, sections })
+  const theme = setting('menu_screen_theme')
+  return c.json({
+    clubName: setting('venue_name'),
+    theme: theme && SCREEN_THEMES.includes(theme) ? theme : 'night',
+    sections,
+  })
 })
 
 // Items

@@ -15,6 +15,7 @@ import { WhatsAppConfig } from './WhatsAppConfig'
 import { TaiChatConfig } from './TaiChatConfig'
 import { ReviewsConfig } from './ReviewsConfig'
 import { BookingConfig } from './BookingConfig'
+import { ScreenThemeConfig } from './ScreenThemeConfig'
 
 function SectionCard({ title, icon, color, children }: { title: string; icon: string; color: string; children: React.ReactNode }) {
   return (
@@ -209,6 +210,9 @@ export default function SettingsPage() {
 
                   {/* Онлайн-бронирование: публичная форма /book + QR. Свой API. */}
                   <BookingConfig />
+
+                  {/* Меню на экране ТВ (/menu, AbleSign): ссылка и выбор темы. */}
+                  <ScreenThemeConfig />
                 </>
               )}
 
