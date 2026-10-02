@@ -554,6 +554,21 @@ const ICONS: Record<string, React.ReactNode> = {
       <line x1="15.5" y1="10" x2="17" y2="21" />
     </>
   ),
+  tv: (
+    <>
+      <rect x="2" y="4" width="20" height="13" rx="2" />
+      <line x1="8" y1="21" x2="16" y2="21" />
+      <line x1="12" y1="17" x2="12" y2="21" />
+    </>
+  ),
+  tv_off: (
+    <>
+      <path d="M8 4h12a2 2 0 0 1 2 2v9a2 2 0 0 1-1.2 1.83M16 17H4a2 2 0 0 1-2-2V6a2 2 0 0 1 1.38-1.9" />
+      <line x1="8" y1="21" x2="16" y2="21" />
+      <line x1="12" y1="17" x2="12" y2="21" />
+      <line x1="2" y1="2" x2="22" y2="22" />
+    </>
+  ),
   tablet_mac: (
     <>
       <rect x="4" y="1" width="16" height="22" rx="2.5" />

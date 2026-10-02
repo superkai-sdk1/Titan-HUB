@@ -37,6 +37,8 @@ export const inventory = pgTable('inventory', {
   isActive: boolean('is_active').notNull().default(true),
   isTop: boolean('is_top').notNull().default(false),
   isTabletVisible: boolean('is_tablet_visible').notNull().default(false),
+  // Показывать на экране меню для ТВ (/menu, AbleSign) — миграция 064.
+  isScreenVisible: boolean('is_screen_visible').notNull().default(true),
   imageUrl: text('image_url'),
   sortOrder: integer('sort_order').notNull().default(0),
   searchTags: text('search_tags').array().default([]),

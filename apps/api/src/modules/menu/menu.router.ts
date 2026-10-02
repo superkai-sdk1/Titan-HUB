@@ -2,7 +2,7 @@ import type { AppEnv } from '../../types.js'
 import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
-import { menuCategories, inventory, modifiers, eq, and, asc, desc, isNull } from '@titan/database'
+import { menuCategories, inventory, modifiers, spaces, appSettings, eq, and, asc, desc, isNull } from '@titan/database'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
 
 const CategorySchema = z.object({
@@ -26,6 +26,8 @@ const ItemSchema = z.object({
   isActive: z.boolean().default(true),
   isTop: z.boolean().default(false),
   isTabletVisible: z.boolean().default(false),
+  // Показывать на экране меню для ТВ (/menu, AbleSign).
+  isScreenVisible: z.boolean().default(true),
   imageUrl: z.string().optional(),
   sortOrder: z.number().int().default(0),
   searchTags: z.array(z.string()).default([]),
@@ -88,6 +90,72 @@ menuRouter.delete('/categories/:id', requireAuth, requireRole('owner'), async (c
     await tx.delete(menuCategories).where(eq(menuCategories.id, id))
   })
   return c.json({ ok: true })
+})
+
+// Публичное меню для экранов (/menu — AbleSign/ТВ), без авторизации, клуб по Host.
+// Гостю — простые названия и понятный порядок: сначала «Игровой вечер» (тарифы) и
+// «Кабинки» (почасовая аренда зон) по возрастанию цены, затем разделы меню в порядке
+// владельца, позиции внутри — по алфавиту (варианты одного напитка стоят рядом).
+// Только включённые и отмеченные «на экране ТВ» позиции/зоны с ценой > 0 (тариф без
+// цены ещё не настроен); без себестоимости и остатков.
+menuRouter.get('/public', async (c) => {
+  const db = c.var.db
+  const [cats, rows, spaceRows, nameRow] = await Promise.all([
+    db.select({ id: menuCategories.id, name: menuCategories.name, icon: menuCategories.icon })
+      .from(menuCategories).where(eq(menuCategories.isActive, true)).orderBy(asc(menuCategories.sortOrder)),
+    db.select({ name: inventory.name, category: inventory.category, price: inventory.price })
+      .from(inventory)
+      .where(and(eq(inventory.isActive, true), eq(inventory.isScreenVisible, true), isNull(inventory.deletedAt))),
+    db.select({ name: spaces.name, type: spaces.type, hourlyRate: spaces.hourlyRate })
+      .from(spaces).where(and(eq(spaces.isActive, true), eq(spaces.isScreenVisible, true))),
+    db.select({ value: appSettings.value }).from(appSettings).where(eq(appSettings.key, 'venue_name')).limit(1),
+  ])
+
+  type Item = { name: string; price: number; perHour?: boolean }
+  type Section = { title: string; icon: string; featured: boolean; items: Item[] }
+  const byName = (a: Item, b: Item) => a.name.localeCompare(b.name, 'ru', { numeric: true, sensitivity: 'base' })
+  const byPrice = (a: Item, b: Item) => a.price - b.price || byName(a, b)
+
+  const items = rows
+    .map((r) => ({ name: r.name.trim(), category: r.category, price: Number(r.price) }))
+    .filter((r) => r.name && r.price > 0)
+  const pick = (category: string | null) => items
+    .filter((i) => i.category === category)
+    .map(({ name, price }) => ({ name, price }))
+
+  const isTariffCat = (name: string) => name.toLowerCase().includes('тариф')
+  const tariffItems: Item[] = []
+  const menuSections: Section[] = []
+  for (const cat of cats) {
+    const own = pick(cat.id)
+    if (own.length === 0) continue
+    if (isTariffCat(cat.name)) tariffItems.push(...own)
+    else menuSections.push({ title: cat.name.trim(), icon: cat.icon, featured: false, items: own.sort(byName) })
+  }
+  const uncategorized = pick(null)
+  if (uncategorized.length) menuSections.push({ title: 'Другое', icon: 'other', featured: false, items: uncategorized.sort(byName) })
+
+  // Аренда зон — цена за час. Зона, заведённая ещё и позицией меню, не дублируется.
+  const itemNames = new Set(items.map((i) => i.name.toLowerCase()))
+  const rentable = spaceRows
+    .map((s) => ({ name: s.name.trim(), type: s.type, price: Number(s.hourlyRate) }))
+    .filter((s) => s.name && s.price > 0 && !itemNames.has(s.name.toLowerCase()))
+
+  const sections: Section[] = []
+  if (tariffItems.length) {
+    sections.push({ title: 'Игровой вечер', icon: 'tariffs', featured: true, items: tariffItems.sort(byPrice) })
+  }
+  if (rentable.length) {
+    sections.push({
+      title: rentable.every((s) => s.type.endsWith('_booth')) ? 'Кабинки' : 'Аренда',
+      icon: 'rental',
+      featured: true,
+      items: rentable.map(({ name, price }) => ({ name, price, perHour: true })).sort(byPrice),
+    })
+  }
+  sections.push(...menuSections)
+
+  return c.json({ clubName: nameRow[0]?.value || null, sections })
 })
 
 // Items

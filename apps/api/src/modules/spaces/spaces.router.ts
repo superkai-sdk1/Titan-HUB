@@ -14,6 +14,8 @@ const SpaceSchema = z.object({
   // null — «не указана»: раньше вместимость, однажды введённую, нельзя было стереть.
   capacity: z.number().int().min(0).max(100_000).nullable().optional(),
   isActive: z.boolean().default(true),
+  // Показывать ставку на экране меню для ТВ (/menu).
+  isScreenVisible: z.boolean().default(true),
 })
 
 export const spacesRouter = new Hono<AppEnv>()

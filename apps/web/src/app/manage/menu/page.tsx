@@ -23,6 +23,7 @@ import { api } from '@/lib/api'
 import { PageHeader, Sheet, Toggle, ConfirmDialog, INP, SEL, LBL } from '@/components/manage/DesignSystem'
 import { useToast } from '@/components/Toast'
 import { Icon } from '@/components/Icon'
+import { ScreenToggle } from '@/components/manage/ScreenToggle'
 import { CAT_PRESETS, PALETTE, CategoryIcon as CatIconRenderer } from '@/components/CategoryIcon'
 
 function parseNum(v: unknown) { return parseFloat(String(v ?? 0)) || 0 }
@@ -48,12 +49,12 @@ function getCatColorObj(colorInput?: string) {
 const BLANK_ITEM = {
   name: '', price: '0', costPrice: '0', category: '', isActive: true, isTop: false,
   trackStock: false, isService: false, stockQuantity: '0', isTabletVisible: false,
-  searchTags: [] as string[], linkedSpaceId: '',
+  isScreenVisible: true, searchTags: [] as string[], linkedSpaceId: '',
 }
 const BLANK_CAT = { name: '', icon: 'food', color: '#10B981', isTabletVisible: true }
 
 /* ─── Item grid card body (shared by sortable card + drag overlay) ── */
-function ItemCardBody({ item, cat, onEdit, onDelete, dragHandle }: { item: any; cat: any; onEdit?: () => void; onDelete?: () => void; dragHandle?: any }) {
+function ItemCardBody({ item, cat, onEdit, onDelete, onToggleScreen, dragHandle }: { item: any; cat: any; onEdit?: () => void; onDelete?: () => void; onToggleScreen?: () => void; dragHandle?: any }) {
   const catColor = resolveHex(cat?.color)
   const stock = parseNum(item.stockQuantity)
   const stockColor = stock === 0 ? '#F43F5E' : stock <= 5 ? '#F59E0B' : '#10B981'
@@ -95,18 +96,50 @@ function ItemCardBody({ item, cat, onEdit, onDelete, dragHandle }: { item: any; 
         )}
       </div>
       <span style={{ flex: 1 }} />
-      <p style={{ fontSize: 16, fontWeight: 800, color: 'var(--on-surface)', margin: 0 }}>{parseNum(item.price).toLocaleString('ru')} ₽</p>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
+        <p style={{ fontSize: 16, fontWeight: 800, color: 'var(--on-surface)', margin: 0 }}>{parseNum(item.price).toLocaleString('ru')} ₽</p>
+        {onToggleScreen && <ScreenToggle on={item.isScreenVisible !== false} onToggle={onToggleScreen} />}
+      </div>
+    </div>
+  )
+}
+
+/* ─── Ссылка на меню для экрана ТВ (AbleSign) ─────────────────────
+   Адрес текущего клуба (поддомен) + /menu — его вставляют в AbleSign. */
+function ScreenLinkRow({ onCopied }: { onCopied: () => void }) {
+  const [url, setUrl] = useState('')
+  useEffect(() => { setUrl(`${window.location.origin}/menu`) }, [])
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(url); onCopied() } catch { /* нет доступа к буферу — ссылка видна в строке */ }
+  }
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', borderRadius: 16, marginBottom: 14, background: 'rgba(139,92,246,0.07)', border: '1px solid rgba(139,92,246,0.22)' }}>
+      <div style={{ width: 38, height: 38, borderRadius: 11, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(139,92,246,0.16)' }}>
+        <Icon name="tv" size={20} color="#a78bfa" />
+      </div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <p style={{ fontSize: 14, fontWeight: 600, margin: 0 }}>Меню на экране ТВ</p>
+        <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: '2px 0 0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {url.replace(/^https?:\/\//, '')} · состав — кнопкой <Icon name="tv" size={12} style={{ verticalAlign: '-2px' }} /> на позициях
+        </p>
+      </div>
+      <button onClick={copy} aria-label="Скопировать ссылку" style={{ width: 36, height: 36, borderRadius: 10, flexShrink: 0, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.05)', color: 'var(--on-surface-variant)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
+        <Icon name="content_copy" size={16} />
+      </button>
+      <a href="/menu" target="_blank" rel="noopener" aria-label="Открыть меню для экрана" style={{ width: 36, height: 36, borderRadius: 10, flexShrink: 0, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.05)', color: 'var(--on-surface-variant)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <Icon name="open_in_new" size={16} />
+      </a>
     </div>
   )
 }
 
 /* ─── Sortable item card (grid) ────────────────────────────────── */
-function ItemCard({ item, cat, onEdit, onDelete, draggable }: { item: any; cat: any; onEdit: () => void; onDelete: () => void; draggable: boolean }) {
+function ItemCard({ item, cat, onEdit, onDelete, onToggleScreen, draggable }: { item: any; cat: any; onEdit: () => void; onDelete: () => void; onToggleScreen: () => void; draggable: boolean }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: item.id, disabled: !draggable })
   const style: React.CSSProperties = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.35 : item.isActive ? 1 : 0.6, zIndex: isDragging ? 999 : 'auto' }
   return (
     <div ref={setNodeRef} style={style}>
-      <ItemCardBody item={item} cat={cat} onEdit={onEdit} onDelete={onDelete} dragHandle={draggable ? { ...attributes, ...listeners } : null} />
+      <ItemCardBody item={item} cat={cat} onEdit={onEdit} onDelete={onDelete} onToggleScreen={onToggleScreen} dragHandle={draggable ? { ...attributes, ...listeners } : null} />
     </div>
   )
 }
@@ -292,6 +325,20 @@ export default function MenuPage() {
     onError: () => { show('Не удалось переместить позицию', 'error'); qc.invalidateQueries({ queryKey: ['menu', 'items'] }) },
   })
 
+  // «На экране ТВ» (/menu): переключаем сразу в списке, без открытия формы.
+  const toggleScreen = useMutation({
+    mutationFn: ({ id, on }: { id: string; on: boolean }) => api.patch(`/menu/items/${id}`, { isScreenVisible: on }),
+    onMutate: ({ id, on }) => {
+      qc.setQueryData(['menu', 'items', 'all'], (old: any) => old?.items
+        ? { ...old, items: old.items.map((i: any) => (i.id === id ? { ...i, isScreenVisible: on } : i)) }
+        : old)
+    },
+    onSuccess: (_d, { on }) => show(on ? 'Показана на экране ТВ' : 'Убрана с экрана ТВ', 'success'),
+    onError: () => show('Не удалось изменить показ на экране ТВ', 'error'),
+    onSettled: () => qc.invalidateQueries({ queryKey: ['menu', 'items'] }),
+  })
+  const onToggleScreen = (item: any) => () => toggleScreen.mutate({ id: item.id, on: item.isScreenVisible === false })
+
   function handleDragStart(event: DragStartEvent) { setDragId(String(event.active.id)) }
 
   function handleDragEnd(event: DragEndEvent) {
@@ -355,6 +402,7 @@ export default function MenuPage() {
       isService: item.isService ?? false,
       stockQuantity: String(item.stockQuantity ?? 0),
       isTabletVisible: item.isTabletVisible ?? false,
+      isScreenVisible: item.isScreenVisible ?? true,
       searchTags: item.searchTags ?? [],
       linkedSpaceId: item.linkedSpaceId ?? '',
     } : { ...BLANK_ITEM, category: presetCat && presetCat !== 'none' ? presetCat : '' })
@@ -403,7 +451,7 @@ export default function MenuPage() {
             ) : (
               <div style={gridStyle}>
                 {visibleItems.map((item: any) => (
-                  <ItemCard key={item.id} item={item} cat={cats.find((c: any) => c.id === item.category)} onEdit={() => openItem(item)} onDelete={() => setConfirmDelItem(item)} draggable={false} />
+                  <ItemCard key={item.id} item={item} cat={cats.find((c: any) => c.id === item.category)} onEdit={() => openItem(item)} onDelete={() => setConfirmDelItem(item)} onToggleScreen={onToggleScreen(item)} draggable={false} />
                 ))}
               </div>
             )}
@@ -411,6 +459,7 @@ export default function MenuPage() {
         ) : !folderValid ? (
           /* ── Корень: сетка папок ── */
           <div style={{ padding: '16px 16px var(--bottom-nav-clear, 96px)', flex: 1, maxWidth: 'var(--content-wide)', margin: '0 auto', width: '100%', boxSizing: 'border-box' }}>
+            <ScreenLinkRow onCopied={() => show('Ссылка скопирована', 'success')} />
             {cats.length > 1 && (
               <p style={{ fontSize: 11, color: 'rgba(204,195,216,0.45)', margin: '0 0 10px', display: 'flex', alignItems: 'center', gap: 5 }}>
                 <Icon name="drag_indicator" size={13} color="rgba(204,195,216,0.45)" />
@@ -504,7 +553,7 @@ export default function MenuPage() {
                 <SortableContext items={visibleItems.map((i: any) => i.id)} strategy={rectSortingStrategy}>
                   <div style={gridStyle}>
                     {visibleItems.map((item: any) => (
-                      <ItemCard key={item.id} item={item} cat={cats.find((c: any) => c.id === item.category)} onEdit={() => openItem(item)} onDelete={() => setConfirmDelItem(item)} draggable />
+                      <ItemCard key={item.id} item={item} cat={cats.find((c: any) => c.id === item.category)} onEdit={() => openItem(item)} onDelete={() => setConfirmDelItem(item)} onToggleScreen={onToggleScreen(item)} draggable />
                     ))}
                   </div>
                 </SortableContext>
@@ -561,6 +610,7 @@ export default function MenuPage() {
               ['isService', 'Услуга', 'Услуга, а не товар (без физического остатка)'],
               ['trackStock', 'Учёт остатков', 'Следить за количеством'],
               ['isTabletVisible', 'Видно на планшете', 'Показывать гостям в меню планшета'],
+              ['isScreenVisible', 'На экране ТВ', 'Показывать в меню на телевизоре (ссылка /menu)'],
             ] as [string, string, string][]).map(([key, lbl, sub]) => (
               <div key={key} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '12px 14px', borderRadius: 12, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
                 <div>

@@ -4,7 +4,7 @@ import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import {
   tariffs, eveningTypes, eventHourlyRates, inventory, menuCategories,
-  eq, asc, sql, like,
+  eq, asc, sql, like, inArray,
 } from '@titan/database'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
 import { ensureSystemStatuses } from '../../lib/statusTariffs.js'
@@ -31,6 +31,8 @@ const UpdateTariffSchema = z.object({
   color: z.string().min(1).max(40).optional(),
   sortOrder: z.number().int().optional(),
   isActive: z.boolean().optional(),
+  // «На экране ТВ» (/menu) — флаг живёт на backing-позиции тарифа.
+  isScreenVisible: z.boolean().optional(),
 })
 
 pricingRouter.get('/tariffs', async (c) => {
@@ -38,7 +40,12 @@ pricingRouter.get('/tariffs', async (c) => {
   // Тариф = статус клиента: гарантируем 4 базовых статуса (с backing-позицией).
   await ensureSystemStatuses(db).catch(() => {})
   const rows = await db.select().from(tariffs).orderBy(asc(tariffs.sortOrder), asc(tariffs.name))
-  return c.json({ tariffs: rows })
+  // «На экране ТВ» — с backing-позиции (тариф без позиции считаем показанным).
+  const itemIds = rows.map((r) => r.itemId).filter((id): id is string => !!id)
+  const screen = itemIds.length
+    ? new Map((await db.select({ id: inventory.id, on: inventory.isScreenVisible }).from(inventory).where(inArray(inventory.id, itemIds))).map((r) => [r.id, r.on]))
+    : new Map<string, boolean>()
+  return c.json({ tariffs: rows.map((r) => ({ ...r, isScreenVisible: r.itemId ? screen.get(r.itemId) ?? true : true })) })
 })
 
 pricingRouter.post('/tariffs', requireRole('owner'), zValidator('json', CreateTariffSchema), async (c) => {
@@ -119,6 +126,7 @@ pricingRouter.patch('/tariffs/:id', requireRole('owner'), zValidator('json', Upd
     if (body.name !== undefined) itemUpdate.name = body.name.trim()
     if (body.price !== undefined) itemUpdate.price = String(body.price)
     if (body.isActive !== undefined) itemUpdate.isActive = body.isActive
+    if (body.isScreenVisible !== undefined) itemUpdate.isScreenVisible = body.isScreenVisible
     if (row.itemId && Object.keys(itemUpdate).length > 0) {
       itemUpdate.updatedAt = new Date()
       await tx.update(inventory).set(itemUpdate).where(eq(inventory.id, row.itemId))

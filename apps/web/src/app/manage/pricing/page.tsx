@@ -6,6 +6,7 @@ import { useAuthStore } from '@/store/auth.store'
 import { PageHeader, Sheet, Button, ConfirmDialog, INP, LBL, Toggle, formatMoney } from '@/components/manage/DesignSystem'
 import { StateView } from '@/components/StateView'
 import { useToast } from '@/components/Toast'
+import { ScreenToggle } from '@/components/manage/ScreenToggle'
 import { Icon } from '@/components/Icon'
 
 // ─── Типы доменных сущностей ─────────────────────────────────────────────────
@@ -19,6 +20,7 @@ interface Tariff {
   sortOrder?: number
   isActive: boolean
   itemId?: string | null
+  isScreenVisible?: boolean
 }
 interface EveningType {
   key: string
@@ -34,6 +36,7 @@ interface Space {
   hourlyRate: string | number
   capacity?: number | null
   isActive?: boolean
+  isScreenVisible?: boolean
 }
 interface EventRate {
   hours: number
@@ -202,6 +205,19 @@ export default function PricingPage() {
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['pricing', 'tariffs'] }); setShowTariffForm(false); show('Тариф снова в кассе', 'success') },
     onError: () => show('Не удалось вернуть тариф', 'error'),
   })
+  // «На экране ТВ» (/menu) — переключаем прямо в списке.
+  const toggleTariffScreen = useMutation({
+    mutationFn: ({ id, on }: { id: string; on: boolean }) => api.patch(`/pricing/tariffs/${id}`, { isScreenVisible: on }),
+    onMutate: ({ id, on }) => {
+      qc.setQueryData(['pricing', 'tariffs'], (old: any) => {
+        const patch = (list: Tariff[]) => list.map((t) => (t.id === id ? { ...t, isScreenVisible: on } : t))
+        return Array.isArray(old) ? patch(old) : old?.tariffs ? { ...old, tariffs: patch(old.tariffs) } : old
+      })
+    },
+    onSuccess: (_d, { on }) => show(on ? 'Тариф показан на экране ТВ' : 'Тариф убран с экрана ТВ', 'success'),
+    onError: () => show('Не удалось изменить показ на экране ТВ', 'error'),
+    onSettled: () => qc.invalidateQueries({ queryKey: ['pricing', 'tariffs'] }),
+  })
   const delTariff = useMutation({
     mutationFn: (id: string) => api.delete(`/pricing/tariffs/${id}`),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['pricing', 'tariffs'] }); setConfirmDelTariff(null); setShowTariffForm(false) },
@@ -269,6 +285,17 @@ export default function PricingPage() {
         : api.post('/spaces', { name: b.name, type: b.type, hourlyRate: b.hourlyRate, ...(b.capacity !== null ? { capacity: b.capacity } : {}) }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['spaces'] }); setShowSpaceForm(false); setSpaceEditing(null) },
     onError: () => show('Не удалось сохранить зону', 'error'),
+  })
+  const toggleSpaceScreen = useMutation({
+    mutationFn: ({ id, on }: { id: string; on: boolean }) => api.patch(`/spaces/${id}`, { isScreenVisible: on }),
+    onMutate: ({ id, on }) => {
+      qc.setQueryData(['spaces', 'all'], (old: any) => old?.spaces
+        ? { ...old, spaces: old.spaces.map((x: Space) => (x.id === id ? { ...x, isScreenVisible: on } : x)) }
+        : old)
+    },
+    onSuccess: (_d, { on }) => show(on ? 'Зона показана на экране ТВ' : 'Зона убрана с экрана ТВ', 'success'),
+    onError: () => show('Не удалось изменить показ на экране ТВ', 'error'),
+    onSettled: () => qc.invalidateQueries({ queryKey: ['spaces'] }),
   })
   const delSpace = useMutation({
     mutationFn: (id: string) => api.delete(`/spaces/${id}`),
@@ -385,7 +412,15 @@ export default function PricingPage() {
                         title={t.name}
                         subtitle={t.key ? 'Статус клиента · сумма за вечер' : 'Тариф'}
                         onClick={isOwner ? () => openTariff(t) : undefined}
-                        right={<span style={{ ...PRICE_CSS, color }}>{price.toLocaleString('ru')} ₽</span>}
+                        right={<>
+                          <span style={{ ...PRICE_CSS, color }}>{price.toLocaleString('ru')} ₽</span>
+                          <ScreenToggle
+                            size={32}
+                            on={t.isScreenVisible !== false}
+                            disabled={!isOwner}
+                            onToggle={() => toggleTariffScreen.mutate({ id: t.id, on: t.isScreenVisible === false })}
+                          />
+                        </>}
                       />
                     )
                   })}
@@ -461,7 +496,15 @@ export default function PricingPage() {
                         subtitle={s.capacity ? `${label} · ${s.capacity} чел.` : label}
                         dim={s.isActive === false}
                         onClick={isOwner ? () => openSpace(s) : undefined}
-                        right={<span style={{ ...PRICE_CSS, color }}>{rate.toLocaleString('ru')} ₽/ч</span>}
+                        right={<>
+                          <span style={{ ...PRICE_CSS, color }}>{rate.toLocaleString('ru')} ₽/ч</span>
+                          <ScreenToggle
+                            size={32}
+                            on={s.isScreenVisible !== false}
+                            disabled={!isOwner}
+                            onToggle={() => toggleSpaceScreen.mutate({ id: s.id, on: s.isScreenVisible === false })}
+                          />
+                        </>}
                       />
                     )
                   })}

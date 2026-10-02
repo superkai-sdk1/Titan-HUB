@@ -18,6 +18,8 @@ export const spaces = pgTable('spaces', {
   hourlyRate: numeric('hourly_rate', { precision: 10, scale: 2 }).notNull().default('0'),
   capacity: integer('capacity'),
   isActive: boolean('is_active').notNull().default(true),
+  // Показывать почасовую ставку на экране меню для ТВ (/menu) — миграция 064.
+  isScreenVisible: boolean('is_screen_visible').notNull().default(true),
 })
 
 export type Space = typeof spaces.$inferSelect

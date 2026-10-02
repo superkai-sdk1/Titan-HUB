@@ -36,6 +36,7 @@ function disabledFor(p: string): boolean {
     || p === '/dashboard' || p.startsWith('/dashboard/')
     || p === '/ai' || p.startsWith('/ai/') // у TITAN AI свой внутренний скролл + композер
     || p === '/events' || p === '/manage/events' // у «Мероприятий» свой PTR-контейнер
+    || p === '/menu' // экран меню для ТВ (AbleSign) — без жестов
 }
 
 export function GlobalPullToRefresh() {
