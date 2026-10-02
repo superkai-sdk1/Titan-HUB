@@ -44,7 +44,7 @@
 | `GET /api/resident/feed?kind=all\|money\|bonus&cursor=` | Лента операций (transactions + bonus_history), курсор `<ISO>\|<id>` |
 | `GET /api/resident/collections` | Состояние сборов клиента (та же арифметика «пула», что в ростере `/collections/:id`) |
 | `GET /api/resident/notifications`, `POST …/read` | Лента уведомлений, отметка прочитанного |
-| `POST/DELETE /api/resident/devices` | Push-токен устройства (Expo Push) |
+| `POST/DELETE /api/resident/devices` | Push-токен устройства: iPhone — нативный токен APNs, Android — токен Expo Push |
 | `PATCH /api/resident/prefs` | Push / Telegram / новости клуба |
 | `POST /api/auth/me/payments {purpose, amount, collectionId?}` | Онлайн-платёж; `collectionId` — любой активный сбор, в котором клиент участвует |
 | `POST /api/client-broadcasts`, `…/audience`, `GET` | Рассылки из панели (владелец — всем / по статусу / должникам / с депозитом; сотрудник — только выбранным) |
@@ -55,7 +55,7 @@
 
 `notifyClient()` (`modules/notifications/client.ts`) шлёт каждое событие по трём независимым каналам:
 - в ленту приложения (всегда);
-- push через Expo, если есть устройство и включён push;
+- push, если есть устройство и включён push: iPhone — напрямую в Apple (`modules/notifications/apns.ts`, HTTP/2 + ключ .p8), Android — через Expo Push;
 - сообщением от бота кошелька, если привязан Telegram.
 
 Автоматические события: начисление и списание бонусов, пополнение депозита, погашение и появление долга, зачисление онлайн-оплаты, статус «Резидент». Рассылки идут с `kind='news'`: клиент может их отключить.
@@ -71,11 +71,8 @@
 
 ## Что нужно сделать владельцу
 
-1. **Push (один раз):** в `apps/client` выполнить `npx eas-cli login`, затем `npx eas-cli init` (пропишет `extra.eas.projectId` в `app.json`) и `npx eas-cli credentials`:
-   - iOS — ключ push создаётся автоматически под команду G99YH9UK8C;
-   - Android — загрузить ключ FCM V1 из проекта Firebase и положить `google-services.json` рядом с `app.json`, указав путь в `android.googleServicesFile`.
-
-   Без этого push не приходят, но лента уведомлений и сообщения бота работают. Необязательно: `EXPO_ACCESS_TOKEN` в окружение API — включает защищённый режим Expo Push.
+1. **Push на iPhone:** в `.env` сервера — ключ APNs команды G99YH9UK8C (один на все приложения команды): `APNS_KEY_P8` (base64 от файла `AuthKey_<ID>.p8` или PEM с `\n`), `APNS_KEY_ID`, `APNS_TEAM_ID`; `APNS_TOPIC` по умолчанию `ru.titan.resident`. Без ключа push на iPhone не уходят (в логе API — `[apns] … не заданы`), лента и бот работают. Сервер шлёт в боевой APNs, а токены отладочных сборок сам переадресует в песочницу.
+   **Push на Android (позже):** в `apps/client` выполнить `npx eas-cli login`, `npx eas-cli init` (пропишет `extra.eas.projectId` в `app.json`) и `npx eas-cli credentials` — загрузить ключ FCM V1 из Firebase и положить `google-services.json` рядом с `app.json` (`android.googleServicesFile`). Необязательно: `EXPO_ACCESS_TOKEN` в окружение API — защищённый режим Expo Push.
 2. **App Store Connect:** приложение создано и заполнено (тексты, скриншоты, рейтинг 4+, App Privacy, бесплатно во всех странах). Новые сборки — `npm run ios:testflight`; в `app.json` включён плагин `with-scene-lifecycle` (обязателен для iOS 27).
 3. **Проверка App Store:** в заметках для проверяющего указать, что вход только через Telegram клуба, а полное демо открывается кнопкой «Посмотреть демо».
 

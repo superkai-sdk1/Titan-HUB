@@ -1,4 +1,4 @@
-// Push-уведомления: разрешение, токен Expo Push → сервер, каналы Android, бейдж,
+// Push-уведомления: разрешение, токен устройства → сервер, каналы Android, бейдж,
 // переходы по нажатию на уведомление.
 import Constants from 'expo-constants';
 import * as Device from 'expo-device';
@@ -44,6 +44,22 @@ function projectId(): string | undefined {
   return extra?.eas?.projectId ?? Constants.easConfig?.projectId;
 }
 
+/**
+ * Токен, по которому сервер достанет телефон. iPhone — нативный токен APNs: сервер шлёт
+ * в Apple напрямую, без Expo. Android — токен Expo Push: без projectId (не выполнен
+ * `eas init`) его не получить, тогда остаются лента в приложении и Telegram-бот.
+ */
+async function devicePushToken(): Promise<string | null> {
+  if (Platform.OS === 'ios') {
+    const { data } = await Notifications.getDevicePushTokenAsync();
+    return typeof data === 'string' ? data : null;
+  }
+  const pid = projectId();
+  if (!pid) return null;
+  const { data } = await Notifications.getExpoPushTokenAsync({ projectId: pid });
+  return data;
+}
+
 export type PushPermission = 'granted' | 'denied' | 'undetermined';
 
 export async function pushPermission(): Promise<PushPermission> {
@@ -69,12 +85,8 @@ export async function registerForPush(ask: boolean): Promise<PushPermission> {
   if (perm !== 'granted') return perm;
   if (useSession.getState().status !== 'signedIn') return perm;
 
-  const pid = projectId();
-  // Без projectId (не выполнен `eas init`) токен Expo Push получить нельзя —
-  // уведомления всё равно видны в ленте приложения и приходят в Telegram-бот.
-  if (!pid) return perm;
   try {
-    const { data: token } = await Notifications.getExpoPushTokenAsync({ projectId: pid });
+    const token = await devicePushToken();
     if (token && token !== registeredToken) {
       await api.post('/resident/devices', {
         token,

@@ -4,7 +4,8 @@
  * Каждое уведомление идёт по трём каналам независимо друг от друга:
  *  1) лента в приложении — строка client_notifications (всегда: история не должна
  *     теряться, даже если push выключен или приложение не установлено);
- *  2) push на телефон через Expo Push (если есть устройства и client_push_enabled);
+ *  2) push на телефон (если есть устройства и client_push_enabled): iPhone — напрямую
+ *     через APNs (apns.ts), Android — через Expo Push;
  *  3) личное сообщение из бота кошелька (если привязан Telegram и
  *     wallet_notify_enabled — прежнее поведение).
  *
@@ -15,6 +16,7 @@ import {
   profiles, appDevices, clientNotifications,
   eq, and, inArray, sql, type Database,
 } from '@titan/database'
+import { isApnsToken, sendApns } from './apns.js'
 
 export type ClientNotifyKind = 'bonus' | 'deposit' | 'debt' | 'payment' | 'tier' | 'fund' | 'news' | 'system'
 
@@ -71,8 +73,8 @@ export function isExpoToken(token: string): boolean {
   return /^Expo(nent)?PushToken\[.+\]$/.test(token)
 }
 
-/** Отправить пачку push. Возвращает число принятых Expo сообщений. Мёртвые токены удаляет. */
-export async function sendExpoPush(messages: PushMessage[], database: Database): Promise<number> {
+/** Пачка push через Expo. Возвращает число принятых Expo сообщений и мёртвые токены. */
+async function sendExpoPush(messages: PushMessage[]): Promise<{ accepted: number; dead: string[] }> {
   const valid = messages.filter((m) => isExpoToken(m.to))
   let accepted = 0
   const dead: string[] = []
@@ -111,10 +113,25 @@ export async function sendExpoPush(messages: PushMessage[], database: Database):
       console.warn('[client-notify] expo push error:', err)
     }
   }
+  return { accepted, dead }
+}
+
+/**
+ * Отправить пачку push: токены Expo — через Expo Push, нативные токены iPhone — прямо
+ * в APNs. Возвращает число принятых сообщений. Мёртвые токены удаляет.
+ */
+export async function sendPush(messages: PushMessage[], database: Database): Promise<number> {
+  const [expo, apns] = await Promise.all([
+    sendExpoPush(messages.filter((m) => isExpoToken(m.to))),
+    sendApns(messages.filter((m) => isApnsToken(m.to)).map((m) => ({
+      token: m.to, title: m.title, body: m.body, badge: m.badge, threadId: m.channelId, data: m.data,
+    }))),
+  ])
+  const dead = [...expo.dead, ...apns.dead]
   if (dead.length) {
     await database.delete(appDevices).where(inArray(appDevices.pushToken, dead)).catch(() => {})
   }
-  return accepted
+  return expo.accepted + apns.accepted
 }
 
 /** Непрочитанные уведомления по списку клиентов (для бейджа на иконке). */
@@ -169,7 +186,7 @@ export async function notifyClient(
         .where(and(eq(appDevices.profileId, profileId), eq(appDevices.app, 'client')))
       if (devices.length) {
         const badge = (await unreadCounts([profileId], database)).get(profileId) ?? 0
-        await sendExpoPush(devices.map((d) => ({
+        await sendPush(devices.map((d) => ({
           to: d.token,
           title: n.title,
           body: n.body,
@@ -224,7 +241,7 @@ export async function deliverToClients(
         .from(appDevices)
         .where(and(inArray(appDevices.profileId, pushIds), eq(appDevices.app, 'client')))
       const badges = await unreadCounts([...new Set(devices.map((d) => d.profileId))], database)
-      pushCount = await sendExpoPush(devices.map((d) => ({
+      pushCount = await sendPush(devices.map((d) => ({
         to: d.token,
         title: notice.title,
         body: notice.body,
