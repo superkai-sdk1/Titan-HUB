@@ -18,7 +18,9 @@
   одну строку; занят весь экран — кегль максимально крупный, остаток высоты уходит
   в воздух между строками; тарифы и кабинки — лентой внизу. Если позиций слишком
   много для читаемого кегля — страницы сами сменяют друг друга.
-  Данные — GET /api/menu/public раз в минуту; последний удачный ответ — в localStorage.
+  Данные — GET /api/menu/public раз в 20 с; экран перерисовывается ТОЛЬКО если меню
+  изменилось (цена, видимость, состав). Сама страница перезагружается раз в 12 часов.
+  Перезагрузки самим плеером (чаще 30 мин) проходят без вступительной анимации.
   /menu?debug=1 — показать браузер плеера, размер экрана и ошибки.
 -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -52,6 +54,7 @@ body { color: #f3eef8; font-family: Inter, 'Helvetica Neue', Arial, sans-serif; 
 .col { -webkit-flex: none; flex: none; }
 .empty { margin: auto 0; text-align: center; font-size: 4em; font-weight: 600; color: rgba(243,238,248,.6); }
 
+.quiet .title, .quiet .club { -webkit-animation: none; animation: none; }
 .sec.in { -webkit-animation: sec-in .65s cubic-bezier(.16,1,.3,1) both; animation: sec-in .65s cubic-bezier(.16,1,.3,1) both; }
 .sec.out { -webkit-animation: sec-out .35s cubic-bezier(.4,0,1,1) both; animation: sec-out .35s cubic-bezier(.4,0,1,1) both; }
 
@@ -126,7 +129,9 @@ body { color: #f3eef8; font-family: Inter, 'Helvetica Neue', Arial, sans-serif; 
   var DEBUG = /[?&]debug(=|&|$)/.test(location.search);
   var API = '/api/menu/public';
   var CACHE_KEY = 'titan_menu_screen';
-  var POLL_MS = 60000;
+  var POLL_MS = 20000;               // проверка изменений меню (перерисовка — только при изменении)
+  var RELOAD_MS = 12 * 3600 * 1000;  // полная перезагрузка страницы
+  var QUIET_MS = 30 * 60 * 1000;     // перезагрузка плеером чаще — без вступительной анимации
   var MAX_PAGES = 8;
 
   // Вертикальные метрики в em кегля позиции (те же числа — в CSS выше).
@@ -153,7 +158,7 @@ body { color: #f3eef8; font-family: Inter, 'Helvetica Neue', Arial, sans-serif; 
 
   var $ = function (id) { return document.getElementById(id); };
   var errors = [];
-  var state = { data: null, raw: null, plan: null, sig: null, sp: null, geo: null, page: 0, rendered: false, timers: [] };
+  var state = { data: null, raw: null, plan: null, sig: null, sp: null, geo: null, page: 0, rendered: false, ready: false, quiet: false, timers: [], loads: 0, renders: 0, lastWhy: '' };
 
   function showMsg() {
     var el = $('msg');
@@ -162,6 +167,7 @@ body { color: #f3eef8; font-family: Inter, 'Helvetica Neue', Arial, sans-serif; 
     if (DEBUG) {
       lines.push(navigator.userAgent);
       lines.push('экран ' + viewW() + '×' + viewH() + (state.plan ? ' · кегль ' + state.plan.font.toFixed(1) + 'px · воздух ' + state.plan.k.toFixed(2) + ' · страниц ' + state.plan.pages.length : ''));
+      lines.push('загрузка №' + state.loads + (state.quiet ? ' (тихая)' : '') + ' · перерисовок ' + state.renders + (state.lastWhy ? ' · последняя: ' + state.lastWhy : ''));
     }
     // Ошибки показываем, только пока меню не нарисовано (или в debug), — чтобы по фото экрана было что чинить.
     if (DEBUG || !state.rendered) lines = lines.concat(errors.slice(-3));
@@ -440,7 +446,9 @@ body { color: #f3eef8; font-family: Inter, 'Helvetica Neue', Arial, sans-serif; 
     return { band: band, reg: reg };
   }
 
-  function relayout() {
+  // why: 'data' — меню изменилось (перерисовка с появлением); 'resize' / 'fonts' —
+  // тихая перестройка без анимации, если раскладка вообще поменялась.
+  function relayout(why) {
     try {
       var geo = geometry();
       var root = $('root');
@@ -455,7 +463,7 @@ body { color: #f3eef8; font-family: Inter, 'Helvetica Neue', Arial, sans-serif; 
       body.style.left = geo.padX + 'px';
       body.style.right = geo.padX + 'px';
       body.style.height = geo.availRaw + 'px';
-      if (!state.data || geo.u <= 0) return;
+      if (!state.data || !state.ready || geo.u <= 0) return;
       var sp = splitSections();
       if (!sp.reg.length && !sp.band.length) {
         state.plan = null;
@@ -475,7 +483,10 @@ body { color: #f3eef8; font-family: Inter, 'Helvetica Neue', Arial, sans-serif; 
       state.sp = sp;
       state.geo = geo;
       if (state.page >= next.pages.length) state.page = 0;
-      renderPage(false);
+      var first = !state.rendered;
+      state.renders++;
+      state.lastWhy = first ? 'первый показ' : why === 'data' ? 'меню изменилось' : why === 'resize' ? 'размер экрана' : 'шрифт';
+      renderPage(first ? (state.quiet ? 'silent' : 'enter') : why === 'data' ? 'enter' : 'silent');
     } catch (e) {
       report('Раскладка: ' + (e && e.message ? e.message : e));
     }
@@ -483,7 +494,9 @@ body { color: #f3eef8; font-family: Inter, 'Helvetica Neue', Arial, sans-serif; 
 
   function clearTimers() { state.timers.forEach(function (t) { clearTimeout(t); }); state.timers = []; }
 
-  function renderPage(fromRotation) {
+  // mode: 'enter' — появление с каскадом и лентой; 'rotate' — смена страницы (лента
+  // на месте); 'silent' — без анимаций (перестройка, тихая перезагрузка).
+  function renderPage(mode) {
     var p = state.plan, sp = state.sp, geo = state.geo;
     if (!p) return;
     clearTimers();
@@ -501,8 +514,9 @@ body { color: #f3eef8; font-family: Inter, 'Helvetica Neue', Arial, sans-serif; 
         if (!s || !sw) return;
         // Каскад: слева направо, сверху вниз (≤0,6 с суммарно).
         var delay = Math.min(0.6, 0.15 + ci * 0.12 + ki * 0.07 + (order++) * 0.01);
-        html += '<section class="sec in" style="-webkit-animation-delay:' + delay.toFixed(2) + 's;animation-delay:' + delay.toFixed(2) + 's' +
-          (ki ? ';margin-top:' + (SEC_GAP * k).toFixed(3) + 'em' : '') + '">';
+        var anim = mode === 'silent' ? '' : '-webkit-animation-delay:' + delay.toFixed(2) + 's;animation-delay:' + delay.toFixed(2) + 's;';
+        html += '<section class="sec' + (mode === 'silent' ? '' : ' in') + '" style="' + anim +
+          (ki ? 'margin-top:' + (SEC_GAP * k).toFixed(3) + 'em' : '') + '">';
         html += headHtml(s, fitHead(sw, wEm), k);
         for (var i = ch.from; i < ch.to; i++) html += itemHtml(s.items[i], sw.rows[i] ? fitRow(sw.rows[i], wEm) : 1, k);
         html += '</section>';
@@ -512,7 +526,7 @@ body { color: #f3eef8; font-family: Inter, 'Helvetica Neue', Arial, sans-serif; 
     html += '</div>';
     // Лента внизу — на каждой странице, без повторной анимации при смене страниц.
     if (sp.band.length) {
-      html += '<div class="band" style="font-size:' + p.bandFont + 'px' + (fromRotation ? ';-webkit-animation:none;animation:none' : '') + '">';
+      html += '<div class="band" style="font-size:' + p.bandFont + 'px' + (mode !== 'enter' ? ';-webkit-animation:none;animation:none' : '') + '">';
       sp.band.forEach(function (s, i) {
         var bw = p.band[i], w = p.bandWidths[i] || 0;
         var wEm = w / p.bandFont - BAND_PAD_X;
@@ -560,7 +574,7 @@ body { color: #f3eef8; font-family: Inter, 'Helvetica Neue', Arial, sans-serif; 
     }, ms - 400));
     state.timers.push(setTimeout(function () {
       state.page = (state.page + 1) % state.plan.pages.length;
-      renderPage(true);
+      renderPage('rotate');
     }, ms));
   }
 
@@ -573,7 +587,7 @@ body { color: #f3eef8; font-family: Inter, 'Helvetica Neue', Arial, sans-serif; 
     if (!parsed || !parsed.sections) return;
     state.raw = raw;
     state.data = parsed;
-    relayout();
+    relayout('data');
   }
 
   function load() {
@@ -605,26 +619,49 @@ body { color: #f3eef8; font-family: Inter, 'Helvetica Neue', Arial, sans-serif; 
 
   // ── Старт ─────────────────────────────────────────────────────────────────
 
+  // Перезагрузка плеером вскоре после прошлой — без вступительной анимации.
+  try {
+    var prev = JSON.parse(storageGet('titan_menu_load') || 'null');
+    var nowTs = Date.now();
+    state.quiet = !!(prev && nowTs - prev.t < QUIET_MS);
+    state.loads = (prev && prev.n ? prev.n : 0) + 1;
+    storageSet('titan_menu_load', JSON.stringify({ t: nowTs, n: state.loads }));
+  } catch (e) { state.loads = 1; }
+  if (state.quiet) $('root').className += ' quiet';
+
   tickClock();
   setInterval(tickClock, 10000);
-  relayout();
+  relayout('init');
   applyRaw(storageGet(CACHE_KEY));
   load();
   setInterval(load, POLL_MS);
 
+  // Первый показ — когда загрузится шрифт (не дольше 2,5 с), чтобы экран не
+  // перестраивался на глазах; поздняя дозагрузка шрифта — тихой перестройкой.
+  function markReady() {
+    if (state.ready) return;
+    state.ready = true;
+    relayout('init');
+  }
+  // Шрифт грузится лениво (когда им что-то нарисовано), поэтому запрашиваем нужные
+  // начертания с кириллицей явно и ждём их, а не просто document.fonts.ready.
+  try {
+    if (document.fonts && document.fonts.load) {
+      var sample = 'Меню Капучино 0123456789 \u20bd';
+      var waits = ['500', '600', '700', '800'].map(function (wt) { return document.fonts.load(wt + ' 100px Inter', sample); });
+      Promise.all(waits).then(function () { if (state.ready) relayout('fonts'); else markReady(); }, markReady);
+    }
+  } catch (e) { /* старый движок */ }
+  setTimeout(markReady, 2500);
+  setTimeout(function () { relayout('fonts'); }, 6000);
+
   var resizeTimer = null;
   window.addEventListener('resize', function () {
     clearTimeout(resizeTimer);
-    resizeTimer = setTimeout(relayout, 150);
+    resizeTimer = setTimeout(function () { relayout('resize'); }, 300);
   });
-  // Inter подгружается асинхронно — после загрузки ширины текста меняются.
-  try {
-    if (document.fonts && document.fonts.ready && document.fonts.ready.then) document.fonts.ready.then(relayout);
-  } catch (e) { /* старый движок */ }
-  setTimeout(relayout, 1500);
-  setTimeout(relayout, 5000);
-  // Раз в 6 часов — перезагрузка страницы (свежая вёрстка после деплоев), но только если
-  // сервер сейчас отдаёт страницу: при сбое сети экран продолжает показывать текущее меню.
+  // Раз в 12 часов — перезагрузка страницы (свежая вёрстка после деплоев), но только
+  // если сервер сейчас отдаёт страницу: при сбое сети экран показывает текущее меню.
   setInterval(function () {
     try {
       var x = new XMLHttpRequest();
@@ -633,7 +670,7 @@ body { color: #f3eef8; font-family: Inter, 'Helvetica Neue', Arial, sans-serif; 
       x.onreadystatechange = function () { if (x.readyState === 4 && x.status === 200) location.reload(); };
       x.send();
     } catch (e) { /* без перезагрузки */ }
-  }, 6 * 3600 * 1000);
+  }, RELOAD_MS);
   showMsg();
 })();
 </script>
