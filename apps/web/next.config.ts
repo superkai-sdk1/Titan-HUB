@@ -13,6 +13,12 @@ const nextConfig: NextConfig = {
   experimental: {
     optimizePackageImports: ['lucide-react', 'framer-motion'],
   },
+  // Меню для экрана ТВ (AbleSign) — самодостаточная статическая страница без
+  // оболочки PWA: плееры вывесок открывают её во встроенном WebView, где приложение
+  // на React падало («Application error»). Адрес для плеера остаётся /menu.
+  async rewrites() {
+    return { beforeFiles: [{ source: '/menu', destination: '/tv-menu.html' }] }
+  },
 }
 
 export default nextConfig

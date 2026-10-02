@@ -1,6 +1,5 @@
 'use client'
 import { useEffect, useRef, useState } from 'react'
-import { usePathname } from 'next/navigation'
 
 /**
  * Регистрирует Service Worker и управляет ОБНОВЛЕНИЕМ PWA «по воле кассира».
@@ -18,11 +17,6 @@ import { usePathname } from 'next/navigation'
 export function ServiceWorkerRegister() {
   const [waiting, setWaiting] = useState<ServiceWorker | null>(null)
   const refreshingRef = useRef(false)
-  const regRef = useRef<ServiceWorkerRegistration | null>(null)
-  // Экран меню на ТВ (/menu, AbleSign) — нажать «Обновить» там некому: обновление
-  // применяем сами и периодически проверяем свежий sw.js (вкладка живёт сутками
-  // без навигаций, сам браузер новую версию не поищет).
-  const kiosk = usePathname() === '/menu'
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -53,7 +47,6 @@ export function ServiceWorkerRegister() {
         .register('/sw.js', { scope: '/' })
         .then((registration) => {
           reg = registration
-          regRef.current = registration
 
           // Уже есть готовый к активации воркер (вкладка жила во время деплоя).
           if (registration.waiting && navigator.serviceWorker.controller) {
@@ -88,17 +81,7 @@ export function ServiceWorkerRegister() {
     setWaiting(null)
   }
 
-  useEffect(() => {
-    if (kiosk && waiting) applyUpdate()
-  }, [kiosk, waiting]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(() => {
-    if (!kiosk) return
-    const t = setInterval(() => { regRef.current?.update().catch(() => {}) }, 30 * 60_000)
-    return () => clearInterval(t)
-  }, [kiosk])
-
-  if (!waiting || kiosk) return null
+  if (!waiting) return null
 
   return <UpdateBanner onUpdate={applyUpdate} onDismiss={() => setWaiting(null)} />
 }

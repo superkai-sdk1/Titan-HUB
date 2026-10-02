@@ -33,7 +33,7 @@ export function Sidebar() {
 
   if (pathname === '/login') return null
   // Публичные страницы (запись, политика, поддержка) — без меню кассы.
-  if (['/book', '/privacy', '/terms', '/support', '/menu'].includes(pathname)) return null
+  if (['/book', '/privacy', '/terms', '/support'].includes(pathname)) return null
   if (pathname.startsWith('/tablet')) return null
   if (pathname.startsWith('/superadmin')) return null
 
