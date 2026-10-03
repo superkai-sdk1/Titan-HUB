@@ -28,7 +28,7 @@ export default function BroadcastsScreen() {
       <Stack.Title>Рассылки</Stack.Title>
       <Host style={{ flex: 1 }} useViewportSizeMeasurement>
         <Form modifiers={[refreshable(async () => void (await list.refetch()))]}>
-          <Section footer={<Text>Сообщение появится во «Входящих» приложения Titan Resident, придёт push на телефон, по желанию — и от бота кошелька в Telegram.</Text>}>
+          <Section footer={<Text>Сообщение появится во «Входящих» приложения My Titan, придёт push на телефон, по желанию — и от бота My Titan в Telegram.</Text>}>
             <ActionRow title="Новая рассылка" icon="square.and.pencil" onPress={() => router.push('/manage/broadcasts/compose')} />
           </Section>
 

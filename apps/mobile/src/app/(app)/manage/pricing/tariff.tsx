@@ -97,7 +97,7 @@ function TariffForm({ original }: { original: AdminTariff | null }) {
           </Section>
 
           {original?.itemId && (
-            <Section title="Экран ТВ" footer={<Text>Тариф в меню на телевизоре. Выключите — пропадёт с экрана, в кассе останется.</Text>}>
+            <Section title="Titan Menu" footer={<Text>Тариф в меню на экране ТВ. Выключите — пропадёт с экрана, в кассе останется.</Text>}>
               <Toggle label="На экране ТВ" isOn={onScreen} onIsOnChange={setOnScreen} />
             </Section>
           )}

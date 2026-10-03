@@ -13,7 +13,7 @@ import { useSession } from '@/lib/session';
 
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
-/** Категория меню: название, значок из набора веб-кассы, цвет и видимость на планшетах. */
+/** Категория меню: название, значок из набора веб-кассы, цвет и видимость в Titan Home. */
 export default function MenuCategorySheet() {
   const { categoryId } = useLocalSearchParams<{ categoryId?: string }>();
   const menu = useMenuAdmin();
@@ -115,7 +115,7 @@ function CategoryForm({ original }: { original: MenuCategory | null }) {
           </Section>
 
           <Section footer={<Text>Категория видна гостям в меню кабинки.</Text>}>
-            <Toggle label="Показывать на планшетах" isOn={tablet} onIsOnChange={setTablet} />
+            <Toggle label="Показывать в Titan Home" isOn={tablet} onIsOnChange={setTablet} />
           </Section>
 
           {original && isOwner && (

@@ -1,8 +1,8 @@
 /**
- * API клиентского приложения Titan Resident (iOS/Android).
+ * API клиентского приложения My Titan (iOS/Android).
  *
  * Всё строго «про себя»: профиль берётся из токена (user.sub), id клиента из
- * запроса не принимается. Вход — /api/auth/wallet-code/* (через бота кошелька),
+ * запроса не принимается. Вход — /api/auth/wallet-code/* (через бота My Titan),
  * оплата — /api/auth/me/payments (общая с веб-кошельком).
  */
 import { Hono } from 'hono'

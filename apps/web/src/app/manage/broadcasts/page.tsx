@@ -1,7 +1,7 @@
 'use client'
 /**
- * «Рассылки» — сообщения клиентам клуба: лента и push в приложении Titan Resident,
- * по желанию — дубль от бота кошелька в Telegram. Массовые рассылки — владельцу.
+ * «Рассылки» — сообщения клиентам клуба: лента и push в приложении My Titan,
+ * по желанию — дубль от бота My Titan в Telegram. Массовые рассылки — владельцу.
  * Аудитория: все / по статусу / должники / с депозитом / выбранные вручную /
  * по последнему опросу чата в Telegram (кто выбрал нужные варианты или не голосовал).
  */
@@ -113,7 +113,7 @@ export default function BroadcastsPage() {
 
   return (
     <div style={{ minHeight: '100dvh', display: 'flex', flexDirection: 'column' }}>
-      <PageHeader title="Рассылки" subtitle="Уведомления клиентам в приложении Titan Resident" onBack={() => router.push('/manage')} />
+      <PageHeader title="Рассылки" subtitle="Уведомления клиентам в приложении My Titan" onBack={() => router.push('/manage')} />
       <div style={{ padding: '16px 16px var(--bottom-nav-clear, 24px)', maxWidth: 'var(--content-narrow)', margin: '0 auto', width: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', gap: 18 }}>
 
         <section className="glass-l2" style={{ borderRadius: 18, padding: 16, border: '1px solid rgba(255,255,255,0.08)', display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -155,7 +155,7 @@ export default function BroadcastsPage() {
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             <ToggleRow label="Push на телефон" subtitle="Всплывёт у тех, кто установил приложение и не отключил новости" value={push} onChange={setPush} />
-            <ToggleRow label="Дублировать в Telegram" subtitle="Сообщение от бота кошелька тем, у кого привязан Telegram" value={telegram} onChange={setTelegram} />
+            <ToggleRow label="Дублировать в Telegram" subtitle="Сообщение от бота My Titan тем, у кого привязан Telegram" value={telegram} onChange={setTelegram} />
           </div>
           <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: 0, lineHeight: 1.5 }}>
             В ленте уведомлений приложения сообщение появится у всех получателей. Клиенты, отключившие новости клуба, рассылку не получат.

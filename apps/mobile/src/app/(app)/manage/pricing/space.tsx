@@ -15,7 +15,7 @@ import { parseAmount } from '@/lib/shift-api';
 const TYPES = Object.keys(SPACE_TYPE_LABEL) as Space['type'][];
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
-/** Зона аренды: название, тип, почасовая ставка, вместимость, работает ли; код привязки планшета. */
+/** Зона аренды: название, тип, почасовая ставка, вместимость, работает ли; код привязки Titan Home. */
 export default function SpaceEditor() {
   const { spaceId } = useLocalSearchParams<{ spaceId?: string }>();
   const spaces = useSpacesAdmin();
@@ -69,7 +69,7 @@ function SpaceForm({ original }: { original: Space | null }) {
     try {
       const { code, spaceName } = await createTabletLinkCode(original.id);
       haptic.success();
-      Alert.alert(`Код для планшета: ${code.slice(0, 3)} ${code.slice(3)}`, `Введите его на планшете кабинки «${spaceName}» на экране привязки. Код действует 5 минут.`);
+      Alert.alert(`Код для Titan Home: ${code.slice(0, 3)} ${code.slice(3)}`, `Введите его в Titan Home на планшете кабинки «${spaceName}», на экране привязки. Код действует 5 минут.`);
     } catch (error) {
       haptic.error();
       Alert.alert('Код не получен', errorText(error));
@@ -117,12 +117,12 @@ function SpaceForm({ original }: { original: Space | null }) {
             </Section>
           )}
 
-          <Section title="Экран ТВ" footer={<Text>Ставка зоны в меню на телевизоре. Выключите — пропадёт с экрана, аренда в кассе останется.</Text>}>
+          <Section title="Titan Menu" footer={<Text>Ставка зоны в меню на экране ТВ. Выключите — пропадёт с экрана, аренда в кассе останется.</Text>}>
             <Toggle label="На экране ТВ" isOn={onScreen} onIsOnChange={setOnScreen} />
           </Section>
 
           {original && (
-            <Section title="Планшет кабинки" footer={<Text>Одноразовый код привязки, действует 5 минут.</Text>}>
+            <Section title="Titan Home" footer={<Text>Одноразовый код привязки планшета кабинки, действует 5 минут.</Text>}>
               <ActionRow title={linking ? 'Получаем код…' : 'Получить код привязки'} icon="ipad.landscape" disabled={linking} onPress={() => void linkTablet()} />
             </Section>
           )}

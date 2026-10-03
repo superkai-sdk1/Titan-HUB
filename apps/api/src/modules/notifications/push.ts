@@ -122,7 +122,7 @@ async function sendTelegram(tgId: string, text: string): Promise<void> {
 }
 
 // ── Клиентские уведомления ──────────────────────────────────────────────────
-// Реализация — в ./client.ts (лента приложения + Expo Push + бот кошелька).
+// Реализация — в ./client.ts (лента приложения + Expo Push + бот My Titan).
 // Реэкспорт сохраняет прежний импорт `notifyClient` из push.js.
 export { notifyClient } from './client.js'
 

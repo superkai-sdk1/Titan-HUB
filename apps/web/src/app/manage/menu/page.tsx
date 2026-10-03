@@ -104,7 +104,7 @@ function ItemCardBody({ item, cat, onEdit, onDelete, onToggleScreen, dragHandle 
   )
 }
 
-/* ─── Ссылка на меню для экрана ТВ (AbleSign) ─────────────────────
+/* ─── Ссылка на Titan Menu — меню для экрана ТВ (AbleSign) ────────
    Адрес текущего клуба (поддомен) + /menu — его вставляют в AbleSign. */
 function ScreenLinkRow({ onCopied }: { onCopied: () => void }) {
   const [url, setUrl] = useState('')
@@ -118,7 +118,7 @@ function ScreenLinkRow({ onCopied }: { onCopied: () => void }) {
         <Icon name="tv" size={20} color="#a78bfa" />
       </div>
       <div style={{ flex: 1, minWidth: 0 }}>
-        <p style={{ fontSize: 14, fontWeight: 600, margin: 0 }}>Меню на экране ТВ</p>
+        <p style={{ fontSize: 14, fontWeight: 600, margin: 0 }}>Titan Menu — меню на экране ТВ</p>
         <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: '2px 0 0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {url.replace(/^https?:\/\//, '')} · состав — кнопкой <Icon name="tv" size={12} style={{ verticalAlign: '-2px' }} /> на позициях
         </p>
@@ -609,8 +609,8 @@ export default function MenuPage() {
               ['isTop', 'Хит продаж', 'Выделяется звёздочкой'],
               ['isService', 'Услуга', 'Услуга, а не товар (без физического остатка)'],
               ['trackStock', 'Учёт остатков', 'Следить за количеством'],
-              ['isTabletVisible', 'Видно на планшете', 'Показывать гостям в меню планшета'],
-              ['isScreenVisible', 'На экране ТВ', 'Показывать в меню на телевизоре (ссылка /menu)'],
+              ['isTabletVisible', 'В Titan Home', 'Показывать гостям в меню на планшете кабинки'],
+              ['isScreenVisible', 'В Titan Menu', 'Показывать в меню на экране ТВ (ссылка /menu)'],
             ] as [string, string, string][]).map(([key, lbl, sub]) => (
               <div key={key} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '12px 14px', borderRadius: 12, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
                 <div>
@@ -767,8 +767,8 @@ export default function MenuPage() {
             background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)',
           }}>
             <div>
-              <p style={{ fontSize: 14, fontWeight: 600, margin: 0 }}>Видно на планшете</p>
-              <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: '2px 0 0' }}>Показывать категорию гостям</p>
+              <p style={{ fontSize: 14, fontWeight: 600, margin: 0 }}>Видно в Titan Home</p>
+              <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', margin: '2px 0 0' }}>Показывать категорию гостям на планшете</p>
             </div>
             <Toggle size="sm" value={catForm.isTabletVisible ?? true} onChange={v => setCatForm((p: any) => ({ ...p, isTabletVisible: v }))} />
           </div>

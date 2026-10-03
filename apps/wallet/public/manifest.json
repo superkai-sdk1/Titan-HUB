@@ -1,7 +1,7 @@
 {
   "id": "/residents/",
-  "name": "Titan Resident",
-  "short_name": "Resident",
+  "name": "My Titan",
+  "short_name": "My Titan",
   "description": "Ваш баланс и бонусы",
   "lang": "ru",
   "dir": "ltr",

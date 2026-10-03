@@ -4,7 +4,7 @@ import '../globals.css'
 import { SwRegister } from '../components/SwRegister'
 
 export const metadata: Metadata = {
-  title: 'Titan Resident',
+  title: 'My Titan',
   description: 'Ваш баланс и бонусы',
 }
 
@@ -33,7 +33,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         {/* black-translucent — иммерсивный тёмный бар; контент уходит под «остров»,
             поэтому страница добавляет safe-area отступ сверху (см. page.tsx styles.root). */}
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-        <meta name="apple-mobile-web-app-title" content="Titan Resident" />
+        <meta name="apple-mobile-web-app-title" content="My Titan" />
         {/* Telegram WebApp SDK — БЕЗ него window.Telegram.WebApp недоступен и кошелёк
             не авторизуется (показывает «Откройте через Telegram»). beforeInteractive —
             чтобы объект был готов до запуска клиентского кода страницы. */}

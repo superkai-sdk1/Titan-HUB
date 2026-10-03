@@ -1,7 +1,7 @@
 'use client'
 /**
- * Личное уведомление клиенту: лента и push в приложении Titan Resident,
- * по желанию — дубль от бота кошелька. Доступно владельцу и сотрудникам.
+ * Личное уведомление клиенту: лента и push в приложении My Titan,
+ * по желанию — дубль от бота My Titan. Доступно владельцу и сотрудникам.
  */
 import React, { useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
@@ -44,10 +44,10 @@ export function ClientNotifySheet({ client, open, onClose }: {
           <textarea style={{ ...INP, minHeight: 96, resize: 'vertical', lineHeight: 1.5 }} value={body} maxLength={1000}
             onChange={e => setBody(e.target.value)} placeholder="Сообщение клиенту" />
         </div>
-        <ToggleRow label="Дублировать в Telegram" subtitle={client?.tgId ? 'Сообщение от бота кошелька' : 'Telegram не привязан'}
+        <ToggleRow label="Дублировать в Telegram" subtitle={client?.tgId ? 'Сообщение от бота My Titan' : 'Telegram не привязан'}
           value={telegram && !!client?.tgId} onChange={v => setTelegram(v)} />
         <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: 0, lineHeight: 1.5 }}>
-          Придёт push в приложение Titan Resident и появится в ленте уведомлений клиента.
+          Придёт push в приложение My Titan и появится в ленте уведомлений клиента.
         </p>
         <Button fullWidth icon="send" loading={send.isPending} disabled={!title.trim() || !body.trim()} onClick={() => send.mutate()}>
           Отправить

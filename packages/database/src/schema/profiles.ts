@@ -59,7 +59,7 @@ export const profiles = pgTable('profiles', {
   // Клиентские уведомления в Wallet-боте (начисление бонусов, депозит, долг).
   // Клиент может отключить их прямо в боте. По умолчанию включены.
   walletNotifyEnabled: boolean('wallet_notify_enabled').notNull().default(true),
-  // Приложение Titan Resident: push на телефон и новости клуба (рассылки).
+  // Приложение My Titan: push на телефон и новости клуба (рассылки).
   clientPushEnabled: boolean('client_push_enabled').notNull().default(true),
   clientNewsEnabled: boolean('client_news_enabled').notNull().default(true),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

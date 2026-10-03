@@ -60,7 +60,7 @@ export default function BonusSettingsScreen() {
             </>
           )}
 
-          <Section title="Titan Resident" footer={<Text>Скрывает бонусы в приложении и кабинете клиента — пока программа не запущена.</Text>}>
+          <Section title="My Titan" footer={<Text>Скрывает бонусы в приложении и кабинете клиента — пока программа не запущена.</Text>}>
             <Toggle label="Скрыть бонусы у клиентов" isOn={settings.flag('bonus_wallet_hidden', false)} onIsOnChange={(next) => settings.save({ bonus_wallet_hidden: next ? 'true' : 'false' })} />
           </Section>
         </Form>

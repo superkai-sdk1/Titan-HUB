@@ -1,12 +1,12 @@
 /**
- * Уведомления КЛИЕНТАМ (приложение Titan Resident + Telegram-бот кошелька).
+ * Уведомления КЛИЕНТАМ (приложение My Titan + Telegram-бот My Titan).
  *
  * Каждое уведомление идёт по трём каналам независимо друг от друга:
  *  1) лента в приложении — строка client_notifications (всегда: история не должна
  *     теряться, даже если push выключен или приложение не установлено);
  *  2) push на телефон (если есть устройства и client_push_enabled): iPhone — напрямую
  *     через APNs (apns.ts), Android — через Expo Push;
- *  3) личное сообщение из бота кошелька (если привязан Telegram и
+ *  3) личное сообщение из бота My Titan (если привязан Telegram и
  *     wallet_notify_enabled — прежнее поведение).
  *
  * Рассылки клуба (kind='news') дополнительно уважают client_news_enabled.
@@ -32,7 +32,7 @@ const KIND_EMOJI: Record<ClientNotifyKind, string> = {
   bonus: '⭐', deposit: '💰', debt: '⚠️', payment: '✅', tier: '🎉', fund: '🏛', news: '📣', system: '🔔',
 }
 
-// ── Telegram (бот кошелька) ─────────────────────────────────────────────────
+// ── Telegram (бот My Titan) ─────────────────────────────────────────────────
 const WALLET_TOKEN = process.env['WALLET_BOT_TOKEN']
 
 export async function sendWalletTelegram(tgId: string, text: string): Promise<boolean> {

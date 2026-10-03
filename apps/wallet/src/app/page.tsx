@@ -381,9 +381,9 @@ export default function WalletPage() {
       <div style={styles.root}>{keyframes}
         <div style={{ ...styles.centered, gap: 0, maxWidth: 360, margin: '0 auto', width: '100%' }}>
           <span style={{ fontSize: 18, fontWeight: 900, letterSpacing: '4px', color: '#a78bfa' }}>TITAN</span>
-          <h2 style={{ color: '#fff', margin: '14px 0 6px', fontSize: 22, fontWeight: 800, textAlign: 'center' }}>Вход в кошелёк</h2>
+          <h2 style={{ color: '#fff', margin: '14px 0 6px', fontSize: 22, fontWeight: 800, textAlign: 'center' }}>Вход в My Titan</h2>
           <p style={{ color: '#94A3B8', margin: 0, fontSize: 14, textAlign: 'center', lineHeight: 1.5, maxWidth: 300 }}>
-            Откройте бота кошелька в Telegram и отправьте ему этот код:
+            Откройте бота My Titan в Telegram и отправьте ему этот код:
           </p>
           <div className="selectable" onClick={copyCode} style={styles.codeBox}>
             {loginCode.split('').map((d, i) => (

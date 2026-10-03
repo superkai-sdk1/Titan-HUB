@@ -58,8 +58,15 @@ if [ "${1:-}" != "--keep" ]; then
 fi
 
 # Нативный проект генерируется из app.json и плагинов (ios/ не хранится в git).
-if [ ! -f ios/TitanResident/Info.plist ] || [ app.json -nt ios/TitanResident/Info.plist ] \
-   || [ -n "$(find plugins -newer ios/TitanResident/Info.plist -print -quit 2>/dev/null)" ]; then
+# Имя Xcode-проекта Expo берёт из expo.name без пробелов и знаков: «My Titan» → MyTitan.
+PROJECT=$(node -p "require('./app.json').expo.name.replace(/[\\W_]+/g, '')")
+if [ ! -f "ios/$PROJECT/Info.plist" ]; then
+  # Проекта под текущее имя нет (первая сборка или приложение переименовали) —
+  # генерируем заново: поверх старого prebuild оставил бы прежнее имя проекта.
+  echo "› Генерирую iOS-проект $PROJECT с нуля"
+  EXPO_NO_GIT_STATUS=1 npx expo prebuild --platform ios --clean
+elif [ app.json -nt "ios/$PROJECT/Info.plist" ] \
+   || [ -n "$(find plugins -newer "ios/$PROJECT/Info.plist" -print -quit 2>/dev/null)" ]; then
   echo "› Генерирую iOS-проект"
   npx expo prebuild --platform ios
 fi
@@ -71,11 +78,11 @@ mkdir -p "$OUT"
 
 echo "› Собираю архив $VERSION ($BUILD) — это долго, лог: apps/client/$OUT/archive.log"
 if ! xcodebuild \
-  -workspace ios/TitanResident.xcworkspace \
-  -scheme TitanResident \
+  -workspace "ios/$PROJECT.xcworkspace" \
+  -scheme "$PROJECT" \
   -configuration Release \
   -destination "generic/platform=iOS" \
-  -archivePath "$OUT/TitanResident.xcarchive" \
+  -archivePath "$OUT/$PROJECT.xcarchive" \
   -allowProvisioningUpdates \
   "${AUTH[@]}" \
   archive >"$OUT/archive.log" 2>&1; then
@@ -100,7 +107,7 @@ PLIST
 
 echo "› Экспортирую IPA"
 if ! xcodebuild -exportArchive \
-  -archivePath "$OUT/TitanResident.xcarchive" \
+  -archivePath "$OUT/$PROJECT.xcarchive" \
   -exportPath "$OUT/ipa" \
   -exportOptionsPlist "$OUT/ExportOptions.plist" \
   -allowProvisioningUpdates \

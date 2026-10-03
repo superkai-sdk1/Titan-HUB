@@ -266,7 +266,7 @@ export function useClientTgAccounts(clientId: string | undefined) {
 
 /**
  * Подписанная ссылка и QR для привязки: гость открывает её в Telegram или сканирует QR,
- * бот кошелька связывает аккаунт с профилем. Ссылка живёт 15 минут.
+ * бот My Titan связывает аккаунт с профилем. Ссылка живёт 15 минут.
  */
 export function useClientTelegramLink(clientId: string | undefined) {
   const club = useClubKey();

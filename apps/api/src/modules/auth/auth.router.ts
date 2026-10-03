@@ -54,7 +54,7 @@ function getRedis() {
   return new Redis(process.env['REDIS_URL'] ?? 'redis://redis:6379', { lazyConnect: true })
 }
 
-// @username бота-кошелька для подсказки/диплинка на экране входа из браузера.
+// @username бота My Titan для подсказки/диплинка на экране входа из браузера.
 // Из env (WALLET_BOT_USERNAME), иначе через getMe (кэшируем). Без '@'.
 let walletBotUsername: string | null = process.env['WALLET_BOT_USERNAME']?.replace(/^@/, '') ?? null
 async function getWalletBotUsername(): Promise<string | null> {
@@ -442,7 +442,7 @@ const WALLET_CODE_TTL_MS = 5 * 60 * 1000
 
 authRouter.post('/wallet-code/start', async (c) => {
   const db = c.var.db
-  // Приложение Titan Resident присылает имя устройства — бот покажет его в запросе
+  // Приложение My Titan присылает имя устройства — бот покажет его в запросе
   // подтверждения. Тело необязательно (веб-кошелёк шлёт пустой POST).
   let device: { deviceName?: string; platform?: string } = {}
   try {
@@ -540,7 +540,7 @@ authRouter.get('/me', requireAuth, async (c) => {
   const [profile] = await db.select().from(profiles).where(eq(profiles.id, user.sub))
   if (!profile) return c.json({ error: 'Not found' }, 404)
   const { pin, passwordHash, ...safe } = profile
-  // Флаг для Titan Resident: владелец может скрыть бонусы у клиентов (тогда вместо
+  // Флаг для My Titan: владелец может скрыть бонусы у клиентов (тогда вместо
   // баланса на карточке — «Скоро тут появятся бонусы»). Настройка bonus_wallet_hidden.
   const bonusDisplayHidden = await getBoolSetting('bonus_wallet_hidden', false, db)
   return c.json({ ...safe, bonusDisplayHidden })
@@ -635,7 +635,7 @@ authRouter.get('/me/visit-progress', requireAuth, async (c) => {
   return c.json(await visitProgress(c.get('user').sub, c.var.db))
 })
 
-// ── Онлайн-оплата клиента (Titan Resident): долг / депозит / Фонд клуба ──────────
+// ── Онлайн-оплата клиента (My Titan): долг / депозит / Фонд клуба ──────────
 // Готовность СБП-эквайера клуба + активный Фонд клуба и рекомендуемая сумма взноса.
 authRouter.get('/me/pay-info', requireAuth, async (c) => {
   const db = c.var.db
@@ -673,7 +673,7 @@ authRouter.get('/me/pay-info', requireAuth, async (c) => {
 authRouter.post('/me/payments', requireAuth, zValidator('json', z.object({
   purpose: z.enum(['deposit', 'debt', 'fund']),
   amount: z.number().positive().max(1_000_000),
-  // Приложение Titan Resident платит за конкретный сбор (фонд или разовый);
+  // Приложение My Titan платит за конкретный сбор (фонд или разовый);
   // веб-кошелёк не передаёт — берётся активный ежемесячный «Фонд клуба».
   collectionId: z.string().uuid().optional(),
 })), async (c) => {
@@ -728,7 +728,7 @@ authRouter.post('/me/payments', requireAuth, zValidator('json', z.object({
       if (provider.credKeys.some((k) => !creds[k])) return c.json({ error: 'Оплата сейчас недоступна' }, 503)
       const result = await provider.createSbpPayment({
         creds, amount: charged, checkId: rp.id,
-        description: `Titan Resident — ${label}`,
+        description: `My Titan — ${label}`,
         notificationUrl: `${origin}/api/pay/${provider.id}/webhook`,
         returnUrl: origin,
         test: await getPaymentTestMode(db),
@@ -745,7 +745,7 @@ authRouter.post('/me/payments', requireAuth, zValidator('json', z.object({
         body: JSON.stringify({
           paymentMethod: 2,
           paymentDetails: { amount: charged, currency: 'RUB' },
-          description: `Titan Resident — ${label}`,
+          description: `My Titan — ${label}`,
           // orderRef для вебхука Platega. Вебхук бьёт в фиксированный URL основного
           // домена, поэтому на клуб-поддомене кладём 'club:<clubId>:<rp.id>' — вебхук
           // по clubId выберет БД нужного клуба (см. platega.router.ts). На основном

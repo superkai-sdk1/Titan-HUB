@@ -211,7 +211,7 @@ export default function SettingsPage() {
                   {/* Онлайн-бронирование: публичная форма /book + QR. Свой API. */}
                   <BookingConfig />
 
-                  {/* Меню на экране ТВ (/menu, AbleSign): ссылка и выбор темы. */}
+                  {/* Titan Menu — меню на экране ТВ (/menu, AbleSign): ссылка и выбор темы. */}
                   <ScreenThemeConfig />
                 </>
               )}

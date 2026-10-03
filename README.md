@@ -30,6 +30,7 @@
 
 ## Содержание
 
+- [Продукты](#продукты)
 - [О проекте](#о-проекте)
 - [Ключевые возможности](#ключевые-возможности)
 - [Технологический стек](#технологический-стек)
@@ -45,13 +46,26 @@
 
 ---
 
+## Продукты
+
+| Продукт | Для кого | Что это | Где в коде |
+|---|---|---|---|
+| **Titan HUB** | персонал | основное кассовое ПО: касса, «Управление», аналитика, Tai | `apps/web` (PWA), `apps/mobile` (iOS/Android) |
+| **My Titan** | клиенты клуба | бонусы, депозит и долг, история, оплата через СБП, уведомления | `apps/client` (iOS/Android), `apps/wallet` (веб-версия, `/residents`), `apps/bot-wallet` |
+| **Titan Home** | гости в кабинке | меню и касса самообслуживания на Android-планшете | `apps/web/src/app/tablet` (`/tablet`) |
+| **Titan Menu** | гости в зале | меню на телевизоре (AbleSign) | `apps/web/public/tv-menu.html` (`/menu`) |
+
+Технические идентификаторы (bundle ID, пакеты, пути, имена папок) остались прежними — меняются только названия.
+
+---
+
 ## О проекте
 
 **Titan HUB** — система автоматизации антикафе / игрового пространства, реализованная как PWA (Progressive Web App) с полноценной offline-поддержкой. Охватывает весь операционный цикл:
 
 - кассир открывает чеки, пробивает тарифы по времени и позиции бара;
-- клиенты копят бонусы, растут по тирам лояльности, пополняют депозит через Telegram;
-- планшеты в зонах работают как киоски (`/tablet`) с IDOR-защитой на уровне зоны;
+- клиенты копят бонусы, растут по тирам лояльности, пополняют депозит в приложении My Titan;
+- планшеты в зонах работают как киоски Titan Home (`/tablet`) с IDOR-защитой на уровне зоны;
 - владелец видит склад, зарплаты, депозиты/долги и аналитику в реальном времени;
 - ИИ-ассистент Tai отвечает на вопросы по данным заведения (read-only SQL).
 
@@ -161,7 +175,7 @@
 |---|---|
 | Бот опросов (`poll_bot`) | Опросы явки в Telegram-чате; `@all` / `@tvari` упоминания ников клиентов |
 | Админ-бот (`admin_bot`) | Уведомления сотрудникам в Telegram |
-| Бот-кошелёк (`wallet_bot`) | Telegram-кошелёк для клиентов (баланс, бонусы) |
+| Бот My Titan (`wallet_bot`) | Telegram-бот клиентов: вход в My Titan, баланс, бонусы |
 | Tai — ИИ-ассистент (`ai`) | Прогноз смены, аналитика (ключ Polza.ai) |
 | Platega — СБП (`platega`) | Приём оплат по СБП (QR) на кассе |
 | GoMafia.pro (`gomafia`) | Подбор игроков при создании клиента |
@@ -203,10 +217,11 @@ titan-hub/
 ├── apps/
 │   ├── web/          # @titan/web      — фронтенд PWA (Next.js 15, порт 3000)
 │   ├── api/          # @titan/api      — REST API (Hono, порт 3001)
-│   ├── wallet/       # @titan/wallet   — Telegram WebApp кошелёк клиента (Next.js, basePath /wallet, порт 3002)
+│   ├── wallet/       # @titan/wallet   — My Titan, веб-версия и Telegram WebApp (Next.js, basePath /residents, порт 3002)
 │   ├── bot-admin/    # @titan/bot-admin  — Telegram-бот персонала (уведомления, grammY)
-│   ├── bot-wallet/   # @titan/bot-wallet — Telegram-бот клиентов (баланс, история, grammY)
-│   └── mobile/       # titan-mobile     — нативное приложение iOS и Android (Expo SDK 57, вне pnpm-воркспейса)
+│   ├── bot-wallet/   # @titan/bot-wallet — Telegram-бот My Titan (вход, баланс, история, grammY)
+│   ├── mobile/       # titan-mobile     — Titan HUB для iOS и Android (Expo SDK 57, вне pnpm-воркспейса)
+│   └── client/       # titan-resident   — My Titan для iOS и Android (Expo SDK 57, вне pnpm-воркспейса)
 ├── packages/
 │   ├── database/     # @titan/database — Drizzle ORM: схема, клиент БД, реэкспорт операторов
 │   ├── auth/         # @titan/auth     — signToken/verifyToken (JWT), hashPassword/hashPin, verifyTelegramInitData
@@ -257,7 +272,7 @@ apps/web/src/
 │   ├── reports/          # отчёты
 │   ├── shifts/           # история смен
 │   ├── superadmin/       # панель суперадмина (мультитенантность)
-│   └── tablet/           # планшет-киоск
+│   └── tablet/           # Titan Home — планшет-киоск
 ├── components/
 │   ├── BottomNav.tsx               # мобильная навигация
 │   ├── Sidebar.tsx                 # боковое меню десктоп/планшет
@@ -356,7 +371,7 @@ Shared `tsconfig/*.json` и конфигурация ESLint 9 + typescript-eslin
 
 ## Мобильное приложение
 
-Нативное приложение для iOS и Android — `apps/mobile`. Не обёртка над PWA: интерфейс собран из нативных компонентов, данные идут через тот же REST API.
+Titan HUB для iOS и Android — `apps/mobile`. Не обёртка над PWA: интерфейс собран из нативных компонентов, данные идут через тот же REST API.
 
 | | |
 |---|---|
@@ -449,7 +464,7 @@ npm run ios:testflight    # загрузить билд в TestFlight
 
 `apps/api/src/migrations/runner.ts` применяет SQL-файлы из `src/migrations/sql/` по возрастанию номера в единой транзакции. Имена применённых файлов записываются в таблицу `_migrations`. Запускается до старта HTTP-сервера. Текущий максимум: `053_collections.sql`.
 
-### Планшет-киоск
+### Titan Home (планшет-киоск)
 
 Сессия планшета (`/auth/tablet-session`) привязывается к зоне (`linkedSpaceId`). Все операции проверяются на соответствие зоне — IDOR-защита на уровне каждого запроса.
 
@@ -523,7 +538,7 @@ pnpm dev
 |---|---|
 | Web (PWA) | http://localhost:3000 |
 | API | http://localhost:3001 |
-| Wallet | http://localhost:3002 |
+| My Titan (веб) | http://localhost:3002 |
 
 > Миграции применяются автоматически при старте `api`-сервиса (`src/migrations/runner.ts`), отдельный шаг не нужен.
 

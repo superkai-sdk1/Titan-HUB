@@ -105,7 +105,7 @@ export default function PricingScreen() {
               {isOwner && <ActionRow title="Добавить тип вечера" icon="plus.circle.fill" onPress={() => router.push('/manage/pricing/evening')} />}
             </Section>
 
-            <Section title="Зоны аренды" footer={<Text>Почасовая ставка зоны. К зоне привязывается планшет кабинки; выключенная зона не предлагается при аренде.</Text>}>
+            <Section title="Зоны аренды" footer={<Text>Почасовая ставка зоны. К зоне привязывается планшет кабинки с Titan Home; выключенная зона не предлагается при аренде.</Text>}>
               {(spaces.data ?? []).map((s) => (
                 <LinkRow
                   key={s.id}

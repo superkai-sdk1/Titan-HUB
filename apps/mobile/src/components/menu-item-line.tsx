@@ -10,7 +10,7 @@ import { colors } from '@/lib/theme';
 
 /**
  * Позиция меню в нативном списке: название, признаки одной строкой (скрыта, хит, услуга,
- * остаток, планшет, категория), справа цена и маржа.
+ * остаток, Titan Home, категория), справа цена и маржа.
  */
 export function MenuItemLine({ item, category, onPress }: { item: AdminMenuItem; category?: MenuCategory; onPress: () => void }) {
   const price = toNumber(item.price);
@@ -22,7 +22,7 @@ export function MenuItemLine({ item, category, onPress }: { item: AdminMenuItem;
     item.isTop ? 'хит' : null,
     item.isService ? 'услуга' : null,
     item.trackStock ? (stock <= 0 ? 'нет на складе' : `${stock} шт`) : null,
-    item.isTabletVisible ? 'на планшете' : null,
+    item.isTabletVisible ? 'в Titan Home' : null,
     category?.name ?? null,
   ].filter(Boolean);
 

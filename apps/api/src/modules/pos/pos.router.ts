@@ -1453,7 +1453,7 @@ posRouter.post('/checks/:id/qr', requireRole('owner', 'staff', 'tablet'), async 
         creds,
         amount,
         checkId,
-        description: `Titan POS чек ${checkId.slice(0, 8)}`,
+        description: `Titan HUB чек ${checkId.slice(0, 8)}`,
         notificationUrl: `${origin}/api/pay/${provider.id}/webhook`,
         returnUrl: origin,
         receipt,
@@ -1500,7 +1500,7 @@ posRouter.post('/checks/:id/qr', requireRole('owner', 'staff', 'tablet'), async 
     body: JSON.stringify({
       paymentMethod: 2,
       paymentDetails: { amount, currency: 'RUB' },
-      description: `Titan POS чек ${checkId.slice(0, 8)}`,
+      description: `Titan HUB чек ${checkId.slice(0, 8)}`,
       payload: plategaPayload,
     }),
   })

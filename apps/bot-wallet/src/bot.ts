@@ -149,7 +149,7 @@ export function createWalletBot(ctx: WalletBotCtx): Bot {
   const walletKeyboard = new InlineKeyboard()
     .text('💰 Баланс', 'balance').text('📋 История', 'history').row()
     .text('🔔 Уведомления', 'notif').row()
-    .webApp('💳 Открыть кошелёк', ctx.webappUrl)
+    .webApp('💳 Открыть My Titan', ctx.webappUrl)
 
   type Profile = typeof profiles.$inferSelect
   // Резолв профиля по TG: сначала основной tg_id, затем доп. аккаунты (один человек
@@ -216,7 +216,7 @@ export function createWalletBot(ctx: WalletBotCtx): Bot {
       return
     }
 
-    // Вход в приложение Titan Resident в одно касание: приложение открывает
+    // Вход в приложение My Titan в одно касание: приложение открывает
     // t.me/<bot>?start=login_<deepCode>. Код одноразовый и длинный (не 4 цифры),
     // но вход всё равно подтверждается кнопкой с именем устройства — иначе ссылку,
     // пересланную злоумышленником, можно было бы «нажать не глядя».
@@ -241,7 +241,7 @@ export function createWalletBot(ctx: WalletBotCtx): Bot {
       const device = row.deviceName ? `«${escapeMd(row.deviceName)}»` : 'новом устройстве'
       const kb = new InlineKeyboard().text('✅ Да, войти', `lc:${row.id}`).text('Это не я', `lr:${row.id}`)
       await ctx2.reply(
-        `🔐 *Вход в Titan Resident*\n\n${escapeMd(profile.nickname)}, подтвердите вход на устройстве ${device}.\n\nЕсли вы не входили — нажмите «Это не я».`,
+        `🔐 *Вход в My Titan*\n\n${escapeMd(profile.nickname)}, подтвердите вход на устройстве ${device}.\n\nЕсли вы не входили — нажмите «Это не я».`,
         { parse_mode: 'Markdown', reply_markup: kb },
       )
       return
@@ -249,7 +249,7 @@ export function createWalletBot(ctx: WalletBotCtx): Bot {
 
     const profile = await resolveProfileByTg(tgId)
     if (!profile) {
-      await ctx2.reply('👋 Добро пожаловать в Titan Resident!\n\nЧтобы привязать аккаунт, обратитесь к администратору.')
+      await ctx2.reply('👋 Добро пожаловать в My Titan!\n\nЧтобы привязать аккаунт, обратитесь к администратору.')
       return
     }
 
@@ -367,7 +367,7 @@ export function createWalletBot(ctx: WalletBotCtx): Bot {
     await ctx2.reply(`📋 *Последние транзакции*\n\n${text}`, { parse_mode: 'Markdown' })
   })
 
-  // Вход в кошелёк из браузера/PWA: клиент присылает 4-значный код, показанный в
+  // Вход в веб-версию My Titan из браузера/PWA: клиент присылает 4-значный код, показанный в
   // открытом приложении. Привязываем pending-строку wallet_login_codes к профилю —
   // PWA увидит это через /auth/wallet-code/status и получит токен. Регистрируем
   // ПОСЛЕ command('start'): обычный текст «1234» сюда и попадает (команды — нет).
@@ -387,7 +387,7 @@ export function createWalletBot(ctx: WalletBotCtx): Bot {
 
     const profile = await resolveProfileByTg(tgId)
     if (!profile) {
-      await ctx2.reply('👋 Чтобы войти в кошелёк, сначала привяжите аккаунт — обратитесь к администратору клуба.')
+      await ctx2.reply('👋 Чтобы войти в My Titan, сначала привяжите аккаунт — обратитесь к администратору клуба.')
       return
     }
     // Активный (pending, не истёкший) код. Берём самый свежий — на случай повторов.
@@ -402,7 +402,7 @@ export function createWalletBot(ctx: WalletBotCtx): Bot {
       if (nowLocked) {
         await ctx2.reply(`⏳ Слишком много неверных кодов. Вход временно заблокирован на ${Math.ceil(CODE_LOCKOUT_MS / 60000)} мин.`)
       } else {
-        await ctx2.reply('❌ Код неверный или истёк. Откройте кошелёк в браузере и пришлите свежий 4-значный код.')
+        await ctx2.reply('❌ Код неверный или истёк. Откройте My Titan в браузере и пришлите свежий 4-значный код.')
       }
       return
     }
@@ -413,7 +413,7 @@ export function createWalletBot(ctx: WalletBotCtx): Bot {
       .where(and(eq(walletLoginCodes.id, row.id), eq(walletLoginCodes.status, 'pending')))
       .returning({ id: walletLoginCodes.id })
     if (!claimed.length) {
-      await ctx2.reply('❌ Код уже использован или истёк. Откройте кошелёк в браузере и пришлите свежий 4-значный код.')
+      await ctx2.reply('❌ Код уже использован или истёк. Откройте My Titan в браузере и пришлите свежий 4-значный код.')
       return
     }
     resetCodeFails(tgId) // успех — сбрасываем счётчик промахов

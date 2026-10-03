@@ -74,7 +74,7 @@ export const walletLoginCodes = pgTable('wallet_login_codes', {
   platform: text('platform'),
 })
 
-// Онлайн-платежи клиента из Titan Resident (СБП через эквайер клуба): погашение
+// Онлайн-платежи клиента из My Titan (СБП через эквайер клуба): погашение
 // долга / пополнение депозита (→ profiles.balance + transaction) или взнос в Фонд
 // клуба (→ collection_contributions method='sbp'). Эффект применяется ТОЛЬКО при
 // подтверждении вебхуком (settleResidentPayment), идемпотентно по status.
@@ -92,7 +92,7 @@ export const residentPayments = pgTable('resident_payments', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 })
 
-// Push-токены устройств (Expo Push). app='client' — Titan Resident, 'staff' — Titan HUB.
+// Push-токены устройств (Expo Push). app='client' — My Titan, 'staff' — Titan HUB.
 export const appDevices = pgTable('app_devices', {
   id: uuid('id').primaryKey().defaultRandom(),
   profileId: uuid('profile_id').notNull().references(() => profiles.id, { onDelete: 'cascade' }),

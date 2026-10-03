@@ -6,7 +6,7 @@ import { useClubKey } from './queries';
 import { useSession } from './session';
 
 /**
- * Рассылки клиентам (приложение Titan Resident + бот кошелька). Сервер —
+ * Рассылки клиентам (приложение My Titan + бот My Titan). Сервер —
  * `/api/client-broadcasts`: владелец шлёт любой аудитории, сотрудник — только выбранным.
  */
 

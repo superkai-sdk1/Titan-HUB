@@ -22,7 +22,7 @@ const FLAGS: { key: keyof Flags; label: string }[] = [
   { key: 'isTop', label: 'Хит продаж' },
   { key: 'isService', label: 'Услуга' },
   { key: 'trackStock', label: 'Учёт остатков' },
-  { key: 'isTabletVisible', label: 'На планшете кабинки' },
+  { key: 'isTabletVisible', label: 'Показывать в Titan Home' },
 ];
 
 /** Позиция меню: цена и себестоимость с маржой, категория, зона, теги и признаки. */
@@ -181,7 +181,7 @@ function ItemForm({ original, presetCategory, categories, spaces }: { original: 
             ))}
           </Section>
 
-          <Section title="Экран ТВ" footer={<Text>{`Позиция в меню на телевизоре${clubHost ? ` (${clubHost}/menu)` : ''}. Выключите — пропадёт с экрана, в кассе останется.`}</Text>}>
+          <Section title="Titan Menu" footer={<Text>{`Позиция в меню на экране ТВ${clubHost ? ` (${clubHost}/menu)` : ''}. Выключите — пропадёт с экрана, в кассе останется.`}</Text>}>
             <Toggle label="На экране ТВ" isOn={onScreen} onIsOnChange={setOnScreen} />
           </Section>
 

@@ -48,9 +48,9 @@ const CATALOG: Product[] = [
     fields: [{ key: 'admin_bot_token', label: 'Токен бота', type: 'password', placeholder: '123456:ABC-DEF…', hint: 'В @BotFather создайте отдельного бота (/newbot) → скопируйте токен. Это НЕ тот же бот, что для опросов.' }],
   },
   {
-    id: 'wallet_bot', name: 'Бот-кошелёк', icon: 'account_balance_wallet', color: '#10B981',
-    blurb: 'Telegram-кошелёк для клиентов',
-    about: 'Бот для клиентов: проверить баланс, бонусы и депозит прямо в Telegram.',
+    id: 'wallet_bot', name: 'Бот My Titan', icon: 'account_balance_wallet', color: '#10B981',
+    blurb: 'Telegram-бот клиентов',
+    about: 'Бот для клиентов: вход в My Titan, баланс, бонусы и депозит прямо в Telegram.',
     kind: 'keys',
     fields: [{ key: 'wallet_bot_token', label: 'Токен бота', type: 'password', placeholder: '123456:ABC-DEF…', hint: 'В @BotFather создайте бота → скопируйте токен.' }],
   },

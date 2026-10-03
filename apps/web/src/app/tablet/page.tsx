@@ -118,7 +118,7 @@ function TabletGate({ onReady }: { onReady: (sp: TabletSpace) => void }) {
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '48px 40px', overflowY: 'auto' }}>
         <div style={{ textAlign: 'center', marginBottom: 40 }}>
           <h1 style={{ fontSize: 30, fontWeight: 900, textTransform: 'uppercase', margin: '0 0 8px', background: 'linear-gradient(135deg, #8B5CF6, #4cd7f6)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
-            TITAN HUB
+            TITAN HOME
           </h1>
           <p style={{ fontSize: 16, color: 'var(--on-surface-variant)', margin: 0 }}>Выберите пространство</p>
         </div>

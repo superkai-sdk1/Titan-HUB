@@ -13,7 +13,7 @@ import { colors } from '@/lib/theme';
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
 /**
- * Привязка Telegram клиента: гость сканирует QR или открывает ссылку, бот кошелька
+ * Привязка Telegram клиента: гость сканирует QR или открывает ссылку, бот My Titan
  * связывает свой аккаунт с профилем. Ссылка подписанная и живёт 15 минут.
  */
 export default function ClientTelegramSheet() {
@@ -29,7 +29,7 @@ export default function ClientTelegramSheet() {
   const linked = accounts.data ?? [];
 
   const unlink = (tgId: string, username: string | null) =>
-    Alert.alert(`Отвязать ${username ? `@${username}` : 'Telegram'}?`, 'Клиент перестанет получать уведомления и лишится доступа в Titan Resident с этого аккаунта.', [
+    Alert.alert(`Отвязать ${username ? `@${username}` : 'Telegram'}?`, 'Клиент перестанет получать уведомления и лишится доступа в My Titan с этого аккаунта.', [
       { text: 'Отмена', style: 'cancel' },
       {
         text: 'Отвязать',

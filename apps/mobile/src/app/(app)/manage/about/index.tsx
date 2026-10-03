@@ -30,7 +30,7 @@ const MODULE_LABELS: Record<string, string> = {
   certificates: 'Сертификаты',
   discounts: 'Скидки и бонусы',
   platega: 'Приём оплат по СБП',
-  residents: 'Titan Resident',
+  residents: 'My Titan',
   booking: 'Онлайн-бронирование',
   polls: 'Опросы',
 };

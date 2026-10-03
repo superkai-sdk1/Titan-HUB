@@ -58,7 +58,7 @@ function getMinioClient() {
 }
 
 export const uploadRouter = new Hono<AppEnv>()
-// Любой авторизованный пользователь (в т.ч. клиент в Titan Resident — загрузка
+// Любой авторизованный пользователь (в т.ч. клиент в My Titan — загрузка
 // аватара). Жёстко ограничено: только изображения ≤2 МБ, тип сверяется по байтам.
 uploadRouter.use('*', requireAuth)
 

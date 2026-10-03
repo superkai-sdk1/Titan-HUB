@@ -658,7 +658,7 @@ export default function PricingPage() {
           {spaceEditing && isOwner && (
             <>
               <Button fullWidth variant="secondary" icon="tablet_mac" loading={genPair.isPending} onClick={() => genPair.mutate(spaceEditing.id)}>
-                Код привязки планшета
+                Код привязки Titan Home
               </Button>
               <Button fullWidth variant="danger" icon="delete" onClick={() => setConfirmDelSpace(spaceEditing.id)}>Удалить зону</Button>
             </>
@@ -716,7 +716,7 @@ export default function PricingPage() {
               {pairCode.code}
             </div>
             <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: 0, textAlign: 'center' }}>
-              Откройте на планшете <code style={{ background: 'rgba(255,255,255,0.06)', padding: '2px 6px', borderRadius: 4 }}>titanpos.ru/tablet</code> и введите код.
+              Откройте Titan Home на планшете — <code style={{ background: 'rgba(255,255,255,0.06)', padding: '2px 6px', borderRadius: 4 }}>{window.location.host}/tablet</code> — и введите код.
               <br />Действителен ещё {Math.floor(pairCountdown / 60)}:{String(pairCountdown % 60).padStart(2, '0')}
             </p>
             <button onClick={() => setPairCode(null)} style={{ width: '100%', padding: '12px 0', borderRadius: 12, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.04)', color: 'var(--on-surface)', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>

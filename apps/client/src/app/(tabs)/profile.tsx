@@ -55,7 +55,7 @@ export default function ProfileScreen() {
     if (on) {
       const perm = await pushPermission();
       if (perm === 'denied') {
-        Alert.alert('Уведомления выключены в системе', 'Разрешите уведомления для Titan Resident в настройках телефона.', [
+        Alert.alert('Уведомления выключены в системе', 'Разрешите уведомления для My Titan в настройках телефона.', [
           { text: 'Отмена', style: 'cancel' },
           { text: 'Открыть настройки', onPress: () => void Linking.openSettings() },
         ]);
@@ -130,7 +130,7 @@ export default function ProfileScreen() {
           </Group>
 
           <Button title={demo ? 'Выйти из демо' : 'Выйти'} variant="danger" icon="log-out-outline" onPress={confirmLogout} style={{ marginTop: space.xxl }} />
-          <Text style={styles.version}>Titan Resident {Constants.expoConfig?.version ?? ''}</Text>
+          <Text style={styles.version}>My Titan {Constants.expoConfig?.version ?? ''}</Text>
         </>
       )}
     </Screen>

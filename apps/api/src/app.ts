@@ -177,9 +177,9 @@ app.use('/api/discounts/*', requireModule('discounts'))
 app.use('/api/analytics/*', requireModule('analytics'))
 
 app.route('/api/auth', authRouter)
-// Клиентское приложение Titan Resident: сводка, лента, сборы, уведомления, push.
+// Клиентское приложение My Titan: сводка, лента, сборы, уведомления, push.
 app.route('/api/resident', residentRouter)
-// Рассылки клиентам из панели (лента приложения + push + бот кошелька).
+// Рассылки клиентам из панели (лента приложения + push + бот My Titan).
 app.route('/api/client-broadcasts', broadcastRouter)
 app.route('/api/pos', posRouter)
 app.route('/api/shifts', shiftsRouter)

@@ -182,7 +182,7 @@ function RecipientsSection({ picked, onChange }: { picked: string[]; onChange: (
   const toggle = (c: RecipientRow) => onChange(set.has(c.id) ? picked.filter((id) => id !== c.id) : [...picked, c.id]);
 
   return (
-    <Section title={`Получатели · отмечено ${picked.length}`} footer={<Text>Значки справа: приложение Titan Resident и привязанный Telegram.</Text>}>
+    <Section title={`Получатели · отмечено ${picked.length}`} footer={<Text>Значки справа: приложение My Titan и привязанный Telegram.</Text>}>
       <SearchRow placeholder="Ник или имя" onChange={setQuery} />
       <Toggle label="Только с приложением" isOn={onlyApp} onIsOnChange={setOnlyApp} />
       {shown.length > 0 && (

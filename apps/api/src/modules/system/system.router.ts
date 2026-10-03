@@ -246,7 +246,7 @@ systemRouter.post('/restore-upload', requireAuth, requireRole('owner'), async (c
 // Любой key вне списка → 400 (никаких записей произвольных ключей в таблицу).
 const INTEGRATION_KEYS: Record<string, string> = {
   admin_bot_token: 'Токен админ-бота Telegram',
-  wallet_bot_token: 'Токен бота-кошелька Telegram',
+  wallet_bot_token: 'Токен Telegram-бота My Titan',
   ai_api_key: 'API-ключ TITAN AI',
   platega_merchant_id: 'Platega: Merchant ID',
   platega_secret: 'Platega: секретный ключ',

@@ -269,7 +269,7 @@ plategaRouter.post('/webhook', async (c) => {
 
   // db уже выбран выше: БД клуба (если payload нёс clubId) либо c.var.db (легаси/оператор).
 
-  // Онлайн-платёж клиента из Titan Resident (payload = resident_payments.id):
+  // Онлайн-платёж клиента из My Titan (payload = resident_payments.id):
   // погашение долга / депозит / Фонд клуба. Применяется идемпотентно, чек не трогаем.
   const [residentRow] = await db.select({ id: residentPayments.id }).from(residentPayments).where(eq(residentPayments.id, checkId)).limit(1)
   if (residentRow) {

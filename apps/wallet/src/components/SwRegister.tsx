@@ -2,7 +2,7 @@
 import { useEffect } from 'react'
 
 /**
- * Регистрация Service Worker для Titan Resident.
+ * Регистрация Service Worker для My Titan.
  *
  * Воркер лежит в public/ и отдаётся по basePath: /residents/sw.js, скоуп — /residents/.
  * Регистрируем только в браузере и только в проде (в dev/turbopack SW мешает HMR).

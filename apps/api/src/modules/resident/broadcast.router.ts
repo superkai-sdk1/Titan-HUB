@@ -1,6 +1,6 @@
 /**
- * Рассылки клиентам из панели: лента в приложении Titan Resident + push +
- * (по желанию) сообщение от бота кошелька.
+ * Рассылки клиентам из панели: лента в приложении My Titan + push +
+ * (по желанию) сообщение от бота My Titan.
  *
  * Права: владелец — любая аудитория; сотрудник — только выбранным клиентам
  * (написать конкретному человеку), массовые рассылки — за владельцем.
@@ -45,7 +45,7 @@ const Audience = z.object({
 type AudienceInput = z.infer<typeof Audience>
 
 // Клиенты клуба — как в списке клиентов кассы: владельцы и сотрудники тоже играют
-// и входят в Titan Resident, поэтому получают рассылки наравне со всеми.
+// и входят в My Titan, поэтому получают рассылки наравне со всеми.
 const CLIENT_ROLES = ['client', 'staff', 'owner'] as const
 const clientBase = () => and(inArray(profiles.role, CLIENT_ROLES), isNull(profiles.deletedAt))
 

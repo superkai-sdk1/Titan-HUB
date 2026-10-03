@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Сборка Release APK и установка Titan Resident на подключённый Android-телефон или планшет.
+# Сборка Release APK и установка My Titan на подключённый Android-телефон или планшет.
 #
 #   npm run android:device             — первое подключённое устройство
 #   npm run android:device -- <SERIAL> — конкретное (список: adb devices)
@@ -96,4 +96,4 @@ echo "› Устанавливаю на $DEVICE"
 adb -s "$DEVICE" install -r "$APK"
 PKG=$(node -p "require('./app.json').expo.android.package")
 adb -s "$DEVICE" shell monkey -p "$PKG" -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1 || true
-echo "✓ Titan Resident установлен"
+echo "✓ My Titan установлен"

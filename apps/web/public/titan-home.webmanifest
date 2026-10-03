@@ -1,0 +1,17 @@
+{
+  "id": "/tablet",
+  "name": "Titan Home",
+  "short_name": "Titan Home",
+  "description": "Меню и касса самообслуживания",
+  "lang": "ru",
+  "start_url": "/tablet",
+  "scope": "/tablet",
+  "display": "standalone",
+  "background_color": "#15121b",
+  "theme_color": "#15121b",
+  "icons": [
+    { "src": "/titan-home/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/titan-home/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/titan-home/icon-512-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

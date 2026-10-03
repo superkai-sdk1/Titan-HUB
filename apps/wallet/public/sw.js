@@ -1,5 +1,5 @@
 /**
- * Titan Resident — Service Worker (офлайн-оболочка + заготовка Web Push)
+ * My Titan — Service Worker (офлайн-оболочка + заготовка Web Push)
  *
  * Контекст: consumer-PWA `apps/wallet` собран с basePath `/residents`
  * (см. next.config.ts). Файл отдаётся как /residents/sw.js, поэтому максимальный
@@ -23,7 +23,7 @@
  * этого ждём команду {type:'SKIP_WAITING'} от клиента (см. SwRegister.tsx),
  * а клиент перезагружается по событию controllerchange.
  */
-const CACHE_VERSION = 'rv1'
+const CACHE_VERSION = 'rv2'
 const STATIC_CACHE = `resident-static-${CACHE_VERSION}`
 const RUNTIME_CACHE = `resident-runtime-${CACHE_VERSION}`
 
@@ -126,7 +126,7 @@ self.addEventListener('push', (event) => {
   } catch (e) {
     payload = {}
   }
-  const title = payload.title || 'Titan Resident'
+  const title = payload.title || 'My Titan'
   const body = payload.body || ''
   // url приходит относительным/абсолютным; по умолчанию — корень PWA c basePath.
   const url = payload.url || `${BASE}/`

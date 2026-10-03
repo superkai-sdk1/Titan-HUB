@@ -1,6 +1,6 @@
 'use client'
 /**
- * Блок «Меню на экране ТВ» (вкладка «Заведение»): ссылка на /menu для AbleSign и
+ * Блок «Titan Menu — меню на экране ТВ» (вкладка «Заведение»): ссылка на /menu для AbleSign и
  * выбор темы оформления экрана. Тема хранится в app_settings.menu_screen_theme и
  * уходит на экран вместе с публичным меню — ТВ переключается сам (≤20 с), ссылку
  * в плеере менять не нужно. Миниатюры — public/tv-themes/<тема>.jpg.
@@ -70,7 +70,7 @@ export function ScreenThemeConfig() {
         <div style={{ width: 32, height: 32, borderRadius: 10, background: 'rgba(139,92,246,0.14)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <Icon name="tv" size={16} color="#a78bfa" />
         </div>
-        <span style={{ ...LBL, color: '#a78bfa' }}>Меню на экране ТВ</span>
+        <span style={{ ...LBL, color: '#a78bfa' }}>Titan Menu — меню на экране ТВ</span>
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>

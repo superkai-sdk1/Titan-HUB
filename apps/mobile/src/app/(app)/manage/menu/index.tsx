@@ -93,7 +93,7 @@ export default function MenuAdminScreen() {
                     icon={categorySymbol(category.icon)}
                     color={categoryHex(category.color)}
                     title={category.name}
-                    subtitle={category.id !== 'none' && category.isTabletVisible === false ? 'скрыта с планшета' : undefined}
+                    subtitle={category.id !== 'none' && category.isTabletVisible === false ? 'скрыта в Titan Home' : undefined}
                     value={String(counts.get(category.id) ?? 0)}
                     onPress={() => router.push({ pathname: '/manage/menu/[categoryId]', params: { categoryId: category.id, name: category.name } })}
                   />

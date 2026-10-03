@@ -107,7 +107,7 @@ export default function ClientsPage() {
   const [dbSearch, setDbSearch] = useState('')
   const [showCreate, setShowCreate] = useState(false)
   const [selected, setSelected] = useState<any>(null)
-  // Личное уведомление клиенту (приложение Titan Resident).
+  // Личное уведомление клиенту (приложение My Titan).
   const [notifyOpen, setNotifyOpen] = useState(false)
   const [mode, setMode] = useState<'view' | 'edit'>('view')
   const [tab, setTab] = useState<'info' | 'tx'>('info')

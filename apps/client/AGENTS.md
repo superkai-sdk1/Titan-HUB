@@ -4,7 +4,7 @@ Read the exact versioned docs at https://docs.expo.dev/versions/v57.0.0/ before 
 
 ## Приложение
 
-Titan Resident — клиентское приложение клуба (iOS + Android): бонусы, депозит/долг, история, оплата через СБП, уведомления. Полное описание — `docs/CLIENT_APP.md` в корне репозитория.
+My Titan — клиентское приложение клуба (iOS + Android): бонусы, депозит/долг, история, оплата через СБП, уведомления. Полное описание — `docs/CLIENT_APP.md` в корне репозитория.
 
 - Оформление фирменное тёмное (как веб-кошелёк `apps/wallet`) и ОДИНАКОВОЕ на обеих платформах: цвета из `src/lib/theme.ts`, без PlatformColor, SwiftUI и слоя совместимости `apps/mobile`.
 - Нативные папки `ios/` и `android/` не хранятся в git — они генерируются `npx expo prebuild` из `app.json` и `plugins/`.

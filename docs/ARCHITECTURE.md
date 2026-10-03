@@ -3,7 +3,8 @@
 
 ## Обзор системы
 
-Titan HUB — PWA-кассовая система для игрового клуба/антикафе. Покрывает весь жизненный
+Titan HUB — PWA-кассовая система для игрового клуба/антикафе (продукты экосистемы — Titan HUB,
+My Titan, Titan Home, Titan Menu — перечислены в README, раздел «Продукты»). Покрывает весь жизненный
 цикл посещения: открытие чека → продажа товаров и аренда зон → начисление бонусов → оплата
 различными способами → закрытие чека. Параллельно ведёт складской учёт по принципу
 immutable ledger, управляет клиентскими депозитами и долгами, сменами и кассой, лояльностью,
@@ -27,9 +28,9 @@ AI-ответов. MinIO — объектное хранилище для изо
 ├── apps/
 │   ├── api/                ← бэкенд (Hono, Node)
 │   ├── web/                ← PWA-фронтенд (Next.js App Router, standalone)
-│   ├── wallet/             ← Telegram WebApp кошелёк клиента (Next.js, basePath /wallet)
+│   ├── wallet/             ← My Titan: веб-версия и Telegram WebApp (Next.js, basePath /residents)
 │   ├── bot-admin/          ← Telegram-бот персонала (уведомления, команды)
-│   └── bot-wallet/         ← Telegram-бот клиентов (баланс, история)
+│   └── bot-wallet/         ← Telegram-бот My Titan (вход, баланс, история)
 ├── packages/
 │   ├── database/           ← Drizzle ORM: схема, клиент, экспорт db + операторов
 │   ├── auth/               ← хелперы: JWT (signToken/verifyToken), PIN, пароль, Telegram

@@ -18,7 +18,7 @@ export function BonusesTab() {
   const [onDebt, setOnDebt] = useState(false)
   const [birthdayEnabled, setBirthdayEnabled] = useState(false)
   const [birthdayAmount, setBirthdayAmount] = useState('0')
-  const [hideInWallet, setHideInWallet] = useState(false) // скрыть бонусы у клиентов в Titan Resident
+  const [hideInWallet, setHideInWallet] = useState(false) // скрыть бонусы у клиентов в My Titan
   const [saved, setSaved] = useState(false)
 
   const { data } = useQuery<{ settings: Record<string, string> }>({
@@ -105,7 +105,7 @@ export function BonusesTab() {
         </div>
       </div>
 
-      {/* Показ бонусов в Titan Resident (независимо от начисления) */}
+      {/* Показ бонусов в My Titan (независимо от начисления) */}
       <div className="glass-l2" style={{ borderRadius: 18, padding: 20, display: 'flex', flexDirection: 'column', gap: 12 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -117,7 +117,7 @@ export function BonusesTab() {
               <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: 0, lineHeight: 1.5 }}>
                 {hideInWallet
                   ? 'Бонусы скрыты — у клиентов на карточке «Скоро тут появятся бонусы».'
-                  : 'Клиенты видят свой бонусный баланс в Titan Resident.'}
+                  : 'Клиенты видят свой бонусный баланс в My Titan.'}
               </p>
             </div>
           </div>

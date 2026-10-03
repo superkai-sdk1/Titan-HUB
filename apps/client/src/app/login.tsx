@@ -1,4 +1,4 @@
-// Вход через Telegram-бота кошелька (@titanwalletrobot).
+// Вход через Telegram-бота My Titan (@titanwalletrobot).
 // 1) Сервер выдаёт одноразовый вход (ticket + код + диплинк на бота).
 // 2) Приложение открывает Telegram: бот спрашивает «Войти на устройстве …?».
 // 3) Пока клиент подтверждает, приложение опрашивает статус и получает токен.
@@ -118,7 +118,7 @@ export default function LoginScreen() {
         </Animated.View>
 
         <Animated.View entering={FadeInDown.delay(120).duration(500)} style={{ marginTop: space.xxl }}>
-          <Text style={styles.kicker}>TITAN RESIDENT</Text>
+          <Text style={styles.kicker}>MY TITAN</Text>
           <Text style={[type.title, { marginTop: 6 }]}>Кошелёк клуба{'\n'}в вашем телефоне</Text>
         </Animated.View>
 
@@ -129,7 +129,7 @@ export default function LoginScreen() {
               <Text style={[type.headline, { flex: 1 }]}>Подтвердите вход в Telegram</Text>
             </View>
             <Text style={[type.callout, { color: colors.textSecondary, marginTop: 8 }]}>
-              Бот @{bot} прислал запрос «Вход в Titan Resident» — нажмите «Да, войти» и вернитесь сюда.
+              Бот @{bot} прислал запрос «Вход в My Titan» — нажмите «Да, войти» и вернитесь сюда.
             </Text>
             <Button title="Открыть Telegram" variant="telegram" icon="paper-plane" size="md" style={{ marginTop: space.lg }}
               onPress={() => login.deepLink && void openTelegram(login.deepLink)} />
