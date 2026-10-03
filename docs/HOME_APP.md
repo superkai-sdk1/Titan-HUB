@@ -59,7 +59,7 @@
 
 `POST /pos/checks/:id/feedback {rating 1–5, tags[], comment?}` — только закрытый чек своей зоны, в течение 6 часов после закрытия; повторная отправка перезаписывает (`guest_feedback`, уникальный `check_id`). Оценка ≤ 3★ или с комментарием → уведомление персоналу типа `guest_feedback` (отключается в настройках уведомлений). Владелец видит отзывы в аналитике: вкладка «Отзывы» (`GET /analytics/feedback?from&to` — средняя, распределение, теги, лента).
 
-## Серверные изменения (миграция 065)
+## Серверные изменения (миграция 066)
 
 - `guest_feedback` — оценки; `spaces.smart_home jsonb` — устройства Home Assistant зоны.
 - `POST /auth/tablet-refresh`, `GET/PUT /pos/tablet/smart-home`, `POST /pos/checks/:id/feedback`, `GET /analytics/feedback`.

@@ -20,7 +20,7 @@ export const spaces = pgTable('spaces', {
   isActive: boolean('is_active').notNull().default(true),
   // Показывать почасовую ставку на экране меню для ТВ (/menu) — миграция 064.
   isScreenVisible: boolean('is_screen_visible').notNull().default(true),
-  // Устройства Home Assistant в зоне (панель «Свет и климат» в Titan Home) — миграция 065.
+  // Устройства Home Assistant в зоне (панель «Свет и климат» в Titan Home) — миграция 066.
   smartHome: jsonb('smart_home').$type<SpaceSmartHome>(),
 })
 

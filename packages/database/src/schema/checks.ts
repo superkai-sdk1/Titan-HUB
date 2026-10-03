@@ -128,7 +128,7 @@ export const chatMessages = pgTable('chat_messages', {
 })
 
 // Оценка вечера гостем на планшете Titan Home (после оплаты/закрытия счёта).
-// Одна на чек (уникальный check_id). См. 065_guest_feedback.sql.
+// Одна на чек (уникальный check_id). См. 066_titan_home.sql.
 export const guestFeedback = pgTable('guest_feedback', {
   id: uuid('id').primaryKey().defaultRandom(),
   checkId: uuid('check_id')
