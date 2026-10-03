@@ -92,17 +92,22 @@ body { color: #f3eef8; font-family: Inter, 'Helvetica Neue', Arial, sans-serif; 
 .cell .rule { background: rgba(255,255,255,.35); }
 .cell .nm { color: #fff; font-weight: 600; }
 .cell .dt { border-bottom-color: rgba(255,255,255,.5); }
-/* Панель ленты: тарифы/кабинки ↔ реклама, смена — переворотом по горизонтальной оси. */
-.slot { position: relative; -webkit-flex: none; flex: none; -webkit-perspective: 140em; perspective: 140em; }
-.flip { position: relative; width: 100%; height: 100%; -webkit-transform-style: preserve-3d; transform-style: preserve-3d;
-  -webkit-transition: -webkit-transform .95s cubic-bezier(.45,.05,.2,1); transition: transform .95s cubic-bezier(.45,.05,.2,1); }
-.face { position: absolute; top: 0; left: 0; width: 100%; height: 100%; -webkit-backface-visibility: hidden; backface-visibility: hidden; }
-.face-b { -webkit-transform: rotateX(180deg); transform: rotateX(180deg); }
+/* Панель ленты: тарифы/кабинки ↔ реклама. Смена — «переворот» по горизонтальной оси,
+   но только 2D (scaleY): 3D-поворот (rotateX/preserve-3d/backface) плеер AbleSign
+   рисует с артефактами и не в размер. Панель сжимается к средней линии, содержимое
+   меняется, панель раскрывается обратно. */
+.slot { position: relative; -webkit-flex: none; flex: none; }
+.flip { position: relative; width: 100%; height: 100%;
+  -webkit-transition: -webkit-transform .5s cubic-bezier(.25,.46,.45,.94), opacity .5s ease-out; transition: transform .5s cubic-bezier(.25,.46,.45,.94), opacity .5s ease-out; }
+.flip.shut { -webkit-transform: scaleY(.01); transform: scaleY(.01); opacity: .35;
+  -webkit-transition: -webkit-transform .42s cubic-bezier(.55,.06,.68,.19), opacity .42s ease-in; transition: transform .42s cubic-bezier(.55,.06,.68,.19), opacity .42s ease-in; }
+.face { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
 .face > .band { height: 100%; box-sizing: border-box; }
 .band.still { -webkit-animation: none; animation: none; }
 .ad-img { background: #0b0810; }
-.ad-fill { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background-size: cover; background-position: center; opacity: .35; }
-.ad-img img { position: relative; display: block; width: 100%; height: 100%; object-fit: contain; }
+.ad-fill, .ad-pic { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background-position: center; background-repeat: no-repeat; }
+.ad-fill { -webkit-background-size: cover; background-size: cover; opacity: .35; }
+.ad-pic { -webkit-background-size: contain; background-size: contain; }
 .adc { width: 100%; box-sizing: border-box; display: -webkit-flex; display: flex; -webkit-align-items: center; align-items: center; padding: .8em 1em; }
 .adc-qr { -webkit-flex: none; flex: none; margin-right: 1.1em; padding: .35em; border-radius: .45em; background: #fff; box-sizing: border-box; }
 .adc-qr svg { display: block; width: 100%; height: 100%; }
@@ -891,7 +896,9 @@ html.t-halloween, .t-halloween body { background: #0b0712; }
     var fs = 'font-size:' + (p.bandFont || p.font) + 'px';
     if (sl.kind === 'image') {
       var url = esc(String(sl.imageUrl).replace(/'/g, '%27'));
-      return '<div class="band still ad-img" style="' + fs + '"><div class="ad-fill" style="background-image:url(\'' + url + '\')"></div><img src="' + url + '" alt=""></div>';
+      // Без <img> и object-fit: фон с background-size одинаково вписывается в любом WebView.
+      var bg = ' style="background-image:url(\'' + url + '\')"';
+      return '<div class="band still ad-img" style="' + fs + '"><div class="ad-fill"' + bg + '></div><div class="ad-pic"' + bg + '></div></div>';
     }
     var f = p.bandFont || p.font;
     var qr = sl.qrSvg ? '<div class="adc-qr" style="width:' + Math.round(slotH - 1.6 * f) + 'px;height:' + Math.round(slotH - 1.6 * f) + 'px">' + sl.qrSvg + '</div>' : '';
@@ -904,8 +911,9 @@ html.t-halloween, .t-halloween body { background: #0b0712; }
   function clearSlot() { slotTimers.forEach(function (t) { clearTimeout(t); }); slotTimers = []; }
   function preload(item) { if (item && item.kind === 'image' && item.imageUrl) { var im = new Image(); im.src = item.imageUrl; } }
 
-  // Панель внизу: лента ↔ слайды по кругу. Следующее содержимое кладём на скрытую
-  // грань и поворачиваем панель на 180° — меню над ней не шевелится.
+  // Панель внизу: лента ↔ слайды по кругу. Панель сжимается к средней линии (.shut),
+  // в сжатом виде меняем содержимое и раскрываем — меню над ней не шевелится.
+  var SHUT_MS = 430;
   function renderSlot(p, sp, k, mode) {
     clearSlot();
     var slides = (state.data && state.data.slides) || [];
@@ -914,36 +922,36 @@ html.t-halloween, .t-halloween body { background: #0b0712; }
     slides.forEach(function (sl) { items.push(sl); });
     if (!items.length) return '';
     var html = items[0].kind === 'band' ? bandHtml(p, sp, k, mode === 'enter') : '';
-    return '<div class="slot" id="slot"><div class="flip" id="flip"><div class="face face-a" id="face-a" style="position:relative">' + html +
-      '</div><div class="face face-b" id="face-b"></div></div></div>';
+    return '<div class="slot" id="slot"><div class="flip" id="flip"><div class="face" id="face" style="position:relative">' + html +
+      '</div></div></div>';
   }
 
   function startSlot(p, sp, k) {
-    var slot = $('slot'), flip = $('flip'), faceA = $('face-a'), faceB = $('face-b');
+    var slot = $('slot'), flip = $('flip'), face = $('face');
     if (!slot) return;
     var slides = (state.data && state.data.slides) || [];
     var items = [];
     if (sp.band.length) items.push({ kind: 'band' });
     slides.forEach(function (sl) { items.push(sl); });
-    // Высота панели — по ленте (или резерв под рекламу без ленты); дальше грани абсолютные.
-    var h = sp.band.length ? faceA.offsetHeight : Math.round(state.geo.avail * 0.24 * 0.86);
+    // Высота панели — по ленте (или резерв под рекламу без ленты); дальше грань абсолютная.
+    var h = sp.band.length ? face.offsetHeight : Math.round(state.geo.avail * 0.24 * 0.86);
     slot.style.height = h + 'px';
-    faceA.style.position = '';
-    if (!sp.band.length) faceA.innerHTML = slideHtml(items[0], p, h);
+    face.style.position = '';
+    if (!sp.band.length) face.innerHTML = slideHtml(items[0], p, h);
     if (items.length < 2) return;
     var bandSec = Math.max(5, Number(state.data.bandSec) || 20);
     var dur = function (it) { return it.kind === 'band' ? bandSec * 1000 : Math.max(3, Number(it.durationSec) || 10) * 1000; };
     var step = 0;
     function next() {
       var nxt = items[(step + 1) % items.length];
-      var hidden = step % 2 === 0 ? faceB : faceA;
-      hidden.innerHTML = nxt.kind === 'band' ? bandHtml(p, sp, k, false) : slideHtml(nxt, p, h);
-      step++;
-      var t = 'rotateX(' + (-180 * step) + 'deg)';
-      flip.style.webkitTransform = t;
-      flip.style.transform = t;
-      preload(items[(step + 1) % items.length]);
-      slotTimers.push(setTimeout(next, dur(nxt)));
+      flip.className = 'flip shut';
+      slotTimers.push(setTimeout(function () {
+        face.innerHTML = nxt.kind === 'band' ? bandHtml(p, sp, k, false) : slideHtml(nxt, p, h);
+        flip.className = 'flip';
+        step++;
+        preload(items[(step + 1) % items.length]);
+        slotTimers.push(setTimeout(next, dur(nxt)));
+      }, SHUT_MS));
     }
     preload(items[1]);
     slotTimers.push(setTimeout(next, dur(items[0])));
