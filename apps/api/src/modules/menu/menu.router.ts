@@ -2,7 +2,7 @@ import type { AppEnv } from '../../types.js'
 import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
-import { menuCategories, inventory, modifiers, spaces, appSettings, eq, and, asc, desc, isNull, inArray } from '@titan/database'
+import { menuCategories, inventory, modifiers, spaces, appSettings, screenSlides, eq, and, asc, desc, isNull, inArray } from '@titan/database'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
 
 const CategorySchema = z.object({
@@ -95,6 +95,23 @@ menuRouter.delete('/categories/:id', requireAuth, requireRole('owner'), async (c
 // Темы экрана меню (public/tv-menu.html); выбирает владелец в «Настройках» → menu_screen_theme.
 const SCREEN_THEMES = ['night', 'neon', 'deco', 'synth', 'avant', 'dossier', 'halloween']
 
+// QR для карточек рекламы: SVG по ссылке, с небольшим кэшем (экраны опрашивают меню
+// раз в 20 с — пересобирать один и тот же QR незачем).
+const qrCache = new Map<string, string>()
+async function qrSvg(url: string): Promise<string | null> {
+  const hit = qrCache.get(url)
+  if (hit) return hit
+  try {
+    const QRCode = await import('qrcode')
+    const svg = await QRCode.toString(url, { type: 'svg', margin: 1, errorCorrectionLevel: 'M', color: { dark: '#111111', light: '#ffffff' } })
+    if (qrCache.size > 100) qrCache.clear()
+    qrCache.set(url, svg)
+    return svg
+  } catch {
+    return null
+  }
+}
+
 // Публичное меню для экранов (/menu — AbleSign/ТВ), без авторизации, клуб по Host.
 // Гостю — простые названия и понятный порядок: сначала «Игровой вечер» (тарифы) и
 // «Кабинки» (почасовая аренда зон) по возрастанию цены, затем разделы меню в порядке
@@ -112,7 +129,7 @@ menuRouter.get('/public', async (c) => {
     db.select({ name: spaces.name, type: spaces.type, hourlyRate: spaces.hourlyRate })
       .from(spaces).where(and(eq(spaces.isActive, true), eq(spaces.isScreenVisible, true))),
     db.select({ key: appSettings.key, value: appSettings.value }).from(appSettings)
-      .where(inArray(appSettings.key, ['venue_name', 'menu_screen_theme'])),
+      .where(inArray(appSettings.key, ['venue_name', 'menu_screen_theme', 'menu_screen_band_sec'])),
   ])
   const setting = (key: string) => settingRows.find((r) => r.key === key)?.value || null
 
@@ -161,11 +178,87 @@ menuRouter.get('/public', async (c) => {
   sections.push(...menuSections)
 
   const theme = setting('menu_screen_theme')
+  const bandSec = Math.min(300, Math.max(5, Number(setting('menu_screen_band_sec')) || 20))
+
+  // Реклама в области ленты: включённые слайды по порядку, у карточек со ссылкой — QR.
+  const slideRows = await db.select().from(screenSlides)
+    .where(eq(screenSlides.isActive, true)).orderBy(asc(screenSlides.sortOrder), asc(screenSlides.createdAt))
+  const slides = []
+  for (const sl of slideRows) {
+    if (sl.kind === 'image' && !sl.imageUrl) continue
+    if (sl.kind === 'card' && !sl.title && !sl.body && !sl.linkUrl) continue
+    slides.push({
+      kind: sl.kind,
+      imageUrl: sl.kind === 'image' ? sl.imageUrl : null,
+      title: sl.kind === 'card' ? sl.title : null,
+      body: sl.kind === 'card' ? sl.body : null,
+      qrSvg: sl.kind === 'card' && sl.linkUrl ? await qrSvg(sl.linkUrl) : null,
+      durationSec: sl.durationSec,
+    })
+  }
+
   return c.json({
     clubName: setting('venue_name'),
     theme: theme && SCREEN_THEMES.includes(theme) ? theme : 'night',
+    bandSec,
+    slides,
     sections,
   })
+})
+
+// ── Реклама на экране меню: слайды (правит владелец в «Настройках» HUB) ─────
+const httpUrl = z.string().trim().max(1000).url().refine((u) => /^https?:\/\//i.test(u), 'Нужна ссылка http(s)')
+const SlideSchema = z.object({
+  kind: z.enum(['image', 'card']),
+  imageUrl: httpUrl.nullable().optional(),
+  title: z.string().trim().max(80).nullable().optional(),
+  body: z.string().trim().max(240).nullable().optional(),
+  linkUrl: httpUrl.nullable().optional(),
+  durationSec: z.number().int().min(3).max(120).default(10),
+  isActive: z.boolean().default(true),
+})
+
+menuRouter.get('/slides', requireAuth, requireRole('owner', 'staff'), async (c) => {
+  const db = c.var.db
+  const slides = await db.select().from(screenSlides).orderBy(asc(screenSlides.sortOrder), asc(screenSlides.createdAt))
+  return c.json({ slides })
+})
+
+menuRouter.post('/slides', requireAuth, requireRole('owner'), zValidator('json', SlideSchema), async (c) => {
+  const db = c.var.db
+  const body = c.req.valid('json')
+  if (body.kind === 'image' && !body.imageUrl) return c.json({ error: 'Нужна картинка' }, 400)
+  const [last] = await db.select({ sortOrder: screenSlides.sortOrder }).from(screenSlides).orderBy(desc(screenSlides.sortOrder)).limit(1)
+  const [slide] = await db.insert(screenSlides).values({ ...body, sortOrder: (last?.sortOrder ?? -1) + 1 }).returning()
+  return c.json({ slide }, 201)
+})
+
+// Порядок — ДО /slides/:id, иначе 'reorder' поймался бы как id.
+menuRouter.patch('/slides/reorder', requireAuth, requireRole('owner'), zValidator('json', z.object({
+  items: z.array(z.object({ id: z.string().uuid(), sortOrder: z.number().int() })),
+})), async (c) => {
+  const db = c.var.db
+  const { items } = c.req.valid('json')
+  await db.transaction(async (tx) => {
+    for (const { id, sortOrder } of items) {
+      await tx.update(screenSlides).set({ sortOrder, updatedAt: new Date() }).where(eq(screenSlides.id, id))
+    }
+  })
+  return c.json({ ok: true })
+})
+
+menuRouter.patch('/slides/:id', requireAuth, requireRole('owner'), zValidator('json', SlideSchema.partial()), async (c) => {
+  const db = c.var.db
+  const body = c.req.valid('json')
+  const [slide] = await db.update(screenSlides).set({ ...body, updatedAt: new Date() }).where(eq(screenSlides.id, c.req.param('id'))).returning()
+  if (!slide) return c.json({ error: 'Not found' }, 404)
+  return c.json({ slide })
+})
+
+menuRouter.delete('/slides/:id', requireAuth, requireRole('owner'), async (c) => {
+  const db = c.var.db
+  await db.delete(screenSlides).where(eq(screenSlides.id, c.req.param('id')))
+  return c.json({ ok: true })
 })
 
 // Items

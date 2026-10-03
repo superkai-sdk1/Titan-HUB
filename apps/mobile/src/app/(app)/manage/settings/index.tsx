@@ -139,6 +139,10 @@ export default function SettingsScreen() {
             <LinkRow icon="star.bubble" color="#FF9500" title="Отзывы гостей" subtitle="Яндекс Карты, 2ГИС" onPress={() => router.push('/manage/settings/reviews')} />
           </Section>
 
+          <Section title="Titan Menu" footer={<Text>Меню клуба на телевизоре: тема оформления и реклама вместо ленты тарифов.</Text>}>
+            <LinkRow icon="tv" color="#8B5CF6" title="Меню на экране ТВ" subtitle="Тема, реклама, ссылка для AbleSign" onPress={() => router.push('/manage/settings/screen')} />
+          </Section>
+
           <Section footer={<Text>Ключи интеграций вводятся в веб-панели — там их безопаснее хранить и проверять.</Text>}>
             <LinkRow
               icon="puzzlepiece.extension"

@@ -16,6 +16,7 @@ import { TaiChatConfig } from './TaiChatConfig'
 import { ReviewsConfig } from './ReviewsConfig'
 import { BookingConfig } from './BookingConfig'
 import { ScreenThemeConfig } from './ScreenThemeConfig'
+import { ScreenAdsConfig } from './ScreenAdsConfig'
 
 function SectionCard({ title, icon, color, children }: { title: string; icon: string; color: string; children: React.ReactNode }) {
   return (
@@ -213,6 +214,9 @@ export default function SettingsPage() {
 
                   {/* Titan Menu — меню на экране ТВ (/menu, AbleSign): ссылка и выбор темы. */}
                   <ScreenThemeConfig />
+
+                  {/* Реклама на экране ТВ: слайды вместо ленты тарифов (переворот панели). */}
+                  <ScreenAdsConfig />
                 </>
               )}
 

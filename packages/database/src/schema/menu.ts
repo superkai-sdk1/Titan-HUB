@@ -84,6 +84,23 @@ export const tariffs = pgTable('tariffs', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 })
 
+// Реклама на экране меню (/menu): слайды в области ленты тарифов (миграция 065).
+// kind: 'image' — картинка image_url; 'card' — заголовок/текст и QR по link_url.
+export const screenSlides = pgTable('screen_slides', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  kind: text('kind').$type<'image' | 'card'>().notNull().default('image'),
+  imageUrl: text('image_url'),
+  title: text('title'),
+  body: text('body'),
+  linkUrl: text('link_url'),
+  durationSec: integer('duration_sec').notNull().default(10),
+  isActive: boolean('is_active').notNull().default(true),
+  sortOrder: integer('sort_order').notNull().default(0),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+})
+
+export type ScreenSlide = typeof screenSlides.$inferSelect
 export type MenuCategory = typeof menuCategories.$inferSelect
 export type NewMenuCategory = typeof menuCategories.$inferInsert
 export type InventoryItem = typeof inventory.$inferSelect

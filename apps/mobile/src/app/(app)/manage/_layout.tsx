@@ -94,6 +94,8 @@ export default function ManageLayout() {
       <Stack.Screen name="settings/booking" options={formHeader({ title: 'Онлайн-бронирование' })} />
       <Stack.Screen name="settings/reviews" options={formHeader({ title: 'Отзывы гостей' })} />
       <Stack.Screen name="settings/integrations" options={formHeader({ title: 'Интеграции' })} />
+      <Stack.Screen name="settings/screen" options={formHeader({ title: 'Titan Menu' })} />
+      <Stack.Screen name="settings/screen-slide" options={editorModal} />
 
       <Stack.Screen name="polls/index" options={formHeader({ title: 'Опросы' })} />
       <Stack.Screen name="polls/edit" options={editorModal} />
