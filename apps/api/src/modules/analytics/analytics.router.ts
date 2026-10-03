@@ -293,6 +293,17 @@ async function netBreakdown(database: Database, start: Date, end: Date, expFrom:
   }
 }
 
+// ─── Текущий бизнес-день ───────────────────────────────────────────────────────
+// Единый источник «сегодня» для клиентов: дата бизнес-дня по часам сервера и
+// настройке business_day_start_hour. Клиент строит от неё все пресеты периода —
+// иначе часы/часовой пояс телефона или незагруженная настройка дают календарную дату.
+analyticsRouter.get('/business-day', async (c) => {
+  const h = await getBusinessDayStartHour(c.var.db)
+  const today = bizDayStr(0, h)
+  const { start, end } = bizDayBounds(today, h)
+  return c.json({ businessDay: today, startHour: h, start: start.toISOString(), end: end.toISOString() })
+})
+
 // ─── Dashboard ───────────────────────────────────────────────────────────────
 analyticsRouter.get('/dashboard', async (c) => {
   const db = c.var.db

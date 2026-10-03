@@ -4,6 +4,7 @@ import { create } from 'zustand';
 import { api, ApiError } from './api';
 import { useClubKey } from './queries';
 import { currentBusinessDay, useBusinessDayStartHour } from './salary-api';
+import { useNow } from './use-now';
 import type { NumericString } from './types';
 
 /**
@@ -58,10 +59,28 @@ export const formatDay = (key: string, long = false) => (long ? longDay : shortD
 
 export type ResolvedPeriod = { from: string; to: string; days: number; label: string; preset: PeriodPreset; today: string };
 
+/**
+ * Текущий бизнес-день по серверу — единый источник «сегодня» для веба и приложения.
+ * Пока ответа нет (или он устарел, например восстановлен из кэша на диске), считаем сами.
+ */
+function useServerBusinessDay(): string | null {
+  const club = useClubKey();
+  const query = useQuery({
+    queryKey: [club, 'analytics', 'business-day'],
+    queryFn: () => api.get<{ businessDay: string; startHour: number }>('/analytics/business-day'),
+    staleTime: 60_000,
+    refetchInterval: 60_000,
+  });
+  const now = useNow(60_000);
+  const fresh = query.dataUpdatedAt > now - 10 * 60_000;
+  return fresh ? (query.data?.businessDay ?? null) : null;
+}
+
 export function useAnalyticsPeriod(): ResolvedPeriod {
   const startHour = useBusinessDayStartHour();
+  const serverDay = useServerBusinessDay();
   const { preset, customFrom, customTo } = useAnalyticsPeriodStore();
-  const today = currentBusinessDay(startHour);
+  const today = serverDay ?? currentBusinessDay(startHour);
   let from = today;
   let to = today;
   switch (preset) {

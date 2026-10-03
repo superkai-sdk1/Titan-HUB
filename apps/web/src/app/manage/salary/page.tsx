@@ -43,9 +43,20 @@ export default function SalaryPage() {
   const role = useAuthStore(s => s.user?.role)
   const isOwner = role === 'owner'
   const [selectedStaffId, setSelectedStaffId] = useState('')
-  // Бизнес-день (09:00→06:00 МСК) — по умолчанию текущий. Зарплата выдаётся ежедневно.
+  // Бизнес-день по умолчанию — текущий (час начала дня — настройка клуба, дату даёт
+  // сервер). Зарплата выдаётся ежедневно; до ответа сервера считаем от 09:00.
   const todayBiz = new Date(Date.now() + 3 * 3600 * 1000 - 9 * 3600000).toISOString().split('T')[0]
   const [day, setDay] = useState(todayBiz)
+  const [dayTouched, setDayTouched] = useState(false)
+  const { data: bizDay } = useQuery({
+    queryKey: ['analytics', 'business-day'],
+    queryFn: () => api.get<{ businessDay: string; startHour: number }>('/analytics/business-day'),
+    enabled: isOwner,
+    staleTime: 60_000,
+  })
+  useEffect(() => {
+    if (bizDay?.businessDay && !dayTouched) setDay(bizDay.businessDay)
+  }, [bizDay?.businessDay, dayTouched])
   // Сумма к выплате: '' → берём авторасчёт за день; иначе — ручное значение.
   const [amount, setAmount] = useState('')
   const [note, setNote] = useState('')
@@ -151,7 +162,7 @@ export default function SalaryPage() {
 
             <div>
               <label style={LBL}>Бизнес-день</label>
-              <input type="date" value={day} max={todayBiz} onChange={e => setDay(e.target.value)} style={INP} />
+              <input type="date" value={day} max={bizDay?.businessDay ?? todayBiz} onChange={e => { setDayTouched(true); setDay(e.target.value) }} style={INP} />
             </div>
 
             {/* Выручка клуба за бизнес-день (без мероприятий) — авто */}

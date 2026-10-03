@@ -119,9 +119,10 @@ function getRange(range: ReportRange, from: string, to: string): [string, string
 }
 
 // ─── Глобальный фильтр периода ────────────────────────────────────────────────
-// Единый селектор периода. Даты — по БИЗНЕС-ДНЯМ МСК (09:00→06:00): «Сегодня» — это
-// текущий бизнес-день, а не календарные сутки. from/to (YYYY-MM-DD) шлём в
-// /analytics/overview, где они разворачиваются в окно [from 09:00, to+1 09:00).
+// Единый селектор периода. Даты — по БИЗНЕС-ДНЯМ МСК: «Сегодня» — это текущий
+// бизнес-день, а не календарные сутки. Якорь «сегодня» и час начала дня берём с
+// сервера (/analytics/business-day, настройка business_day_start_hour); from/to
+// (YYYY-MM-DD) шлём в /analytics/*, где они разворачиваются в [from h:00, to+1 h:00).
 type PeriodPreset = 'today' | 'yesterday' | '7d' | '30d' | 'month' | 'custom'
 const PERIOD_OPTS: { key: PeriodPreset; label: string }[] = [
   { key: 'today', label: 'Сегодня' },
@@ -132,17 +133,39 @@ const PERIOD_OPTS: { key: PeriodPreset; label: string }[] = [
   { key: 'custom', label: 'Период' },
 ]
 const MSK_OFFSET = 3 * 3600 * 1000
-function mskBizDay(daysAgo = 0): string {
-  return new Date(Date.now() + MSK_OFFSET - 9 * 3600000 - daysAgo * 86400000).toISOString().split('T')[0]
+// Запасной расчёт, пока сервер не ответил: тот же сдвиг, что в bizDayStr на сервере.
+function localBizDay(startHour: number): string {
+  return new Date(Date.now() + MSK_OFFSET - startHour * 3600000).toISOString().split('T')[0]
 }
-function periodRange(preset: PeriodPreset, cf: string, ct: string): { from: string; to: string } {
+function addDaysStr(day: string, delta: number): string {
+  const d = new Date(`${day}T12:00:00Z`)
+  d.setUTCDate(d.getUTCDate() + delta)
+  return d.toISOString().split('T')[0]
+}
+/** Текущий бизнес-день и час его начала — по серверу, единые для веба и приложения. */
+function useBusinessDay(): { today: string; startHour: number } {
+  const { data } = useQuery({
+    queryKey: ['analytics', 'business-day'],
+    queryFn: () => api.get<{ businessDay: string; startHour: number }>('/analytics/business-day'),
+    staleTime: 60_000,
+    refetchInterval: 60_000,
+  })
+  const startHour = data?.startHour ?? 9
+  return { today: data?.businessDay ?? localBizDay(startHour), startHour }
+}
+/** «07:00 → 07:00»: окно бизнес-дня для подписей. */
+function bizHoursLabel(startHour: number): string {
+  const hh = `${String(startHour).padStart(2, '0')}:00`
+  return `${hh} → ${hh}`
+}
+function periodRange(preset: PeriodPreset, cf: string, ct: string, today: string): { from: string; to: string } {
   switch (preset) {
-    case 'today': return { from: mskBizDay(0), to: mskBizDay(0) }
-    case 'yesterday': return { from: mskBizDay(1), to: mskBizDay(1) }
-    case '7d': return { from: mskBizDay(6), to: mskBizDay(0) }
-    case '30d': return { from: mskBizDay(29), to: mskBizDay(0) }
-    case 'month': { const m = new Date(Date.now() + MSK_OFFSET).toISOString().slice(0, 7); return { from: `${m}-01`, to: mskBizDay(0) } }
-    case 'custom': return { from: cf || mskBizDay(6), to: ct || mskBizDay(0) }
+    case 'today': return { from: today, to: today }
+    case 'yesterday': return { from: addDaysStr(today, -1), to: addDaysStr(today, -1) }
+    case '7d': return { from: addDaysStr(today, -6), to: today }
+    case '30d': return { from: addDaysStr(today, -29), to: today }
+    case 'month': return { from: `${today.slice(0, 7)}-01`, to: today }
+    case 'custom': return { from: cf || addDaysStr(today, -6), to: ct || today }
   }
 }
 function periodLabel(preset: PeriodPreset, from: string, to: string): string {
@@ -169,8 +192,9 @@ function usePeriod() {
   useEffect(() => {
     try { localStorage.setItem('analytics:period', JSON.stringify({ preset, customFrom, customTo })) } catch { /* ignore */ }
   }, [preset, customFrom, customTo])
-  const { from, to } = periodRange(preset, customFrom, customTo)
-  return { preset, setPreset, customFrom, setCustomFrom, customTo, setCustomTo, from, to, label: periodLabel(preset, from, to) }
+  const { today, startHour } = useBusinessDay()
+  const { from, to } = periodRange(preset, customFrom, customTo, today)
+  return { preset, setPreset, customFrom, setCustomFrom, customTo, setCustomTo, from, to, startHour, label: periodLabel(preset, from, to) }
 }
 
 function PeriodSelector({ p }: { p: ReturnType<typeof usePeriod> }) {
@@ -510,8 +534,9 @@ function PlayerDetailModal({ player, onClose }: { player: any; onClose: () => vo
   )
 }
 
-// ─── Tab: Сегодня (бизнес-день 09:00–06:00) ────────────────────────────────────
+// ─── Tab: Сегодня (текущий бизнес-день) ────────────────────────────────────────
 function TodayTab({ businessDay }: { businessDay: string }) {
+  const { startHour } = useBusinessDay()
   const [modal, setModal] = useState<null | { title: string; subtitle?: string; b: NetBreak }>(null)
   const [openCheckId, setOpenCheckId] = useState<string | null>(null)
   const [openItem, setOpenItem] = useState<any | null>(null)
@@ -547,7 +572,7 @@ function TodayTab({ businessDay }: { businessDay: string }) {
   const avgCheck = parseNum(summary?.avgCheck)
   const commission = parseNum(summary?.commission)
 
-  const openBreak = (title: string) => { if (summary) setModal({ title, subtitle: `${bizDayLabel(businessDay)} · 09:00–06:00`, b: summary }) }
+  const openBreak = (title: string) => { if (summary) setModal({ title, subtitle: `${bizDayLabel(businessDay)} · ${bizHoursLabel(startHour)}`, b: summary }) }
   const totalPay = payBreakdown.reduce((s: number, p: any) => s + parseNum(p.total), 0)
 
   return (
@@ -556,7 +581,7 @@ function TodayTab({ businessDay }: { businessDay: string }) {
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <Icon name="today" size={16} color="#8B5CF6" />
         <span style={{ fontSize: 13, fontWeight: 700 }}>{bizDayLabel(businessDay)}</span>
-        <span style={{ fontSize: 11, color: 'rgba(204,195,216,0.45)' }}>· 09:00–06:00</span>
+        <span style={{ fontSize: 11, color: 'rgba(204,195,216,0.45)' }}>· {bizHoursLabel(startHour)}</span>
       </div>
 
       {/* Big cards — все кликабельны */}
@@ -660,6 +685,7 @@ function TodayTab({ businessDay }: { businessDay: string }) {
 
 // ─── Tab: Сводка (live overview) ──────────────────────────────────────────────
 function OverviewTab({ overview, periodText }: { overview: any; periodText: string }) {
+  const { startHour } = useBusinessDay()
   const [modal, setModal] = useState<null | { title: string; subtitle?: string; b: NetBreak }>(null)
 
   const cur = (overview?.current ?? {}) as NetBreak & { margin: number | null }
@@ -796,13 +822,13 @@ function OverviewTab({ overview, periodText }: { overview: any; periodText: stri
 
       {/* Бизнес-день (сегодня) — всегда отдельно */}
       {today && (
-        <div className="glass-l2" onClick={() => setModal({ title: 'Выручка · бизнес-день', subtitle: `${bizDayLabel(overview?.businessDay ?? '')} · 09:00–06:00`, b: today })}
+        <div className="glass-l2" onClick={() => setModal({ title: 'Выручка · бизнес-день', subtitle: `${bizDayLabel(overview?.businessDay ?? '')} · ${bizHoursLabel(startHour)}`, b: today })}
           style={{ borderRadius: 16, padding: 20, cursor: 'pointer' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
             <span style={{ ...LBL, margin: 0 }}>Сегодня · бизнес-день</span>
             <Icon name="chevron_right" size={16} color="rgba(204,195,216,0.4)" />
           </div>
-          <p style={{ fontSize: 11, color: 'rgba(204,195,216,0.45)', margin: '0 0 14px' }}>{bizDayLabel(overview?.businessDay ?? '')} · 09:00–06:00</p>
+          <p style={{ fontSize: 11, color: 'rgba(204,195,216,0.45)', margin: '0 0 14px' }}>{bizDayLabel(overview?.businessDay ?? '')} · {bizHoursLabel(startHour)}</p>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
             {[
               { label: 'Выручка', value: `${fmt(parseNum(today.gross))} ₽`, color: '#8B5CF6' },

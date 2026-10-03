@@ -32,14 +32,14 @@ export type SalaryEstimate = { day?: string; revenue: number; salary: number; st
 /** 700 ₽ до 7 000 ₽ выручки, дальше +100 ₽ за каждую начатую тысячу — как на сервере. */
 export const salaryFor = (revenue: number) => (revenue <= 7000 ? 700 : 700 + Math.ceil((revenue - 7000) / 1000) * 100);
 
-const mskHour = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Moscow', hour: '2-digit', hour12: false });
-const mskDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Moscow', year: 'numeric', month: '2-digit', day: '2-digit' });
+const MSK_OFFSET_MS = 3 * 3_600_000;
 
 /** Текущий бизнес-день клуба: до часа начала дня ещё идёт вчерашний. */
 export function currentBusinessDay(startHour: number): string {
-  const now = new Date();
-  const hour = Number(mskHour.format(now)) % 24;
-  return mskDate.format(hour < startHour ? new Date(now.getTime() - 86_400_000) : now);
+  // Как на сервере (bizDayStr): МСК — постоянные UTC+3, сдвигаем «сейчас» на +3 ч и назад
+  // на час начала дня. Без Intl: его формат часа в Hermes не гарантирован, а нечисло молча
+  // превращало «сегодня» в календарную дату.
+  return new Date(Date.now() + MSK_OFFSET_MS - startHour * 3_600_000).toISOString().slice(0, 10);
 }
 
 /** Час начала бизнес-дня из настроек клуба (общий кэш с настройками оплаты). */
