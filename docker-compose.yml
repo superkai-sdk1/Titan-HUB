@@ -89,6 +89,11 @@ services:
       SUPERADMIN_WEBAUTHN_ORIGIN: https://admin.titanpos.ru
       SUPERADMIN_WEBAUTHN_RP_ID: titanpos.ru
       REDIS_URL: redis://redis:6379
+      # Хранилище загрузок (MinIO) — соседний контейнер сервиса minio. В .env для
+      # локальной разработки стоит localhost: внутри контейнера API это пустой адрес,
+      # и любая загрузка картинки падала с ECONNREFUSED (500).
+      MINIO_ENDPOINT: minio
+      MINIO_PORT: "9000"
       # Бэкап/восстановление выполняются из API (кнопки в «О системе»).
       BACKUP_DIR: /backups
       RCLONE_CONFIG: /root/.config/rclone/rclone.conf

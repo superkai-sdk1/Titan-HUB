@@ -3,7 +3,11 @@ import { Hono } from 'hono'
 import { requireAuth } from '../../middleware/auth.js'
 import * as Minio from 'minio'
 
-const BUCKET = 'titan-uploads'
+// Бакет и публичный путь согласованы с nginx: location /media/ переписывает
+// /media/<файл> → minio:9000/titan-hub/<файл>. Раньше файлы клались в
+// 'titan-uploads', а ссылка строилась как /media/titan-uploads/<файл> — nginx
+// искал её в titan-hub и отдавал 404.
+const BUCKET = 'titan-hub'
 const MAX_UPLOAD_BYTES = 2 * 1024 * 1024
 // Только изображения. Расширение берём из MIME, не из имени файла (анти-подмена).
 // SVG не допускаем — может содержать активный скрипт.
@@ -97,9 +101,10 @@ uploadRouter.post('/image', async (c) => {
     // Content-Type из проверенного по байтам типа, а не из подделываемого заголовка.
     await client.putObject(BUCKET, objectName, buffer, buffer.length, { 'Content-Type': sniffedType })
 
-    const publicUrl = `${process.env['MINIO_PUBLIC_URL'] ?? 'http://localhost:9000'}/${BUCKET}/${objectName}`
+    const publicUrl = `${process.env['MINIO_PUBLIC_URL'] ?? 'http://localhost:9000'}/${objectName}`
     return c.json({ url: publicUrl })
   } catch (e: any) {
+    console.error('[upload] не удалось сохранить файл в MinIO:', e?.code ?? '', e?.message ?? e)
     return c.json({ error: e.message }, 500)
   }
 })
