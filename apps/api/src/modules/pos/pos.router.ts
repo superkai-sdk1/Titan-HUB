@@ -1178,6 +1178,33 @@ posRouter.put('/tablet/smart-home', requireRole('tablet'), zValidator('json', Sm
   return c.json({ room })
 })
 
+// ─── Кабинки на планшете: перенос и устройства всех кабинок (служебный токен) ──
+
+// GET /tablet/booths — все кабинки клуба с их устройствами умного дома. Только по
+// служебному токену сотрудника (роль 'tablet-staff', выдаётся после PIN на 15 мин).
+posRouter.get('/tablet/booths', requireRole('tablet-staff'), async (c) => {
+  const db = c.var.db
+  const rows = await db.select({ id: spaces.id, name: spaces.name, smartHome: spaces.smartHome })
+    .from(spaces).where(eq(spaces.isActive, true))
+  const booths = rows
+    .map((r) => ({ id: r.id, name: r.name, room: r.smartHome ?? { lights: [], climate: null } }))
+    .sort((a, b) => a.name.localeCompare(b.name, 'ru', { numeric: true }))
+  return c.json({ booths })
+})
+
+// PUT /tablet/booths/:spaceId/smart-home — устройства любой кабинки, не переходя к ней.
+posRouter.put('/tablet/booths/:spaceId/smart-home', requireRole('tablet-staff'), zValidator('json', SmartHomeSchema), async (c) => {
+  const db = c.var.db
+  const spaceId = c.req.param('spaceId')
+  if (!/^[0-9a-f-]{36}$/i.test(spaceId)) return c.json({ error: 'Кабинка не найдена' }, 404)
+  const room = c.req.valid('json')
+  const updated = await db.update(spaces).set({ smartHome: room })
+    .where(and(eq(spaces.id, spaceId), eq(spaces.isActive, true)))
+    .returning({ id: spaces.id })
+  if (!updated.length) return c.json({ error: 'Кабинка не найдена' }, 404)
+  return c.json({ room })
+})
+
 // ─── Оценка вечера гостем (Titan Home) ────────────────────────────────────────
 
 // Окно, в течение которого после закрытия счёта планшет может оставить оценку:

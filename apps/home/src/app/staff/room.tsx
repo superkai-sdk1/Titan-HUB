@@ -1,7 +1,8 @@
 // Устройства кабинки: сотрудник выбирает в Home Assistant до двух групп света и
 // кондиционер и подписывает их для гостя. Сохраняется на сервере в зоне.
+// ?spaceId= — любая кабинка клуба (экран «Кабинки»), без него — кабинка этого планшета.
 import { useQuery } from '@tanstack/react-query';
-import { Redirect, useRouter } from 'expo-router';
+import { Redirect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
 import { ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
@@ -9,9 +10,10 @@ import { Button, Icon, IconButton, Loader, Tap } from '@/components/ui';
 import { api, errorText } from '@/lib/api';
 import { toast } from '@/lib/flow';
 import { haGetStates, type HaEntity, useHa } from '@/lib/home-assistant';
-import { invalidate, useSmartHome } from '@/lib/queries';
+import { invalidate, useHost, useSmartHome } from '@/lib/queries';
 import { LIGHT_DOMAINS } from '@/lib/room';
-import { staffUnlocked, useStaff } from '@/lib/staff';
+import { useSession } from '@/lib/session';
+import { fetchBooths, saveBoothRoom, staffUnlocked, useStaff } from '@/lib/staff';
 import { colors, GUTTER, radius, space, type } from '@/lib/theme';
 import type { SmartDevice, SmartRoom } from '@/lib/types';
 
@@ -22,7 +24,14 @@ const domainOf = (id: string) => id.split('.')[0] ?? '';
 
 export default function RoomSetupScreen() {
   const router = useRouter();
+  const host = useHost();
+  const params = useLocalSearchParams<{ spaceId?: string }>();
+  const currentId = useSession((s) => s.space?.id ?? null);
+  const spaceId = params.spaceId && params.spaceId !== currentId ? params.spaceId : null;
   const smart = useSmartHome();
+  const booths = useQuery({ queryKey: [host, 'booths'], queryFn: fetchBooths, enabled: !!spaceId, staleTime: 10_000, retry: false });
+  const booth = spaceId ? (booths.data ?? []).find((b) => b.id === spaceId) : null;
+  const initial = spaceId ? booth?.room : smart.data?.room;
   const status = useHa((s) => s.status);
   const touch = useStaff((s) => s.touch);
   const states = useQuery({
@@ -39,24 +48,39 @@ export default function RoomSetupScreen() {
       <View style={styles.header}>
         <IconButton icon="arrow-left" label="Назад" onPress={() => router.back()} />
         <View style={{ flex: 1 }}>
-          <Text style={type.title}>Устройства кабинки</Text>
+          <Text style={type.title}>{booth ? `Устройства: ${booth.name}` : 'Устройства кабинки'}</Text>
           <Text style={type.caption}>Что гость увидит в панели «Свет и климат»</Text>
         </View>
       </View>
       {status !== 'connected' ? (
         <Loader label={status === 'auth_failed' ? 'Home Assistant не принял токен — проверьте его в Titan HUB → Интеграции' : status === 'offline' ? 'Нет связи с Home Assistant — проверьте адрес и Wi-Fi планшета' : 'Подключаемся к Home Assistant…'} />
-      ) : states.isLoading || !smart.data ? (
+      ) : spaceId && booths.isError ? (
+        <Loader label={errorText(booths.error)} />
+      ) : states.isLoading || !initial ? (
         <Loader label="Загружаем устройства…" />
       ) : states.isError ? (
         <Loader label={errorText(states.error)} />
       ) : (
-        <Editor key={JSON.stringify(smart.data.room)} initial={smart.data.room} entities={states.data ?? []} onTouch={touch} onSaved={() => router.back()} />
+        <Editor key={JSON.stringify(initial)} initial={initial} spaceId={spaceId} entities={states.data ?? []} onTouch={touch} onSaved={() => router.back()} />
       )}
     </View>
   );
 }
 
-function Editor({ initial, entities, onTouch, onSaved }: { initial: SmartRoom; entities: HaEntity[]; onTouch: () => void; onSaved: () => void }) {
+function Editor({
+  initial,
+  spaceId,
+  entities,
+  onTouch,
+  onSaved,
+}: {
+  initial: SmartRoom;
+  /** Чужая кабинка (служебный токен сотрудника); null — кабинка этого планшета. */
+  spaceId: string | null;
+  entities: HaEntity[];
+  onTouch: () => void;
+  onSaved: () => void;
+}) {
   const [lights, setLights] = useState<SmartDevice[]>(initial.lights);
   const [climate, setClimate] = useState<SmartDevice | null>(initial.climate);
   const [query, setQuery] = useState('');
@@ -87,8 +111,9 @@ function Editor({ initial, entities, onTouch, onSaved }: { initial: SmartRoom; e
     };
     setSaving(true);
     try {
-      await api.put('/pos/tablet/smart-home', room);
-      await invalidate('smart-home');
+      if (spaceId) await saveBoothRoom(spaceId, room);
+      else await api.put('/pos/tablet/smart-home', room);
+      await Promise.all([invalidate('smart-home'), invalidate('booths')]);
       toast('Устройства кабинки сохранены');
       onSaved();
     } catch (e) {

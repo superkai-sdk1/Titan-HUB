@@ -103,6 +103,7 @@ function Shell() {
             <Stack.Screen name="pay" />
             <Stack.Screen name="staff/index" />
             <Stack.Screen name="staff/room" options={{ animation: 'slide_from_right' }} />
+            <Stack.Screen name="staff/booths" options={{ animation: 'slide_from_right' }} />
           </Stack.Protected>
           <Stack.Protected guard={!signedIn}>
             <Stack.Screen name="setup" />

@@ -12,7 +12,7 @@ export const queryClient = new QueryClient({
 });
 
 /** Ключи с хостом клуба: данные разных клубов не смешиваются. */
-const useHost = () => useSession((s) => s.club?.host ?? '');
+export const useHost = () => useSession((s) => s.club?.host ?? '');
 const useSignedIn = () => useSession((s) => !!s.token && !!s.space);
 
 /**

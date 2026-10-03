@@ -22,6 +22,8 @@ interface RequestOptions {
   auth?: boolean;
   /** Хост клуба, если он ещё не сохранён (шаг выбора клуба). */
   host?: string;
+  /** Служебный токен сотрудника вместо tablet-токена (кабинки, перенос планшета). */
+  token?: string;
   timeoutMs?: number;
 }
 
@@ -48,7 +50,8 @@ export async function request<T>(path: string, opts: RequestOptions = {}): Promi
   const auth = opts.auth !== false;
   const headers: Record<string, string> = { Accept: 'application/json' };
   if (opts.body !== undefined) headers['Content-Type'] = 'application/json';
-  if (auth && session.token) headers.Authorization = `Bearer ${session.token}`;
+  const bearer = opts.token ?? session.token;
+  if (auth && bearer) headers.Authorization = `Bearer ${bearer}`;
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), opts.timeoutMs ?? 15_000);
@@ -69,6 +72,10 @@ export async function request<T>(path: string, opts: RequestOptions = {}): Promi
   useNetwork.getState().set(true);
 
   const data = await res.json().catch(() => null);
+  if ((res.status === 401 || res.status === 403) && opts.token) {
+    // Истёк служебный токен сотрудника — планшет не трогаем, просим PIN заново.
+    throw new ApiError(res.status, 'Подтвердите PIN сотрудника ещё раз', data);
+  }
   if (res.status === 401 && auth && session.token) {
     // Токен истёк, отозван или зону выключили — планшет просит PIN сотрудника.
     await useSession.getState().signOut();
@@ -82,7 +89,8 @@ export const api = {
   get: <T>(path: string, opts?: Omit<RequestOptions, 'method' | 'body'>) => request<T>(path, { ...opts, method: 'GET' }),
   post: <T>(path: string, body?: unknown, opts?: Omit<RequestOptions, 'method' | 'body'>) =>
     request<T>(path, { ...opts, method: 'POST', body }),
-  put: <T>(path: string, body?: unknown) => request<T>(path, { method: 'PUT', body }),
+  put: <T>(path: string, body?: unknown, opts?: Omit<RequestOptions, 'method' | 'body'>) =>
+    request<T>(path, { ...opts, method: 'PUT', body }),
 };
 
 export function errorText(e: unknown): string {

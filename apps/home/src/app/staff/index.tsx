@@ -101,7 +101,12 @@ function Panel() {
         <View style={styles.column}>
           <Section title="Планшет">
             <InfoRow icon="store-outline" label="Клуб" value={session.club?.name} />
-            <InfoRow icon="sofa-outline" label="Кабинка" value={session.space?.name} />
+            <ActionRow
+              icon="sofa-outline"
+              label={`Кабинка · ${session.space?.name ?? '—'}`}
+              hint="Перенести планшет в другую кабинку или настроить устройства любой из них"
+              onPress={() => { touch(); router.push('/staff/booths'); }}
+            />
             <InfoRow icon="account-tie" label="Подтвердил" value={staff ?? session.staff} />
             <InfoRow icon="tablet" label="Устройство" value={`${status.model} · Android ${status.androidVersion}`} />
             <InfoRow icon="information-outline" label="Версия" value={`${Application.nativeApplicationVersion ?? '—'} (${Application.nativeBuildVersion ?? '—'})`} />
@@ -160,7 +165,6 @@ function Panel() {
           </Section>
 
           <Section title="Сброс">
-            <ActionRow icon="swap-horizontal" label="Другая кабинка" tone={colors.amber} onPress={() => confirm('Перенести планшет?', 'Понадобится выбрать кабинку и ввести PIN.', 'Сменить', () => void session.setSpace(null))} />
             <ActionRow icon="logout" label="Другой клуб" tone={colors.amber} onPress={() => confirm('Отключить от клуба?', 'Планшет забудет клуб и кабинку.', 'Отключить', () => void forgetClubCompletely())} />
             {status.isDeviceOwner ? (
               <ActionRow

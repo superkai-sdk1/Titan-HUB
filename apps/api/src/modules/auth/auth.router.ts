@@ -23,6 +23,7 @@ import {
 } from '@simplewebauthn/server'
 import type { AuthenticatorTransportFuture } from '@simplewebauthn/server'
 import type { AppEnv } from '../../types.js'
+import type { Database } from '@titan/database'
 import { z } from 'zod'
 import { isoBase64URL, isoUint8Array } from '@simplewebauthn/server/helpers'
 import { randomInt, randomBytes } from 'node:crypto'
@@ -165,31 +166,71 @@ authRouter.post('/tablet-session', zValidator('json', z.object({
     }
     await redis.del(key)
 
-    // Один tablet-профиль на зону (переиспользуем; не плодим на каждый вход).
-    const existing = await db.select().from(profiles)
-      .where(and(eq(profiles.role, 'tablet'), eq(profiles.linkedSpaceId, spaceId), isNull(profiles.deletedAt)))
-      .limit(1)
-    let profile = existing[0]
-    if (!profile) {
-      const inserted = await db.insert(profiles).values({
-        nickname: `Планшет: ${space.name}`,
-        role: 'tablet',
-        linkedSpaceId: spaceId,
-      } as any).returning()
-      profile = inserted[0]
-    }
-    if (!profile) return c.json({ error: 'Не удалось создать сессию планшета' }, 500)
-
-    const token = await signToken({ sub: profile.id, role: 'tablet', nickname: profile.nickname, clubId: c.var.club?.id ?? null }, '30d')
-    return c.json({
-      token,
-      user: { id: profile.id, nickname: profile.nickname, role: 'tablet', photoUrl: profile.photoUrl, linkedSpaceId: spaceId },
-      space: { id: space.id, name: space.name },
-      staff: { id: staff.id, nickname: staff.nickname },
-    })
+    const session = await tabletSessionFor(db, space, staff, c.var.club?.id ?? null)
+    if (!session) return c.json({ error: 'Не удалось создать сессию планшета' }, 500)
+    return c.json(session)
   } finally {
     redis.disconnect()
   }
+})
+
+/**
+ * Служебный токен сотрудника на планшете (роль 'tablet-staff', 15 мин): выдаётся
+ * вместе с tablet-токеном после PIN. Им сотрудник переносит планшет в другую
+ * кабинку и настраивает устройства всех кабинок. Роль не принимает ни один
+ * маршрут кассы — только /auth/tablet-switch и /pos/tablet/booths*.
+ */
+const TABLET_STAFF_TTL = '15m'
+
+type StaffRef = { id: string; nickname: string }
+
+/** Сессия планшета зоны: один tablet-профиль на зону (переиспользуем, не плодим). */
+async function tabletSessionFor(db: Database, space: { id: string; name: string }, staff: StaffRef, clubId: string | null) {
+  const existing = await db.select().from(profiles)
+    .where(and(eq(profiles.role, 'tablet'), eq(profiles.linkedSpaceId, space.id), isNull(profiles.deletedAt)))
+    .limit(1)
+  let profile = existing[0]
+  if (!profile) {
+    const inserted = await db.insert(profiles).values({
+      nickname: `Планшет: ${space.name}`,
+      role: 'tablet',
+      linkedSpaceId: space.id,
+    } as any).returning()
+    profile = inserted[0]
+  }
+  if (!profile) return null
+
+  const token = await signToken({ sub: profile.id, role: 'tablet', nickname: profile.nickname, clubId }, '30d')
+  const staffToken = await signToken(
+    { sub: profile.id, role: 'tablet-staff', nickname: staff.nickname, clubId, staffId: staff.id } as Parameters<typeof signToken>[0],
+    TABLET_STAFF_TTL,
+  )
+  return {
+    token,
+    staffToken,
+    user: { id: profile.id, nickname: profile.nickname, role: 'tablet', photoUrl: profile.photoUrl, linkedSpaceId: space.id },
+    space: { id: space.id, name: space.name },
+    staff: { id: staff.id, nickname: staff.nickname },
+  }
+}
+
+// ── POST /auth/tablet-switch — сотрудник переносит планшет в другую кабинку ──
+// Без повторного PIN: по служебному токену, выданному при входе (15 мин). Планшет
+// получает tablet-токен новой зоны — и её устройства умного дома.
+authRouter.post('/tablet-switch', requireAuth, zValidator('json', z.object({ spaceId: z.string().uuid() })), async (c) => {
+  const user = c.get('user') as { role: string; nickname: string; staffId?: string }
+  if (user.role !== 'tablet-staff' || !user.staffId) return c.json({ error: 'Подтвердите PIN сотрудника' }, 403)
+  const db = c.var.db
+  const { spaceId } = c.req.valid('json')
+  const [space] = await db.select({ id: spaces.id, name: spaces.name })
+    .from(spaces).where(and(eq(spaces.id, spaceId), eq(spaces.isActive, true)))
+  if (!space) return c.json({ error: 'Кабинка не найдена' }, 404)
+  const [staff] = await db.select({ id: profiles.id, nickname: profiles.nickname }).from(profiles)
+    .where(and(eq(profiles.id, user.staffId), isNull(profiles.deletedAt), inArray(profiles.role, ['owner', 'staff'])))
+  if (!staff) return c.json({ error: 'Подтвердите PIN сотрудника' }, 403)
+  const session = await tabletSessionFor(db, space, staff, c.var.club?.id ?? null)
+  if (!session) return c.json({ error: 'Не удалось создать сессию планшета' }, 500)
+  return c.json(session)
 })
 
 // ── POST /auth/tablet-refresh — продление сессии киоска (приложение Titan Home) ──
