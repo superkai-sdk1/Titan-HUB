@@ -159,16 +159,28 @@ broadcastRouter.post('/', zValidator('json', Audience.extend({
 // Клиенты для выборочной отправки: у кого есть приложение и Telegram.
 broadcastRouter.get('/recipients', async (c) => {
   const db = c.var.db
-  const rows = await db.select({
-    id: profiles.id, nickname: profiles.nickname, fullName: profiles.fullName,
-    photoUrl: sql<string | null>`coalesce(${profiles.photoUrl}, ${profiles.tgPhotoUrl}, ${profiles.gomafiaPhotoUrl})`,
-    clientTier: profiles.clientTier,
-    hasTelegram: sql<boolean>`(${profiles.tgId} IS NOT NULL AND ${profiles.walletNotifyEnabled} IS NOT FALSE)`,
-    hasApp: sql<boolean>`EXISTS (SELECT 1 FROM app_devices d WHERE d.profile_id = ${profiles.id} AND d.app = 'client')`,
-  }).from(profiles)
-    .where(clientBase())
-    .orderBy(asc(sql`lower(${profiles.nickname})`))
-  return c.json({ clients: rows })
+  const [rows, devices] = await Promise.all([
+    db.select({
+      id: profiles.id, nickname: profiles.nickname, fullName: profiles.fullName,
+      photoUrl: profiles.photoUrl, tgPhotoUrl: profiles.tgPhotoUrl, gomafiaPhotoUrl: profiles.gomafiaPhotoUrl,
+      clientTier: profiles.clientTier, tgId: profiles.tgId, walletNotifyEnabled: profiles.walletNotifyEnabled,
+    }).from(profiles)
+      .where(clientBase())
+      .orderBy(asc(sql`lower(${profiles.nickname})`)),
+    // Отдельным запросом: коррелированный EXISTS со ссылкой на profiles.id drizzle
+    // рендерит без имени таблицы, и внутри подзапроса она указывала на app_devices.id.
+    db.selectDistinct({ profileId: appDevices.profileId }).from(appDevices).where(eq(appDevices.app, 'client')),
+  ])
+  const withApp = new Set(devices.map((d) => d.profileId))
+  return c.json({
+    clients: rows.map((r) => ({
+      id: r.id, nickname: r.nickname, fullName: r.fullName,
+      photoUrl: r.photoUrl ?? r.tgPhotoUrl ?? r.gomafiaPhotoUrl ?? null,
+      clientTier: r.clientTier,
+      hasTelegram: !!r.tgId && r.walletNotifyEnabled !== false,
+      hasApp: withApp.has(r.id),
+    })),
+  })
 })
 
 // Последние опросы чатов: сколько голосов у каждого варианта и сколько из них —
