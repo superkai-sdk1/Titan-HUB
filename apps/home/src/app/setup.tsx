@@ -9,6 +9,7 @@ import Animated, { FadeIn } from 'react-native-reanimated';
 import { PinPad } from '@/components/pin-pad';
 import { Button, Icon, Loader, Tap } from '@/components/ui';
 import { api, errorText } from '@/lib/api';
+import { forgetClubCompletely } from '@/lib/reset';
 import { normalizeClubHost, type Space, useSession } from '@/lib/session';
 import { verifyStaffPin } from '@/lib/staff';
 import { brandGradient, colors, radius, space, type } from '@/lib/theme';
@@ -129,7 +130,7 @@ function SpaceStep() {
           {spaces.data?.length === 0 ? <Text style={type.body}>В клубе нет активных пространств.</Text> : null}
         </ScrollView>
       )}
-      <Button title="Другой клуб" variant="ghost" size="md" icon="swap-horizontal" onPress={() => void useSession.getState().forgetClub()} style={{ alignSelf: 'flex-start' }} />
+      <Button title="Другой клуб" variant="ghost" size="md" icon="swap-horizontal" onPress={() => void forgetClubCompletely()} style={{ alignSelf: 'flex-start' }} />
     </Animated.View>
   );
 }

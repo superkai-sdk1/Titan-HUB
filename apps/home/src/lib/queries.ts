@@ -1,4 +1,5 @@
 import { QueryClient, useQuery } from '@tanstack/react-query';
+import * as SecureStore from 'expo-secure-store';
 
 import { api } from './api';
 import { useSession } from './session';
@@ -99,13 +100,39 @@ export function useChat(checkId: string | null) {
   });
 }
 
+// Последняя конфигурация умного дома хранится на планшете: панель «Свет и климат»
+// работает, даже если сервер Titan недоступен (связь с HA идёт напрямую по LAN).
+const SMART_HOME_KEY = 'titan.home.smart-home';
+let smartHomeCache: SmartHomeConfig | undefined;
+
+export async function hydrateSmartHome() {
+  try {
+    const raw = await SecureStore.getItemAsync(SMART_HOME_KEY);
+    smartHomeCache = raw ? (JSON.parse(raw) as SmartHomeConfig) : undefined;
+  } catch {
+    smartHomeCache = undefined;
+  }
+}
+
+export async function clearSmartHomeCache() {
+  smartHomeCache = undefined;
+  await SecureStore.deleteItemAsync(SMART_HOME_KEY).catch(() => {});
+}
+
 export function useSmartHome() {
   const host = useHost();
   const signedIn = useSignedIn();
   return useQuery({
     queryKey: [host, 'smart-home'],
-    queryFn: () => api.get<SmartHomeConfig>('/pos/tablet/smart-home'),
+    queryFn: async () => {
+      const config = await api.get<SmartHomeConfig>('/pos/tablet/smart-home');
+      smartHomeCache = config;
+      await SecureStore.setItemAsync(SMART_HOME_KEY, JSON.stringify(config)).catch(() => {});
+      return config;
+    },
     enabled: signedIn,
+    initialData: () => smartHomeCache,
+    initialDataUpdatedAt: 0,
     staleTime: 5 * 60_000,
     refetchInterval: 15 * 60_000,
     retry: false,

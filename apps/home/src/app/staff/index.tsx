@@ -7,9 +7,10 @@ import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { PinPad } from '@/components/pin-pad';
 import { ActionRow, InfoRow, Section, Segments, ToggleRow } from '@/components/staff-ui';
 import { Button, IconButton } from '@/components/ui';
-import { useHa } from '@/lib/home-assistant';
+import { kickHa, useHa } from '@/lib/home-assistant';
 import { usePrefs } from '@/lib/prefs';
 import { queryClient, useSmartHome } from '@/lib/queries';
+import { forgetClubCompletely } from '@/lib/reset';
 import { useSession } from '@/lib/session';
 import { useStaff, verifyStaffPin } from '@/lib/staff';
 import { colors, GUTTER, space, type } from '@/lib/theme';
@@ -140,8 +141,11 @@ function Panel() {
         </View>
 
         <View style={styles.column}>
-          <Section title="Свет и климат" footer="Адрес и токен Home Assistant задаются в Titan HUB: «Управление» → «Настройки» → «Интеграции». Здесь выбираются устройства этой кабинки.">
+          <Section title="Свет и климат" footer="Адрес и долгосрочный токен Home Assistant вбиваются в Titan HUB: «Управление» → «Настройки» → «Интеграции». Планшет сам подключается к HA по локальной сети и держит связь постоянно — это делает фоновый сервис Android, даже когда экран свёрнут, и после перезагрузки. Здесь выбираются устройства этой кабинки.">
             <InfoRow icon="home-automation" label="Home Assistant" value={smart.data?.connection ? ha.text : 'Не подключён'} tone={smart.data?.connection ? ha.tone : colors.textMuted} />
+            {smart.data?.connection && haStatus !== 'connected' ? (
+              <ActionRow icon="refresh" label="Переподключить" hint="Не ждать следующей попытки" onPress={() => { touch(); kickHa(); }} />
+            ) : null}
             <ActionRow icon="lightbulb-group-outline" label="Устройства кабинки" hint={roomText} onPress={() => { touch(); router.push('/staff/room'); }} disabled={!smart.data?.connection} />
             <ToggleRow icon="power-sleep" label="Выключать после счёта" hint="Когда счёт закрыт — погасить свет и выключить кондиционер" value={prefs.roomAutoOff} onChange={(v) => void act(() => prefs.update({ roomAutoOff: v }))} />
           </Section>
@@ -157,7 +161,7 @@ function Panel() {
 
           <Section title="Сброс">
             <ActionRow icon="swap-horizontal" label="Другая кабинка" tone={colors.amber} onPress={() => confirm('Перенести планшет?', 'Понадобится выбрать кабинку и ввести PIN.', 'Сменить', () => void session.setSpace(null))} />
-            <ActionRow icon="logout" label="Другой клуб" tone={colors.amber} onPress={() => confirm('Отключить от клуба?', 'Планшет забудет клуб и кабинку.', 'Отключить', () => void session.forgetClub())} />
+            <ActionRow icon="logout" label="Другой клуб" tone={colors.amber} onPress={() => confirm('Отключить от клуба?', 'Планшет забудет клуб и кабинку.', 'Отключить', () => void forgetClubCompletely())} />
             {status.isDeviceOwner ? (
               <ActionRow
                 icon="shield-off-outline"

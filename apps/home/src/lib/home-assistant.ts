@@ -1,13 +1,18 @@
 import { create } from 'zustand';
 
+import { NativeHomeAssistant as native } from '../../modules/titan-ha';
+
 /**
- * Клиент Home Assistant по WebSocket API (`ws://<ha>:8123/api/websocket`).
+ * Home Assistant на планшете кабинки.
  *
- * Планшет и Home Assistant стоят в одной сети клуба: планшет ходит к HA напрямую
- * (адрес и токен берёт из интеграций клуба через /pos/tablet/smart-home).
- * Состояния приходят подпиской subscribe_entities — плитка света переключится,
- * даже если свет щёлкнули выключателем на стене. Обрыв — переподключение с
- * нарастающей паузой; неверный токен — без повторов (нужно исправить в интеграциях).
+ * Соединение держит нативный слой Android (модуль titan-ha, foreground-сервис):
+ * планшет сам, по локальной сети, подключается к HA долгосрочным токеном, адрес и
+ * токен которого вбиты в Titan HUB («Интеграции»). Связь не рвётся, когда экран
+ * свёрнут или перезапущен, переподнимается после перезагрузки планшета и при
+ * возврате Wi-Fi; адрес, токен и устройства хранятся на устройстве — сервер Titan
+ * для связи с HA не нужен.
+ *
+ * Здесь — только снимок состояния для экрана и команды.
  */
 
 export type HaEntity = { entity_id: string; state: string; attributes: Record<string, unknown> };
@@ -15,7 +20,30 @@ export type HaStatus = 'idle' | 'connecting' | 'connected' | 'auth_failed' | 'of
 
 type HaStore = { status: HaStatus; error: string | null; entities: Record<string, HaEntity> };
 
-export const useHa = create<HaStore>()(() => ({ status: 'idle', error: null, entities: {} }));
+type Snapshot = { status: HaStatus; error: string | null; entities: Record<string, HaEntity> };
+
+function parse(json: string | null | undefined): Snapshot | null {
+  if (!json) return null;
+  try {
+    return JSON.parse(json) as Snapshot;
+  } catch {
+    return null;
+  }
+}
+
+const initial = parse(native?.getSnapshot());
+
+export const useHa = create<HaStore>()(() => ({
+  status: initial?.status ?? 'idle',
+  error: initial?.error ?? null,
+  entities: initial?.entities ?? {},
+}));
+
+// Снимок приходит из натива на каждое изменение (состояние устройства, статус связи).
+native?.addListener('onChange', ({ snapshot }) => {
+  const s = parse(snapshot);
+  if (s) useHa.setState({ status: s.status, error: s.error, entities: s.entities });
+});
 
 /** «192.168.1.50» → «http://192.168.1.50:8123»; https-адреса — как есть. */
 export function normalizeHaUrl(input: string): string | null {
@@ -29,241 +57,31 @@ export function normalizeHaUrl(input: string): string | null {
   return `${scheme!.toLowerCase()}://${host}${p}${path ?? ''}`;
 }
 
-function wsUrl(url: string): string {
-  const base = (normalizeHaUrl(url) ?? url).replace(/^http/i, 'ws');
-  return `${base}/api/websocket`;
-}
-
-/** Сжатый формат subscribe_entities: a — полные состояния, c — изменения, r — удалённые. */
-type Compressed = { s?: string; a?: Record<string, unknown> };
-type EntitiesEvent = {
-  a?: Record<string, Compressed>;
-  c?: Record<string, { '+'?: Compressed; '-'?: { a?: string[] } }>;
-  r?: string[];
-};
-
-type Pending = { resolve: (v: unknown) => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout> };
-
-const RETRY_STEPS = [1000, 2000, 5000, 10_000, 20_000, 30_000];
-
-class HaClient {
-  private ws: WebSocket | null = null;
-  private seq = 1;
-  private pending = new Map<number, Pending>();
-  private subId: number | null = null;
-  private retry = 0;
-  private retryTimer: ReturnType<typeof setTimeout> | null = null;
-  private pingTimer: ReturnType<typeof setInterval> | null = null;
-  private pongTimer: ReturnType<typeof setTimeout> | null = null;
-  private stopped = false;
-
-  constructor(readonly url: string, readonly token: string, readonly entityIds: string[]) {}
-
-  get key() {
-    return `${this.url}|${this.token}|${this.entityIds.join(',')}`;
-  }
-
-  start() {
-    this.stopped = false;
-    this.open();
-  }
-
-  stop() {
-    this.stopped = true;
-    this.cleanup();
-    this.ws?.close();
-    this.ws = null;
-    useHa.setState({ status: 'idle', error: null });
-  }
-
-  /** Вернулись из фона/сети нет — пробуем сразу, без ожидания паузы. */
-  kick() {
-    if (this.stopped || this.ws || useHa.getState().status === 'auth_failed') return;
-    if (this.retryTimer) clearTimeout(this.retryTimer);
-    this.retryTimer = null;
-    this.retry = 0;
-    this.open();
-  }
-
-  private open() {
-    if (this.stopped) return;
-    useHa.setState({ status: useHa.getState().status === 'connected' ? 'connected' : 'connecting' });
-    let ws: WebSocket;
-    try {
-      ws = new WebSocket(wsUrl(this.url));
-    } catch {
-      this.scheduleReconnect();
-      return;
-    }
-    this.ws = ws;
-    ws.onmessage = (e) => {
-      try {
-        this.onMessage(JSON.parse(String(e.data)));
-      } catch {
-        /* битое сообщение — пропускаем */
-      }
-    };
-    ws.onclose = () => {
-      if (this.ws !== ws) return;
-      this.ws = null;
-      this.cleanup();
-      if (this.stopped || useHa.getState().status === 'auth_failed') return;
-      useHa.setState({ status: 'offline', error: 'Нет связи с Home Assistant' });
-      this.scheduleReconnect();
-    };
-    ws.onerror = () => {
-      /* следом придёт onclose */
-    };
-  }
-
-  private send(payload: Record<string, unknown>) {
-    this.ws?.send(JSON.stringify(payload));
-  }
-
-  private onMessage(msg: { type: string; id?: number; success?: boolean; result?: unknown; error?: { message?: string }; event?: unknown; message?: string }) {
-    switch (msg.type) {
-      case 'auth_required':
-        this.send({ type: 'auth', access_token: this.token });
-        break;
-      case 'auth_ok':
-        this.retry = 0;
-        useHa.setState({ status: 'connected', error: null });
-        this.subscribe();
-        this.startPing();
-        break;
-      case 'auth_invalid':
-        this.stopped = true;
-        useHa.setState({ status: 'auth_failed', error: 'Home Assistant не принял токен' });
-        this.ws?.close();
-        break;
-      case 'result': {
-        const p = msg.id != null ? this.pending.get(msg.id) : undefined;
-        if (!p || msg.id == null) break;
-        this.pending.delete(msg.id);
-        clearTimeout(p.timer);
-        if (msg.success) p.resolve(msg.result);
-        else p.reject(new Error(msg.error?.message || 'Home Assistant отклонил команду'));
-        break;
-      }
-      case 'event':
-        if (msg.id === this.subId) this.applyEntities(msg.event as EntitiesEvent);
-        break;
-      case 'pong':
-        if (this.pongTimer) clearTimeout(this.pongTimer);
-        this.pongTimer = null;
-        break;
-    }
-  }
-
-  private subscribe() {
-    if (!this.entityIds.length) return;
-    const id = this.seq++;
-    this.subId = id;
-    this.send({ id, type: 'subscribe_entities', entity_ids: this.entityIds });
-  }
-
-  private applyEntities(ev: EntitiesEvent) {
-    const next = { ...useHa.getState().entities };
-    for (const [id, s] of Object.entries(ev.a ?? {})) {
-      next[id] = { entity_id: id, state: s.s ?? 'unknown', attributes: s.a ?? {} };
-    }
-    for (const [id, diff] of Object.entries(ev.c ?? {})) {
-      const cur = next[id];
-      if (!cur) continue;
-      const attributes = { ...cur.attributes, ...(diff['+']?.a ?? {}) };
-      for (const key of diff['-']?.a ?? []) delete attributes[key];
-      next[id] = { ...cur, state: diff['+']?.s ?? cur.state, attributes };
-    }
-    for (const id of ev.r ?? []) delete next[id];
-    useHa.setState({ entities: next });
-  }
-
-  private startPing() {
-    if (this.pingTimer) clearInterval(this.pingTimer);
-    this.pingTimer = setInterval(() => {
-      if (!this.ws) return;
-      this.send({ id: this.seq++, type: 'ping' });
-      if (this.pongTimer) clearTimeout(this.pongTimer);
-      // Нет ответа — соединение «зависло» (Wi-Fi переподключился): рвём и открываем заново.
-      this.pongTimer = setTimeout(() => this.ws?.close(), 10_000);
-    }, 30_000);
-  }
-
-  private scheduleReconnect() {
-    if (this.stopped || this.retryTimer) return;
-    const delay = RETRY_STEPS[Math.min(this.retry, RETRY_STEPS.length - 1)]!;
-    this.retry += 1;
-    this.retryTimer = setTimeout(() => {
-      this.retryTimer = null;
-      this.open();
-    }, delay);
-  }
-
-  private cleanup() {
-    if (this.pingTimer) clearInterval(this.pingTimer);
-    if (this.pongTimer) clearTimeout(this.pongTimer);
-    if (this.retryTimer) clearTimeout(this.retryTimer);
-    this.pingTimer = null;
-    this.pongTimer = null;
-    this.retryTimer = null;
-    this.subId = null;
-    for (const p of this.pending.values()) {
-      clearTimeout(p.timer);
-      p.reject(new Error('Нет связи с Home Assistant'));
-    }
-    this.pending.clear();
-  }
-
-  request<T>(payload: Record<string, unknown>, timeoutMs = 10_000): Promise<T> {
-    if (!this.ws || useHa.getState().status !== 'connected') {
-      return Promise.reject(new Error('Нет связи с Home Assistant'));
-    }
-    const id = this.seq++;
-    return new Promise<T>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.pending.delete(id);
-        reject(new Error('Home Assistant не ответил'));
-      }, timeoutMs);
-      this.pending.set(id, { resolve: resolve as (v: unknown) => void, reject, timer });
-      this.send({ ...payload, id });
-    });
-  }
-}
-
-let client: HaClient | null = null;
-
-/** Подключиться (или переподключиться, если сменились адрес, токен или устройства). */
+/** Передать адрес, токен и устройства в натив; та же конфигурация связь не рвёт. */
 export function connectHa(url: string, token: string, entityIds: string[]) {
-  const next = new HaClient(url, token, [...entityIds].sort());
-  if (client?.key === next.key) {
-    client.kick();
-    return;
-  }
-  client?.stop();
-  useHa.setState({ entities: {} });
-  client = next;
-  client.start();
+  const normalized = normalizeHaUrl(url);
+  if (!native || !normalized) return;
+  native.configure(normalized, token.trim(), entityIds);
 }
 
+/** Home Assistant отключили в Titan HUB или планшет отвязали от клуба. */
 export function disconnectHa() {
-  client?.stop();
-  client = null;
-  useHa.setState({ entities: {} });
+  native?.stop();
 }
 
 export function kickHa() {
-  client?.kick();
+  native?.reconnect();
 }
 
 export function haCall(domain: string, service: string, entityId: string, data: Record<string, unknown> = {}) {
-  if (!client) return Promise.reject(new Error('Умный дом не подключён'));
-  return client.request({ type: 'call_service', domain, service, service_data: data, target: { entity_id: entityId } });
+  if (!native) return Promise.reject(new Error('Умный дом недоступен на этом устройстве'));
+  return native.callService(domain, service, entityId, JSON.stringify(data));
 }
 
 /** Все сущности HA — для выбора устройств кабинки в панели сотрудника. */
-export function haGetStates(): Promise<HaEntity[]> {
-  if (!client) return Promise.reject(new Error('Умный дом не подключён'));
-  return client.request<HaEntity[]>({ type: 'get_states' }, 20_000);
+export async function haGetStates(): Promise<HaEntity[]> {
+  if (!native) throw new Error('Умный дом недоступен на этом устройстве');
+  return JSON.parse(await native.getStates()) as HaEntity[];
 }
 
 /** Оптимистично показать результат команды до подтверждения от HA. */

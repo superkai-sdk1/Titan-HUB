@@ -6,28 +6,28 @@ import { useSmartHome } from './queries';
 import { roomEntityIds } from './room';
 
 /**
- * Держит связь с Home Assistant, пока планшет вошёл в клуб: адрес и токен — из
- * интеграций клуба, устройства — те, что сотрудник выбрал для этой кабинки.
- * Без устройств соединение всё равно поднимаем — оно нужно панели сотрудника,
- * чтобы показать список устройств HA.
+ * Передаёт нативному соединению с Home Assistant адрес и токен из Titan HUB и
+ * устройства этой кабинки. Само соединение живёт в Android-сервисе и сохраняет
+ * конфигурацию на планшете: если сервер Titan недоступен, связь с HA не рвётся.
+ * Отключаем только когда Home Assistant явно убрали из интеграций клуба.
+ * Без устройств соединение всё равно держим — нужно панели сотрудника.
  */
 export function useRoomConnection() {
-  const { data } = useSmartHome();
+  const { data, isSuccess } = useSmartHome();
   const url = data?.connection?.url ?? null;
   const token = data?.connection?.token ?? null;
   const ids = roomEntityIds(data?.room).join(',');
 
   useEffect(() => {
+    if (!isSuccess) return;
     if (!url || !token) {
       disconnectHa();
       return;
     }
     connectHa(url, token, ids ? ids.split(',') : []);
-  }, [url, token, ids]);
+  }, [isSuccess, url, token, ids]);
 
-  useEffect(() => () => disconnectHa(), []);
-
-  // Планшет просыпается/Wi-Fi вернулся — переподключаемся сразу, не дожидаясь паузы.
+  // Экран снова на переднем плане — если связи нет, пробуем сразу, не дожидаясь паузы.
   useEffect(() => {
     const sub = AppState.addEventListener('change', (s) => {
       if (s === 'active') kickHa();

@@ -16,7 +16,7 @@ import { api } from '@/lib/api';
 import { idleFor, markActivity } from '@/lib/activity';
 import { useCart } from '@/lib/cart';
 import { applyKioskWindow, usePrefs } from '@/lib/prefs';
-import { queryClient } from '@/lib/queries';
+import { hydrateSmartHome, queryClient } from '@/lib/queries';
 import { tokenRefreshDue, useSession } from '@/lib/session';
 import { useStaff } from '@/lib/staff';
 import { colors } from '@/lib/theme';
@@ -42,12 +42,14 @@ export default function RootLayout() {
 function Root() {
   const hydrated = useSession((s) => s.hydrated);
   const prefsLoaded = usePrefs((s) => s.loaded);
+  const [cacheLoaded, setCacheLoaded] = useState(false);
   const [fontsLoaded] = useFonts(MaterialCommunityIcons.font);
-  const ready = hydrated && prefsLoaded && fontsLoaded;
+  const ready = hydrated && prefsLoaded && cacheLoaded && fontsLoaded;
 
   useEffect(() => {
     void useSession.getState().hydrate();
     void usePrefs.getState().load();
+    void hydrateSmartHome().finally(() => setCacheLoaded(true));
   }, []);
 
   useEffect(() => {
