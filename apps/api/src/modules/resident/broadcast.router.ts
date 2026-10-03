@@ -44,7 +44,10 @@ const Audience = z.object({
 })
 type AudienceInput = z.infer<typeof Audience>
 
-const clientBase = () => and(eq(profiles.role, 'client'), isNull(profiles.deletedAt))
+// Клиенты клуба — как в списке клиентов кассы: владельцы и сотрудники тоже играют
+// и входят в Titan Resident, поэтому получают рассылки наравне со всеми.
+const CLIENT_ROLES = ['client', 'staff', 'owner']
+const clientBase = () => and(inArray(profiles.role, CLIENT_ROLES), isNull(profiles.deletedAt))
 
 /** Telegram id людей, попавших под выбор в последнем опросе чата. */
 async function pollTgIds(db: Database, t: PollTargetInput): Promise<string[]> {
