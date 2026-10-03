@@ -47,7 +47,9 @@
 | `POST/DELETE /api/resident/devices` | Push-токен устройства: iPhone — нативный токен APNs, Android — токен Expo Push |
 | `PATCH /api/resident/prefs` | Push / Telegram / новости клуба |
 | `POST /api/auth/me/payments {purpose, amount, collectionId?}` | Онлайн-платёж; `collectionId` — любой активный сбор, в котором клиент участвует |
-| `POST /api/client-broadcasts`, `…/audience`, `GET` | Рассылки из панели (владелец — всем / по статусу / должникам / с депозитом; сотрудник — только выбранным) |
+| `POST /api/client-broadcasts`, `…/audience`, `GET` | Рассылки из панели (владелец — всем / по статусу / должникам / с депозитом / по опросу; сотрудник — только выбранным) |
+| `GET /api/client-broadcasts/recipients` | Клиенты для выборочной отправки: есть ли приложение и привязанный Telegram |
+| `GET /api/client-broadcasts/polls` | Последний опрос каждого чата: голоса по вариантам, сколько из них клиенты, «не голосовали». Аудитория `poll: {chatId, options[], notVoted}` |
 
 Миграция `062_client_app.sql`: `app_devices`, `client_notifications`, `client_broadcasts`, колонки входа в `wallet_login_codes`, настройки `client_push_enabled` / `client_news_enabled` в `profiles`.
 
