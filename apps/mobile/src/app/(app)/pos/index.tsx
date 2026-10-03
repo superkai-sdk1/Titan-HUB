@@ -307,7 +307,7 @@ export default function PosScreen() {
               { text: 'Добавить позицию', icon: 'plus.circle', onPress: () => router.push({ pathname: '/pos/menu', params: { checkId: item.id } }) },
               { text: 'Оплатить', icon: 'creditcard', onPress: () => router.push({ pathname: '/pay', params: { checkId: item.id } }) },
               ...(item.hasRental
-                ? [{ text: 'Чат с кабинкой', icon: 'bubble.left', onPress: () => router.push({ pathname: '/pos/chat', params: { checkId: item.id } }) }]
+                ? [{ text: 'Чат с кабинкой', icon: 'bubble.left', onPress: () => router.push({ pathname: '/chat', params: { checkId: item.id } }) }]
                 : []),
               { text: 'Отмена', style: 'cancel' },
             ]);
@@ -325,7 +325,7 @@ export default function PosScreen() {
         <Link.Menu>
           {/* Чат есть только у чеков с арендованной кабинкой. */}
           {item.hasRental && (
-            <Link.MenuAction icon="bubble.left" onPress={() => router.push({ pathname: '/pos/chat', params: { checkId: item.id } })}>
+            <Link.MenuAction icon="bubble.left" onPress={() => router.push({ pathname: '/chat', params: { checkId: item.id } })}>
               Чат с кабинкой
             </Link.MenuAction>
           )}

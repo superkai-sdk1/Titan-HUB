@@ -98,7 +98,7 @@ export function NotificationBanner() {
             dismiss();
             if (shown.checkId && shown.type === 'chat_message') {
               router.push({ pathname: '/pos/[checkId]', params: { checkId: shown.checkId } });
-              router.push({ pathname: '/pos/chat', params: { checkId: shown.checkId } });
+              router.push({ pathname: '/chat', params: { checkId: shown.checkId } });
             } else if (shown.checkId) router.push({ pathname: '/pos/[checkId]', params: { checkId: shown.checkId } });
             else router.push('/notifications');
           }}

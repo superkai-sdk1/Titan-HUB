@@ -8,7 +8,9 @@
  *                   или base64 от всего файла;
  *   APNS_KEY_ID   — идентификатор ключа (10 символов, из имени файла);
  *   APNS_TEAM_ID  — Team ID команды Apple;
- *   APNS_TOPIC    — bundle id приложения (по умолчанию ru.titan.resident).
+ *   APNS_TOPIC    — bundle id приложения клиентов (по умолчанию ru.titan.resident);
+ *   APNS_STAFF_TOPIC — bundle id приложения персонала Titan HUB (по умолчанию ru.titan.hub):
+ *                   обычные push персоналу и VoIP-«звонки» (topic <bundle>.voip, CallKit).
  * Без них sendApns — no-op: лента в приложении и Telegram-бот работают и так.
  */
 import http2 from 'node:http2'
@@ -38,6 +40,8 @@ const KEY = loadKey()
 const KEY_ID = process.env['APNS_KEY_ID']?.trim()
 const TEAM_ID = process.env['APNS_TEAM_ID']?.trim()
 const TOPIC = process.env['APNS_TOPIC']?.trim() || 'ru.titan.resident'
+/** Приложение персонала Titan HUB: обычные push и VoIP («звонки» через CallKit). */
+export const STAFF_TOPIC = process.env['APNS_STAFF_TOPIC']?.trim() || 'ru.titan.hub'
 export const apnsEnabled = Boolean(KEY && KEY_ID && TEAM_ID)
 
 if (!apnsEnabled) {
@@ -86,7 +90,9 @@ function session(env: ApnsEnv): http2.ClientHttp2Session {
 
 interface ApnsResponse { status: number; reason?: string }
 
-function post(env: ApnsEnv, token: string, payload: string, expiration: number): Promise<ApnsResponse> {
+type PushType = 'alert' | 'voip'
+
+function post(env: ApnsEnv, token: string, payload: string, expiration: number, topic: string, pushType: PushType): Promise<ApnsResponse> {
   return new Promise((resolve) => {
     let req: http2.ClientHttp2Stream
     try {
@@ -94,8 +100,8 @@ function post(env: ApnsEnv, token: string, payload: string, expiration: number):
         ':method': 'POST',
         ':path': `/3/device/${token}`,
         authorization: `bearer ${providerToken()}`,
-        'apns-topic': TOPIC,
-        'apns-push-type': 'alert',
+        'apns-topic': pushType === 'voip' ? `${topic}.voip` : topic,
+        'apns-push-type': pushType,
         'apns-priority': '10',
         'apns-expiration': String(expiration),
       })
@@ -135,6 +141,12 @@ export interface ApnsMessage {
   threadId?: string
   /** Данные для перехода по нажатию — приложение читает их из ключа body. */
   data?: Record<string, unknown>
+  /** Bundle id приложения; по умолчанию — My Titan (APNS_TOPIC). */
+  topic?: string
+  /** 'voip' — «звонок» в PushKit (CallKit): payload = data как есть, без aps.alert. */
+  pushType?: PushType
+  /** Сколько секунд Apple держит недоставленное (по умолчанию 3 дня). */
+  ttlSeconds?: number
 }
 
 /** Отправить пачку push в APNs. Возвращает число принятых и токены, которые надо удалить. */
@@ -142,24 +154,29 @@ export async function sendApns(messages: ApnsMessage[]): Promise<{ accepted: num
   if (!apnsEnabled || !messages.length) return { accepted: 0, dead: [] }
   let accepted = 0
   const dead: string[] = []
-  // Сообщение, не доставленное за 3 дня (телефон выключен), Apple выбросит.
-  const expiration = Math.floor(Date.now() / 1000) + 3 * 24 * 3600
+  const now = Math.floor(Date.now() / 1000)
 
   const sendOne = async (m: ApnsMessage) => {
-    const payload = JSON.stringify({
-      aps: {
-        alert: { title: m.title, body: m.body },
-        sound: 'default',
-        ...(m.badge != null ? { badge: m.badge } : {}),
-        ...(m.threadId ? { 'thread-id': m.threadId } : {}),
-      },
-      body: m.data ?? {},
-    })
+    const pushType: PushType = m.pushType ?? 'alert'
+    const topic = m.topic ?? TOPIC
+    // Сообщение, не доставленное за срок (по умолчанию 3 дня — телефон выключен), Apple выбросит.
+    const expiration = now + (m.ttlSeconds ?? 3 * 24 * 3600)
+    const payload = JSON.stringify(pushType === 'voip'
+      ? { ...(m.data ?? {}) }
+      : {
+          aps: {
+            alert: { title: m.title, body: m.body },
+            sound: 'default',
+            ...(m.badge != null ? { badge: m.badge } : {}),
+            ...(m.threadId ? { 'thread-id': m.threadId } : {}),
+          },
+          body: m.data ?? {},
+        })
     const firstEnv: ApnsEnv = sandboxTokens.has(m.token) ? 'sandbox' : 'production'
-    let r = await post(firstEnv, m.token, payload, expiration)
+    let r = await post(firstEnv, m.token, payload, expiration, topic, pushType)
     if (r.status === 400 && r.reason === 'BadDeviceToken') {
       const other: ApnsEnv = firstEnv === 'production' ? 'sandbox' : 'production'
-      const retry = await post(other, m.token, payload, expiration)
+      const retry = await post(other, m.token, payload, expiration, topic, pushType)
       if (retry.status === 200) {
         if (other === 'sandbox') sandboxTokens.add(m.token)
         else sandboxTokens.delete(m.token)

@@ -7,7 +7,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
-import { stackHeaderOptions } from '@/components/header-glass';
+import { glassHeader, stackHeaderOptions } from '@/components/header-glass';
 import { sheetLayout } from '@/components/sheet-grabber';
 import { DialogHost } from '@/components/dialog-host';
 import { LocalTour } from '@/components/local-tour';
@@ -17,6 +17,7 @@ import { SessionLock } from '@/components/session-lock';
 import { CACHE_MAX_AGE, queryClient, queryPersister, subscribeAppFocus, subscribeNetwork } from '@/lib/query';
 import { NEEDS_WARMUP, SwiftUIWarmup } from '@/components/swiftui-warmup';
 import { useRealtime } from '@/lib/realtime';
+import { useStaffPush } from '@/lib/staff-push';
 import { useDevicePrefs } from '@/lib/device-prefs';
 import { devLogin, localAutoLogin, useSession } from '@/lib/session';
 import { colors, accentHex } from '@/lib/theme';
@@ -24,9 +25,10 @@ import { sheetOptions } from '@/lib/sheet';
 
 SplashScreen.preventAutoHideAsync();
 
-/** Живые обновления клуба, пока есть вход. */
+/** Живые обновления клуба, push и «звонки» персоналу, пока есть вход. */
 function Realtime() {
   useRealtime();
+  useStaffPush();
   return null;
 }
 
@@ -116,6 +118,8 @@ export default function RootLayout() {
               name="notifications"
               options={{ presentation: 'modal', headerShown: true, title: 'Уведомления', ...stackHeaderOptions }}
             />
+            {/* Чат с кабинкой — полный экран мессенджера: стеклянная шапка, поле ввода у клавиатуры. */}
+            <Stack.Screen name="chat" options={glassHeader({ headerShown: true, headerBackButtonDisplayMode: 'minimal', title: 'Чат' })} />
             {/* Tai — свой заголовок и композер внизу, поэтому системная шапка не нужна. */}
             <Stack.Screen name="tai" options={{ presentation: 'modal', headerShown: false }} />
           </Stack.Protected>

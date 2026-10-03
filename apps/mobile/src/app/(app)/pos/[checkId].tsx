@@ -47,7 +47,7 @@ export default function CheckScreen() {
           <ToolbarMenu icon="ellipsis" accessibilityLabel="Действия с чеком">
             {/* Чат идёт через планшет кабинки — у чека без зоны его нет. */}
             {spaceId && (
-              <ToolbarMenuAction icon="bubble.left" onPress={() => router.push({ pathname: '/pos/chat', params: { checkId } })}>
+              <ToolbarMenuAction icon="bubble.left" onPress={() => router.push({ pathname: '/chat', params: { checkId } })}>
                 Чат с кабинкой
               </ToolbarMenuAction>
             )}

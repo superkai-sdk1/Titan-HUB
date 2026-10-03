@@ -10,6 +10,7 @@ import { tenantContext } from './middleware/tenant.js'
 import { requireActiveSubscription } from './middleware/subscription.js'
 import { requireModule, requireAiPaid } from './middleware/module.js'
 import { clubRouter } from './modules/club/club.router.js'
+import { alertsRouter } from './modules/notifications/alerts.router.js'
 import { internalRouter } from './modules/internal/internal.router.js'
 import { tgRouter } from './modules/tg/tg.router.js'
 import { payRouter } from './modules/pay/pay.router.js'
@@ -157,6 +158,10 @@ app.route('/api/bookings/public', bookingsPublicRouter)
 // Геосаджест (Яндекс) — публичный прокси подсказок адресов (нужен и на /book).
 // ДО requireActiveSubscription; ключ — в integrations, защита пер-IP лимитом.
 app.route('/api/geo', geoRouter)
+
+// «Звонок» персоналу принят на iPhone (CallKit) — подтверждение по одноразовому ключу
+// из VoIP-push, без авторизации. ДО requireActiveSubscription: звонок уже идёт.
+app.route('/api/alerts', alertsRouter)
 
 // Энфорсмент подписки на клуб-поддомене (грейс→блок). На основном домене (club=null)
 // и для allowlist (/api/club, /api/health, /api/superadmin) — пропуск.

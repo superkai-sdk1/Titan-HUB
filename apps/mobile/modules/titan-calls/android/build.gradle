@@ -1,0 +1,20 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'ru.titanpos.hub'
+version = '1.0.0'
+
+android {
+  namespace "expo.modules.titancalls"
+  defaultConfig {
+    versionCode 1
+    versionName "1.0.0"
+  }
+}
+
+dependencies {
+  // Та же версия, что у React Native (react-native/gradle/libs.versions.toml).
+  implementation "com.squareup.okhttp3:okhttp:4.9.2"
+}

@@ -100,7 +100,7 @@ function SelectedCheck({ checkId }: { checkId: string }) {
         <Host matchContents>
           <Menu label="Действия" systemImage="ellipsis.circle">
             {/* Чат идёт через планшет кабинки — у чека без зоны его нет. */}
-            {data.spaceId && <Button label="Чат с кабинкой" systemImage="bubble.left" onPress={() => router.push({ pathname: '/pos/chat', params: { checkId } })} />}
+            {data.spaceId && <Button label="Чат с кабинкой" systemImage="bubble.left" onPress={() => router.push({ pathname: '/chat', params: { checkId } })} />}
             {isOpen && (
               <>
                 <Button label={data.playerId ? 'Клиенты чека' : 'Добавить клиента'} systemImage="person.crop.circle" onPress={actions.onOpenPlayer} />

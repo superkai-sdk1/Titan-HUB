@@ -14,7 +14,7 @@
  */
 import {
   profiles, appDevices, clientNotifications,
-  eq, and, inArray, sql, type Database,
+  eq, and, inArray, isNotNull, sql, type Database,
 } from '@titan/database'
 import { isApnsToken, sendApns } from './apns.js'
 
@@ -183,11 +183,11 @@ export async function notifyClient(
       const devices = await database
         .select({ token: appDevices.pushToken })
         .from(appDevices)
-        .where(and(eq(appDevices.profileId, profileId), eq(appDevices.app, 'client')))
+        .where(and(eq(appDevices.profileId, profileId), eq(appDevices.app, 'client'), isNotNull(appDevices.pushToken)))
       if (devices.length) {
         const badge = (await unreadCounts([profileId], database)).get(profileId) ?? 0
         await sendPush(devices.map((d) => ({
-          to: d.token,
+          to: d.token!,
           title: n.title,
           body: n.body,
           badge,
@@ -239,10 +239,10 @@ export async function deliverToClients(
       const devices = await database
         .select({ profileId: appDevices.profileId, token: appDevices.pushToken })
         .from(appDevices)
-        .where(and(inArray(appDevices.profileId, pushIds), eq(appDevices.app, 'client')))
+        .where(and(inArray(appDevices.profileId, pushIds), eq(appDevices.app, 'client'), isNotNull(appDevices.pushToken)))
       const badges = await unreadCounts([...new Set(devices.map((d) => d.profileId))], database)
       pushCount = await sendPush(devices.map((d) => ({
-        to: d.token,
+        to: d.token!,
         title: notice.title,
         body: notice.body,
         badge: badges.get(d.profileId) ?? 0,

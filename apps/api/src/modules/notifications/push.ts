@@ -5,6 +5,7 @@ import {
   eq, and, inArray, isNull, desc, gt, sql, type Database,
 } from '@titan/database'
 import { notifChannel } from '../../lib/realtime.js'
+import { deliverStaffApns } from './staff-calls.js'
 
 // Переходный режим: пер-клубный db передаётся параметром, дефолт — модульный синглтон.
 type DbLike = Database
@@ -140,7 +141,7 @@ function isTelegramEnabledForUser(
 // Решение «слать ли push этому пользователю по этому типу»: берём настройку
 // userNotificationSettings.types[type].enabled, иначе — defaultEnabled типа,
 // иначе (неизвестный тип) — true.
-function isTypeEnabledForUser(
+export function isTypeEnabledForUser(
   type: string,
   settings: { types?: Record<string, { enabled: boolean; channel?: string; telegram?: boolean }> | null } | undefined,
 ): boolean {
@@ -220,8 +221,9 @@ export async function notify(opts: {
   body: string
   meta?: Record<string, unknown>
   userId?: string | null
-}, database: DbLike, clubId?: string | null): Promise<void> {
+}, database: DbLike, clubId?: string | null): Promise<string | null> {
   const targetUserId = opts.userId ?? null
+  let notificationId: string | null = null
   try {
     // 0) Обогащаем meta: deep-link url + ключ группировки «по объекту».
     const baseMeta: Record<string, unknown> = { ...(opts.meta ?? {}) }
@@ -269,6 +271,7 @@ export async function notify(opts: {
     }
     // Дальше используем обогащённую meta (url/count) для push/SSE/telegram.
     opts.meta = (row?.meta as Record<string, unknown>) ?? baseMeta
+    notificationId = row?.id ?? null
 
     // 2) Redis SSE (та же форма, что использовал publishStaffNotification)
     if (row) {
@@ -304,10 +307,11 @@ export async function notify(opts: {
       if (targetUserId) {
         const payload = buildPushPayload(opts)
         if (pushEnabled) await sendWebPushToUser(targetUserId, payload, database)
+        await deliverStaffApns(database, [targetUserId], { ...opts, notificationId })
         const [p] = await database.select({ tgId: profiles.tgId }).from(profiles).where(eq(profiles.id, targetUserId))
         if (p?.tgId) await sendTelegram(p.tgId, tgText)
       }
-      return
+      return notificationId
     }
 
     // Получатели: конкретный user или broadcast → весь персонал.
@@ -321,7 +325,7 @@ export async function notify(opts: {
         .where(and(inArray(profiles.role, ['owner', 'staff']), isNull(profiles.deletedAt)))
       recipientIds = staff.map((s) => s.id)
     }
-    if (!recipientIds.length) return
+    if (!recipientIds.length) return notificationId
 
     // Настройки типов + tgId получателей одним проходом.
     const settingsRows = await database
@@ -335,12 +339,13 @@ export async function notify(opts: {
       .where(inArray(profiles.id, recipientIds))
     const tgByUser = new Map(profRows.map((p) => [p.id, p.tgId]))
 
-    // Web push — по настройке enabled.
+    // Web push и iPhone приложения Titan HUB — по настройке enabled.
+    const enabledIds = recipientIds.filter((uid) => isTypeEnabledForUser(opts.type, settingsByUser.get(uid)))
     if (pushEnabled) {
       const payload = buildPushPayload(opts)
-      const enabledIds = recipientIds.filter((uid) => isTypeEnabledForUser(opts.type, settingsByUser.get(uid)))
       await Promise.all(enabledIds.map((uid) => sendWebPushToUser(uid, payload, database)))
     }
+    await deliverStaffApns(database, enabledIds, { ...opts, notificationId })
 
     // Telegram — по настройке telegram + наличию привязки.
     const tgRecipients = recipientIds.filter(
@@ -351,4 +356,5 @@ export async function notify(opts: {
     // notify не должен ронять вызывающий код ни при каких условиях.
     console.error('[push] notify failed:', err)
   }
+  return notificationId
 }

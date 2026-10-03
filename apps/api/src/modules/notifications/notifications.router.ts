@@ -2,13 +2,14 @@ import { Hono } from 'hono'
 import { streamSSE } from 'hono/streaming'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
-import { notifications, userNotificationSettings, pushSubscriptions, tgLinkRequests, profiles, spaces, checks, eq, and, or, isNull, desc, sql, inArray } from '@titan/database'
+import { notifications, userNotificationSettings, pushSubscriptions, tgLinkRequests, profiles, spaces, checks, appDevices, eq, and, or, isNull, desc, sql, inArray } from '@titan/database'
 import type { Database } from '@titan/database'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
 import { Redis } from 'ioredis'
 import { randomInt } from 'crypto'
 import type { AppEnv } from '../../types.js'
 import { notify, NOTIFICATION_TYPES } from './push.js'
+import { raiseStaffAlert, requestOrigin } from './staff-calls.js'
 import { round2, computeRental } from '../../lib/money.js'
 import { notifChannel } from '../../lib/realtime.js'
 
@@ -23,8 +24,9 @@ async function publishStaffNotification(payload: {
   body: string
   meta?: Record<string, unknown>
 }, database: Database, clubId?: string | null) {
-  await notify({ ...payload }, database, clubId)
+  const id = await notify({ ...payload }, database, clubId)
   return {
+    id,
     type: payload.type,
     title: payload.title,
     body: payload.body,
@@ -50,7 +52,11 @@ notificationsRouter.get('/stream', requireRole('owner', 'staff'), async (c) => {
     redis.on('message', async (ch, message) => {
       if (closed || ch !== channel) return
       try {
-        await stream.writeSSE({ data: message })
+        // «Звонок» Android-телефонам (staff-calls.ts) — именованным событием: веб и iOS
+        // слушают только безымянные и не примут его за уведомление.
+        const signal = message.startsWith('{"__event"') ? (JSON.parse(message) as { __event: string; data: unknown }) : null
+        if (signal) await stream.writeSSE({ event: signal.__event, data: JSON.stringify(signal.data) })
+        else await stream.writeSSE({ data: message })
       } catch {}
     })
 
@@ -88,24 +94,46 @@ notificationsRouter.post(
     const user = c.get('user')
     const body = c.req.valid('json')
 
-    let resolvedSpaceId = body.spaceId
+    // Планшет зовёт только в свою зону (spaceId из тела не принимаем).
+    let resolvedSpaceId = user.role === 'tablet' ? undefined : body.spaceId
     if (!resolvedSpaceId) {
       const [profile] = await db.select().from(profiles).where(eq(profiles.id, user.sub))
       resolvedSpaceId = profile?.linkedSpaceId ?? undefined
     }
 
     let spaceName = 'Неизвестная зона'
+    let checkId: string | undefined
     if (resolvedSpaceId) {
       const [space] = await db.select().from(spaces).where(eq(spaces.id, resolvedSpaceId))
       spaceName = space?.name ?? spaceName
+      // Открытый счёт зоны — чтобы по уведомлению/звонку открыть сразу его.
+      const [open] = await db.select({ id: checks.id }).from(checks)
+        .where(and(eq(checks.spaceId, resolvedSpaceId), eq(checks.status, 'open')))
+        .limit(1)
+      checkId = open?.id
     }
 
+    const text = body.message ?? 'Гость запросил помощь'
     const notification = await publishStaffNotification({
       type: 'staff_call',
       title: `Вызов: ${spaceName}`,
-      body: body.message ?? 'Гость запросил помощь',
-      meta: { spaceId: resolvedSpaceId, fromTabletId: user.sub },
+      body: text,
+      meta: { spaceId: resolvedSpaceId, checkId, fromTabletId: user.sub },
     }, db, c.var.club?.id)
+
+    // Никто не прочитал за 30 с — «звонок» на телефоны персонала.
+    if (user.role === 'tablet') {
+      await raiseStaffAlert(db, {
+        kind: 'staff_call',
+        spaceId: resolvedSpaceId ?? null,
+        checkId: checkId ?? null,
+        notificationId: notification.id,
+        title: spaceName,
+        body: 'Гость зовёт персонал',
+        origin: requestOrigin(c),
+        clubId: c.var.club?.id ?? null,
+      })
+    }
 
     return c.json({ ok: true, notification }, 201)
   },
@@ -305,6 +333,55 @@ notificationsRouter.post(
 )
 
 // ── Тестовое push-уведомление самому себе ─────────────────────────────────
+// ── Устройства приложения персонала Titan HUB: push и «звонки» (VoIP) ──────────
+// Телефон присылает токены после входа и при их смене. Токены уникальны: телефон
+// мог раньше принадлежать другому сотруднику — запись переезжает.
+const StaffDeviceSchema = z.object({
+  platform: z.enum(['ios', 'android']),
+  pushToken: z.string().min(10).max(400).nullable().optional(),
+  voipToken: z.string().min(10).max(400).nullable().optional(),
+  deviceName: z.string().max(80).optional(),
+  appVersion: z.string().max(40).optional(),
+})
+
+notificationsRouter.post('/devices', requireRole('owner', 'staff'), zValidator('json', StaffDeviceSchema), async (c) => {
+  const db = c.var.db
+  const user = c.get('user')
+  const b = c.req.valid('json')
+  if (!b.pushToken && !b.voipToken) return c.json({ error: 'Нет токенов устройства' }, 400)
+  const same: any[] = []
+  if (b.pushToken) same.push(eq(appDevices.pushToken, b.pushToken))
+  if (b.voipToken) same.push(eq(appDevices.voipToken, b.voipToken))
+  await db.delete(appDevices).where(or(...(same as [any, ...any[]])))
+  await db.insert(appDevices).values({
+    profileId: user.sub,
+    app: 'staff',
+    platform: b.platform,
+    pushToken: b.pushToken ?? null,
+    voipToken: b.voipToken ?? null,
+    deviceName: b.deviceName ?? null,
+    appVersion: b.appVersion ?? null,
+  })
+  return c.json({ ok: true })
+})
+
+// Выход из приложения: телефон больше не получает push и звонки этого сотрудника.
+notificationsRouter.delete('/devices', requireRole('owner', 'staff'), zValidator('json', z.object({
+  pushToken: z.string().max(400).nullable().optional(),
+  voipToken: z.string().max(400).nullable().optional(),
+})), async (c) => {
+  const db = c.var.db
+  const user = c.get('user')
+  const b = c.req.valid('json')
+  const same: any[] = []
+  if (b.pushToken) same.push(eq(appDevices.pushToken, b.pushToken))
+  if (b.voipToken) same.push(eq(appDevices.voipToken, b.voipToken))
+  if (same.length) {
+    await db.delete(appDevices).where(and(eq(appDevices.profileId, user.sub), eq(appDevices.app, 'staff'), or(...(same as [any, ...any[]]))))
+  }
+  return c.json({ ok: true })
+})
+
 notificationsRouter.post('/push/test', async (c) => {
   const db = c.var.db
   const user = c.get('user')

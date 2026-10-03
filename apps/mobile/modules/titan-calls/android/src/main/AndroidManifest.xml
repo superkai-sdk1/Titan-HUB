@@ -1,0 +1,56 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <!--
+    Уведомления и «звонки» персоналу без Google-сервисов: служба StaffService держит
+    поток уведомлений клуба (/api/notifications/stream), как iPhone держит PushKit.
+  -->
+  <uses-permission android:name="android.permission.INTERNET" />
+  <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+  <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE_REMOTE_MESSAGING" />
+  <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+  <uses-permission android:name="android.permission.WAKE_LOCK" />
+  <uses-permission android:name="android.permission.VIBRATE" />
+  <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+  <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+
+  <application>
+    <service
+      android:name="expo.modules.titancalls.StaffService"
+      android:exported="false"
+      android:foregroundServiceType="remoteMessaging" />
+
+    <receiver
+      android:name="expo.modules.titancalls.StaffBootReceiver"
+      android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.BOOT_COMPLETED" />
+        <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+      </intent-filter>
+    </receiver>
+
+    <receiver
+      android:name="expo.modules.titancalls.CallDeclineReceiver"
+      android:exported="false" />
+
+    <!-- Экран входящего «звонка»: поверх блокировки, будит экран. -->
+    <activity
+      android:name="expo.modules.titancalls.IncomingCallActivity"
+      android:exported="false"
+      android:excludeFromRecents="true"
+      android:launchMode="singleTop"
+      android:showWhenLocked="true"
+      android:turnScreenOn="true"
+      android:taskAffinity="ru.titanpos.hub.call"
+      android:theme="@android:style/Theme.DeviceDefault.NoActionBar" />
+
+    <!-- Без интерфейса: «Ответить» и нажатие на уведомление — отметить и открыть приложение. -->
+    <activity
+      android:name="expo.modules.titancalls.CallActionActivity"
+      android:exported="false"
+      android:excludeFromRecents="true"
+      android:noHistory="true"
+      android:taskAffinity=""
+      android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+  </application>
+</manifest>

@@ -7,6 +7,7 @@ import { runPollsForDb } from './cron/polls.js'
 import { fiscalizePendingForDb } from './cron/fiscalize.js'
 import { purgeOldAnalyticsEvents } from './cron/analytics-retention.js'
 import { getCronTargets } from './cron/targets.js'
+import { runStaffAlerts } from './modules/notifications/staff-calls.js'
 import { runMigrations, runMigrationsOn } from './migrations/runner.js'
 import { listActiveClubDbNames, buildClubConnString } from './lib/clubResolver.js'
 import { getSharedRedis } from './lib/redis.js'
@@ -229,3 +230,33 @@ function scheduleFiscalizeCron() {
 }
 
 scheduleFiscalizeCron()
+
+// Эскалация вызовов из Titan Home: тик КАЖДЫЕ 5 СЕКУНД по всем клубам — гость написал
+// в чат или нажал «Позвать», через 30 с без прочтения звоним персоналу (VoIP), гасим
+// звонок, когда прочитали. Лёгкий: один запрос открытых эскалаций на клуб. Список
+// клубов кэшируем на минуту, чтобы не дёргать control-БД каждые 5 секунд.
+function scheduleStaffAlertsCron() {
+  let targets: Awaited<ReturnType<typeof getCronTargets>> = []
+  let targetsAt = 0
+  let running = false
+  setInterval(async () => {
+    if (running) return
+    running = true
+    try {
+      if (Date.now() - targetsAt > 60_000) {
+        targets = await getCronTargets()
+        targetsAt = Date.now()
+      }
+      for (const t of targets) {
+        await runStaffAlerts(t.db).catch((e) => console.error(`[cron:staff-alerts] клуб «${t.name}» упал`, e))
+      }
+    } catch (e) {
+      console.error('[cron:staff-alerts]', e)
+    } finally {
+      running = false
+    }
+  }, 5_000)
+  console.log('📞 Staff-alerts cron scheduled (тик раз в 5 с)')
+}
+
+scheduleStaffAlertsCron()

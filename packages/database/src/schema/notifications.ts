@@ -98,7 +98,11 @@ export const appDevices = pgTable('app_devices', {
   profileId: uuid('profile_id').notNull().references(() => profiles.id, { onDelete: 'cascade' }),
   app: text('app').notNull().default('client'),
   platform: text('platform').notNull(), // 'ios' | 'android'
-  pushToken: text('push_token').notNull().unique(),
+  // Обычные push (iPhone — APNs, Android — Expo). Может быть пустым у персонала,
+  // если уведомления запрещены, а VoIP-токен есть (миграция 067).
+  pushToken: text('push_token').unique(),
+  // iPhone приложения персонала: токен PushKit для «звонка» через CallKit.
+  voipToken: text('voip_token'),
   deviceName: text('device_name'),
   appVersion: text('app_version'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -106,6 +110,28 @@ export const appDevices = pgTable('app_devices', {
 })
 
 // Журнал рассылок клиентам из панели.
+// Эскалация вызовов из Titan Home: через 30 с без прочтения — «звонок» персоналу.
+// См. 067_staff_calls.sql.
+export const staffAlerts = pgTable('staff_alerts', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  kind: text('kind').notNull(), // 'chat' | 'staff_call'
+  checkId: uuid('check_id'),
+  spaceId: uuid('space_id'),
+  notificationId: uuid('notification_id'),
+  title: text('title').notNull(),
+  body: text('body').notNull(),
+  ackBase: text('ack_base').notNull(),
+  ackKey: text('ack_key').notNull(),
+  dueAt: timestamp('due_at', { withTimezone: true }).notNull(),
+  calledAt: timestamp('called_at', { withTimezone: true }),
+  resolvedAt: timestamp('resolved_at', { withTimezone: true }),
+  resolution: text('resolution'),
+  answeredBy: text('answered_by'),
+  /** Клуб для канала SSE (clubId; null — основной домен): «звонок» Android-телефонам. */
+  clubKey: text('club_key'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+})
+
 export const clientBroadcasts = pgTable('client_broadcasts', {
   id: uuid('id').primaryKey().defaultRandom(),
   title: text('title').notNull(),

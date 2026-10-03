@@ -3,6 +3,7 @@ import { AppState } from 'react-native';
 import EventSource from 'react-native-sse';
 
 import { useBanner } from './banner';
+import { isChatOnScreen } from './chat';
 import { checkTitle } from './checks';
 import { haptic } from './haptics';
 import { queryClient } from './query';
@@ -119,6 +120,8 @@ export function useRealtime() {
         if (payload.sender !== 'guest') return;
         invalidate(['pos', 'check', payload.checkId]);
         haptic.light();
+        // Чат открыт — сообщение и так на экране.
+        if (isChatOnScreen(payload.checkId)) return;
         useBanner.getState().show({
           key: payload.messageId,
           type: 'chat_message',
@@ -140,7 +143,8 @@ export function useRealtime() {
           ...(old ?? []).filter((n) => n.id !== notification.id),
         ]);
 
-        if (ATTENTION.has(notification.type)) {
+        const onScreen = notification.type === 'chat_message' && isChatOnScreen(notification.meta?.checkId as string | undefined);
+        if (ATTENTION.has(notification.type) && !onScreen) {
           if (notification.type === 'staff_call' || notification.type === 'request_bill') haptic.warning();
           const checkId = typeof notification.meta?.checkId === 'string' ? notification.meta.checkId : undefined;
           useBanner.getState().show({

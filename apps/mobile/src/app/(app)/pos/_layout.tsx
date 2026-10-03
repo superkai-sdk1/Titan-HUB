@@ -1,5 +1,4 @@
 import { Stack } from 'expo-router';
-import { Platform } from 'react-native';
 
 import { colors } from '@/lib/theme';
 import { sheetOptions } from '@/lib/sheet';
@@ -37,22 +36,6 @@ export default function PosLayout() {
           sheetLargestUndimmedDetentIndex: 0,
           headerShown: false,
           contentStyle: { backgroundColor: colors.sheetBackground },
-        }}
-      />
-      <Stack.Screen
-        name="chat"
-        options={{
-          presentation: 'formSheet',
-          ...sheetOptions,
-          // Android раскладывает шторку на полную высоту и на средней высоте прячет низ —
-          // поле ввода и быстрые ответы оказывались за экраном. Там шторка сразу во весь рост.
-          sheetAllowedDetents: Platform.OS === 'android' ? [1] : [0.6, 1],
-          sheetGrabberVisible: true,
-          sheetLargestUndimmedDetentIndex: Platform.OS === 'android' ? 'none' : 0,
-          headerShown: true,
-          // Без отступа под статус-бар в шапке шторки (см. app/shift/_layout.tsx).
-          ...(Platform.OS === 'android' ? { statusBarTranslucent: false } : {}),
-          title: 'Чат с кабинкой',
         }}
       />
       <Stack.Screen name="refunds" options={glassHeader({ title: 'Возвраты' })} />

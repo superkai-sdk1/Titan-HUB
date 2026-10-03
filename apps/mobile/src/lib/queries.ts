@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { api } from './api';
 import { queryClient } from './query';
 import { useSession } from './session';
+import { unregisterStaffDevice } from './staff-push';
 import type { AppNotification, CheckDetail, CheckListItem, Me, ShiftSummary } from './types';
 
 /** Ключи запросов включают хост клуба, чтобы кэш разных клубов не смешивался. */
@@ -21,6 +22,7 @@ export function useMe() {
 
 /** Выход: серверный отзыв токена (не критично, если сеть недоступна) и очистка кэша. */
 export async function signOutEverywhere() {
+  await unregisterStaffDevice();
   await api.post('/auth/logout').catch(() => {});
   queryClient.clear();
   await useSession.getState().signOut();

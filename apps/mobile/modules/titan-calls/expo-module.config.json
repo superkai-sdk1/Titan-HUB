@@ -1,0 +1,10 @@
+{
+  "platforms": ["apple", "android"],
+  "apple": {
+    "modules": ["TitanCallsModule"],
+    "appDelegateSubscribers": ["TitanCallsAppDelegateSubscriber"]
+  },
+  "android": {
+    "modules": ["expo.modules.titancalls.TitanCallsModule"]
+  }
+}

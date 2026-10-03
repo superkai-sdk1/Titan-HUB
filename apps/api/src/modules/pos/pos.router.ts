@@ -15,6 +15,7 @@ import { getCurrentShift, getShiftCashBalance } from '../shifts/shifts.service.j
 import { computeShiftForecast } from '../../lib/shiftForecast.js'
 import { aiAllowed } from '../../middleware/module.js'
 import { notify, notifyClient } from '../notifications/push.js'
+import { raiseStaffAlert, requestOrigin } from '../notifications/staff-calls.js'
 import { maybePromoteToResident } from '../../lib/loyalty.js'
 import { profileNameCondition, profileTagCondition } from '../../lib/searchVariants.js'
 import { getPrecheckCandidates } from '../../lib/prechecks.js'
@@ -961,7 +962,7 @@ posRouter.post('/checks/:id/orders', requireRole('owner', 'staff', 'tablet'), zV
     title: spaceName ? `Новый заказ: ${spaceName}` : 'Новый заказ',
     body: `${lines} — ${sum.toLocaleString('ru')} ₽`,
     meta: { checkId, spaceId: check.spaceId, orderId: order!.id },
-  }, db).catch(() => {})
+  }, db, c.var.club?.id).catch(() => {})
 
   publishEvent(c.var.club?.id, 'order:created', { checkId, orderId: order!.id })
   return c.json({ order }, 201)
@@ -1097,7 +1098,17 @@ posRouter.post('/checks/:id/chat', requireRole('owner', 'staff', 'tablet'), zVal
       title: spaceName ? `Сообщение из «${spaceName}»` : 'Сообщение от гостя',
       body: body.text.slice(0, 140),
       meta: { checkId, spaceId: check.spaceId },
-    }, db).catch(() => {})
+    }, db, c.var.club?.id).catch(() => {})
+    // Никто из персонала не открыл чат за 30 с — «звонок» на телефоны.
+    void raiseStaffAlert(db, {
+      kind: 'chat',
+      checkId,
+      spaceId: check.spaceId ?? null,
+      title: spaceName || 'Гость',
+      body: `Сообщение: ${body.text.slice(0, 100)}`,
+      origin: requestOrigin(c),
+      clubId: c.var.club?.id ?? null,
+    })
   }
 
   return c.json({ message: msg }, 201)

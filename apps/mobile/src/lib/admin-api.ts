@@ -5,6 +5,7 @@ import { formatMoney, toNumber } from './format';
 import { queryClient } from './query';
 import { useClubKey } from './queries';
 import { useSession } from './session';
+import { startStaffLink } from './staff-push';
 import type { NumericString } from './types';
 
 /**
@@ -361,6 +362,8 @@ export function useNotificationPrefs() {
 export async function saveNotificationPrefs(types: NotificationPrefs): Promise<void> {
   await api.put('/notifications/settings', { types });
   invalidate(['notifications', 'prefs']);
+  // Android-служба фильтрует уведомления по настройкам — перезапускаем её с новыми.
+  void startStaffLink(false).catch(() => {});
 }
 
 /* ─────────────────────────── Опросы ─────────────────────────── */

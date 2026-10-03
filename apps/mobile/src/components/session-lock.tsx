@@ -9,6 +9,7 @@ import { PinDots, PinPad, type PinKey } from '@/components/pin-pad';
 import { api, ApiError } from '@/lib/api';
 import { haptic } from '@/lib/haptics';
 import { useSession } from '@/lib/session';
+import { unregisterStaffDevice } from '@/lib/staff-push';
 import { colors, space, type } from '@/lib/theme';
 import type { LoginResponse } from '@/lib/types';
 
@@ -159,7 +160,7 @@ function LockedContent({ biometrics, onBiometrics }: { biometrics: boolean; onBi
             <Text style={[type.headline, styles.primaryText]}>{Platform.OS === 'ios' ? 'Face ID' : 'Отпечаток'}</Text>
           </Pressable>
         )}
-        <Pressable onPress={() => void useSession.getState().signOut()} hitSlop={12} accessibilityRole="button">
+        <Pressable onPress={() => void unregisterStaffDevice().finally(() => useSession.getState().signOut())} hitSlop={12} accessibilityRole="button">
           <Text style={[type.body, styles.secondaryText]}>Другой сотрудник</Text>
         </Pressable>
       </View>
