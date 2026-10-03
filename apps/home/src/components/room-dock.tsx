@@ -178,9 +178,9 @@ function ClimateCard({ device, entity, disabled, layout }: { device: SmartDevice
     </View>
   );
 
-  const compact = layout === 'bottom';
+  // Режимы — «иконка над подписью»: снизу одной строкой, сбоку сеткой по три.
   const modes = (
-    <View style={compact ? styles.modesRow : styles.modes}>
+    <View style={layout === 'bottom' ? styles.modesRow : styles.modesGrid}>
       {info.modes.map((mode) => {
         const active = info.mode === mode;
         const t = HVAC_TONE[mode] ?? colors.violetLight;
@@ -192,10 +192,10 @@ function ClimateCard({ device, entity, disabled, layout }: { device: SmartDevice
             accessibilityRole="button"
             accessibilityState={{ selected: active }}
             accessibilityLabel={HVAC_LABEL[mode] ?? mode}
-            style={[compact ? styles.modeCompact : styles.mode, active && { backgroundColor: `${t}26`, borderColor: `${t}88` }]}
+            style={[styles.mode, layout === 'side' && styles.modeInGrid, active && { backgroundColor: `${t}26`, borderColor: `${t}88` }]}
           >
-            <Icon name={safeIcon(HVAC_ICON[mode], 'thermostat')} size={compact ? 22 : 20} color={active ? t : colors.textSecondary} />
-            <Text style={[compact ? styles.modeTextCompact : styles.modeText, active && { color: colors.text }]} numberOfLines={1}>{(compact ? HVAC_SHORT : HVAC_LABEL)[mode] ?? mode}</Text>
+            <Icon name={safeIcon(HVAC_ICON[mode], 'thermostat')} size={22} color={active ? t : colors.textSecondary} />
+            <Text style={[styles.modeText, active && { color: colors.text }]} numberOfLines={1}>{HVAC_SHORT[mode] ?? mode}</Text>
           </Tap>
         );
       })}
@@ -204,7 +204,7 @@ function ClimateCard({ device, entity, disabled, layout }: { device: SmartDevice
 
   const fans = info.fanModes.length > 1 ? (
     <View style={styles.fans}>
-      <Icon name="fan" size={18} color={colors.textMuted} />
+      {layout === 'bottom' ? <Icon name="fan" size={18} color={colors.textMuted} /> : null}
       {info.fanModes.map((fan) => {
         const active = info.fanMode === fan;
         return (
@@ -216,7 +216,9 @@ function ClimateCard({ device, entity, disabled, layout }: { device: SmartDevice
             accessibilityState={{ selected: active }}
             style={[styles.fan, active && styles.fanActive]}
           >
-            <Text style={[styles.fanText, active && { color: colors.text }]}>{fanLabel(fan)}</Text>
+            <Text style={[styles.fanText, active && { color: colors.text }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>
+              {fanLabel(fan)}
+            </Text>
           </Tap>
         );
       })}
@@ -280,21 +282,21 @@ const styles = StyleSheet.create({
   tempText: { fontSize: 56, lineHeight: 62, fontWeight: '800', fontVariant: ['tabular-nums'], letterSpacing: -2 },
   tempDeg: { fontSize: 30, lineHeight: 40, fontWeight: '800' },
   ambient: { textAlign: 'center', fontSize: 13, color: colors.textSecondary, marginTop: 2 },
-  modes: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm },
-  mode: {
-    flexGrow: 1, flexBasis: '30%', minWidth: 76, height: 50, borderRadius: 14, paddingHorizontal: 8,
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
-    backgroundColor: 'rgba(255,255,255,0.04)', borderWidth: 1, borderColor: colors.border,
-  },
-  modeText: { fontSize: 13, fontWeight: '700', color: colors.textSecondary, flexShrink: 1 },
+  modesGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  modeInGrid: { flexGrow: 1, flexBasis: '30%' },
+
   modesRow: { flexDirection: 'row', gap: 6 },
-  modeCompact: {
-    flex: 1, flexBasis: 0, minWidth: 0, height: 62, borderRadius: 14, alignItems: 'center', justifyContent: 'center', gap: 3,
+  mode: {
+    flex: 1, flexBasis: 0, minWidth: 0, height: 58, borderRadius: 14, alignItems: 'center', justifyContent: 'center', gap: 2,
     backgroundColor: 'rgba(255,255,255,0.04)', borderWidth: 1, borderColor: colors.border,
   },
-  modeTextCompact: { fontSize: 12, fontWeight: '700', color: colors.textSecondary },
-  fans: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: space.sm },
-  fan: { height: 36, paddingHorizontal: 14, borderRadius: 18, justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.04)', borderWidth: 1, borderColor: colors.border },
+  modeText: { fontSize: 12, fontWeight: '700', color: colors.textSecondary },
+
+  fans: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6 },
+  fan: {
+    flexGrow: 1, flexBasis: 0, minWidth: 0, height: 36, paddingHorizontal: 4, borderRadius: 18, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.04)', borderWidth: 1, borderColor: colors.border,
+  },
   fanActive: { backgroundColor: colors.violetTint, borderColor: colors.borderViolet },
-  fanText: { fontSize: 13, fontWeight: '700', color: colors.textSecondary },
+  fanText: { fontSize: 12, fontWeight: '700', color: colors.textSecondary },
 });

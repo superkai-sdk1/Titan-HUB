@@ -100,7 +100,9 @@ function SpaceStep() {
   const host = useSession((s) => s.club?.host ?? '');
   const spaces = useQuery({
     queryKey: [host, 'tablet-spaces'],
-    queryFn: () => api.get<{ spaces: Space[] }>('/auth/tablet-spaces', { auth: false }).then((r) => r.spaces),
+    queryFn: () =>
+      api.get<{ spaces: Space[] }>('/auth/tablet-spaces', { auth: false })
+        .then((r) => [...r.spaces].sort((a, b) => a.name.localeCompare(b.name, 'ru', { numeric: true }))),
   });
 
   return (

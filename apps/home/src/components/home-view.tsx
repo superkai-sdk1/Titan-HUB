@@ -293,7 +293,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: space.xl, paddingTop: space.lg,
     borderTopWidth: 1, borderTopColor: colors.border,
   },
-  waitHintText: { fontSize: 15, color: colors.textSecondary },
+  waitHintText: { flex: 1, fontSize: 15, color: colors.textSecondary },
   dot: { width: 10, height: 10, borderRadius: 5, backgroundColor: colors.violetLight, boxShadow: '0 0 10px rgba(139,92,246,0.8)' },
 
   pending: { padding: space.lg, borderRadius: radius.card, backgroundColor: colors.amberTint, borderWidth: 1, borderColor: 'rgba(251,191,36,0.3)', gap: space.sm },
