@@ -31,6 +31,7 @@ const TYPE_ICONS: Record<string, string> = {
   request_bill: 'receipt_long',
   client_order: 'room_service',
   chat_message: 'chat',
+  guest_feedback: 'star',
   payment: 'payments',
   shift: 'schedule',
   alert: 'warning',

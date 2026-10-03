@@ -29,6 +29,7 @@ const LOOK: Record<string, { icon: SFSymbol; color: NamedColor }> = {
   deposit_topup: { icon: 'wallet.bifold.fill', color: 'green' },
   certificate_used: { icon: 'giftcard.fill', color: 'teal' },
   booking: { icon: 'calendar.badge.clock', color: 'indigo' },
+  guest_feedback: { icon: 'star.fill', color: 'yellow' },
 };
 
 export function notificationLook(type: string) {

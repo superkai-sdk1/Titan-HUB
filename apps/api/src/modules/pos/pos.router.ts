@@ -3,7 +3,7 @@ import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import {
-  checks, checkItems, checkItemModifiers, checkPayments, checkDiscounts, pendingOrders, chatMessages,
+  checks, checkItems, checkItemModifiers, checkPayments, checkDiscounts, pendingOrders, chatMessages, guestFeedback,
   inventory, profiles, spaces, certificates, bonusHistory, transactions, modifiers as modifiersTable,
   appSettings, events, discounts, clientDiscountRules,
   eq, and, ne, inArray, desc, asc, sql, isNull,
@@ -1116,6 +1116,115 @@ posRouter.post('/checks/:id/chat/read', requireRole('owner', 'staff', 'tablet'),
     .where(and(eq(chatMessages.checkId, checkId), eq(chatMessages.sender, other), isNull(chatMessages.readAt)))
   publishEvent(c.var.club?.id, 'chat:read', { checkId })
   return c.json({ ok: true })
+})
+
+// ─── Свет и климат кабинки (Titan Home ↔ Home Assistant) ──────────────────────
+//
+// Home Assistant стоит в локальной сети клуба, сервер Titan до него не достаёт —
+// планшет управляет устройствами САМ, напрямую по LAN. Поэтому планшету (и только
+// своей зоны) отдаём адрес и токен HA из интеграций клуба: это осознанное
+// исключение из правила «секреты не покидают сервер». Владельцу рекомендуем
+// отдельного пользователя HA без прав администратора (см. docs/HOME_APP.md).
+
+const SmartHomeSchema = z.object({
+  lights: z.array(z.object({
+    entityId: z.string().regex(/^[a-z_]+\.[a-z0-9_]+$/),
+    name: z.string().trim().min(1).max(40),
+  })).max(4),
+  climate: z.object({
+    entityId: z.string().regex(/^climate\.[a-z0-9_]+$/),
+    name: z.string().trim().min(1).max(40),
+  }).nullable(),
+})
+
+async function tabletSpaceId(c: any): Promise<string | null> {
+  const user = c.get('user')
+  const [me] = await c.var.db.select({ spaceId: profiles.linkedSpaceId }).from(profiles).where(eq(profiles.id, user.sub))
+  return me?.spaceId ?? null
+}
+
+// GET /tablet/smart-home — подключение к HA и устройства своей зоны.
+posRouter.get('/tablet/smart-home', requireRole('tablet'), async (c) => {
+  const db = c.var.db
+  const spaceId = await tabletSpaceId(c)
+  if (!spaceId) return c.json({ error: 'Forbidden' }, 403)
+  const [space] = await db.select({ smartHome: spaces.smartHome }).from(spaces).where(eq(spaces.id, spaceId))
+  const [url, token] = await Promise.all([getClubIntegration(db, 'ha_url'), getClubIntegration(db, 'ha_token')])
+  return c.json({
+    connection: url && token ? { url, token } : null,
+    room: space?.smartHome ?? { lights: [], climate: null },
+  })
+})
+
+// PUT /tablet/smart-home — сотрудник на планшете выбрал устройства кабинки.
+// Только своя зона: планшет не может перенастроить чужую.
+posRouter.put('/tablet/smart-home', requireRole('tablet'), zValidator('json', SmartHomeSchema), async (c) => {
+  const db = c.var.db
+  const spaceId = await tabletSpaceId(c)
+  if (!spaceId) return c.json({ error: 'Forbidden' }, 403)
+  const room = c.req.valid('json')
+  await db.update(spaces).set({ smartHome: room }).where(eq(spaces.id, spaceId))
+  return c.json({ room })
+})
+
+// ─── Оценка вечера гостем (Titan Home) ────────────────────────────────────────
+
+// Окно, в течение которого после закрытия счёта планшет может оставить оценку:
+// финальный экран висит минуту-другую, но гость мог задержаться с комментарием.
+const FEEDBACK_WINDOW_MS = 6 * 3600 * 1000
+
+const FeedbackSchema = z.object({
+  rating: z.number().int().min(1).max(5),
+  tags: z.array(z.string().trim().min(1).max(40)).max(8).default([]),
+  comment: z.string().trim().max(1000).optional(),
+})
+
+// POST /checks/:id/feedback — гость оценивает вечер после оплаты/закрытия счёта.
+// Одна оценка на чек: повторная отправка перезаписывает. Планшет — только своя зона.
+// Низкая оценка или комментарий → уведомление персоналу (тип guest_feedback).
+posRouter.post('/checks/:id/feedback', requireRole('owner', 'staff', 'tablet'), zValidator('json', FeedbackSchema), async (c) => {
+  const db = c.var.db
+  const checkId = c.req.param('id')
+  const _tf = await tabletZoneForbidden(c, checkId); if (_tf) return _tf
+  const body = c.req.valid('json')
+
+  const [check] = await db.select().from(checks).where(eq(checks.id, checkId))
+  if (!check) return c.json({ error: 'Not found' }, 404)
+  if (check.status === 'open') return c.json({ error: 'Счёт ещё открыт' }, 400)
+  if (check.status === 'cancelled') return c.json({ error: 'Счёт отменён' }, 400)
+  if (!check.closedAt || Date.now() - new Date(check.closedAt).getTime() > FEEDBACK_WINDOW_MS) {
+    return c.json({ error: 'Время для оценки истекло' }, 400)
+  }
+
+  const comment = body.comment ? body.comment : null
+  const [row] = await db.insert(guestFeedback).values({
+    checkId,
+    spaceId: check.spaceId ?? null,
+    rating: body.rating,
+    tags: body.tags,
+    comment,
+  }).onConflictDoUpdate({
+    target: guestFeedback.checkId,
+    set: { rating: body.rating, tags: body.tags, comment, updatedAt: new Date() },
+  }).returning()
+
+  if (body.rating <= 3 || comment) {
+    let spaceName = ''
+    if (check.spaceId) {
+      const [sp] = await db.select({ name: spaces.name }).from(spaces).where(eq(spaces.id, check.spaceId))
+      spaceName = sp?.name ?? ''
+    }
+    const stars = '★'.repeat(body.rating) + '☆'.repeat(5 - body.rating)
+    const details = [body.tags.join(', '), comment].filter(Boolean).join(' — ')
+    void notify({
+      type: 'guest_feedback',
+      title: spaceName ? `Оценка из «${spaceName}»: ${stars}` : `Оценка гостя: ${stars}`,
+      body: details ? details.slice(0, 200) : 'Без комментария',
+      meta: { checkId, spaceId: check.spaceId, rating: body.rating },
+    }, db, c.var.club?.id).catch(() => {})
+  }
+
+  return c.json({ feedback: row }, 201)
 })
 
 posRouter.patch('/checks/:id/items/:itemId', requireRole('owner', 'staff', 'tablet'), zValidator('json', z.object({ quantity: z.number().int().min(0) })), async (c) => {

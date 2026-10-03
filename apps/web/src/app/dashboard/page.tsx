@@ -14,7 +14,7 @@ import { Chip } from '@/components/manage/DesignSystem'
 // ─── Constants ────────────────────────────────────────────────────────────────
 // ВНИМАНИЕ: 'expenses' здесь нет — вкладка «Расходы» переехала в /manage/inventory.
 // Раньше тип содержал её ошибочно (рассинхрон с TABS/TAB_KEYS), что путало.
-type MainTab = 'overview' | 'finance' | 'events' | 'games' | 'bar' | 'players' | 'staff'
+type MainTab = 'overview' | 'finance' | 'events' | 'games' | 'bar' | 'players' | 'staff' | 'feedback'
 type ReportRange = '7d' | '30d' | 'month' | 'custom'
 
 // Визуально-скрытая (для глаз) текстовая альтернатива — доступна скринридерам.
@@ -1880,6 +1880,84 @@ function FinanceTab({ from, to }: { from: string; to: string }) {
 }
 
 // ─── Tab: Персонал (списания на сотрудников) ───────────────────────────────────
+// ─── Tab: Отзывы гостей (Titan Home) ─────────────────────────────────────────
+// Оценки вечера, которые гости ставят на планшете кабинки после оплаты.
+function FeedbackTab({ from, to }: { from: string; to: string }) {
+  const { data, isLoading, isError, refetch } = useQuery({
+    queryKey: ['analytics', 'feedback', from, to],
+    queryFn: () => api.get<any>(`/analytics/feedback?from=${from}&to=${to}`),
+    enabled: !!from && !!to,
+  })
+  if (isLoading) return <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}><SkeletonCards n={3} /><Skeleton h={220} /></div>
+  if (isError || !data) return <StateView state="error" description="Не удалось загрузить отзывы." action={{ label: 'Повторить', onClick: () => refetch() }} />
+  const s = data.summary
+  if (!s || s.count === 0) {
+    return <StateView state="empty" icon="star" title="Пока нет оценок за период" description="После оплаты гости оценивают вечер на планшете Titan Home — оценки появятся здесь." />
+  }
+  const items: any[] = data.items ?? []
+  const tags: { tag: string; count: number }[] = s.tags ?? []
+  const maxDist = Math.max(1, ...[1, 2, 3, 4, 5].map((r) => s.distribution?.[r] ?? 0))
+  const low = [1, 2, 3].reduce((a, r) => a + (s.distribution?.[r] ?? 0), 0)
+  const stars = (n: number) => '★'.repeat(n) + '☆'.repeat(5 - n)
+  const ratingColor = (n: number) => (n >= 4 ? '#FBBF24' : n === 3 ? '#F59E0B' : '#F43F5E')
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 12 }}>
+        <KpiCard label="Средняя оценка" value={s.avg != null ? String(s.avg).replace('.', ',') : '—'} suffix=" ★" sub="из 5 по всем отзывам" icon="star" iconColor="#FBBF24" iconBg="rgba(251,191,36,0.1)" />
+        <KpiCard label="Отзывов" value={String(s.count)} suffix="" sub={`с комментарием: ${s.withComment}`} icon="chat" iconColor="#4cd7f6" iconBg="rgba(76,215,246,0.1)" />
+        <KpiCard label="Низких (1–3★)" value={String(low)} suffix="" sub={`${Math.round((low / s.count) * 100)}% отзывов`} icon="warning" iconColor="#F43F5E" iconBg="rgba(244,63,94,0.1)" />
+      </div>
+
+      <div className="dash-row" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+        <EvSection title="Распределение">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, paddingTop: 8 }}>
+            {[5, 4, 3, 2, 1].map((r) => {
+              const n = s.distribution?.[r] ?? 0
+              return (
+                <div key={r} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <span style={{ width: 70, fontSize: 13, color: ratingColor(r), letterSpacing: 1 }}>{stars(r)}</span>
+                  <div style={{ flex: 1, height: 8, borderRadius: 4, background: 'rgba(255,255,255,0.06)', overflow: 'hidden' }}>
+                    <div style={{ height: '100%', width: `${(n / maxDist) * 100}%`, background: ratingColor(r), borderRadius: 4 }} />
+                  </div>
+                  <span style={{ width: 28, textAlign: 'right', fontSize: 13, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{n}</span>
+                </div>
+              )
+            })}
+          </div>
+        </EvSection>
+        <EvSection title="О чём говорят">
+          {tags.length ? (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, paddingTop: 8 }}>
+              {tags.map((t) => (
+                <span key={t.tag} style={{ padding: '6px 12px', borderRadius: 999, fontSize: 12.5, fontWeight: 600, background: 'rgba(139,92,246,0.12)', border: '1px solid rgba(139,92,246,0.25)', color: 'var(--on-surface)' }}>
+                  {t.tag} <b style={{ color: '#A78BFA' }}>{t.count}</b>
+                </span>
+              ))}
+            </div>
+          ) : <p style={{ fontSize: 13, color: 'var(--on-surface-variant)', margin: '8px 0 0' }}>Гости пока не отмечали теги.</p>}
+        </EvSection>
+      </div>
+
+      <EvSection title="Последние отзывы">
+        <div style={{ display: 'flex', flexDirection: 'column' }}>
+          {items.map((f) => (
+            <div key={f.id} style={{ padding: '12px 0', borderBottom: '1px solid rgba(255,255,255,0.05)', display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 15, color: ratingColor(f.rating), letterSpacing: 1 }}>{stars(f.rating)}</span>
+                <span style={{ fontSize: 13, fontWeight: 600 }}>{f.spaceName ?? 'Зона'}{f.guestName ? ` · ${f.guestName}` : ''}</span>
+                <span style={{ fontSize: 12, color: 'var(--on-surface-variant)', marginLeft: 'auto' }}>{fmtMskDate(f.createdAt)} · {fmt(parseNum(f.checkTotal))} ₽</span>
+              </div>
+              {f.tags?.length ? <div style={{ fontSize: 12.5, color: '#A78BFA' }}>{f.tags.join(' · ')}</div> : null}
+              {f.comment ? <div style={{ fontSize: 13.5, color: 'var(--on-surface)', lineHeight: 1.45 }}>{f.comment}</div> : null}
+            </div>
+          ))}
+        </div>
+      </EvSection>
+    </div>
+  )
+}
+
 function StaffTab({ staff, periodText, from, to }: { staff: any; periodText: string; from: string; to: string }) {
   const [openCheckId, setOpenCheckId] = useState<string | null>(null)
   if (!staff) return <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}><SkeletonCards n={3} /><Skeleton h={220} /></div>
@@ -1979,7 +2057,7 @@ export default function DashboardPage() {
   // Читаем window.location в useEffect (без next/navigation useSearchParams,
   // чтобы не требовать Suspense-границу).
   useEffect(() => {
-    const TAB_KEYS: MainTab[] = ['overview', 'finance', 'events', 'games', 'bar', 'players', 'staff']
+    const TAB_KEYS: MainTab[] = ['overview', 'finance', 'events', 'games', 'bar', 'players', 'staff', 'feedback']
     const tab = new URLSearchParams(window.location.search).get('tab')
     if (tab && (TAB_KEYS as string[]).includes(tab)) setActiveTab(tab as MainTab)
   }, [])
@@ -2024,6 +2102,7 @@ export default function DashboardPage() {
     { key: 'bar'      as MainTab, label: 'Бар',            icon: 'inventory_2' },
     { key: 'players'  as MainTab, label: 'Игроки',         icon: 'group' },
     { key: 'staff'    as MainTab, label: 'Персонал',       icon: 'badge' },
+    { key: 'feedback' as MainTab, label: 'Отзывы',         icon: 'star' },
   ]
 
   return (
@@ -2073,6 +2152,7 @@ export default function DashboardPage() {
             {activeTab === 'bar'       && <ProductsTab products={products} from={period.from} to={period.to} />}
             {activeTab === 'players'   && <PlayersTab clients={clients} />}
             {activeTab === 'staff'     && <StaffTab staff={staff} periodText={period.label} from={period.from} to={period.to} />}
+            {activeTab === 'feedback'  && <FeedbackTab from={period.from} to={period.to} />}
           </div>
         </PullToRefreshContainer>
       </div>

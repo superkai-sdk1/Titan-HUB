@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Политики не нужны: права киоска (lock task, «Домой», экран блокировки)
+     владелец устройства получает без отдельных разрешений. -->
+<device-admin xmlns:android="http://schemas.android.com/apk/res/android">
+  <uses-policies />
+</device-admin>

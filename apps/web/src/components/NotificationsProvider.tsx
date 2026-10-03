@@ -76,6 +76,7 @@ export const NOTIF_ICONS: Record<string, string> = {
   debt_created: 'account_balance_wallet',
   deposit_topup: 'account_balance_wallet',
   certificate_used: 'card_giftcard',
+  guest_feedback: 'star',
 }
 export const NOTIF_COLORS: Record<string, string> = {
   staff_call: '#F59E0B',
@@ -100,6 +101,7 @@ export const NOTIF_COLORS: Record<string, string> = {
   debt_created: '#F43F5E',
   deposit_topup: '#10B981',
   certificate_used: '#14B8A6',
+  guest_feedback: '#FBBF24',
 }
 export function notifIcon(type: string) { return NOTIF_ICONS[type] ?? 'notifications' }
 export function notifColor(type: string) { return NOTIF_COLORS[type] ?? '#A78BFA' }
@@ -117,6 +119,7 @@ export function notifUrl(n: { type: string; meta?: Record<string, unknown> }): s
     case 'event_created': case 'event_completed': return '/events'
     case 'new_client': case 'birthday': return '/manage/clients'
     case 'staff_call': return checkId ? `/pos/${checkId}` : '/pos'
+    case 'guest_feedback': return '/dashboard?tab=feedback'
   }
   if (checkId) return `/pos/${checkId}`
   if (typeof meta['itemId'] === 'string') return '/manage/inventory'

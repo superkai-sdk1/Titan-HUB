@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, numeric, integer, boolean } from 'drizzle-orm/pg-core'
+import { pgTable, uuid, text, numeric, integer, boolean, jsonb } from 'drizzle-orm/pg-core'
 
 // Анти-кафе использует разнородные зоны: столы, VR, PS5, общие зоны + кабинки/зал.
 // В БД колонка хранится как text + CHECK (см. 012_space_types_capacity.sql) — раннер
@@ -20,7 +20,15 @@ export const spaces = pgTable('spaces', {
   isActive: boolean('is_active').notNull().default(true),
   // Показывать почасовую ставку на экране меню для ТВ (/menu) — миграция 064.
   isScreenVisible: boolean('is_screen_visible').notNull().default(true),
+  // Устройства Home Assistant в зоне (панель «Свет и климат» в Titan Home) — миграция 065.
+  smartHome: jsonb('smart_home').$type<SpaceSmartHome>(),
 })
+
+/** Привязка устройств Home Assistant к зоне: entity_id и подпись для гостя. */
+export interface SpaceSmartHome {
+  lights: { entityId: string; name: string }[]
+  climate: { entityId: string; name: string } | null
+}
 
 export type Space = typeof spaces.$inferSelect
 export type NewSpace = typeof spaces.$inferInsert

@@ -4,6 +4,7 @@ import {
   text,
   numeric,
   integer,
+  smallint,
   timestamp,
   jsonb,
   pgEnum,
@@ -124,6 +125,21 @@ export const chatMessages = pgTable('chat_messages', {
   // Заполняется, когда противоположная сторона открыла чат (отметка «прочитано»).
   readAt: timestamp('read_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+})
+
+// Оценка вечера гостем на планшете Titan Home (после оплаты/закрытия счёта).
+// Одна на чек (уникальный check_id). См. 065_guest_feedback.sql.
+export const guestFeedback = pgTable('guest_feedback', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  checkId: uuid('check_id')
+    .notNull()
+    .references(() => checks.id, { onDelete: 'cascade' }),
+  spaceId: uuid('space_id').references(() => spaces.id, { onDelete: 'set null' }),
+  rating: smallint('rating').notNull(),
+  tags: text('tags').array().notNull().default([]),
+  comment: text('comment'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 })
 
 export const checkItemModifiers = pgTable('check_item_modifiers', {

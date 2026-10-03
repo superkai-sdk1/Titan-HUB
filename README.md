@@ -52,7 +52,7 @@
 |---|---|---|---|
 | **Titan HUB** | персонал | основное кассовое ПО: касса, «Управление», аналитика, Tai | `apps/web` (PWA), `apps/mobile` (iOS/Android) |
 | **My Titan** | клиенты клуба | бонусы, депозит и долг, история, оплата через СБП, уведомления | `apps/client` (iOS/Android), `apps/wallet` (веб-версия, `/residents`), `apps/bot-wallet` |
-| **Titan Home** | гости в кабинке | меню и касса самообслуживания на Android-планшете | `apps/web/src/app/tablet` (`/tablet`) |
+| **Titan Home** | гости в кабинке | счёт, меню и заказ, оплата по QR, оценка вечера и управление светом и кондиционером (Home Assistant) на Android-планшете | `apps/home` (Android, см. [docs/HOME_APP.md](docs/HOME_APP.md)), веб-версия `apps/web/src/app/tablet` (`/tablet`) |
 | **Titan Menu** | гости в зале | меню на телевизоре (AbleSign) | `apps/web/public/tv-menu.html` (`/menu`) |
 
 Технические идентификаторы (bundle ID, пакеты, пути, имена папок) остались прежними — меняются только названия.
@@ -467,6 +467,8 @@ npm run ios:testflight    # загрузить билд в TestFlight
 ### Titan Home (планшет-киоск)
 
 Сессия планшета (`/auth/tablet-session`) привязывается к зоне (`linkedSpaceId`). Все операции проверяются на соответствие зоне — IDOR-защита на уровне каждого запроса.
+
+Нативное приложение `apps/home` — режим киоска (владелец устройства), панель «Свет и климат» через Home Assistant в локальной сети, оценка вечера после оплаты. Подробно — [docs/HOME_APP.md](docs/HOME_APP.md).
 
 ---
 

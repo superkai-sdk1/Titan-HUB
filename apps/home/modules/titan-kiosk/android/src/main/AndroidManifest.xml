@@ -1,0 +1,23 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <application>
+    <!--
+      Администратор устройства для режима киоска. Сам по себе ничего не включает:
+      полный киоск работает, когда приложение назначено владельцем устройства
+      (adb shell dpm set-device-owner ru.titan.home/expo.modules.titankiosk.KioskAdminReceiver,
+      см. scripts/kiosk-device-owner.sh).
+    -->
+    <receiver
+      android:name="expo.modules.titankiosk.KioskAdminReceiver"
+      android:description="@string/titan_kiosk_admin_description"
+      android:exported="true"
+      android:label="Titan Home"
+      android:permission="android.permission.BIND_DEVICE_ADMIN">
+      <meta-data
+        android:name="android.app.device_admin"
+        android:resource="@xml/titan_kiosk_device_admin" />
+      <intent-filter>
+        <action android:name="android.app.action.DEVICE_ADMIN_ENABLED" />
+      </intent-filter>
+    </receiver>
+  </application>
+</manifest>

@@ -190,6 +190,7 @@ const TABLE: Record<string, string> = {
   'flame.fill': 'local_fire_department',
   heart: 'favorite',
   star: 'star',
+  'star.fill': 'star',
   'star.circle': 'stars',
   flag: 'flag',
   tag: 'label',

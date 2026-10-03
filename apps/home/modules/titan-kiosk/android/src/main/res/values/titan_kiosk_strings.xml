@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <string name="titan_kiosk_admin_description">Режим киоска Titan Home: планшет кабинки открывает только меню и счёт гостя.</string>
+</resources>

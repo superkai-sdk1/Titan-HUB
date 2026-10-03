@@ -192,6 +192,30 @@ authRouter.post('/tablet-session', zValidator('json', z.object({
   }
 })
 
+// ── POST /auth/tablet-refresh — продление сессии киоска (приложение Titan Home) ──
+// Скользящая сессия: работающий планшет раз в несколько дней меняет tablet-токен на
+// свежий (30д), и персоналу не приходится вводить PIN, пока киоск в строю. Выдаём
+// только тому же tablet-профилю той же зоны: профиль удалён, отвязан или зона
+// выключена — 401, и киоск снова попросит PIN сотрудника. Старый токен доживает
+// свой срок (он узкий: только своя зона).
+authRouter.post('/tablet-refresh', requireAuth, async (c) => {
+  const user = c.get('user')
+  if (user.role !== 'tablet') return c.json({ error: 'Forbidden' }, 403)
+  const db = c.var.db
+  const [profile] = await db.select().from(profiles)
+    .where(and(eq(profiles.id, user.sub), eq(profiles.role, 'tablet'), isNull(profiles.deletedAt)))
+  if (!profile?.linkedSpaceId) return c.json({ error: 'Сессия планшета недействительна' }, 401)
+  const [space] = await db.select({ id: spaces.id, name: spaces.name })
+    .from(spaces).where(and(eq(spaces.id, profile.linkedSpaceId), eq(spaces.isActive, true)))
+  if (!space) return c.json({ error: 'Пространство выключено' }, 401)
+  const token = await signToken({ sub: profile.id, role: 'tablet', nickname: profile.nickname, clubId: c.var.club?.id ?? null }, '30d')
+  return c.json({
+    token,
+    user: { id: profile.id, nickname: profile.nickname, role: 'tablet', photoUrl: profile.photoUrl, linkedSpaceId: space.id },
+    space,
+  })
+})
+
 authRouter.post('/login/pin', zValidator('json', LoginPinSchema), async (c) => {
   const { pin, userId } = c.req.valid('json')
   const db = c.var.db

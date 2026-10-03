@@ -278,6 +278,9 @@ const INTEGRATION_KEYS: Record<string, string> = {
   whatsapp_token: 'WhatsApp: постоянный токен',
   // Поиск адресов — Яндекс Геосаджест (подсказки в полях ввода адреса).
   yandex_geosuggest_key: 'Яндекс Геосаджест: API-ключ',
+  // Умный дом — Home Assistant в локальной сети клуба (свет и кондиционеры кабинок в Titan Home).
+  ha_url: 'Home Assistant: адрес в локальной сети',
+  ha_token: 'Home Assistant: долгосрочный токен',
 }
 
 const isAllowedKey = (key: string): boolean =>

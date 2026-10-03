@@ -5,7 +5,7 @@ import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import {
   checks, checkItems, checkPayments, checkDiscounts, inventory, menuCategories, profiles, shifts, expenses, events, spaces,
-  salaryPayments, refunds, tariffs, eveningTypes, analyticsEvents, stockMovements,
+  salaryPayments, refunds, tariffs, eveningTypes, analyticsEvents, stockMovements, guestFeedback,
   eq, and, gte, lte, lt, desc, asc, sql, sum, count, avg, isNull, isNotNull, ne, inArray,
 } from '@titan/database'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
@@ -1924,5 +1924,70 @@ analyticsRouter.get('/checks/:id', async (c) => {
     player: playerOut,
     staff,
     refunds: checkRefunds.map((r: any) => ({ ...r, totalAmount: parseNum(r.totalAmount) })),
+  })
+})
+
+// ─── Отзывы гостей (Titan Home) ─────────────────────────────────────────────────
+// Оценки вечера, которые гости ставят на планшете кабинки после оплаты. Окно — по
+// времени оценки в бизнес-днях [from, to]. Сводка: число, средняя, распределение
+// 1–5, частые теги; лента — последние 200 с зоной, суммой и гостем чека.
+analyticsRouter.get('/feedback', zValidator('query', dateRangeQuerySchema), async (c) => {
+  const db = c.var.db
+  const q = c.req.valid('query')
+  const h = await getBusinessDayStartHour(db)
+  const from = q.from ?? bizDayStr(30, h)
+  const to = q.to ?? bizDayStr(0, h)
+  const { start } = bizDayBounds(from, h)
+  const { end } = bizDayBounds(to, h)
+
+  const rows = await db
+    .select({
+      id: guestFeedback.id,
+      checkId: guestFeedback.checkId,
+      rating: guestFeedback.rating,
+      tags: guestFeedback.tags,
+      comment: guestFeedback.comment,
+      createdAt: guestFeedback.createdAt,
+      spaceName: spaces.name,
+      checkTotal: checks.totalAmount,
+      guestNames: checks.guestNames,
+      playerNickname: profiles.nickname,
+    })
+    .from(guestFeedback)
+    .leftJoin(checks, eq(checks.id, guestFeedback.checkId))
+    .leftJoin(spaces, eq(spaces.id, guestFeedback.spaceId))
+    .leftJoin(profiles, eq(profiles.id, checks.playerId))
+    .where(and(gte(guestFeedback.createdAt, start), lt(guestFeedback.createdAt, end)))
+    .orderBy(desc(guestFeedback.createdAt))
+
+  const distribution: Record<string, number> = { '1': 0, '2': 0, '3': 0, '4': 0, '5': 0 }
+  const tagCounts = new Map<string, number>()
+  let sumRating = 0
+  for (const r of rows) {
+    distribution[String(r.rating)] = (distribution[String(r.rating)] ?? 0) + 1
+    sumRating += r.rating
+    for (const t of r.tags ?? []) tagCounts.set(t, (tagCounts.get(t) ?? 0) + 1)
+  }
+  const count = rows.length
+  return c.json({
+    from, to,
+    summary: {
+      count,
+      avg: count ? Math.round((sumRating / count) * 100) / 100 : null,
+      distribution,
+      withComment: rows.filter((r) => !!r.comment).length,
+      tags: [...tagCounts.entries()].sort((a, b) => b[1] - a[1]).map(([tag, n]) => ({ tag, count: n })),
+    },
+    items: rows.slice(0, 200).map((r) => ({
+      id: r.id,
+      checkId: r.checkId,
+      rating: r.rating,
+      tags: r.tags ?? [],
+      comment: r.comment,
+      createdAt: r.createdAt,
+      spaceName: r.spaceName,
+      checkTotal: parseNum(r.checkTotal),
+      guestName: r.playerNickname ?? r.guestNames?.[0] ?? null,
+    })),
   })
 })

@@ -22,6 +22,7 @@ export function resolveNotifUrl(type: string, meta: Record<string, unknown> = {}
     case 'event_created': case 'event_completed': return '/events'
     case 'new_client': case 'birthday': return '/manage/clients'
     case 'staff_call': return checkId ? `/pos/${checkId}` : '/pos'
+    case 'guest_feedback': return '/dashboard?tab=feedback'
   }
   if (checkId) return `/pos/${checkId}`
   if (typeof meta['itemId'] === 'string') return '/manage/inventory'
@@ -76,6 +77,7 @@ export const NOTIFICATION_TYPES: NotificationTypeDef[] = [
   { key: 'request_bill', label: 'Запрос счёта', description: 'Гость запрашивает счёт с планшета', defaultEnabled: true },
   { key: 'client_order', label: 'Заказ с планшета', description: 'Гость отправил заказ — ждёт подтверждения', defaultEnabled: true },
   { key: 'chat_message', label: 'Сообщение в чате', description: 'Гость написал в чат с планшета', defaultEnabled: true },
+  { key: 'guest_feedback', label: 'Отзыв гостя', description: 'Гость оценил вечер в Titan Home на 3★ и ниже или оставил комментарий', defaultEnabled: true },
   { key: 'shift_open', label: 'Открытие смены', description: 'Смена открыта', defaultEnabled: true },
   { key: 'shift_close', label: 'Закрытие смены', description: 'Смена закрыта', defaultEnabled: true },
   { key: 'cash_discrepancy', label: 'Расхождение в кассе', description: 'Излишек или недостача наличных', defaultEnabled: true },
