@@ -1,4 +1,4 @@
-import { ColorPicker, Form, HStack, ProgressView, Section, Text } from '@expo/ui/swift-ui';
+import { ColorPicker, Form, HStack, ProgressView, Section, Text, Toggle } from '@expo/ui/swift-ui';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Alert } from 'react-native';
@@ -33,6 +33,7 @@ function TariffForm({ original }: { original: AdminTariff | null }) {
   const [name, setName] = useState(original?.name ?? '');
   const [price, setPrice] = useState(original ? moneyText(original.price) : '');
   const [color, setColor] = useState(normalizeHex(original?.color, '#8B5CF6'));
+  const [onScreen, setOnScreen] = useState(original?.isScreenVisible ?? true);
   const [busy, setBusy] = useState(false);
 
   const isStatus = !!original?.key;
@@ -57,7 +58,7 @@ function TariffForm({ original }: { original: AdminTariff | null }) {
 
   const save = () => {
     if (!canSave || amount === null) return;
-    void run(() => saveTariff(original?.id ?? null, { name, price: amount, color }), 'Тариф не сохранён');
+    void run(() => saveTariff(original?.id ?? null, { name, price: amount, color, isScreenVisible: onScreen }), 'Тариф не сохранён');
   };
 
   const hide = () =>
@@ -94,6 +95,12 @@ function TariffForm({ original }: { original: AdminTariff | null }) {
           <Section>
             <ColorPicker label="Цвет" selection={color} supportsOpacity={false} onSelectionChange={(next) => setColor(normalizeHex(next, color))} />
           </Section>
+
+          {original?.itemId && (
+            <Section title="Экран ТВ" footer={<Text>Тариф в меню на телевизоре. Выключите — пропадёт с экрана, в кассе останется.</Text>}>
+              <Toggle label="На экране ТВ" isOn={onScreen} onIsOnChange={setOnScreen} />
+            </Section>
+          )}
 
           {original && !original.isSystem && (
             <Section footer={<Text>{hidden ? 'Тариф снова появится в кассе и меню.' : 'Прошлые чеки сохранят тариф, вернуть его можно в разделе «Скрытые».'}</Text>}>

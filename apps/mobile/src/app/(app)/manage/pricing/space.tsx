@@ -38,6 +38,7 @@ function SpaceForm({ original }: { original: Space | null }) {
   const [rate, setRate] = useState(original ? moneyText(original.hourlyRate) : '');
   const [capacity, setCapacity] = useState(original?.capacity ? String(original.capacity) : '');
   const [active, setActive] = useState(original?.isActive ?? true);
+  const [onScreen, setOnScreen] = useState(original?.isScreenVisible ?? true);
   const [busy, setBusy] = useState(false);
   const [linking, setLinking] = useState(false);
 
@@ -51,7 +52,7 @@ function SpaceForm({ original }: { original: Space | null }) {
     haptic.medium();
     setBusy(true);
     try {
-      await saveSpace(original?.id ?? null, { name, type: kind, hourlyRate: hourly, capacity: people, isActive: active });
+      await saveSpace(original?.id ?? null, { name, type: kind, hourlyRate: hourly, capacity: people, isActive: active, isScreenVisible: onScreen });
       haptic.success();
       router.back();
     } catch (error) {
@@ -115,6 +116,10 @@ function SpaceForm({ original }: { original: Space | null }) {
               <Toggle label="Зона работает" isOn={active} onIsOnChange={setActive} />
             </Section>
           )}
+
+          <Section title="Экран ТВ" footer={<Text>Ставка зоны в меню на телевизоре. Выключите — пропадёт с экрана, аренда в кассе останется.</Text>}>
+            <Toggle label="На экране ТВ" isOn={onScreen} onIsOnChange={setOnScreen} />
+          </Section>
 
           {original && (
             <Section title="Планшет кабинки" footer={<Text>Одноразовый код привязки, действует 5 минут.</Text>}>

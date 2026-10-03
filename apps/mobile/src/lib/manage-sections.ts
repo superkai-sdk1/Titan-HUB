@@ -16,6 +16,7 @@ export type ManageSectionKey =
   | 'loyalty'
   | 'collections'
   | 'polls'
+  | 'broadcasts'
   | 'staff'
   | 'shifts'
   | 'salary'
@@ -51,6 +52,7 @@ export const MANAGE_GROUPS: { title: string; items: ManageSection[] }[] = [
       { key: 'collections', title: 'Сбор средств', subtitle: 'Фонд клуба и разовые сборы', icon: 'banknote', color: '#00C7BE', roles: ['owner', 'staff'], perm: 'debtors' },
       { key: 'loyalty', title: 'Лояльность', subtitle: 'Бонусы, скидки, статусы', icon: 'gift', color: '#FF2D55', roles: ['owner', 'staff'] },
       { key: 'customers', title: 'Заказчики', subtitle: 'Компании и организаторы событий', icon: 'briefcase', color: '#5856D6', roles: ['owner', 'staff'] },
+      { key: 'broadcasts', title: 'Рассылки', subtitle: 'Push и сообщения клиентам', icon: 'megaphone', color: '#AF52DE', roles: ['owner'] },
       { key: 'polls', title: 'Опросы', subtitle: 'Опросы в чатах клуба', icon: 'checklist', color: '#FF3B30', roles: ['owner'] },
     ],
   },

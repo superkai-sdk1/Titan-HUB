@@ -45,6 +45,8 @@ export type Space = {
   hourlyRate: NumericString;
   capacity: number | null;
   isActive: boolean;
+  /** Ставка на экране меню для ТВ (/menu). */
+  isScreenVisible?: boolean;
 };
 
 export type MenuCategory = {

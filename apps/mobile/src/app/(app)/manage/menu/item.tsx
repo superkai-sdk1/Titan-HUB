@@ -59,6 +59,8 @@ function ItemForm({ original, presetCategory, categories, spaces }: { original: 
     trackStock: original?.trackStock ?? false,
     isTabletVisible: original?.isTabletVisible ?? false,
   });
+  const [onScreen, setOnScreen] = useState(original?.isScreenVisible ?? true);
+  const clubHost = useSession((s) => s.club?.host);
   const [busy, setBusy] = useState(false);
 
   const priceParsed = price.trim() ? parseAmount(price) : 0;
@@ -84,6 +86,7 @@ function ItemForm({ original, presetCategory, categories, spaces }: { original: 
           .map((t) => t.trim())
           .filter(Boolean),
         ...flags,
+        isScreenVisible: onScreen,
       });
       haptic.success();
       router.back();
@@ -176,6 +179,10 @@ function ItemForm({ original, presetCategory, categories, spaces }: { original: 
             {FLAGS.map((flag) => (
               <Toggle key={flag.key} label={flag.label} isOn={flags[flag.key]} onIsOnChange={(on) => setFlags((current) => ({ ...current, [flag.key]: on }))} />
             ))}
+          </Section>
+
+          <Section title="Экран ТВ" footer={<Text>{`Позиция в меню на телевизоре${clubHost ? ` (${clubHost}/menu)` : ''}. Выключите — пропадёт с экрана, в кассе останется.`}</Text>}>
+            <Toggle label="На экране ТВ" isOn={onScreen} onIsOnChange={setOnScreen} />
           </Section>
 
           {original && isOwner && (

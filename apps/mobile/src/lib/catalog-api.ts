@@ -100,6 +100,8 @@ export type AdminMenuItem = {
   isActive: boolean;
   isTop: boolean;
   isTabletVisible: boolean;
+  /** На экране меню для ТВ (/menu). */
+  isScreenVisible?: boolean;
   imageUrl: string | null;
   sortOrder: number;
   searchTags: string[] | null;
@@ -178,6 +180,7 @@ export type MenuItemInput = {
   isService: boolean;
   trackStock: boolean;
   isTabletVisible: boolean;
+  isScreenVisible: boolean;
   searchTags: string[];
   linkedSpaceId: string | null;
 };
@@ -193,6 +196,7 @@ export async function saveMenuItem(original: AdminMenuItem | null, input: MenuIt
     isService: input.isService,
     trackStock: input.trackStock,
     isTabletVisible: input.isTabletVisible,
+    isScreenVisible: input.isScreenVisible,
     searchTags: input.searchTags,
   };
   const costChanged = !original || Math.abs(Number(original.costPrice ?? 0) - input.costPrice) > 0.004;
@@ -225,7 +229,8 @@ export const SPACE_LOOK: Record<Space['type'], { symbol: SFSymbol; color: string
   zone: { symbol: 'square.grid.2x2', color: '#F59E0B' },
 };
 
-export type AdminTariff = Tariff & { isSystem?: boolean };
+/** isScreenVisible — «на экране ТВ» (/menu), флаг позиции, которой тариф ложится в чек. */
+export type AdminTariff = Tariff & { isSystem?: boolean; isScreenVisible?: boolean };
 export type EveningTypeRow = { key: string; label: string; color: string | null; sortOrder: number; isSystem: boolean };
 
 export function useTariffsAdmin() {
@@ -262,8 +267,13 @@ function refreshPricing() {
   }
 }
 
-export async function saveTariff(tariffId: string | null, input: { name: string; price: number; color: string }): Promise<void> {
-  const body = { name: input.name.trim(), price: input.price, color: input.color };
+export async function saveTariff(tariffId: string | null, input: { name: string; price: number; color: string; isScreenVisible?: boolean }): Promise<void> {
+  const body = {
+    name: input.name.trim(),
+    price: input.price,
+    color: input.color,
+    ...(tariffId && input.isScreenVisible !== undefined ? { isScreenVisible: input.isScreenVisible } : {}),
+  };
   if (tariffId) await api.patch(`/pricing/tariffs/${tariffId}`, body);
   else await api.post('/pricing/tariffs', body);
   refreshPricing();
@@ -293,7 +303,7 @@ export async function deleteEveningType(key: string): Promise<void> {
   refreshPricing();
 }
 
-export type SpaceInput = { name: string; type: Space['type']; hourlyRate: number; capacity: number | null; isActive: boolean };
+export type SpaceInput = { name: string; type: Space['type']; hourlyRate: number; capacity: number | null; isActive: boolean; isScreenVisible: boolean };
 
 export async function saveSpace(spaceId: string | null, input: SpaceInput): Promise<void> {
   const body = {
@@ -302,6 +312,7 @@ export async function saveSpace(spaceId: string | null, input: SpaceInput): Prom
     hourlyRate: input.hourlyRate,
     // null стирает вместимость; раньше пустое поле просто не отправлялось, и старое число оставалось.
     capacity: input.capacity,
+    isScreenVisible: input.isScreenVisible,
     ...(spaceId ? { isActive: input.isActive } : {}),
   };
   if (spaceId) await api.patch(`/spaces/${spaceId}`, body);

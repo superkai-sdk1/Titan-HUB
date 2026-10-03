@@ -74,6 +74,9 @@ export default function ManageLayout() {
       <Stack.Screen name="collections/pay" options={compactSheet} />
       <Stack.Screen name="collections/member" options={editorModal} />
 
+      <Stack.Screen name="broadcasts/index" options={formHeader({ title: 'Рассылки' })} />
+      <Stack.Screen name="broadcasts/compose" options={editorModal} />
+
       <Stack.Screen name="loyalty/index" options={formHeader({ title: 'Лояльность' })} />
       <Stack.Screen name="loyalty/bonus" options={formHeader({ title: 'Бонусная программа' })} />
       <Stack.Screen name="loyalty/certificates" options={formHeader({ title: 'Сертификаты' })} />
