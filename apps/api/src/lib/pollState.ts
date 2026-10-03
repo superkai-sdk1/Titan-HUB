@@ -115,6 +115,14 @@ export async function votersForToday(
   return out
 }
 
+// Последние опросы всех чатов (для рассылок «по опросу»): chatId → опрос.
+export async function listLastPolls(db: Database): Promise<Array<LastPoll & { chatId: string }>> {
+  const s = await read(db)
+  return Object.entries(s.lastByChat)
+    .filter(([, lp]) => lp?.pollId)
+    .map(([chatId, lp]) => ({ ...lp, chatId }))
+}
+
 export async function lastPollForChat(db: Database, chatId: string | number): Promise<LastPoll | null> {
   const s = await read(db)
   return s.lastByChat[String(chatId)] ?? null

@@ -238,6 +238,28 @@ const ICONS: Record<string, React.ReactNode> = {
   radio_button_unchecked: (
     <circle cx="12" cy="12" r="9" />
   ),
+  checklist: (
+    <>
+      <path d="M3 17l2 2 4-4" />
+      <path d="M3 7l2 2 4-4" />
+      <path d="M13 6h8" />
+      <path d="M13 12h8" />
+      <path d="M13 18h8" />
+    </>
+  ),
+  how_to_vote: (
+    <>
+      <path d="M9 12l2 2 4-4" />
+      <path d="M5 7a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v12H5V7z" />
+      <path d="M22 19H2" />
+    </>
+  ),
+  smartphone: (
+    <>
+      <rect x="5" y="2" width="14" height="20" rx="2" />
+      <path d="M12 18h.01" />
+    </>
+  ),
   done_all: (
     <>
       <polyline points="2 12 6 16 14 8" />
