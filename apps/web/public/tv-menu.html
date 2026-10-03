@@ -92,6 +92,23 @@ body { color: #f3eef8; font-family: Inter, 'Helvetica Neue', Arial, sans-serif; 
 .cell .rule { background: rgba(255,255,255,.35); }
 .cell .nm { color: #fff; font-weight: 600; }
 .cell .dt { border-bottom-color: rgba(255,255,255,.5); }
+/* Панель ленты: тарифы/кабинки ↔ реклама, смена — переворотом по горизонтальной оси. */
+.slot { position: relative; -webkit-flex: none; flex: none; -webkit-perspective: 140em; perspective: 140em; }
+.flip { position: relative; width: 100%; height: 100%; -webkit-transform-style: preserve-3d; transform-style: preserve-3d;
+  -webkit-transition: -webkit-transform .95s cubic-bezier(.45,.05,.2,1); transition: transform .95s cubic-bezier(.45,.05,.2,1); }
+.face { position: absolute; top: 0; left: 0; width: 100%; height: 100%; -webkit-backface-visibility: hidden; backface-visibility: hidden; }
+.face-b { -webkit-transform: rotateX(180deg); transform: rotateX(180deg); }
+.face > .band { height: 100%; box-sizing: border-box; }
+.band.still { -webkit-animation: none; animation: none; }
+.ad-img { background: #0b0810; }
+.ad-fill { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background-size: cover; background-position: center; opacity: .35; }
+.ad-img img { position: relative; display: block; width: 100%; height: 100%; object-fit: contain; }
+.adc { width: 100%; box-sizing: border-box; display: -webkit-flex; display: flex; -webkit-align-items: center; align-items: center; padding: .8em 1em; }
+.adc-qr { -webkit-flex: none; flex: none; margin-right: 1.1em; padding: .35em; border-radius: .45em; background: #fff; box-sizing: border-box; }
+.adc-qr svg { display: block; width: 100%; height: 100%; }
+.adc-txt { -webkit-flex: 1 1 auto; flex: 1 1 auto; min-width: 0; }
+.adc .head { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; white-space: normal; font-size: 1.75em; line-height: 1.12; padding: 0; }
+.adc .nm { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; white-space: normal; margin-top: .45em; font-size: 1.05em; line-height: 1.3; opacity: .92; }
 .sheen { position: absolute; top: 0; left: 0; right: 0; bottom: 0; pointer-events: none; background: linear-gradient(105deg, rgba(255,255,255,0) 38%, rgba(255,255,255,.17) 50%, rgba(255,255,255,0) 62%); -webkit-transform: translateX(-110%); transform: translateX(-110%); -webkit-animation: sheen 10s 3s cubic-bezier(.45,0,.25,1) infinite; animation: sheen 10s 3s cubic-bezier(.45,0,.25,1) infinite; }
 
 /* Линейка для замера ширин текста (невидимая, 100 px, без переносов). */
@@ -563,7 +580,8 @@ html.t-halloween, .t-halloween body { background: #0b0712; }
     return { fw: fw, at: at };
   }
 
-  function plan(reg, bandW, bandSecs, geo) {
+  // reservePx — высота полосы под рекламу, когда ленты тарифов нет (иначе 0).
+  function plan(reg, bandW, bandSecs, geo, reservePx) {
     var sizes = reg.map(function (s) { return s.rows.length; });
     var needFull = reg.map(function (s) { return needOf(s, 1); });
     var needMin = reg.map(function (s) { return needOf(s, FIT_MIN); });
@@ -573,7 +591,8 @@ html.t-halloween, .t-halloween body { background: #0b0712; }
       ? allocate(bandW.map(function (s) { return needOf(s, 1) + BAND_PAD_X; }), bandW.map(function (s) { return needOf(s, FIT_MIN) + BAND_PAD_X; }), geo.contentW)
       : null;
     function bandFont(f) { return bandAlloc ? Math.min(f, bandAlloc.fw) : f; }
-    function limitEm(f) { return (geo.avail - bandFont(f) * (be.a + be.b)) / f; }
+    function bandPx(f) { return bandW.length ? bandFont(f) * (be.a + be.b) : reservePx; }
+    function limitEm(f) { return (geo.avail - bandPx(f)) / f; }
     function colNeeds(col, needs) { return Math.max(1, maxOf(col.map(function (ch) { return needs[ch.sec]; }), 0)); }
     // Колонки страницы делят ширину по длине своих строк (напиткам шире, снекам уже).
     function layoutPage(cols) {
@@ -597,7 +616,7 @@ html.t-halloween, .t-halloween body { background: #0b0712; }
 
     var pick = null;
     if (!sizes.length) {
-      pick = { f: Math.min(fMax, be.a + be.b > 0 ? geo.avail / (be.a + be.b) : fMax), c: 1, atomic: true };
+      pick = { f: Math.min(fMax, be.a + be.b > 0 ? (geo.avail - reservePx) / (be.a + be.b) : fMax), c: 1, atomic: true };
     } else {
       for (var P = 1; P <= MAX_PAGES; P++) {
         var top = null;
@@ -644,7 +663,9 @@ html.t-halloween, .t-halloween body { background: #0b0712; }
         A += HEAD_LINE + n * LINE;
         B += HEAD_PAD + 2 * ROW_PAD * n + (idx ? SEC_GAP : 0);
       });
-      k = Math.min(k, (geo.avail - A * font - be.a * fb) / (B * font + be.b * fb));
+      k = Math.min(k, bandW.length
+        ? (geo.avail - A * font - be.a * fb) / (B * font + be.b * fb)
+        : (geo.avail - A * font - reservePx) / (B * font));
     });
     k = Math.max(1, k);
 
@@ -733,10 +754,11 @@ html.t-halloween, .t-halloween body { background: #0b0712; }
       var regW = measure(sp.reg, false);
       var bandW = measure(sp.band, true);
       $('ruler').innerHTML = '';
-      var next = plan(regW, bandW, sp.band, geo);
+      var slides = (state.data && state.data.slides) || [];
+      var next = plan(regW, bandW, sp.band, geo, !sp.band.length && slides.length ? geo.avail * 0.24 : 0);
       // Та же раскладка (дозагрузка шрифта, повторный опрос) — не перерисовываем,
       // чтобы не проигрывать появление заново.
-      var sig = JSON.stringify([next, sp, geo.w, geo.h, THEME]);
+      var sig = JSON.stringify([next, sp, geo.w, geo.h, THEME, slides, state.data.bandSec]);
       if (sig === state.sig) return;
       state.sig = sig;
       state.plan = next;
@@ -837,7 +859,7 @@ html.t-halloween, .t-halloween body { background: #0b0712; }
   // Координаты — по раскладке (offset*), а не getBoundingClientRect: лента ещё въезжает.
   function afterRender() {
     if (THEME !== 'halloween') return;
-    var band = $('body').querySelector('.band'), p1 = $('pk1'), p2 = $('pk2');
+    var band = $('slot'), p1 = $('pk1'), p2 = $('pk2');
     if (!p1 || !p2) return;
     if (!band) { p1.style.visibility = p2.style.visibility = 'hidden'; return; }
     var body = $('body');
@@ -849,16 +871,86 @@ html.t-halloween, .t-halloween body { background: #0b0712; }
     p1.style.visibility = p2.style.visibility = 'visible';
   }
 
-  // mode: 'enter' — появление с каскадом и лентой; 'rotate' — смена страницы (лента
-  // на месте); 'silent' — без анимаций (перестройка, тихая перезагрузка).
-  function renderPage(mode) {
-    var p = state.plan, sp = state.sp, geo = state.geo;
-    if (!p) return;
-    clearTimers();
-    var pg = p.pages[state.page] || { cols: [], widths: [] };
-    var k = p.k, html = '';
-    // Колонки разделов.
-    html += '<div class="row" style="font-size:' + p.font + 'px">';
+  // Лента тарифов/кабинок (HTML одной грани панели).
+  function bandHtml(p, sp, k, animate) {
+    var html = '<div class="band' + (animate ? '' : ' still') + '" style="font-size:' + p.bandFont + 'px">';
+    sp.band.forEach(function (s, i) {
+      var bw = p.band[i], w = p.bandWidths[i] || 0;
+      var wEm = w / p.bandFont - BAND_PAD_X;
+      html += '<div class="cell' + (i === 0 ? ' first' : '') + '" style="width:' + w + 'px">';
+      html += headHtml(s, bw ? fitHead(bw, wEm) : 1, k);
+      s.items.forEach(function (it, j) { html += itemHtml(it, bw && bw.rows[j] ? fitRow(bw.rows[j], wEm) : 1, k); });
+      html += '</div>';
+    });
+    return html + '<span class="sheen"></span></div>';
+  }
+
+  // Рекламный слайд: картинка (вписана целиком, за ней — та же картинка приглушённо)
+  // или карточка в цветах ленты темы: QR слева, заголовок и текст справа.
+  function slideHtml(sl, p, slotH) {
+    var fs = 'font-size:' + (p.bandFont || p.font) + 'px';
+    if (sl.kind === 'image') {
+      var url = esc(String(sl.imageUrl).replace(/'/g, '%27'));
+      return '<div class="band still ad-img" style="' + fs + '"><div class="ad-fill" style="background-image:url(\'' + url + '\')"></div><img src="' + url + '" alt=""></div>';
+    }
+    var f = p.bandFont || p.font;
+    var qr = sl.qrSvg ? '<div class="adc-qr" style="width:' + Math.round(slotH - 1.6 * f) + 'px;height:' + Math.round(slotH - 1.6 * f) + 'px">' + sl.qrSvg + '</div>' : '';
+    return '<div class="band still" style="' + fs + '"><div class="cell first adc">' + qr + '<div class="adc-txt">' +
+      (sl.title ? '<div class="head">' + esc(sl.title) + '</div>' : '') +
+      (sl.body ? '<span class="nm">' + esc(sl.body) + '</span>' : '') + '</div></div></div>';
+  }
+
+  var slotTimers = [];
+  function clearSlot() { slotTimers.forEach(function (t) { clearTimeout(t); }); slotTimers = []; }
+  function preload(item) { if (item && item.kind === 'image' && item.imageUrl) { var im = new Image(); im.src = item.imageUrl; } }
+
+  // Панель внизу: лента ↔ слайды по кругу. Следующее содержимое кладём на скрытую
+  // грань и поворачиваем панель на 180° — меню над ней не шевелится.
+  function renderSlot(p, sp, k, mode) {
+    clearSlot();
+    var slides = (state.data && state.data.slides) || [];
+    var items = [];
+    if (sp.band.length) items.push({ kind: 'band' });
+    slides.forEach(function (sl) { items.push(sl); });
+    if (!items.length) return '';
+    var html = items[0].kind === 'band' ? bandHtml(p, sp, k, mode === 'enter') : '';
+    return '<div class="slot" id="slot"><div class="flip" id="flip"><div class="face face-a" id="face-a" style="position:relative">' + html +
+      '</div><div class="face face-b" id="face-b"></div></div></div>';
+  }
+
+  function startSlot(p, sp, k) {
+    var slot = $('slot'), flip = $('flip'), faceA = $('face-a'), faceB = $('face-b');
+    if (!slot) return;
+    var slides = (state.data && state.data.slides) || [];
+    var items = [];
+    if (sp.band.length) items.push({ kind: 'band' });
+    slides.forEach(function (sl) { items.push(sl); });
+    // Высота панели — по ленте (или резерв под рекламу без ленты); дальше грани абсолютные.
+    var h = sp.band.length ? faceA.offsetHeight : Math.round(state.geo.avail * 0.24 * 0.86);
+    slot.style.height = h + 'px';
+    faceA.style.position = '';
+    if (!sp.band.length) faceA.innerHTML = slideHtml(items[0], p, h);
+    if (items.length < 2) return;
+    var bandSec = Math.max(5, Number(state.data.bandSec) || 20);
+    var dur = function (it) { return it.kind === 'band' ? bandSec * 1000 : Math.max(3, Number(it.durationSec) || 10) * 1000; };
+    var step = 0;
+    function next() {
+      var nxt = items[(step + 1) % items.length];
+      var hidden = step % 2 === 0 ? faceB : faceA;
+      hidden.innerHTML = nxt.kind === 'band' ? bandHtml(p, sp, k, false) : slideHtml(nxt, p, h);
+      step++;
+      var t = 'rotateX(' + (-180 * step) + 'deg)';
+      flip.style.webkitTransform = t;
+      flip.style.transform = t;
+      preload(items[(step + 1) % items.length]);
+      slotTimers.push(setTimeout(next, dur(nxt)));
+    }
+    preload(items[1]);
+    slotTimers.push(setTimeout(next, dur(items[0])));
+  }
+
+  function columnsHtml(p, sp, pg, k, mode, geo) {
+    var html = '<div class="row" style="font-size:' + p.font + 'px">';
     var order = 0;
     pg.cols.forEach(function (col, ci) {
       var w = pg.widths[ci] || 0;
@@ -878,21 +970,24 @@ html.t-halloween, .t-halloween body { background: #0b0712; }
       });
       html += '</div>';
     });
-    html += '</div>';
-    // Лента внизу — на каждой странице, без повторной анимации при смене страниц.
-    if (sp.band.length) {
-      html += '<div class="band" style="font-size:' + p.bandFont + 'px' + (mode !== 'enter' ? ';-webkit-animation:none;animation:none' : '') + '">';
-      sp.band.forEach(function (s, i) {
-        var bw = p.band[i], w = p.bandWidths[i] || 0;
-        var wEm = w / p.bandFont - BAND_PAD_X;
-        html += '<div class="cell' + (i === 0 ? ' first' : '') + '" style="width:' + w + 'px">';
-        html += headHtml(s, bw ? fitHead(bw, wEm) : 1, k);
-        s.items.forEach(function (it, j) { html += itemHtml(it, bw && bw.rows[j] ? fitRow(bw.rows[j], wEm) : 1, k); });
-        html += '</div>';
-      });
-      html += '<span class="sheen"></span></div>';
+    return html + '</div>';
+  }
+
+  // mode: 'enter' — появление с каскадом и лентой; 'rotate' — смена страницы меню
+  // (панель внизу не трогаем); 'silent' — без анимаций (перестройка, тихая перезагрузка).
+  function renderPage(mode) {
+    var p = state.plan, sp = state.sp, geo = state.geo;
+    if (!p) return;
+    clearTimers();
+    var pg = p.pages[state.page] || { cols: [], widths: [] };
+    var k = p.k;
+    var row = $('body').querySelector('.row');
+    if (mode === 'rotate' && row) {
+      row.outerHTML = columnsHtml(p, sp, pg, k, mode, geo);
+    } else {
+      $('body').innerHTML = columnsHtml(p, sp, pg, k, mode, geo) + renderSlot(p, sp, k, mode);
+      startSlot(p, sp, k);
     }
-    $('body').innerHTML = html;
     afterRender();
     state.rendered = true;
     renderPagesIndicator();
