@@ -46,7 +46,7 @@ type AudienceInput = z.infer<typeof Audience>
 
 // Клиенты клуба — как в списке клиентов кассы: владельцы и сотрудники тоже играют
 // и входят в Titan Resident, поэтому получают рассылки наравне со всеми.
-const CLIENT_ROLES = ['client', 'staff', 'owner']
+const CLIENT_ROLES = ['client', 'staff', 'owner'] as const
 const clientBase = () => and(inArray(profiles.role, CLIENT_ROLES), isNull(profiles.deletedAt))
 
 /** Telegram id людей, попавших под выбор в последнем опросе чата. */
