@@ -19,6 +19,9 @@ import { GuestHeader } from './Header';
 
 export function GuestScreen() {
   const phase = useVisit((s) => s.phase);
+  // Меню закрывает экран целиком: то, что под ним, не рисуем — Android не
+  // отсекает перекрытые слои, и каждый кадр прокрутки стоил бы двух экранов.
+  const covered = useVisit((s) => s.layer === 'menu');
   const { width, height } = useWindowDimensions();
   const portrait = width < height;
 
@@ -37,7 +40,7 @@ export function GuestScreen() {
   return (
     <View style={styles.screen}>
       <Background />
-      <Animated.View key={key} entering={FadeIn.duration(260)} style={[styles.content, portrait && styles.contentPortrait]}>
+      <Animated.View key={key} entering={FadeIn.duration(260)} style={[styles.content, portrait && styles.contentPortrait, covered && styles.hidden]}>
         {phase.kind === 'finish' ? (
           <FinishView />
         ) : (
@@ -60,4 +63,5 @@ const styles = StyleSheet.create({
   screen: { flex: 1 },
   content: { flex: 1, paddingHorizontal: GUTTER, paddingTop: 20, paddingBottom: 22, gap: 16 },
   contentPortrait: { paddingHorizontal: 20 },
+  hidden: { display: 'none' },
 });

@@ -1,5 +1,8 @@
 // Стеклянные поверхности. Глубину даёт ступень заливки и светлая верхняя кромка,
 // а не тень: размытых теней в приложении нет (на Adreno 610 они стоили кадров).
+// Кромка другого цвета есть только у крупных панелей: разноцветную скруглённую
+// рамку Android рисует контурами (медленно), а мелких плиток и кнопок на экране
+// десятки — у них рамка одного цвета (быстрый путь drawRoundRect).
 import type { ReactNode } from 'react';
 import { StyleSheet, View, type ViewProps, type ViewStyle } from 'react-native';
 
@@ -9,12 +12,12 @@ export type GlassKind = 'panel' | 'control' | 'raised' | 'inset' | 'overlay' | '
 
 const KIND: Record<GlassKind, ViewStyle> = {
   panel: { backgroundColor: color.glassPanel, borderColor: color.border, borderTopColor: color.highlight },
-  control: { backgroundColor: color.glassControl, borderColor: color.borderStrong, borderTopColor: color.highlight },
-  raised: { backgroundColor: color.glassRaised, borderColor: color.borderStrong, borderTopColor: 'rgba(255,255,255,0.32)' },
+  control: { backgroundColor: color.glassControl, borderColor: color.borderStrong },
+  raised: { backgroundColor: color.glassRaised, borderColor: 'rgba(255,255,255,0.22)' },
   inset: { backgroundColor: color.glassInset, borderColor: 'transparent' },
   overlay: { backgroundColor: color.glassOverlay, borderColor: color.borderStrong, borderTopColor: 'rgba(255,255,255,0.30)' },
-  accent: { backgroundColor: color.accentFill, borderColor: color.accentBorder, borderTopColor: 'rgba(255,255,255,0.45)' },
-  warm: { backgroundColor: color.warmTint, borderColor: color.warmBorder, borderTopColor: 'rgba(255,236,200,0.55)' },
+  accent: { backgroundColor: color.accentFill, borderColor: color.accentBorder },
+  warm: { backgroundColor: color.warmTint, borderColor: color.warmBorder },
   amber: { backgroundColor: color.amberTint, borderColor: color.amberBorder },
   cool: { backgroundColor: color.glassPanel, borderColor: 'rgba(143,216,248,0.28)', borderTopColor: color.highlight },
 };

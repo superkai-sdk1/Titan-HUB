@@ -3,8 +3,8 @@
 // счёта меню можно только посмотреть.
 import { ArrowLeft, ArrowRight, Check, Info, Plus, Search, ShoppingBag, X } from 'lucide-react-native';
 import { useEffect, useEffectEvent, useMemo, useState } from 'react';
-import { FlatList, ScrollView, StyleSheet, TextInput, View, type LayoutChangeEvent } from 'react-native';
-import Animated, { FadeIn, FadeInDown, FadeOutDown } from 'react-native-reanimated';
+import { FlatList, ScrollView, StyleSheet, TextInput, useWindowDimensions, View } from 'react-native';
+import Animated, { FadeIn, FadeInDown, FadeOutDown, useAnimatedStyle, withTiming } from 'react-native-reanimated';
 
 import { sendOrder } from '@/data/actions';
 import { useMenu } from '@/data/menu';
@@ -12,7 +12,6 @@ import type { MenuItem } from '@/data/types';
 import { RoomButton } from '@/features/room/RoomButton';
 import { sessionCheckId, useVisit } from '@/features/visit/store';
 import { money, plural } from '@/lib/format';
-import { Background } from '@/ui/background';
 import { Button, IconButton } from '@/ui/button';
 import { Loader, Stepper } from '@/ui/controls';
 import { Glass, glassStyle } from '@/ui/glass';
@@ -20,7 +19,7 @@ import { Icon } from '@/ui/icon';
 import { Layer } from '@/ui/layer';
 import { Press } from '@/ui/press';
 import { T } from '@/ui/text';
-import { color, font, GUTTER, radius } from '@/ui/tokens';
+import { color, font, GUTTER, motion, radius } from '@/ui/tokens';
 
 import { cartSummary, qtyOf, useCart } from './cart';
 
@@ -28,24 +27,46 @@ const ALL = '__all';
 const TOP = '__top';
 const TILE_MIN = 210;
 const GAP = 14;
+const RAIL_W = 212;
 
+/**
+ * Меню собирается один раз при запуске и остаётся смонтированным: открытие —
+ * только проявление на UI-потоке (раньше каждое открытие строило все плитки —
+ * рывок на Honor). Закрытое меню прозрачно, и Android его не рисует.
+ * Своего фона нет — меню лежит на общем фоне экрана гостя.
+ */
 export function MenuLayer() {
   const open = useVisit((s) => s.layer === 'menu');
+  // Новый визит — меню с чистого листа (поиск и раздел прошлого гостя не переносятся).
+  const visit = useVisit((s) => (s.phase.kind === 'idle' ? 'idle' : s.phase.checkId));
+  const fade = useAnimatedStyle(
+    () => ({
+      opacity: withTiming(open ? 1 : 0, { duration: open ? motion.enter : motion.exit }),
+      transform: [{ translateY: withTiming(open ? 0 : 16, { duration: open ? motion.enter : motion.exit }) }],
+    }),
+    [open],
+  );
   return (
-    <Layer visible={open} onClose={() => useVisit.getState().close()} variant="full">
-      <MenuScreen />
-    </Layer>
+    <Animated.View
+      style={[StyleSheet.absoluteFill, fade]}
+      pointerEvents={open ? 'auto' : 'none'}
+      importantForAccessibility={open ? 'auto' : 'no-hide-descendants'}
+    >
+      <MenuScreen key={visit} open={open} />
+    </Animated.View>
   );
 }
 
-function MenuScreen() {
+function MenuScreen({ open }: { open: boolean }) {
   const menu = useMenu();
   const canOrder = useVisit((s) => s.phase.kind === 'session');
   const [cat, setCat] = useState(ALL);
   const [query, setQuery] = useState('');
-  const [gridWidth, setGridWidth] = useState(0);
   const [review, setReview] = useState(false);
   const [sent, setSent] = useState(false);
+  // Ширина сетки — от окна, а не замером: список строится сразу, без второго прохода.
+  const { width } = useWindowDimensions();
+  const gridWidth = width - GUTTER * 2 - RAIL_W - 16;
   const count = useCart((s) => cartSummary(s.lines).count);
 
   const data = menu.data;
@@ -67,11 +88,10 @@ function MenuScreen() {
   const columns = gridWidth ? Math.max(1, Math.floor((gridWidth + GAP) / (TILE_MIN + GAP))) : 0;
   const close = () => useVisit.getState().close();
 
-  if (sent) return <SentView onDone={close} />;
+  if (sent) return <SentView onDone={() => { setSent(false); close(); }} />;
 
   return (
     <View style={styles.screen}>
-      <Background />
       <View style={styles.header}>
         <Button title="Счёт" icon={ArrowLeft} onPress={close} />
         <T variant="title" style={{ fontSize: 30 }}>Меню</T>
@@ -109,7 +129,7 @@ function MenuScreen() {
           </ScrollView>
         </Glass>
 
-        <View style={{ flex: 1 }} onLayout={(e: LayoutChangeEvent) => setGridWidth(e.nativeEvent.layout.width)}>
+        <View style={{ flex: 1 }}>
           {!data && menu.isLoading ? (
             <Loader label="Загружаем меню…" />
           ) : !data ? (
@@ -126,8 +146,12 @@ function MenuScreen() {
               columnWrapperStyle={columns > 1 ? { gap: GAP } : undefined}
               contentContainerStyle={styles.grid}
               keyboardShouldPersistTaps="handled"
-              initialNumToRender={16}
-              windowSize={5}
+              // Меню небольшое: все плитки строим сразу при открытии — при прокрутке
+              // ничего не достраивается (на Honor это давало рывки).
+              initialNumToRender={items.length}
+              maxToRenderPerBatch={items.length}
+              windowSize={101}
+              removeClippedSubviews={false}
               renderItem={({ item }) => <ItemTile item={item} canOrder={canOrder} />}
               ListEmptyComponent={<T variant="body" tone="secondary" style={{ textAlign: 'center', paddingTop: 48 }}>Ничего не нашлось</T>}
             />
@@ -146,7 +170,7 @@ function MenuScreen() {
         </View>
       )}
 
-      <Layer visible={review} onClose={() => setReview(false)} variant="dialog" style={styles.reviewDialog}>
+      <Layer visible={open && review} onClose={() => setReview(false)} variant="dialog" style={styles.reviewDialog}>
         <OrderReview onClose={() => setReview(false)} onSent={() => { setReview(false); setSent(true); }} />
       </Layer>
     </View>
@@ -265,7 +289,6 @@ function OrderReview({ onClose, onSent }: { onClose: () => void; onSent: () => v
 function SentView({ onDone }: { onDone: () => void }) {
   return (
     <View style={styles.sent}>
-      <Background />
       <Animated.View entering={FadeIn.duration(220)} style={{ alignItems: 'center', gap: 16 }}>
         <View style={[styles.sentIcon, { backgroundColor: color.greenTint, borderColor: 'rgba(52,211,153,0.5)' }]}>
           <Icon as={Check} size={60} tone={color.green} stroke={2.4} />
@@ -294,7 +317,7 @@ const styles = StyleSheet.create({
   search: { flex: 1, maxWidth: 460, marginLeft: 'auto', height: 52, paddingLeft: 18, paddingRight: 8, flexDirection: 'row', alignItems: 'center', gap: 10 },
   searchInput: { flex: 1, minWidth: 0, fontSize: 16, fontFamily: font.regular, color: color.text, paddingVertical: 0 },
   body: { flex: 1, flexDirection: 'row', gap: 16, paddingTop: 16 },
-  rail: { width: 212, padding: 10, marginBottom: 22 },
+  rail: { width: RAIL_W, padding: 10, marginBottom: 22 },
   category: { minHeight: 56, paddingHorizontal: 16, borderRadius: 22, flexDirection: 'row', alignItems: 'center', gap: 8, borderWidth: 1, borderColor: 'transparent' },
   categoryActive: { backgroundColor: color.text, borderColor: color.text },
   grid: { gap: GAP, paddingBottom: 120 },
