@@ -55,7 +55,12 @@ function MenuScreen() {
     const q = query.trim().toLowerCase();
     if (q) return data.items.filter((i) => i.name.toLowerCase().includes(q) || i.tags.some((t) => t.toLowerCase().includes(q)));
     if (cat === TOP) return data.items.filter((i) => i.isTop);
-    if (cat === ALL) return data.items;
+    if (cat === ALL) {
+      // «Все» — по порядку разделов, внутри раздела — как в кассе.
+      const rank = new Map(data.categories.map((c, i) => [c.id, i]));
+      const order = (id: string | null) => (id && rank.has(id) ? rank.get(id)! : data.categories.length);
+      return data.items.map((item, i) => ({ item, i })).sort((a, b) => order(a.item.categoryId) - order(b.item.categoryId) || a.i - b.i).map((x) => x.item);
+    }
     return data.items.filter((i) => i.categoryId === cat);
   }, [data, cat, query]);
 
@@ -192,7 +197,10 @@ function ItemTile({ item, canOrder }: { item: MenuItem; canOrder: boolean }) {
 }
 
 function CartBar({ onOrder }: { onOrder: () => void }) {
-  const { count, total } = useCart((s) => cartSummary(s.lines));
+  // Селектор возвращает сам массив (стабильная ссылка), сумму считаем здесь —
+  // новый объект из селектора zustand зациклил бы перерисовку.
+  const lines = useCart((s) => s.lines);
+  const { count, total } = cartSummary(lines);
   return (
     <View style={styles.bottomCenter} pointerEvents="box-none">
       <Animated.View entering={FadeInDown.duration(200)} exiting={FadeOutDown.duration(160)} style={[styles.cartBar, glassStyle('overlay', radius.pill)]}>

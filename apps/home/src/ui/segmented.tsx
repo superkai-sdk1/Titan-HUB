@@ -45,7 +45,15 @@ export function Segmented<K extends string>({
             ]}
           >
             {o.icon ? <Icon as={o.icon} size={stacked ? 20 : 18} tone={tone} /> : null}
-            <T variant={stacked ? 'small' : 'label'} style={{ color: active ? color.text : color.textSecondary }} numberOfLines={1}>{o.label}</T>
+            <T
+              variant={stacked ? 'small' : 'label'}
+              style={{ color: active ? color.text : color.textSecondary }}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.75}
+            >
+              {o.label}
+            </T>
           </Press>
         );
       })}

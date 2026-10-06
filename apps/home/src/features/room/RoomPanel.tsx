@@ -100,7 +100,7 @@ function LightTile({ device, wide }: { device: SmartDevice; wide: boolean }) {
       <View style={{ gap: 2 }}>
         <T variant="subheading" numberOfLines={1}>{device.name}</T>
         <T variant="caption" style={{ color: on ? 'rgba(255,236,210,0.9)' : color.textSecondary }}>
-          {unavailable ? 'Недоступен' : on ? 'Включён' : 'Выключен'}
+          {unavailable ? 'Недоступно' : on ? 'Включено' : 'Выключено'}
         </T>
       </View>
     </Press>

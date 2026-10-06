@@ -79,7 +79,11 @@ function PayBody() {
             <Image source={{ uri: qr.qrDataUrl }} style={styles.qr} contentFit="contain" transition={120} />
           ) : (
             <View style={[styles.qr, styles.qrWait]}>
-              {error ? <T variant="label" style={{ color: '#B42318', textAlign: 'center' }}>{error}</T> : <ActivityIndicator color="#6d28d9" size="large" />}
+              {error ? (
+                <T variant="label" style={{ color: '#4a4552', textAlign: 'center' }}>QR сейчас недоступен — попросите принести счёт</T>
+              ) : (
+                <ActivityIndicator color="#6d28d9" size="large" />
+              )}
             </View>
           )}
           <T variant="small" style={{ color: '#4a4552', textAlign: 'center' }}>Камера телефона или приложение банка</T>
@@ -100,10 +104,12 @@ function PayBody() {
             onChange={setTip}
             options={TIPS.map((p) => ({ key: `${p}` as Tip, label: p ? `${p} %` : 'Без чаевых' }))}
           />
-          <View style={styles.status}>
-            <View style={[styles.dot, { backgroundColor: color.accentSoft }]} />
-            <T variant="body" tone="secondary" style={{ flex: 1, fontSize: 16 }}>Ждём подтверждения банка — экран обновится сам</T>
-          </View>
+          {qr?.qrDataUrl ? (
+            <View style={styles.status}>
+              <View style={[styles.dot, { backgroundColor: color.accentSoft }]} />
+              <T variant="body" tone="secondary" style={{ flex: 1, fontSize: 16 }}>Ждём подтверждения банка — экран обновится сам</T>
+            </View>
+          ) : null}
           <View style={styles.altRow}>
             <T variant="caption" tone="secondary" style={{ flex: 1 }}>Удобнее картой или наличными?</T>
             <Button title="Принести счёт" icon={ReceiptText} onPress={() => void bill()} loading={busyBill} />
