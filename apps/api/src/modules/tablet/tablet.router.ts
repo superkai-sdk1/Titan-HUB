@@ -1,5 +1,7 @@
 import type { AppEnv } from '../../types.js'
 import { Hono } from 'hono'
+import { zValidator } from '@hono/zod-validator'
+import { z } from 'zod'
 import { streamSSE } from 'hono/streaming'
 import { createHash } from 'crypto'
 import { Redis } from 'ioredis'
@@ -12,7 +14,8 @@ import type { Database } from '@titan/database'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
 import { getCurrentShift } from '../shifts/shifts.service.js'
 import { computeRental, round2 } from '../../lib/money.js'
-import { updatesChannel } from '../../lib/realtime.js'
+import { clubChannelSuffix, updatesChannel } from '../../lib/realtime.js'
+import { getSharedRedis } from '../../lib/redis.js'
 
 // Titan Home 2.0 — всё, что нужно экрану гостя на планшете кабинки:
 //   GET /tablet/state  — счёт зоны с итогом, посчитанным сервером, заказы на
@@ -274,4 +277,55 @@ tabletRouter.get('/stream', async (c) => {
       }, 1000)
     })
   })
+})
+
+// ─── Heartbeat планшетов ─────────────────────────────────────────────────────
+// Планшет раз в 5 минут сообщает версию приложения и связь (HA, поток событий).
+// Храним в Redis сутки — это живой статус для «Управление → Экраны», не история.
+
+const HB_TTL_S = 24 * 3600
+const hbKey = (clubId: string | null | undefined, spaceId: string) => `titan:tablet-hb:${clubChannelSuffix(clubId)}:${spaceId}`
+
+const HeartbeatSchema = z.object({
+  app: z.string().max(40),
+  ha: z.enum(['idle', 'connecting', 'connected', 'auth_failed', 'offline']),
+  stream: z.boolean(),
+  orientation: z.enum(['portrait', 'landscape']),
+  model: z.string().max(80).optional(),
+  android: z.string().max(20).optional(),
+})
+
+tabletRouter.post('/heartbeat', zValidator('json', HeartbeatSchema), async (c) => {
+  const space = await tabletSpace(c.var.db, c.get('user').sub)
+  if (!space) return c.json({ error: 'Планшет не привязан к кабинке' }, 403)
+  const beat = { ...c.req.valid('json'), at: new Date().toISOString() }
+  await getSharedRedis().set(hbKey(c.var.club?.id, space.id), JSON.stringify(beat), 'EX', HB_TTL_S).catch(() => {})
+  return c.json({ ok: true })
+})
+
+/** HUB: планшеты Titan Home клуба — кабинки с привязанным планшетом и их последний сигнал. */
+export const tabletsRouter = new Hono<AppEnv>()
+tabletsRouter.use('*', requireAuth)
+tabletsRouter.use('*', requireRole('owner', 'staff'))
+
+tabletsRouter.get('/', async (c) => {
+  const db = c.var.db
+  const rows = await db
+    .selectDistinct({ id: spaces.id, name: spaces.name })
+    .from(profiles)
+    .innerJoin(spaces, eq(spaces.id, profiles.linkedSpaceId))
+    .where(and(eq(profiles.role, 'tablet'), isNull(profiles.deletedAt), eq(spaces.isActive, true)))
+    .orderBy(asc(spaces.name))
+  const redis = getSharedRedis()
+  const raws = rows.length ? await redis.mget(...rows.map((r) => hbKey(c.var.club?.id, r.id))).catch(() => rows.map(() => null)) : []
+  const tablets = rows.map((r, i) => {
+    let beat: (z.infer<typeof HeartbeatSchema> & { at: string }) | null = null
+    try {
+      beat = raws[i] ? JSON.parse(raws[i] as string) : null
+    } catch {
+      beat = null
+    }
+    return { spaceId: r.id, name: r.name, lastSeenAt: beat?.at ?? null, app: beat?.app ?? null, ha: beat?.ha ?? null, stream: beat?.stream ?? null, orientation: beat?.orientation ?? null, model: beat?.model ?? null }
+  })
+  return c.json({ tablets })
 })

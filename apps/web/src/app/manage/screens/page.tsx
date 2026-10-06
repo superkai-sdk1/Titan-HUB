@@ -16,6 +16,7 @@ import { useToast } from '@/components/Toast'
 import { useAuthStore } from '@/store/auth.store'
 import { PageHeader, Sheet, Button, INP, LBL } from '@/components/manage/DesignSystem'
 import { ROTATIONS, SCREENS_KEY, deviceStatus, showLabel, type Screen } from '@/lib/screens'
+import { TabletsSection } from '@/components/manage/screens/TabletsSection'
 
 function ScreenCard({ s }: { s: Screen }) {
   const status = deviceStatus(s)
@@ -84,6 +85,8 @@ export default function ScreensPage() {
         ) : (
           screens.map((s) => <ScreenCard key={s.id} s={s} />)
         )}
+
+        <TabletsSection />
 
         <section className="glass-l2" style={{ borderRadius: 18, padding: 16, border: '1px solid rgba(255,255,255,0.08)', display: 'flex', flexDirection: 'column', gap: 8, marginTop: 6 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
