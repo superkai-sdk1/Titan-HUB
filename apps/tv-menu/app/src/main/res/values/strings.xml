@@ -20,7 +20,7 @@
     <!-- Привязка -->
     <string name="pair_title">Подключите этот экран к Titan HUB</string>
     <string name="pair_code_label">Код экрана</string>
-    <string name="pair_steps">На телефоне откройте Titan HUB → Управление → Экраны → «Подключить ТВ» и выберите этот код. Телефон и приставка должны быть в одной Wi‑Fi сети.</string>
+    <string name="pair_steps">На телефоне откройте Titan HUB → Управление → Экраны → «Подключить ТВ» и выберите этот код. Телефон и приставка должны быть в одной Wi‑Fi сети.\nНастроить вручную — удерживайте OK на пульте.</string>
 
     <!-- Настройки приставки -->
     <string name="setup_version">Экран клуба · версия %1$s</string>
@@ -30,12 +30,20 @@
     <string name="setup_connection">Подключение</string>
     <string name="setup_connection_paired">Показывает экран «%1$s»\n%2$s</string>
     <string name="setup_connection_unpaired">Не подключён к Titan HUB. Код на экране: %1$s</string>
-    <string name="setup_connection_legacy">Старый режим: показывает %1$s.\nКод для подключения: %2$s</string>
+    <string name="setup_connection_legacy">Ручной режим: показывает %1$s.\nКод для подключения к Titan HUB: %2$s</string>
+    <string name="setup_manual">Ручная настройка</string>
+    <string name="setup_address_hint">kbr.titanpos.ru</string>
+    <string name="setup_address_error">Введите адрес клуба, например kbr.titanpos.ru</string>
+    <string name="setup_rotate_90">Вертикально, поворот по часовой</string>
+    <string name="setup_rotate_270">Вертикально, поворот против часовой</string>
+    <string name="setup_rotate_0">Горизонтально</string>
+    <string name="setup_manual_save">Показывать это меню</string>
+    <string name="setup_manual_note">Пока экран не подключён к Titan HUB, он показывает меню клуба по этому адресу. После подключения с телефона всё настраивается в Titan HUB.</string>
     <string name="setup_connection_note">Что показывать, как повернуть картинку, тема и слайды — всё задаётся в Titan HUB: Управление → Экраны.</string>
     <string name="setup_unpair">Отвязать от Titan HUB</string>
     <string name="setup_unpair_confirm">Отвязать приставку?</string>
     <string name="setup_unpair_message">Экран перестанет показываться, на телевизоре появится код для нового подключения.</string>
-    <string name="setup_legacy_off">Выключить старый режим</string>
+    <string name="setup_legacy_off">Выключить ручной режим</string>
     <string name="setup_cancel">Отмена</string>
     <string name="setup_autostart">Автозапуск</string>
     <string name="setup_autostart_on">Включён: экран откроется сам после включения приставки.</string>

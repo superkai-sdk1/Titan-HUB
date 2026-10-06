@@ -63,6 +63,13 @@ class Prefs(context: Context) {
 
     fun clearLegacy() = store.edit().remove(KEY_ADDRESS).apply()
 
+    /** Ручной режим с пульта (без привязки к HUB): адрес меню клуба и поворот. */
+    fun saveManual(address: String, rotation: Int) {
+        store.edit().putString(KEY_ADDRESS, address.trim()).putInt(KEY_ROTATION, if (rotation in ROTATIONS) rotation else 0).apply()
+    }
+
+    val manualAddress: String? get() = store.getString(KEY_ADDRESS, null)
+
     private fun newPairCode(): String {
         val code = (1000 + SecureRandom().nextInt(9000)).toString()
         store.edit().putString(KEY_PAIR_CODE, code).apply()

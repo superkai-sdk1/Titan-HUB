@@ -9,7 +9,10 @@ import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.view.View
+import android.view.inputmethod.EditorInfo
 import android.widget.Button
+import android.widget.EditText
+import android.widget.RadioGroup
 import android.widget.TextView
 import android.widget.Toast
 
@@ -24,6 +27,9 @@ class SetupActivity : Activity() {
     private lateinit var legacyOff: Button
     private lateinit var autostart: TextView
     private lateinit var autostartButton: Button
+    private lateinit var manual: View
+    private lateinit var address: EditText
+    private lateinit var rotations: RadioGroup
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -35,6 +41,16 @@ class SetupActivity : Activity() {
         autostart = findViewById(R.id.autostart_status)
         autostartButton = findViewById(R.id.autostart_button)
         findViewById<TextView>(R.id.version).text = getString(R.string.setup_version, BuildConfig.VERSION_NAME)
+        manual = findViewById(R.id.manual)
+        address = findViewById(R.id.address)
+        rotations = findViewById(R.id.rotation)
+        address.setText(prefs.manualAddress.orEmpty().ifBlank { DEFAULT_ADDRESS })
+        rotations.check(rotationButton(prefs.rotation))
+        address.setOnEditorActionListener { _, actionId, _ ->
+            if (actionId == EditorInfo.IME_ACTION_DONE) saveManual()
+            actionId == EditorInfo.IME_ACTION_DONE
+        }
+        findViewById<Button>(R.id.manual_save).setOnClickListener { saveManual() }
 
         val back = findViewById<Button>(R.id.back)
         back.setOnClickListener { finish() }
@@ -66,6 +82,31 @@ class SetupActivity : Activity() {
         }
         unpair.visibility = if (prefs.isPaired) View.VISIBLE else View.GONE
         legacyOff.visibility = if (!prefs.isPaired && legacy != null) View.VISIBLE else View.GONE
+        // Подключённым экраном управляет Titan HUB — ручные поля прячем.
+        manual.visibility = if (prefs.isPaired) View.GONE else View.VISIBLE
+    }
+
+    private fun saveManual() {
+        val raw = address.text.toString().trim()
+        if (Prefs.menuUrl(raw) == null) {
+            address.error = getString(R.string.setup_address_error)
+            address.requestFocus()
+            return
+        }
+        prefs.saveManual(raw, rotationOf(rotations.checkedRadioButtonId))
+        finish()
+    }
+
+    private fun rotationButton(rotation: Int) = when (rotation) {
+        90 -> R.id.rotate_90
+        270 -> R.id.rotate_270
+        else -> R.id.rotate_0
+    }
+
+    private fun rotationOf(buttonId: Int) = when (buttonId) {
+        R.id.rotate_90 -> 90
+        R.id.rotate_270 -> 270
+        else -> 0
     }
 
     private fun confirmUnpair() {
@@ -104,5 +145,9 @@ class SetupActivity : Activity() {
         true
     } catch (e: ActivityNotFoundException) {
         false
+    }
+
+    private companion object {
+        const val DEFAULT_ADDRESS = "kbr.titanpos.ru"
     }
 }
