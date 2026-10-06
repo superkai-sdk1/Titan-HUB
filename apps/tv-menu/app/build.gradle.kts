@@ -22,8 +22,8 @@ android {
         // Android 7.1+: раньше система не доверяет сертификату Let's Encrypt (ISRG Root X1).
         minSdk = 25
         targetSdk = 36
-        versionCode = 4
-        versionName = "2.0.1"
+        versionCode = 5
+        versionName = "2.1.0"
     }
 
     signingConfigs {

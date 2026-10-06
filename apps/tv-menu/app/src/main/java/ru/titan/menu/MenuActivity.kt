@@ -62,6 +62,7 @@ class MenuActivity : Activity(), LocalServer.Listener {
     private lateinit var advertiser: Advertiser
     private val server = LocalServer(this)
     private var web: WebView? = null
+    @Volatile private var cache: OfflineCache? = null
     private var mode = Mode.UNPAIRED
     private var url: String? = null
     private var host = ""
@@ -264,6 +265,7 @@ class MenuActivity : Activity(), LocalServer.Listener {
             settings.textZoom = 100 // крупный шрифт в системе ломает раскладку меню
             settings.setSupportZoom(false)
             settings.userAgentString = "${settings.userAgentString} TitanMenu/${BuildConfig.VERSION_NAME}"
+            cache = OfflineCache(this@MenuActivity, settings.userAgentString)
             webViewClient = PageClient()
             webChromeClient = object : WebChromeClient() {
                 override fun onConsoleMessage(message: ConsoleMessage): Boolean {
@@ -314,6 +316,9 @@ class MenuActivity : Activity(), LocalServer.Listener {
     private inner class PageClient : WebViewClient() {
         // Уходить со страницы экрана некуда: чужие адреса не открываем.
         override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean = request.url.host != host
+
+        // Страница, данные, картинки и шрифты — через локальный кэш: экран живёт и без сети.
+        override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? = cache?.intercept(request)
 
         override fun onPageStarted(view: WebView, url: String?, favicon: Bitmap?) {
             if (url == "about:blank") return
