@@ -19,6 +19,7 @@ import { geoRouter } from './modules/geo/geo.router.js'
 
 import { authRouter } from './modules/auth/auth.router.js'
 import { posRouter } from './modules/pos/pos.router.js'
+import { tabletRouter } from './modules/tablet/tablet.router.js'
 import { shiftsRouter } from './modules/shifts/shifts.router.js'
 import { menuRouter } from './modules/menu/menu.router.js'
 import { screensRouter } from './modules/screens/screens.router.js'
@@ -188,6 +189,8 @@ app.route('/api/resident', residentRouter)
 // Рассылки клиентам из панели (лента приложения + push + бот My Titan).
 app.route('/api/client-broadcasts', broadcastRouter)
 app.route('/api/pos', posRouter)
+// Titan Home 2.0: состояние кабинки одним запросом, поток событий зоны, меню с версией.
+app.route('/api/tablet', tabletRouter)
 app.route('/api/shifts', shiftsRouter)
 app.route('/api/menu', menuRouter)
 // «Экраны»: ТВ с приложением Titan Menu — настройки из HUB, привязка, показ.

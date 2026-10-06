@@ -1544,7 +1544,7 @@ posRouter.post('/checks/:id/qr', requireRole('owner', 'staff', 'tablet'), async 
   // (см. platega webhook) чек закрывается на БАЗОВУЮ товарную сумму, а надбавка
   // лишь увеличивает сумму к оплате в QR. Эндпоинт раньше тела не читал — читаем
   // его опционально, чтобы не ломать клиентов, шлющих пустой/отсутствующий body.
-  const body = await c.req.json().catch(() => ({})) as { surcharge8?: boolean; tip?: number } | null
+  const body = await c.req.json().catch(() => ({})) as { surcharge8?: boolean; tip?: number; tipPercent?: number } | null
   // Гость (планшет) платит ровно сумму чека, без эквайринговой надбавки.
   const surcharge8 = user.role !== 'tablet' && body?.surcharge8 === true
 
@@ -1560,7 +1560,12 @@ posRouter.post('/checks/:id/qr', requireRole('owner', 'staff', 'tablet'), async 
   // произвольную сумму в свою пользу» нет). Ограничиваем разумным потолком от
   // случайного ввода. Чаевые НЕ выручка: webhook закроет чек на baseAmount, а
   // факт чаевых зафиксирует отдельно в checks.tip_amount.
-  const rawTip = Number(body?.tip)
+  // Titan Home 2.0 присылает процент (0–30) — сумму чаевых считаем от того же
+  // серверного итога, что и QR, иначе процент «от экрана» мог разойтись с базой.
+  const tipPercent = Number(body?.tipPercent)
+  const rawTip = Number.isFinite(tipPercent) && tipPercent > 0
+    ? Math.round(baseAmount * Math.min(tipPercent, 30) / 100)
+    : Number(body?.tip)
   const tip = Number.isFinite(rawTip) && rawTip > 0
     ? Math.min(round2(rawTip), round2(baseAmount * 3) + 100000)
     : 0
