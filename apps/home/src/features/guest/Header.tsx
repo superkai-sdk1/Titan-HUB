@@ -1,8 +1,9 @@
-// Шапка экрана гостя: логотип (удержать 2 с — вход сотрудника), кабинка,
+// Шапка экрана гостя: логотип (5 касаний подряд — вход сотрудника), кабинка,
 // значок «нет связи», кнопка «Свет и климат», часы.
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { WifiOff } from 'lucide-react-native';
+import { useRef } from 'react';
 import { StyleSheet, View } from 'react-native';
 
 import { useNetwork } from '@/data/api';
@@ -10,6 +11,7 @@ import { useSession } from '@/data/session';
 import { RoomButton } from '@/features/room/RoomButton';
 import { useVisit } from '@/features/visit/store';
 import { hhmm } from '@/lib/format';
+import { haptic } from '@/lib/haptics';
 import { useMinute } from '@/lib/use-now';
 import { glassStyle } from '@/ui/glass';
 import { Icon } from '@/ui/icon';
@@ -19,10 +21,24 @@ import { color } from '@/ui/tokens';
 
 const LOGO = require('@/assets/images/splash-icon.png');
 
+/** Вход сотрудника: 5 касаний логотипа за 3 секунды (дальше — PIN). Удержание
+ * срывалось: за 2 секунды палец смещается, и жест отменялся. */
+const STAFF_TAPS = 5;
+const STAFF_TAPS_WINDOW_MS = 3000;
+
 export function StaffLogo() {
   const router = useRouter();
+  const taps = useRef<number[]>([]);
+  const onTap = () => {
+    const now = Date.now();
+    taps.current = [...taps.current.filter((t) => now - t < STAFF_TAPS_WINDOW_MS), now];
+    if (taps.current.length < STAFF_TAPS) return;
+    taps.current = [];
+    haptic.warning();
+    router.push('/staff');
+  };
   return (
-    <Press onLongPress={() => router.push('/staff')} longPressMs={2000} haptics={false} accessibilityLabel="Titan Home" style={[styles.logo, glassStyle('control', 18)]}>
+    <Press onPress={onTap} haptics={false} scaleTo={0.9} hitSlop={14} accessibilityLabel="Titan Home" style={[styles.logo, glassStyle('control', 18)]}>
       <Image source={LOGO} style={{ width: 44, height: 44 }} contentFit="contain" />
     </Press>
   );

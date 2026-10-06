@@ -1,4 +1,4 @@
-// Панель сотрудника: вход PIN-ом (удержать логотип 2 секунды на экране гостя).
+// Панель сотрудника: вход PIN-ом (5 касаний логотипа на экране гостя).
 import * as Application from 'expo-application';
 import { useRouter } from 'expo-router';
 import {

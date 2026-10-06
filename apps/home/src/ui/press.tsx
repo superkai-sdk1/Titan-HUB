@@ -12,10 +12,11 @@ import { haptic } from '@/lib/haptics';
 
 import { motion } from './tokens';
 
+/** Дольше — уже не нажатие (палец просто лёг на экран). */
+const TAP_MAX_MS = 2000;
+
 export type PressProps = {
   onPress?: () => void;
-  onLongPress?: () => void;
-  longPressMs?: number;
   disabled?: boolean;
   /** Насколько сжимается при нажатии (1 — не сжимается). */
   scaleTo?: number;
@@ -29,7 +30,7 @@ export type PressProps = {
 };
 
 export function Press({
-  onPress, onLongPress, longPressMs = 2000, disabled, scaleTo = 0.97, haptics = true, style, children,
+  onPress, disabled, scaleTo = 0.97, haptics = true, style, children,
   accessibilityLabel, accessibilityRole = 'button', accessibilityState, hitSlop,
 }: PressProps) {
   const pressed = useSharedValue(0);
@@ -39,15 +40,10 @@ export function Press({
     if (haptics) haptic.tap();
     onPress?.();
   };
-  const fireLong = () => {
-    markActivity();
-    haptic.warning();
-    onLongPress?.();
-  };
 
   const tap = Gesture.Tap()
     .enabled(!disabled && !!onPress)
-    .maxDuration(longPressMs)
+    .maxDuration(TAP_MAX_MS)
     .hitSlop(hitSlop ?? 0)
     .onBegin(() => {
       pressed.value = withTiming(1, { duration: motion.pressIn });
@@ -59,14 +55,6 @@ export function Press({
       if (success) scheduleOnRN(fire);
     });
 
-  const long = Gesture.LongPress()
-    .enabled(!disabled && !!onLongPress)
-    .minDuration(longPressMs)
-    .onStart(() => {
-      scheduleOnRN(fireLong);
-    });
-
-  const gesture = onLongPress ? Gesture.Exclusive(long, tap) : tap;
 
   const dim = disabled ? 0.42 : 1;
   const animated = useAnimatedStyle(() => ({
@@ -75,7 +63,7 @@ export function Press({
   }), [dim, scaleTo]);
 
   return (
-    <GestureDetector gesture={gesture}>
+    <GestureDetector gesture={tap}>
       <Animated.View
         accessible
         accessibilityRole={accessibilityRole}
