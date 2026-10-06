@@ -286,8 +286,9 @@ function ItemRow({
 
   // Одна строка: название, степпер, сумма. Цена за штуку — только когда штук больше одной
   // (иначе она совпадает с суммой); в закрытом чеке степпера нет — там «× N».
-  // Очень крупный текст: степпер и сумма — строкой ниже, названию нужна вся ширина.
-  const { stacked } = useTextLayout();
+  // «Увеличенный» вид и крупный текст: степпер и сумма — строкой ниже, иначе название
+  // сжималось до «Чай облепи…».
+  const stacked = useTextLayout().layout !== 'regular';
   return (
     <SwipeToDelete enabled={isOpen} label="Удалить" onDelete={() => change(0)}>
       <View style={[styles.itemRow, stacked && styles.itemRowStacked, qty === 0 && styles.removing]}>
