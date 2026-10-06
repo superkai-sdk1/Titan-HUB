@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Фирменные цвета Titan: тёмный фон и один фиолетовый акцент. -->
+    <color name="bg">#15121B</color>
+    <color name="surface">#241E2E</color>
+    <color name="field">#1E1926</color>
+    <color name="line">#3A3345</color>
+    <color name="accent">#8B5CF6</color>
+    <color name="accent_dark">#6D28D9</color>
+    <color name="text">#EDE7F5</color>
+    <color name="muted">#A49BB3</color>
+    <color name="white">#FFFFFF</color>
+
+    <style name="Theme.TitanMenu" parent="android:Theme.Material.NoActionBar.Fullscreen">
+        <item name="android:windowBackground">@color/bg</item>
+        <item name="android:colorBackground">@color/bg</item>
+        <item name="android:colorPrimary">@color/accent_dark</item>
+        <item name="android:colorAccent">@color/accent</item>
+        <item name="android:colorControlActivated">@color/accent</item>
+        <item name="android:textColorPrimary">@color/text</item>
+        <item name="android:textColorSecondary">@color/muted</item>
+        <item name="android:statusBarColor">@color/bg</item>
+        <item name="android:navigationBarColor">@color/bg</item>
+    </style>
+
+    <!-- Настройки читаются с дивана: крупный текст, явный фокус пульта. -->
+    <style name="Setup" />
+
+    <style name="Setup.Label">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_marginBottom">10dp</item>
+        <item name="android:textColor">@color/text</item>
+        <item name="android:textSize">20sp</item>
+        <item name="android:textStyle">bold</item>
+    </style>
+
+    <style name="Setup.Note">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_marginTop">8dp</item>
+        <item name="android:textColor">@color/muted</item>
+        <item name="android:textSize">15sp</item>
+        <item name="android:lineSpacingMultiplier">1.15</item>
+    </style>
+
+    <style name="Setup.Body" parent="Setup.Note">
+        <item name="android:layout_marginTop">0dp</item>
+        <item name="android:textColor">@color/text</item>
+        <item name="android:textSize">17sp</item>
+    </style>
+
+    <style name="Setup.Choice">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_marginBottom">4dp</item>
+        <item name="android:background">@drawable/choice_bg</item>
+        <item name="android:buttonTint">@color/accent</item>
+        <item name="android:paddingStart">10dp</item>
+        <item name="android:paddingTop">10dp</item>
+        <item name="android:paddingBottom">10dp</item>
+        <item name="android:textColor">@color/text</item>
+        <item name="android:textSize">19sp</item>
+    </style>
+
+    <style name="Setup.Button">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:minHeight">56dp</item>
+        <item name="android:paddingStart">28dp</item>
+        <item name="android:paddingEnd">28dp</item>
+        <item name="android:background">@drawable/btn_secondary</item>
+        <item name="android:stateListAnimator">@null</item>
+        <item name="android:textAllCaps">false</item>
+        <item name="android:textColor">@color/white</item>
+        <item name="android:textSize">18sp</item>
+    </style>
+
+    <style name="Setup.Button.Primary">
+        <item name="android:background">@drawable/btn_primary</item>
+        <item name="android:textStyle">bold</item>
+    </style>
+</resources>

@@ -1,0 +1,182 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/bg"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingStart="56dp"
+        android:paddingTop="36dp"
+        android:paddingEnd="56dp"
+        android:paddingBottom="36dp">
+
+        <!-- Шапка: главное действие справа сверху — видно сразу, без прокрутки. -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <ImageView
+                android:layout_width="56dp"
+                android:layout_height="56dp"
+                android:importantForAccessibility="no"
+                android:src="@mipmap/ic_launcher" />
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="18dp"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/app_name"
+                    android:textColor="@color/white"
+                    android:textSize="30sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/version"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textColor="@color/muted"
+                    android:textSize="15sp" />
+            </LinearLayout>
+
+            <Button
+                android:id="@+id/start"
+                style="@style/Setup.Button.Primary"
+                android:text="@string/setup_start" />
+
+            <Button
+                android:id="@+id/system_settings"
+                style="@style/Setup.Button"
+                android:layout_marginStart="14dp"
+                android:text="@string/setup_system_settings" />
+
+            <Button
+                android:id="@+id/exit"
+                style="@style/Setup.Button"
+                android:layout_marginStart="14dp"
+                android:text="@string/setup_exit" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="28dp"
+            android:baselineAligned="false"
+            android:orientation="horizontal">
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="48dp"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    style="@style/Setup.Label"
+                    android:labelFor="@id/address"
+                    android:text="@string/setup_address" />
+
+                <EditText
+                    android:id="@+id/address"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:autofillHints=""
+                    android:background="@drawable/field_bg"
+                    android:imeOptions="actionDone"
+                    android:inputType="textUri"
+                    android:padding="16dp"
+                    android:selectAllOnFocus="true"
+                    android:singleLine="true"
+                    android:textColor="@color/white"
+                    android:textColorHint="@color/muted"
+                    android:textSize="22sp" />
+
+                <TextView
+                    style="@style/Setup.Note"
+                    android:text="@string/setup_address_note" />
+
+                <TextView
+                    style="@style/Setup.Label"
+                    android:layout_marginTop="26dp"
+                    android:text="@string/setup_rotation" />
+
+                <RadioGroup
+                    android:id="@+id/rotation"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical">
+
+                    <RadioButton
+                        android:id="@+id/rotate_90"
+                        style="@style/Setup.Choice"
+                        android:text="@string/setup_rotate_90" />
+
+                    <RadioButton
+                        android:id="@+id/rotate_270"
+                        style="@style/Setup.Choice"
+                        android:text="@string/setup_rotate_270" />
+
+                    <RadioButton
+                        android:id="@+id/rotate_0"
+                        style="@style/Setup.Choice"
+                        android:text="@string/setup_rotate_0" />
+                </RadioGroup>
+
+                <TextView
+                    style="@style/Setup.Note"
+                    android:text="@string/setup_rotation_note" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    style="@style/Setup.Label"
+                    android:text="@string/setup_autostart" />
+
+                <TextView
+                    android:id="@+id/autostart_status"
+                    style="@style/Setup.Body" />
+
+                <Button
+                    android:id="@+id/autostart_button"
+                    style="@style/Setup.Button"
+                    android:layout_marginTop="12dp"
+                    android:text="@string/setup_autostart_button" />
+
+                <Button
+                    android:id="@+id/home_button"
+                    style="@style/Setup.Button"
+                    android:layout_marginTop="12dp"
+                    android:text="@string/setup_home_button" />
+
+                <TextView
+                    style="@style/Setup.Note"
+                    android:text="@string/setup_home_note" />
+
+                <TextView
+                    style="@style/Setup.Label"
+                    android:layout_marginTop="26dp"
+                    android:text="@string/setup_remote" />
+
+                <TextView
+                    style="@style/Setup.Body"
+                    android:text="@string/setup_remote_note" />
+            </LinearLayout>
+        </LinearLayout>
+    </LinearLayout>
+</ScrollView>
