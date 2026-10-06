@@ -1,10 +1,12 @@
 import { SymbolView } from 'expo-symbols';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View, type PressableProps } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, View, type PressableProps } from 'react-native';
 import type { SFSymbol } from 'sf-symbols-typescript';
 
+import { Text } from '@/components/text';
 import { GlassView } from '@/components/glass';
 import { dayNumber, eventKind, eventTitle, monthShort, STATUS_LOOK, timeRange, type EventRow } from '@/lib/events-api';
 import { formatMoney, toNumber } from '@/lib/format';
+import { FONT_SCALE_MAX, useTextLayout } from '@/lib/text-scale';
 import { colors, radius, space, type } from '@/lib/theme';
 
 /**
@@ -31,14 +33,28 @@ export function EventCard({
   const dimmed = event.status === 'cancelled';
   const fee = toNumber(event.participationFee);
   const amount = event.format === 'minicap' ? (fee > 0 ? `взнос ${formatMoney(fee)}` : null) : base > 0 ? formatMoney(base) : null;
+  // «Увеличенный» вид и крупный текст: статус под названием, а не справа, — названию нужна ширина.
+  const roomy = useTextLayout().layout === 'regular';
+  const statusPill = (
+    <View style={[styles.status, { backgroundColor: `${status.color}24` }]}>
+      <SymbolView name={status.symbol} size={11} weight="semibold" tintColor={status.color} />
+      <Text style={[type.caption1, styles.statusText, { color: status.color }]} maxFontSizeMultiplier={FONT_SCALE_MAX.compact}>
+        {status.label}
+      </Text>
+    </View>
+  );
 
   return (
     <Pressable {...pressable} accessibilityRole="button" accessibilityLabel={`${eventTitle(event)}, ${status.label}`}>
       <GlassView isInteractive style={[styles.card, dimmed && styles.dimmed]}>
         <View style={styles.top}>
           <View style={[styles.date, { backgroundColor: `${status.color}29` }]}>
-            <Text style={[styles.day, type.amount, { color: status.color }]}>{dayNumber(event.date)}</Text>
-            <Text style={[type.caption2, styles.month, { color: status.color }]}>{monthShort(event.date)}</Text>
+            <Text style={[styles.day, type.amount, { color: status.color }]} maxFontSizeMultiplier={FONT_SCALE_MAX.compact}>
+              {dayNumber(event.date)}
+            </Text>
+            <Text style={[type.caption2, styles.month, { color: status.color }]} maxFontSizeMultiplier={FONT_SCALE_MAX.compact}>
+              {monthShort(event.date)}
+            </Text>
           </View>
 
           <View style={styles.titles}>
@@ -46,18 +62,16 @@ export function EventCard({
               <SymbolView name={kind.symbol} size={12} weight="semibold" tintColor={kind.color} />
               <Text style={[type.caption1, styles.kindText, { color: kind.color }]}>{kind.label}</Text>
             </View>
-            <Text style={[type.headline, styles.label]} numberOfLines={1}>
+            <Text style={[type.headline, styles.label]} numberOfLines={roomy ? 1 : 2}>
               {eventTitle(event)}
             </Text>
-            <Text style={[type.subhead, styles.secondary]} numberOfLines={1}>
+            <Text style={[type.subhead, styles.secondary]} numberOfLines={roomy ? 1 : 2}>
               {`${timeRange(event)}${event.billingMode === 'hourly' && event.plannedHours ? ` · ${event.plannedHours} ч` : ''}${event.billingMode === 'rental' ? ' · по ставке зоны' : amount ? ` · ${amount}` : ''}`}
             </Text>
+            {!roomy && statusPill}
           </View>
 
-          <View style={[styles.status, { backgroundColor: `${status.color}24` }]}>
-            <SymbolView name={status.symbol} size={11} weight="semibold" tintColor={status.color} />
-            <Text style={[type.caption1, styles.statusText, { color: status.color }]}>{status.label}</Text>
-          </View>
+          {roomy && statusPill}
         </View>
 
         {place && <Detail icon={event.type === 'exit' ? 'mappin.and.ellipse' : 'square.split.bottomrightquarter'} text={place} />}
@@ -93,7 +107,7 @@ const styles = StyleSheet.create({
   card: { borderRadius: radius.card, borderCurve: 'continuous', padding: space.lg, gap: space.sm },
   dimmed: { opacity: 0.6 },
   top: { flexDirection: 'row', alignItems: 'center', gap: space.md },
-  date: { width: 52, height: 56, borderRadius: 14, borderCurve: 'continuous', alignItems: 'center', justifyContent: 'center' },
+  date: { minWidth: 52, minHeight: 56, paddingHorizontal: 4, borderRadius: 14, borderCurve: 'continuous', alignItems: 'center', justifyContent: 'center' },
   day: { fontSize: 22, lineHeight: 26 },
   month: { fontWeight: '600', textTransform: 'uppercase' },
   titles: { flex: 1, gap: 1 },
@@ -101,7 +115,7 @@ const styles = StyleSheet.create({
   kindText: { fontWeight: '600' },
   label: { color: colors.label },
   secondary: { color: colors.secondaryLabel },
-  status: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 999, alignSelf: 'flex-start' },
+  status: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 999, alignSelf: 'flex-start', marginTop: 2 },
   statusText: { fontWeight: '600' },
   detail: { flexDirection: 'row', alignItems: 'center', gap: space.sm, paddingLeft: 2 },
   start: {

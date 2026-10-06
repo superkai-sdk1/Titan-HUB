@@ -2,9 +2,10 @@ import { Button, ContentUnavailableView, Host, Menu } from '@expo/ui/swift-ui';
 import { buttonStyle, controlSize } from '@expo/ui/swift-ui/modifiers';
 import { useRouter } from 'expo-router';
 import { useEffect } from 'react';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import Animated, { withSpring, withTiming, type EntryExitAnimationFunction } from 'react-native-reanimated';
 
+import { Text } from '@/components/text';
 import { CheckView } from '@/components/check-view';
 import { checkTitle, checkTotals } from '@/lib/checks';
 import { formatMoney } from '@/lib/format';

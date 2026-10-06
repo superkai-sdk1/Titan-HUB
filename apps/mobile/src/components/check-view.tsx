@@ -1,9 +1,10 @@
 import { SymbolView } from 'expo-symbols';
 import { useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View, type ScrollViewProps } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, View, type ScrollViewProps } from 'react-native';
 import Animated, { FadeIn, FadeOut, LayoutAnimationConfig, LinearTransition } from 'react-native-reanimated';
 import type { SFSymbol } from 'sf-symbols-typescript';
 
+import { Text } from '@/components/text';
 import { GlassView } from '@/components/glass';
 import { Avatar, BalanceChips } from '@/components/new-check-parts';
 import { RollingText } from '@/components/rolling-text';
@@ -16,6 +17,7 @@ import { haptic } from '@/lib/haptics';
 import type { PosPlayer } from '@/lib/payment';
 import { addItem, reloadCheck, TIER_LABEL, useCheckSuggestions } from '@/lib/pos-api';
 import { parseAmount } from '@/lib/shift-api';
+import { FONT_SCALE_MAX, useTextLayout } from '@/lib/text-scale';
 import { colors, radius, space, type } from '@/lib/theme';
 import type { CheckDetail } from '@/lib/types';
 import type { CheckActions } from '@/lib/use-check-actions';
@@ -42,6 +44,8 @@ type Props = {
 } & Pick<ScrollViewProps, 'contentInsetAdjustmentBehavior' | 'contentContainerStyle'>;
 
 export function CheckView({ check, totals, actions, player, now, contentInsetAdjustmentBehavior, contentContainerStyle }: Props) {
+  // «Увеличенный» вид и крупный текст: подпись «участник» под именем, а не рядом с ним.
+  const guestTwoLines = useTextLayout().layout !== 'regular';
   const isOpen = check.status === 'open';
   const itemRows = check.items.filter((row) => row.checkItem.quantity > 0);
   const discountsTotal = check.discounts.reduce((sum, d) => sum + toNumber(d.amount), 0);
@@ -56,7 +60,7 @@ export function CheckView({ check, totals, actions, player, now, contentInsetAdj
       <LayoutAnimationConfig skipEntering skipExiting>
         <View style={styles.hero}>
           <Text style={[type.footnote, styles.heroCaption]}>{isOpen ? 'К ОПЛАТЕ' : check.status === 'closed' ? 'ОПЛАЧЕН' : 'ОТМЕНЁН'}</Text>
-          <RollingText text={formatMoney(totals.due)} style={[styles.heroAmount, type.amount]} />
+          <RollingText text={formatMoney(totals.due)} style={[styles.heroAmount, type.amount]} maxFontSizeMultiplier={FONT_SCALE_MAX.display} />
           <Text style={[type.subhead, styles.secondary]}>
             {isOpen ? `Открыт в ${formatTime(check.createdAt)} · ${formatDuration(check.createdAt, now)}` : `Открыт в ${formatTime(check.createdAt)}`}
           </Text>
@@ -97,10 +101,12 @@ export function CheckView({ check, totals, actions, player, now, contentInsetAdj
                     <View style={styles.guestIcon}>
                       <SymbolView name="person.fill" size={13} tintColor={colors.secondaryLabel} />
                     </View>
-                    <Text style={[type.body, styles.label, styles.flex]} numberOfLines={1}>
-                      {name}
-                    </Text>
-                    <Text style={[type.footnote, styles.tertiary]}>участник</Text>
+                    <View style={[styles.flex, !guestTwoLines && styles.guestTexts]}>
+                      <Text style={[type.body, styles.label, !guestTwoLines && styles.flex]} numberOfLines={1}>
+                        {name}
+                      </Text>
+                      <Text style={[type.footnote, styles.tertiary]}>участник</Text>
+                    </View>
                     {isOpen && (
                       <Pressable hitSlop={10} onPress={() => actions.onRemoveGuest(name)} accessibilityRole="button" accessibilityLabel={`Убрать ${name}`}>
                         <SymbolView name="xmark.circle.fill" size={20} tintColor={colors.tertiaryLabel} />
@@ -315,7 +321,7 @@ function ItemRow({
                 accessibilityLabel={qty <= 1 ? `Удалить ${name}` : `Меньше: ${name}`}>
                 <SymbolView name={qty <= 1 ? 'trash' : 'minus'} size={13} weight="semibold" tintColor={qty <= 1 ? colors.red : colors.label} />
               </Pressable>
-              <RollingText text={String(qty)} style={[type.subhead, styles.stepperValue]} />
+              <RollingText text={String(qty)} style={[type.subhead, styles.stepperValue]} maxFontSizeMultiplier={FONT_SCALE_MAX.compact} />
               <Pressable
                 hitSlop={6}
                 onPress={() => change(qty + 1)}
@@ -504,16 +510,25 @@ function CardHeader({
   detailColor?: typeof colors.green;
   action?: { label: string; icon: SFSymbol; onPress: () => void };
 }) {
+  // Заголовок и пояснение переносятся, кнопка остаётся целой: на «Увеличенном» виде
+  // «Позиции · 2 позиции · Добавить» в ряд не помещались, и кнопка уезжала за край.
+  // С очень крупным текстом кнопка встаёт под заголовок.
+  const { stacked } = useTextLayout();
   return (
-    <View style={styles.cardHeader}>
-      <SymbolView name={icon} size={15} weight="semibold" tintColor={iconColor} />
-      <Text style={[type.headline, styles.label]}>{title}</Text>
-      {detail && <Text style={[type.subhead, detailColor ? { color: detailColor } : styles.secondary]}>{detail}</Text>}
-      <View style={styles.flex} />
+    <View style={[styles.cardHeader, stacked && styles.cardHeaderStacked]}>
+      <View style={styles.cardHeaderTitle}>
+        <SymbolView name={icon} size={15} weight="semibold" tintColor={iconColor} />
+        <View style={styles.cardHeaderTexts}>
+          <Text style={[type.headline, styles.label]}>{title}</Text>
+          {detail && <Text style={[type.subhead, detailColor ? { color: detailColor } : styles.secondary]}>{detail}</Text>}
+        </View>
+      </View>
       {action && (
         <Pressable onPress={action.onPress} hitSlop={8} style={({ pressed }) => [styles.headerAction, pressed && styles.pressed]} accessibilityRole="button">
           <SymbolView name={action.icon} size={13} weight="bold" tintColor={colors.accent} />
-          <Text style={[type.subhead, styles.headerActionText]}>{action.label}</Text>
+          <Text style={[type.subhead, styles.headerActionText]} maxFontSizeMultiplier={FONT_SCALE_MAX.compact}>
+            {action.label}
+          </Text>
         </Pressable>
       )}
     </View>
@@ -547,7 +562,7 @@ function RentalTimer({ startAt, endAt }: { startAt: string; endAt: string | null
   const m = Math.floor((seconds % 3600) / 60);
   const s = seconds % 60;
   const pad = (n: number) => String(n).padStart(2, '0');
-  return <Text style={[styles.timer, type.amount]}>{`${h}:${pad(m)}:${pad(s)}`}</Text>;
+  return <Text style={[styles.timer, type.amount]} maxFontSizeMultiplier={FONT_SCALE_MAX.display}>{`${h}:${pad(m)}:${pad(s)}`}</Text>;
 }
 
 const styles = StyleSheet.create({
@@ -575,7 +590,10 @@ const styles = StyleSheet.create({
 
   card: { borderRadius: radius.card, borderCurve: 'continuous', padding: space.lg, gap: space.sm, overflow: 'hidden' },
   cardHeader: { flexDirection: 'row', alignItems: 'center', gap: space.sm, minHeight: 28 },
-  headerAction: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: space.md, paddingVertical: 5, borderRadius: 999, backgroundColor: colors.fill },
+  cardHeaderStacked: { flexDirection: 'column', alignItems: 'flex-start' },
+  cardHeaderTitle: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: space.sm },
+  cardHeaderTexts: { flex: 1, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'baseline', columnGap: space.sm },
+  headerAction: { flexShrink: 0, flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: space.md, paddingVertical: 5, borderRadius: 999, backgroundColor: colors.fill },
   headerActionText: { color: colors.accent, fontWeight: '600' },
   divider: { height: StyleSheet.hairlineWidth, backgroundColor: colors.separator },
   empty: { paddingVertical: space.sm },
@@ -584,10 +602,11 @@ const styles = StyleSheet.create({
   addClientIcon: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.fill },
   guestRow: { flexDirection: 'row', alignItems: 'center', gap: space.md, paddingTop: space.sm },
   guestIcon: { width: 44, alignItems: 'center' },
+  guestTexts: { flexDirection: 'row', alignItems: 'center', gap: space.md },
 
   lineRow: { flexDirection: 'row', alignItems: 'center', gap: space.md, minHeight: 30 },
   orderButtons: { flexDirection: 'row', gap: space.sm, marginTop: space.xs },
-  orderButton: { flex: 1, height: 44, borderRadius: 14, borderCurve: 'continuous', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
+  orderButton: { flex: 1, minHeight: 44, paddingVertical: space.sm, borderRadius: 14, borderCurve: 'continuous', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
   rejectButton: { backgroundColor: colors.fill },
   rejectText: { color: colors.red },
   confirmButton: { backgroundColor: colors.accent },
@@ -596,7 +615,7 @@ const styles = StyleSheet.create({
   itemRow: { flexDirection: 'row', alignItems: 'center', gap: space.md, paddingVertical: space.sm },
   removing: { opacity: 0.4 },
   itemRight: { alignItems: 'flex-end', gap: 6 },
-  stepper: { flexDirection: 'row', alignItems: 'center', height: 32, borderRadius: 999, backgroundColor: colors.fill, paddingHorizontal: 2 },
+  stepper: { flexDirection: 'row', alignItems: 'center', minHeight: 32, borderRadius: 999, backgroundColor: colors.fill, paddingHorizontal: 2 },
   stepperButton: { width: 32, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
   stepperPressed: { backgroundColor: colors.fill },
   stepperValue: { minWidth: 22, textAlign: 'center', color: colors.label, fontWeight: '600', fontVariant: ['tabular-nums'] },

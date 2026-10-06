@@ -1,8 +1,9 @@
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import { useEffect } from 'react';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, View } from 'react-native';
 
+import { Text } from '@/components/text';
 import { AmbientBackdrop } from '@/components/ambient-backdrop';
 import { CheckView } from '@/components/check-view';
 import { ToolbarMenu, ToolbarMenuAction } from '@/components/toolbar';

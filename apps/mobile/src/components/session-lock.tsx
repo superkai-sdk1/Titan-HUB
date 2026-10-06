@@ -2,9 +2,10 @@ import { BlurView } from 'expo-blur';
 import * as LocalAuthentication from 'expo-local-authentication';
 import { SymbolView } from 'expo-symbols';
 import { useEffect, useRef, useState } from 'react';
-import { Alert, AppState, Pressable, StyleSheet, Text, View, Platform } from 'react-native';
+import { Alert, AppState, Pressable, ScrollView, StyleSheet, View, Platform } from 'react-native';
 import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
 
+import { Text } from '@/components/text';
 import { PinDots, PinPad, type PinKey } from '@/components/pin-pad';
 import { api, ApiError } from '@/lib/api';
 import { haptic } from '@/lib/haptics';
@@ -145,8 +146,10 @@ function LockedContent({ biometrics, onBiometrics }: { biometrics: boolean; onBi
     if (next.length === PIN_LENGTH) void verify(next);
   };
 
+  // Прокрутка — на случай самого крупного текста на «Увеличенном» виде: иначе кнопки под
+  // клавиатурой уходили за край экрана. Пока всё влезает, содержимое по центру, как раньше.
   return (
-    <View style={styles.content}>
+    <ScrollView contentContainerStyle={styles.content} bounces={false} showsVerticalScrollIndicator={false}>
       <SymbolView name="lock.fill" size={36} tintColor={colors.secondaryLabel} />
       <Text style={[type.title3, styles.title]}>Касса заблокирована</Text>
       <Text style={[type.subhead, styles.secondaryText]}>{user?.nickname ? `${user.nickname}, введите PIN` : 'Введите PIN'}</Text>
@@ -164,14 +167,14 @@ function LockedContent({ biometrics, onBiometrics }: { biometrics: boolean; onBi
           <Text style={[type.body, styles.secondaryText]}>Другой сотрудник</Text>
         </Pressable>
       </View>
-    </View>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
   scrim: { backgroundColor: colors.background },
-  content: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: space.md, padding: space.xl },
-  links: { flexDirection: 'row', alignItems: 'center', gap: space.xl, marginTop: space.sm },
+  content: { flexGrow: 1, alignItems: 'center', justifyContent: 'center', gap: space.md, padding: space.xl },
+  links: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', alignItems: 'center', columnGap: space.xl, rowGap: space.sm, marginTop: space.sm },
   title: { color: colors.label },
   primary: {
     flexDirection: 'row',

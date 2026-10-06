@@ -3,10 +3,11 @@ import { buttonBorderShape, buttonStyle, controlSize, labelStyle, menuStyle, pic
 import { Link, useRouter } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import Animated, { FadeIn, FadeOut, LayoutAnimationConfig, LinearTransition } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { Text } from '@/components/text';
 import { AppRefreshControl } from '@/components/refresh-control';
 import { AmbientBackdrop } from '@/components/ambient-backdrop';
 import { syncEventsToCalendar } from '@/lib/calendar-sync';
@@ -394,7 +395,7 @@ const styles = StyleSheet.create({
   booking: { padding: space.lg, gap: 4 },
   bookingTop: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
   bookingButtons: { flexDirection: 'row', gap: space.sm, marginTop: space.sm },
-  bookingButton: { flex: 1, height: 40, borderRadius: 12, borderCurve: 'continuous', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
+  bookingButton: { flex: 1, minHeight: 40, paddingVertical: space.sm, borderRadius: 12, borderCurve: 'continuous', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
   reject: { backgroundColor: colors.fill },
   rejectText: { color: colors.red, fontWeight: '600' },
   confirm: { backgroundColor: colors.accent },

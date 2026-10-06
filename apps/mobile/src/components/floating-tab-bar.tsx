@@ -2,11 +2,12 @@ import { useRouter } from 'expo-router';
 import type { BottomTabBarProps } from 'expo-router/tabs';
 import { SymbolView, type AndroidSymbol, type SFSymbol } from 'expo-symbols';
 import { useEffect, useState, type ReactNode } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 import { useKeyboardState } from 'react-native-keyboard-controller';
 import Animated, { FadeInDown, FadeOutDown, useAnimatedStyle, useSharedValue, withSpring, withTiming } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { Text } from '@/components/text';
 import { haptic } from '@/lib/haptics';
 import { SHEET_ROUTES, TAB_BAR_GAP, TAB_BAR_HEIGHT } from '@/lib/tab-bar';
 import { colors, space, springs, useAccentHex } from '@/lib/theme';

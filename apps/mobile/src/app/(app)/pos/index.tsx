@@ -4,7 +4,7 @@ import { Link, useNavigation, useRouter } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import { makeImageFromView } from '@shopify/react-native-skia';
 import { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Platform, Pressable, RefreshControl, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { ActivityIndicator, Alert, Platform, Pressable, RefreshControl, StyleSheet, useWindowDimensions, View } from 'react-native';
 import Animated, {
   Easing,
   LayoutAnimationConfig,
@@ -17,6 +17,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { Text } from '@/components/text';
 import { GlassView } from '@/components/glass';
 import { AmbientBackdrop } from '@/components/ambient-backdrop';
 import { BirthdaysBanner } from '@/components/birthdays-banner';
@@ -30,6 +31,7 @@ import { createAccessoryScrollHandler } from '@/lib/chrome';
 import { plural } from '@/lib/format';
 import { haptic } from '@/lib/haptics';
 import { SPLIT_MIN_WIDTH, useSplitLayout } from '@/lib/layout';
+import { effectiveTextScale } from '@/lib/text-scale';
 import { useTabBarClearance } from '@/lib/tab-bar';
 import { checkNeedsAttention } from '@/lib/notifications';
 import { usePosSelection } from '@/lib/pos-selection';
@@ -50,6 +52,13 @@ const IS_PAD = Platform.OS === 'ios' && Platform.isPad;
 const GRID_PADDING = space.md - 2;
 /** Высота плашки смены над таб-баром (bottom accessory iOS 26). */
 const ACCESSORY_HEIGHT = 72;
+/**
+ * Самая узкая карточка чека в единицах текста (ширина / множитель шрифта). Уже — сетка
+ * теряет колонку: на «Увеличенном» виде с крупным текстом карточки встают по одной.
+ */
+const CARD_MIN_TEXT_WIDTH = 145;
+/** Карточка уже этого (в единицах текста) — плотная: меньше отступы, имя в две строки. */
+const CARD_COMPACT_TEXT_WIDTH = 175;
 
 /**
  * Новый чек появляется из точки. Закрытый рассыпается пылью, как удалённое сообщение
@@ -132,8 +141,14 @@ export default function PosScreen() {
   const wide = screenWidth === 0 ? window.width : screenWidth;
   const split = useSplitLayout() && wide >= SPLIT_MIN_WIDTH;
   // Как в веб-кассе: узкая колонка не должна ломать карточки (iPad Slide Over, боковая панель).
-  const columns = listWidth >= 980 ? 4 : listWidth >= 620 ? 3 : listWidth >= 280 ? 2 : 1;
+  // Колонки считаются в единицах текста: «Увеличенный» вид и крупный текст оставляют карточке
+  // меньше места под имя и сумму, и сетка переходит на одну колонку.
+  const textScale = effectiveTextScale(window.fontScale);
+  const maxColumns = listWidth >= 980 ? 4 : listWidth >= 620 ? 3 : 2;
+  const fitColumns = Math.floor((listWidth - GRID_PADDING * 2) / (CARD_MIN_TEXT_WIDTH * textScale));
+  const columns = Math.max(1, Math.min(maxColumns, fitColumns));
   const cellWidth = Math.floor((listWidth - GRID_PADDING * 2) / columns);
+  const compactCards = cellWidth / textScale < CARD_COMPACT_TEXT_WIDTH;
   const unreadCount = (notifications.data ?? []).filter((n) => !n.isRead).length;
   const count = checks.data?.length ?? 0;
 
@@ -281,6 +296,7 @@ export default function PosScreen() {
           <CheckCard
             model={item}
             glassKey={glassKey}
+            compact={compactCards}
             onPress={() => {
               haptic.selection();
               setSelectedId(item.id);
@@ -296,6 +312,7 @@ export default function PosScreen() {
         <CheckCard
           model={item}
           glassKey={glassKey}
+          compact={compactCards}
           onPress={() => {
             haptic.selection();
             router.push({ pathname: '/pos/[checkId]', params: { checkId: item.id } });
@@ -319,7 +336,7 @@ export default function PosScreen() {
       <Link href={{ pathname: '/pos/[checkId]', params: { checkId: item.id } }} asChild>
         {/* Чек раскрывается из карточки и сворачивается обратно в неё (зум iOS 18+). */}
         <Link.Trigger withAppleZoom>
-          <CheckCard model={item} glassKey={glassKey} />
+          <CheckCard model={item} glassKey={glassKey} compact={compactCards} />
         </Link.Trigger>
         <Link.Preview />
         <Link.Menu>
@@ -414,6 +431,7 @@ export default function PosScreen() {
                   <PrecheckCard
                     precheck={precheck}
                     glassKey={glassKey}
+                    compact={compactCards}
                     busy={openingPrecheck === precheck.playerId}
                     onOpen={() => void onOpenPrecheck(precheck)}
                   />

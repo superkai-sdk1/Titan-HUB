@@ -2,7 +2,7 @@ import { usePathname, useRouter } from 'expo-router';
 import { Tabs } from 'expo-router/tabs';
 import { NativeTabs } from 'expo-router/unstable-native-tabs';
 import type { ReactNode } from 'react';
-import { Platform } from 'react-native';
+import { Platform, useWindowDimensions } from 'react-native';
 
 import { CheckAccessory } from '@/components/check-accessory';
 import { FloatingTabBar } from '@/components/floating-tab-bar';
@@ -13,6 +13,12 @@ import { colors } from '@/lib/theme';
 
 const IS_PAD = Platform.OS === 'ios' && Platform.isPad;
 const CHECK_PATH = /^\/pos\/([0-9a-f-]{36})$/i;
+/**
+ * «Увеличенный» вид iPhone (14 Pro — 320 pt в ширину): пять подписей системным кеглем 10 pt
+ * слипаются («АналитикаУправление»). На узком экране подписи на пункт мельче.
+ */
+const NARROW_TAB_BAR = 360;
+const narrowLabelStyle = { fontSize: 9 };
 
 /**
  * «Новый» всегда в акценте. Иконка — системный символ, поэтому iOS выравнивает её
@@ -43,6 +49,7 @@ export default function AppLayout() {
   const pathname = usePathname();
   const accessoryVisible = useChrome((s) => s.accessoryVisible);
   const openCheckId = IS_PAD ? undefined : CHECK_PATH.exec(pathname)?.[1];
+  const { width } = useWindowDimensions();
 
   // Android прячет плашку смены при прокрутке сам (плавающая панель на RN — это дёшево).
   // На iOS плашку не снимаем: каждое снятие перестраивало таб-бар UIKit (~60 мс) прямо
@@ -58,6 +65,7 @@ export default function AppLayout() {
   return (
     <NativeTabs
       tintColor={colors.accent}
+      labelStyle={!IS_PAD && width < NARROW_TAB_BAR ? narrowLabelStyle : undefined}
       sidebarAdaptable
       minimizeBehavior="onScrollDown"
       screenListeners={({ route }) => ({

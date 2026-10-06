@@ -1,11 +1,12 @@
 import { useRouter } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { Text, TextInput } from '@/components/text';
 import { AmbientBackdrop } from '@/components/ambient-backdrop';
 import { GlassCard, GlassChip } from '@/components/new-check-parts';
 import { haptic } from '@/lib/haptics';
@@ -248,7 +249,7 @@ const styles = StyleSheet.create({
   gap: { height: space.sm },
   bullet: { flexDirection: 'row', gap: space.sm, alignItems: 'flex-start' },
   thinking: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
-  actionsStrip: { flexGrow: 0, flexShrink: 0, height: 44 },
+  actionsStrip: { flexGrow: 0, flexShrink: 0, minHeight: 44 },
   actions: { flexDirection: 'row', gap: space.sm, paddingHorizontal: space.lg },
   composer: { paddingHorizontal: space.lg, paddingTop: space.sm },
   inputCard: { flexDirection: 'row', alignItems: 'flex-end', gap: space.sm, paddingHorizontal: space.lg, paddingVertical: space.sm },

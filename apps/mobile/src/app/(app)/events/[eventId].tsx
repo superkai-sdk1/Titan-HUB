@@ -1,9 +1,10 @@
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import { useState } from 'react';
-import { ActivityIndicator, Alert, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Linking, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import type { SFSymbol } from 'sf-symbols-typescript';
 
+import { Text } from '@/components/text';
 import { AppRefreshControl } from '@/components/refresh-control';
 import { GlassView } from '@/components/glass';
 import { AmbientBackdrop } from '@/components/ambient-backdrop';
@@ -411,7 +412,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    height: 40,
+    minHeight: 40,
+    paddingVertical: space.sm,
     borderRadius: 12,
     borderCurve: 'continuous',
     backgroundColor: 'rgba(52,199,89,0.18)',

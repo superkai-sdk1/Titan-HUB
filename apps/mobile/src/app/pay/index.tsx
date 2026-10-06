@@ -3,11 +3,12 @@ import { pickerStyle, tag } from '@expo/ui/swift-ui/modifiers';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Keyboard, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, Keyboard, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { KeyboardAvoidingView, useKeyboardState } from 'react-native-keyboard-controller';
 import Animated, { FadeIn, FadeOut, LinearTransition } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { Text, TextInput, type TextInputRef } from '@/components/text';
 import { GlassView } from '@/components/glass';
 import { Avatar, BalanceChips, GlassCard, PrimaryButton, sheetStyles } from '@/components/new-check-parts';
 import { PaymentSuccess } from '@/components/payment-success';
@@ -39,6 +40,7 @@ import {
 import { usePosSelection } from '@/lib/pos-selection';
 import { useCheck } from '@/lib/queries';
 import { parseAmount } from '@/lib/shift-api';
+import { FONT_SCALE_MAX, useTextLayout } from '@/lib/text-scale';
 import { colors, space, type } from '@/lib/theme';
 import { useNow } from '@/lib/use-now';
 
@@ -46,7 +48,7 @@ const SHEET_DISMISS_MS = 420;
 const NO_PARTS: PaymentPart[] = [];
 const EPS = 0.01;
 
-/** Сетка способов — как в веб-кассе. Сертификат есть только у чеков мероприятий. */
+/** Сетка способов — как в веб-кассе (по три в ряд). Сертификат есть только у чеков мероприятий. */
 const METHOD_ROWS: TenderMethod[][] = [
   ['cash', 'card', 'transfer'],
   ['deposit', 'bonus', 'debt'],
@@ -80,6 +82,8 @@ export default function PayScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const keyboardOpen = useKeyboardState((state) => state.isVisible);
+  // Очень крупный текст: плитки способов — по две в ряд, в три подписи не помещались.
+  const { stacked } = useTextLayout();
   const check = useCheck(checkId);
   const now = useNow(15_000);
   const settings = usePaySettings();
@@ -177,7 +181,9 @@ export default function PayScreen() {
       certificate: nextCertificate,
     });
   const ledger = ledgerFor(parts);
-  const methodRows = data.linkedEventId ? [...METHOD_ROWS, ['certificate' as const]] : METHOD_ROWS;
+  const perRow = stacked ? 2 : 3;
+  const methods = [...METHOD_ROWS.flat(), ...(data.linkedEventId ? (['certificate'] as const) : [])];
+  const methodRows = Array.from({ length: Math.ceil(methods.length / perRow) }, (_, i) => methods.slice(i * perRow, (i + 1) * perRow));
 
   // Подтверждённая банком часть (СБП) меняться не может — показываем её списком частей.
   const hasLocked = parts.some((p) => p.locked);
@@ -485,10 +491,20 @@ export default function PayScreen() {
                     >
                       <SymbolView name={look.symbol} size={20} weight="semibold" tintColor={selected ? 'white' : look.color} />
                     </View>
-                    <Text style={[type.footnote, styles.methodTitle]} numberOfLines={1}>
+                    <Text
+                      style={[type.footnote, styles.methodTitle]}
+                      numberOfLines={1}
+                      adjustsFontSizeToFit
+                      minimumFontScale={0.8}
+                      maxFontSizeMultiplier={FONT_SCALE_MAX.compact}>
                       {look.title}
                     </Text>
-                    <Text style={[type.caption2, sheetStyles.secondary]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85}>
+                    <Text
+                      style={[type.caption2, sheetStyles.secondary]}
+                      numberOfLines={1}
+                      adjustsFontSizeToFit
+                      minimumFontScale={0.85}
+                      maxFontSizeMultiplier={FONT_SCALE_MAX.compact}>
                       {caption}
                     </Text>
                     {selected && view === 'single' && (
@@ -501,7 +517,7 @@ export default function PayScreen() {
               </Pressable>
             );
           })}
-          {row.length < 3 && Array.from({ length: 3 - row.length }, (_, i) => <View key={i} style={styles.flex} />)}
+          {row.length < perRow && Array.from({ length: perRow - row.length }, (_, i) => <View key={i} style={styles.flex} />)}
         </View>
       ))}
     </View>
@@ -510,7 +526,12 @@ export default function PayScreen() {
   return (
     <>
       {toolbar}
-      <KeyboardAvoidingView behavior="padding" style={styles.flex}>
+      {/* react-native-screens растягивает список шторки на всю её высоту, если находит его первым
+          потомком (по цепочке первых дочерних вью). Тогда список уходил под панель «Провести», и
+          на «Увеличенном» виде и с крупным текстом наличные целиком оказывались под ней. Пустая
+          несхлопываемая вью первой в цепочке — список не найден, его высоту задаёт раскладка. */}
+      <KeyboardAvoidingView behavior="padding" style={styles.flex} collapsable={false}>
+        <View collapsable={false} />
         <ScrollView
           style={styles.flex}
           contentInsetAdjustmentBehavior="automatic"
@@ -704,7 +725,7 @@ function PartRow({
   const look = METHODS[part.method];
   const [text, setText] = useState(inputText(part.amount));
   const focused = useRef(false);
-  const input = useRef<TextInput>(null);
+  const input = useRef<TextInputRef>(null);
 
   // Сумму поменяли снаружи (остаток, лимит, деление пополам) — показываем её, если поле не в работе.
   useEffect(() => {
@@ -969,11 +990,15 @@ const styles = StyleSheet.create({
     backgroundColor: colors.fill,
   },
   restPillText: { color: colors.accent, fontWeight: '600' },
+  // Подпись и поле делят строку; не влезают вместе (узкий экран, крупный текст) — поле уходит
+  // на свою строку во всю ширину. Раньше поле по содержимому занимало почти всю строку,
+  // и «Получено от гостя» сжималась до нуля даже на обычном iPhone.
   amountBox: {
+    flexGrow: 1,
+    flexBasis: 140,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    minWidth: 96,
     paddingHorizontal: space.md,
     paddingVertical: 8,
     borderRadius: 12,
@@ -989,8 +1014,8 @@ const styles = StyleSheet.create({
   },
 
   cashCard: { padding: space.md, gap: space.md },
-  cashHead: { flexDirection: 'row', alignItems: 'center', gap: space.md },
-  cashLabel: { flex: 1, fontWeight: '600' },
+  cashHead: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: space.md },
+  cashLabel: { flexGrow: 1, flexShrink: 1, flexBasis: 120, fontWeight: '600' },
   presets: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm },
   preset: {
     paddingHorizontal: space.md,
