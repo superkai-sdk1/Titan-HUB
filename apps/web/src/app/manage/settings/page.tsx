@@ -15,8 +15,6 @@ import { WhatsAppConfig } from './WhatsAppConfig'
 import { TaiChatConfig } from './TaiChatConfig'
 import { ReviewsConfig } from './ReviewsConfig'
 import { BookingConfig } from './BookingConfig'
-import { ScreenThemeConfig } from './ScreenThemeConfig'
-import { ScreenAdsConfig } from './ScreenAdsConfig'
 
 function SectionCard({ title, icon, color, children }: { title: string; icon: string; color: string; children: React.ReactNode }) {
   return (
@@ -212,11 +210,22 @@ export default function SettingsPage() {
                   {/* Онлайн-бронирование: публичная форма /book + QR. Свой API. */}
                   <BookingConfig />
 
-                  {/* Titan Menu — меню на экране ТВ (/menu, AbleSign): ссылка и выбор темы. */}
-                  <ScreenThemeConfig />
-
-                  {/* Реклама на экране ТВ: слайды вместо ленты тарифов (переворот панели). */}
-                  <ScreenAdsConfig />
+                  {/* Экраны ТВ (Titan Menu) — свой раздел: у каждого телевизора свои
+                      тема, реклама или слайдшоу, поворот и привязанная приставка. */}
+                  <button
+                    onClick={() => router.push('/manage/screens')}
+                    className="glass-l2"
+                    style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '16px 18px', borderRadius: 18, border: '1px solid rgba(255,255,255,0.08)', background: 'none', color: 'inherit', textAlign: 'left', cursor: 'pointer' }}
+                  >
+                    <div style={{ width: 32, height: 32, borderRadius: 10, background: 'rgba(167,139,250,0.14)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                      <Icon name="tv" size={16} color="#a78bfa" />
+                    </div>
+                    <span style={{ flex: 1 }}>
+                      <span style={{ display: 'block', fontSize: 14, fontWeight: 700 }}>Экраны ТВ — Titan Menu</span>
+                      <span style={{ display: 'block', fontSize: 12, color: 'var(--on-surface-variant)', marginTop: 2 }}>Тема, реклама и слайдшоу теперь у каждого телевизора — в «Управление → Экраны».</span>
+                    </span>
+                    <Icon name="chevron_right" size={18} color="var(--on-surface-variant)" />
+                  </button>
                 </>
               )}
 

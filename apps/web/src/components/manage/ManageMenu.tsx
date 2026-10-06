@@ -48,6 +48,8 @@ const NAV: NavGroup[] = [
       // Единый экран «Склад»: остатки, поставки и ревизия — вкладки внутри одного раздела.
       { href: '/manage/inventory', label: 'Склад',     icon: 'inventory_2',     color: '#3B82F6', bg: 'rgba(59,130,246,0.15)',  roles: ['owner','staff'], perm: 'inventory' },
       { href: '/manage/pricing',   label: 'Тарифы и аренда', icon: 'confirmation_number', color: '#8B5CF6', bg: 'rgba(139,92,246,0.15)', roles: ['owner','staff'] },
+      // Телевизоры с Titan Menu: меню или слайдшоу, у каждого свои настройки.
+      { href: '/manage/screens',   label: 'Экраны',    icon: 'tv',              color: '#A78BFA', bg: 'rgba(167,139,250,0.15)', roles: ['owner','staff'] },
     ],
   },
   {

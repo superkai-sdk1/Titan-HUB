@@ -21,6 +21,7 @@ import { authRouter } from './modules/auth/auth.router.js'
 import { posRouter } from './modules/pos/pos.router.js'
 import { shiftsRouter } from './modules/shifts/shifts.router.js'
 import { menuRouter } from './modules/menu/menu.router.js'
+import { screensRouter } from './modules/screens/screens.router.js'
 import { clientsRouter } from './modules/clients/clients.router.js'
 import { collectionsRouter } from './modules/collections/collections.router.js'
 import { eventsRouter } from './modules/events/events.router.js'
@@ -189,6 +190,8 @@ app.route('/api/client-broadcasts', broadcastRouter)
 app.route('/api/pos', posRouter)
 app.route('/api/shifts', shiftsRouter)
 app.route('/api/menu', menuRouter)
+// «Экраны»: ТВ с приложением Titan Menu — настройки из HUB, привязка, показ.
+app.route('/api/screens', screensRouter)
 app.route('/api/clients', clientsRouter)
 app.route('/api/collections', collectionsRouter)
 app.route('/api/bookings', bookingsRouter)

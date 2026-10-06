@@ -361,6 +361,28 @@ html.t-halloween, .t-halloween body { background: #0b0712; }
 .t-halloween .seg { background: rgba(255,138,31,.2); }
 .t-halloween .seg-fill { background: #ff8a1f; }
 
+/* Слайдшоу (экран с типом «Слайдшоу» в «Экранах»): картинки на весь экран, у каждой
+   своё время и анимация смены. Только 2D (opacity/transform): 3D плееры рисуют с
+   артефактами. Вписывание — целиком на приглушённой копии (contain) или во весь экран. */
+.show { display: none; position: absolute; top: 0; left: 0; right: 0; bottom: 0; overflow: hidden; background: #0b0810; }
+.mode-show .show { display: block; }
+.mode-show .header, .mode-show .body, .mode-show .bg { display: none; }
+.sl { position: absolute; top: 0; left: 0; width: 100%; height: 100%; overflow: hidden; background: #0b0810;
+  -webkit-transition: opacity .9s ease, -webkit-transform .9s cubic-bezier(.22,.61,.36,1); transition: opacity .9s ease, transform .9s cubic-bezier(.22,.61,.36,1); }
+.sl-fill, .sl-pic { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background-position: center; background-repeat: no-repeat; }
+.sl-fill { -webkit-background-size: cover; background-size: cover; opacity: .35; }
+.sl-pic { -webkit-background-size: contain; background-size: contain; }
+.sl.cover .sl-pic { -webkit-background-size: cover; background-size: cover; }
+.sl.cover .sl-fill { display: none; }
+.sl.pre-fade { opacity: 0; }
+.sl.pre-zoom { opacity: 0; -webkit-transform: scale(1.08); transform: scale(1.08); }
+.sl.pre-slide { -webkit-transform: translateX(100%); transform: translateX(100%); }
+.sl.post-slide { -webkit-transform: translateX(-100%); transform: translateX(-100%); }
+.sl.pre-flip, .sl.post-flip { -webkit-transform: scaleX(.01); transform: scaleX(.01); }
+.sl.half { -webkit-transition-duration: .45s; transition-duration: .45s; }
+.sl.instant { -webkit-transition: none; transition: none; }
+.show-empty { position: absolute; top: 50%; left: 8%; right: 8%; -webkit-transform: translateY(-50%); transform: translateY(-50%); text-align: center; color: rgba(243,238,248,.72); font-size: 4vmin; font-weight: 600; line-height: 1.45; }
+
 @media (prefers-reduced-motion: reduce) {
   .sheen { -webkit-animation: none; animation: none; }
 }
@@ -374,6 +396,7 @@ html.t-halloween, .t-halloween body { background: #0b0712; }
     <div class="meta"><div class="pages" id="pages"></div><span class="clock" id="clock"></span></div>
   </header>
   <main class="body" id="body"></main>
+  <div class="show" id="show"></div>
   <div class="ruler" id="ruler"></div>
   <div class="msg" id="msg"></div>
 </div>
@@ -400,14 +423,17 @@ html.t-halloween, .t-halloween body { background: #0b0712; }
     dossier: 'PT+Mono', halloween: 'Rubik+Wet+Paint&family=Rubik:wght@500;700;800'
   };
   function isTheme(t) { return typeof t === 'string' && THEMES.hasOwnProperty(t); }
+  // /screen/<id> — экран из раздела «Экраны» (свои тема, слайды, тип); /menu — «Экран меню».
+  var screenMatch = /^\/screen\/([0-9a-f-]{36})\/?$/i.exec(location.pathname);
+  var SCREEN_ID = screenMatch ? screenMatch[1] : null;
+  var API = SCREEN_ID ? '/api/screens/' + SCREEN_ID + '/public' : '/api/menu/public';
+  var CACHE_KEY = SCREEN_ID ? 'titan_screen_' + SCREEN_ID : 'titan_menu_screen';
   var themeMatch = /[?&]theme=([a-z]+)/.exec(location.search);
   var URL_THEME = themeMatch && isTheme(themeMatch[1]) ? themeMatch[1] : null;
   var THEME = URL_THEME || (function () {
-    try { var c = JSON.parse(window.localStorage.getItem('titan_menu_screen') || 'null'); return c && isTheme(c.theme) ? c.theme : 'night'; } catch (e) { return 'night'; }
+    try { var c = JSON.parse(window.localStorage.getItem(CACHE_KEY) || 'null'); return c && isTheme(c.theme) ? c.theme : 'night'; } catch (e) { return 'night'; }
   })();
   document.documentElement.className += ' t-' + THEME;
-  var API = '/api/menu/public';
-  var CACHE_KEY = 'titan_menu_screen';
   var POLL_MS = 20000;               // проверка изменений меню (перерисовка — только при изменении)
   var RELOAD_MS = 12 * 3600 * 1000;  // полная перезагрузка страницы
   var QUIET_MS = 30 * 60 * 1000;     // перезагрузка плеером чаще — без вступительной анимации
@@ -437,7 +463,7 @@ html.t-halloween, .t-halloween body { background: #0b0712; }
 
   var $ = function (id) { return document.getElementById(id); };
   var errors = [];
-  var state = { data: null, raw: null, plan: null, sig: null, sp: null, geo: null, page: 0, rendered: false, ready: false, quiet: false, timers: [], loads: 0, renders: 0, lastWhy: '' };
+  var state = { mode: 'menu', data: null, raw: null, plan: null, sig: null, sp: null, geo: null, page: 0, rendered: false, ready: false, quiet: false, timers: [], loads: 0, renders: 0, lastWhy: '' };
 
   function showMsg() {
     var el = $('msg');
@@ -732,6 +758,7 @@ html.t-halloween, .t-halloween body { background: #0b0712; }
   // why: 'data' — меню изменилось (перерисовка с появлением); 'resize' / 'fonts' —
   // тихая перестройка без анимации, если раскладка вообще поменялась.
   function relayout(why) {
+    if (state.mode === 'show') return;
     try {
       var geo = geometry();
       var root = $('root');
@@ -1034,6 +1061,136 @@ html.t-halloween, .t-halloween body { background: #0b0712; }
     }, ms));
   }
 
+  // ── Слайдшоу ──────────────────────────────────────────────────────────────
+  // Картинки по очереди, у каждой своё время (durationSec) и анимация смены
+  // (transition): растворение, сдвиг, приближение, плоский переворот или без анимации.
+  // Следующую картинку грузим заранее и меняем, только когда она готова (≤4 с).
+
+  var show = { list: [], sig: '', index: -1, layer: null, timer: null };
+  var TRANSITIONS = { fade: 1, slide: 1, zoom: 1, flip: 1, none: 1 };
+  var FLIP_HALF_MS = 450, SWAP_MS = 1000;
+
+  function setRootClass(name, on) {
+    var root = $('root');
+    var list = (' ' + root.className + ' ').replace(' ' + name + ' ', ' ');
+    root.className = (on ? list + name : list).replace(/^\s+|\s+$/g, '').replace(/\s+/g, ' ');
+  }
+
+  function dropLayer(el) { if (el && el.parentNode) el.parentNode.removeChild(el); }
+
+  function slideLayer(sl) {
+    var el = document.createElement('div');
+    var bg = ' style="background-image:url(\'' + esc(String(sl.imageUrl).replace(/'/g, '%27')) + '\')"';
+    el.className = 'sl' + (sl.fit === 'cover' ? ' cover' : '');
+    el.innerHTML = '<div class="sl-fill"' + bg + '></div><div class="sl-pic"' + bg + '></div>';
+    return el;
+  }
+
+  function whenLoaded(url, cb) {
+    var done = false, im = new Image();
+    var go = function () { if (!done) { done = true; cb(); } };
+    im.onload = go;
+    im.onerror = go;
+    setTimeout(go, 4000);
+    im.src = url;
+  }
+
+  // Новая картинка поверх текущей; старую убираем, когда анимация закончилась.
+  function transitionTo(sl, first) {
+    var box = $('show'), old = show.layer, el = slideLayer(sl);
+    var t = first ? (state.quiet ? 'none' : 'fade') : (TRANSITIONS[sl.transition] ? sl.transition : 'fade');
+    show.layer = el;
+    if (first) box.innerHTML = '';
+    if (t === 'none') {
+      el.className += ' instant';
+      box.appendChild(el);
+      dropLayer(old);
+      return;
+    }
+    if (t === 'flip') {
+      // Плоский «переворот»: старая сжимается к вертикальной оси, новая раскрывается.
+      if (old) old.className += ' half post-flip';
+      el.className += ' half pre-flip';
+      setTimeout(function () {
+        dropLayer(old);
+        box.appendChild(el);
+        el.offsetWidth; // применить исходное состояние до перехода
+        el.className = el.className.replace(' pre-flip', '');
+      }, old ? FLIP_HALF_MS : 0);
+      return;
+    }
+    el.className += ' pre-' + t;
+    box.appendChild(el);
+    el.offsetWidth; // применить исходное состояние до перехода
+    el.className = el.className.replace(' pre-' + t, '');
+    if (old && t === 'slide') old.className += ' post-slide';
+    if (old) setTimeout(function () { dropLayer(old); }, SWAP_MS);
+  }
+
+  function showNext() {
+    clearTimeout(show.timer);
+    var list = show.list;
+    if (!list.length) return;
+    var i = (show.index + 1) % list.length;
+    var sl = list[i];
+    if (list.length === 1 && show.layer && show.index === 0) return; // одна картинка — просто стоит
+    whenLoaded(sl.imageUrl, function () {
+      if (show.list !== list) return; // пока грузили, список сменился
+      transitionTo(sl, !show.layer);
+      show.index = i;
+      var after = list[(i + 1) % list.length];
+      if (after && after !== sl) whenLoaded(after.imageUrl, function () {});
+      if (list.length > 1) show.timer = setTimeout(showNext, Math.max(3, Number(sl.durationSec) || 10) * 1000);
+    });
+  }
+
+  function enterShow(data) {
+    if (state.mode !== 'show') {
+      state.mode = 'show';
+      clearTimers();
+      clearSlot();
+      $('body').innerHTML = '';
+      setRootClass('mode-show', true);
+    }
+    state.rendered = true;
+    var list = (data.slides || []).filter(function (s) { return s && s.kind === 'image' && s.imageUrl; });
+    var sig = JSON.stringify(list);
+    if (sig === show.sig) return;
+    show.sig = sig;
+    var current = show.layer && show.list[show.index];
+    show.list = list;
+    if (!list.length) {
+      clearTimeout(show.timer);
+      show.layer = null;
+      show.index = -1;
+      $('show').innerHTML = '<div class="show-empty">Слайдов пока нет.<br>Добавьте картинки в Titan HUB → Управление → Экраны.</div>';
+      return;
+    }
+    // Текущая картинка осталась в списке — досматриваем её и идём дальше по новому.
+    var keep = -1;
+    for (var i = 0; current && i < list.length; i++) if (list[i].imageUrl === current.imageUrl) { keep = i; break; }
+    if (keep >= 0) {
+      show.index = keep;
+      clearTimeout(show.timer);
+      if (list.length > 1) show.timer = setTimeout(showNext, Math.max(3, Number(list[keep].durationSec) || 10) * 1000);
+      return;
+    }
+    show.index = -1;
+    showNext();
+  }
+
+  function leaveShow() {
+    state.mode = 'menu';
+    clearTimeout(show.timer);
+    show.sig = '';
+    show.list = [];
+    show.layer = null;
+    show.index = -1;
+    $('show').innerHTML = '';
+    setRootClass('mode-show', false);
+    state.sig = null; // меню рисуем заново, даже если оно не менялось
+  }
+
   // ── Данные ────────────────────────────────────────────────────────────────
 
   function applyRaw(raw) {
@@ -1043,6 +1200,8 @@ html.t-halloween, .t-halloween body { background: #0b0712; }
     if (!parsed || !parsed.sections) return;
     state.raw = raw;
     state.data = parsed;
+    if (parsed.kind === 'slideshow') { enterShow(parsed); return; }
+    if (state.mode === 'show') leaveShow();
     var want = URL_THEME || (isTheme(parsed.theme) ? parsed.theme : 'night');
     if (want !== THEME) { switchTheme(want); return; }
     relayout('data');

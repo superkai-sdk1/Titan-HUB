@@ -7,6 +7,7 @@ import {
   boolean,
   timestamp,
 } from 'drizzle-orm/pg-core'
+import { screens } from './screens.js'
 
 export const menuCategories = pgTable('menu_categories', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -84,11 +85,16 @@ export const tariffs = pgTable('tariffs', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 })
 
-// Реклама на экране меню (/menu): слайды в области ленты тарифов (миграция 065).
-// kind: 'image' — картинка image_url; 'card' — заголовок/текст и QR по link_url.
+// Слайды экрана (миграции 065, 068). У экрана-меню — реклама в области ленты тарифов,
+// у слайдшоу — картинки на весь экран. kind: 'image' — картинка image_url; 'card' —
+// заголовок/текст и QR по link_url. transition — анимация смены, fit — вписать целиком
+// (contain) или заполнить экран (cover).
 export const screenSlides = pgTable('screen_slides', {
   id: uuid('id').primaryKey().defaultRandom(),
+  screenId: uuid('screen_id').references(() => screens.id, { onDelete: 'cascade' }),
   kind: text('kind').$type<'image' | 'card'>().notNull().default('image'),
+  transition: text('transition').$type<'fade' | 'slide' | 'zoom' | 'flip' | 'none'>().notNull().default('fade'),
+  fit: text('fit').$type<'contain' | 'cover'>().notNull().default('contain'),
   imageUrl: text('image_url'),
   title: text('title'),
   body: text('body'),
