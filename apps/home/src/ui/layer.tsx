@@ -49,7 +49,8 @@ export function Layer({
 
 const styles = StyleSheet.create({
   scrim: { backgroundColor: color.scrim },
-  side: { position: 'absolute', top: 12, right: 12, bottom: 12, padding: 22, gap: 16 },
+  // Высоту боковой панели задаёт тот, кто её открывает (bottom) — или содержимое.
+  side: { position: 'absolute', top: 12, right: 12, padding: 22, gap: 16 },
   center: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center', padding: 24 },
   dialog: { maxWidth: '100%', maxHeight: '100%', padding: 24, gap: 14, borderRadius: radius.panel },
   full: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },

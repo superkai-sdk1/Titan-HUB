@@ -25,9 +25,11 @@ import { cartSummary, qtyOf, useCart } from './cart';
 
 const ALL = '__all';
 const TOP = '__top';
-const TILE_MIN = 210;
 const GAP = 14;
-const RAIL_W = 212;
+// Узкий экран (книжная ориентация Honor, 686 dp) — колонка разделов уже и плитки
+// мельче, чтобы плиток было две в ряд, а не одна.
+const NARROW = 800;
+const layoutFor = (width: number) => (width < NARROW ? { rail: 168, tile: 180, compact: true } : { rail: 212, tile: 210, compact: false });
 
 /**
  * Меню собирается один раз при запуске и остаётся смонтированным: открытие —
@@ -66,7 +68,8 @@ function MenuScreen({ open }: { open: boolean }) {
   const [sent, setSent] = useState(false);
   // Ширина сетки — от окна, а не замером: список строится сразу, без второго прохода.
   const { width } = useWindowDimensions();
-  const gridWidth = width - GUTTER * 2 - RAIL_W - 16;
+  const sizes = layoutFor(width);
+  const gridWidth = width - GUTTER * 2 - sizes.rail - 16;
   const count = useCart((s) => cartSummary(s.lines).count);
 
   const data = menu.data;
@@ -85,7 +88,7 @@ function MenuScreen({ open }: { open: boolean }) {
     return data.items.filter((i) => i.categoryId === cat);
   }, [data, cat, query]);
 
-  const columns = gridWidth ? Math.max(1, Math.floor((gridWidth + GAP) / (TILE_MIN + GAP))) : 0;
+  const columns = Math.max(1, Math.floor((gridWidth + GAP) / (sizes.tile + GAP)));
   const close = () => useVisit.getState().close();
 
   if (sent) return <SentView onDone={() => { setSent(false); close(); }} />;
@@ -112,12 +115,13 @@ function MenuScreen({ open }: { open: boolean }) {
       </View>
 
       <View style={styles.body}>
-        <Glass kind="panel" radius={32} style={styles.rail}>
+        <Glass kind="panel" radius={32} style={[styles.rail, { width: sizes.rail }]}>
           <ScrollView contentContainerStyle={{ gap: 6 }} showsVerticalScrollIndicator={false}>
-            <Category id={ALL} name="Все" count={data?.items.length ?? 0} active={!query && cat === ALL} onPress={() => { setCat(ALL); setQuery(''); }} />
-            {hasTop ? <Category id={TOP} name="Популярное" count={data?.items.filter((i) => i.isTop).length ?? 0} active={!query && cat === TOP} onPress={() => { setCat(TOP); setQuery(''); }} /> : null}
+            <Category compact={sizes.compact} id={ALL} name="Все" count={data?.items.length ?? 0} active={!query && cat === ALL} onPress={() => { setCat(ALL); setQuery(''); }} />
+            {hasTop ? <Category compact={sizes.compact} id={TOP} name="Популярное" count={data?.items.filter((i) => i.isTop).length ?? 0} active={!query && cat === TOP} onPress={() => { setCat(TOP); setQuery(''); }} /> : null}
             {(data?.categories ?? []).map((c) => (
               <Category
+                compact={sizes.compact}
                 key={c.id}
                 id={c.id}
                 name={c.name}
@@ -137,7 +141,7 @@ function MenuScreen({ open }: { open: boolean }) {
               <T variant="body" tone="secondary">Не удалось загрузить меню</T>
               <Button title="Повторить" onPress={() => void menu.refetch()} />
             </View>
-          ) : columns ? (
+          ) : (
             <FlatList
               key={columns}
               data={items}
@@ -155,14 +159,14 @@ function MenuScreen({ open }: { open: boolean }) {
               renderItem={({ item }) => <ItemTile item={item} canOrder={canOrder} />}
               ListEmptyComponent={<T variant="body" tone="secondary" style={{ textAlign: 'center', paddingTop: 48 }}>Ничего не нашлось</T>}
             />
-          ) : null}
+          )}
         </View>
       </View>
 
       {canOrder ? (
-        count > 0 ? <CartBar onOrder={() => setReview(true)} /> : null
+        count > 0 ? <CartBar left={GUTTER + sizes.rail + 16} onOrder={() => setReview(true)} /> : null
       ) : (
-        <View style={styles.bottomCenter} pointerEvents="none">
+        <View style={[styles.bottomCenter, { left: GUTTER + sizes.rail + 16 }]} pointerEvents="none">
           <Glass kind="overlay" radius={radius.pill} style={styles.notice}>
             <Icon as={Info} size={20} tone={color.accentSoft} />
             <T variant="label" tone="secondary">Заказать можно, когда администратор откроет счёт</T>
@@ -177,7 +181,7 @@ function MenuScreen({ open }: { open: boolean }) {
   );
 }
 
-function Category({ name, count, active, onPress }: { id: string; name: string; count: number; active: boolean; onPress: () => void }) {
+function Category({ name, count, active, onPress, compact }: { id: string; name: string; count: number; active: boolean; onPress: () => void; compact?: boolean }) {
   return (
     <Press
       onPress={onPress}
@@ -185,10 +189,10 @@ function Category({ name, count, active, onPress }: { id: string; name: string; 
       accessibilityRole="tab"
       accessibilityLabel={name}
       accessibilityState={{ selected: active }}
-      style={[styles.category, active && styles.categoryActive]}
+      style={[styles.category, compact && { paddingHorizontal: 12 }, active && styles.categoryActive]}
     >
-      <T variant="label" numberOfLines={2} style={{ flex: 1, fontSize: 17, color: active ? color.ground : 'rgba(236,232,245,0.88)' }}>{name}</T>
-      <T variant="small" numeric style={{ color: active ? 'rgba(12,10,17,0.6)' : color.textTertiary }}>{count}</T>
+      <T variant="label" numberOfLines={2} style={{ flex: 1, fontSize: compact ? 15 : 17, color: active ? color.ground : 'rgba(236,232,245,0.88)' }}>{name}</T>
+      {compact ? null : <T variant="small" numeric style={{ color: active ? 'rgba(12,10,17,0.6)' : color.textTertiary }}>{count}</T>}
     </Press>
   );
 }
@@ -220,13 +224,13 @@ function ItemTile({ item, canOrder }: { item: MenuItem; canOrder: boolean }) {
   );
 }
 
-function CartBar({ onOrder }: { onOrder: () => void }) {
+function CartBar({ left, onOrder }: { left: number; onOrder: () => void }) {
   // Селектор возвращает сам массив (стабильная ссылка), сумму считаем здесь —
   // новый объект из селектора zustand зациклил бы перерисовку.
   const lines = useCart((s) => s.lines);
   const { count, total } = cartSummary(lines);
   return (
-    <View style={styles.bottomCenter} pointerEvents="box-none">
+    <View style={[styles.bottomCenter, { left }]} pointerEvents="box-none">
       <Animated.View entering={FadeInDown.duration(200)} exiting={FadeOutDown.duration(160)} style={[styles.cartBar, glassStyle('overlay', radius.pill)]}>
         <Icon as={ShoppingBag} size={26} tone={color.accentSoft} />
         <View style={{ flex: 1 }}>
@@ -317,7 +321,7 @@ const styles = StyleSheet.create({
   search: { flex: 1, maxWidth: 460, marginLeft: 'auto', height: 52, paddingLeft: 18, paddingRight: 8, flexDirection: 'row', alignItems: 'center', gap: 10 },
   searchInput: { flex: 1, minWidth: 0, fontSize: 16, fontFamily: font.regular, color: color.text, paddingVertical: 0 },
   body: { flex: 1, flexDirection: 'row', gap: 16, paddingTop: 16 },
-  rail: { width: RAIL_W, padding: 10, marginBottom: 22 },
+  rail: { padding: 10, marginBottom: 22 },
   category: { minHeight: 56, paddingHorizontal: 16, borderRadius: 22, flexDirection: 'row', alignItems: 'center', gap: 8, borderWidth: 1, borderColor: 'transparent' },
   categoryActive: { backgroundColor: color.text, borderColor: color.text },
   grid: { gap: GAP, paddingBottom: 120 },
@@ -325,7 +329,7 @@ const styles = StyleSheet.create({
   tileInCart: { backgroundColor: 'rgba(139,92,246,0.22)' },
   tileFoot: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
   addDot: { width: 52, height: 52, alignItems: 'center', justifyContent: 'center' },
-  bottomCenter: { position: 'absolute', left: GUTTER + 228, right: GUTTER, bottom: 20, alignItems: 'center' },
+  bottomCenter: { position: 'absolute', right: GUTTER, bottom: 20, alignItems: 'center' },
   cartBar: { width: '100%', maxWidth: 640, height: 82, flexDirection: 'row', alignItems: 'center', gap: 14, paddingLeft: 24, paddingRight: 10 },
   notice: { flexDirection: 'row', alignItems: 'center', gap: 10, height: 56, paddingHorizontal: 22 },
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12 },

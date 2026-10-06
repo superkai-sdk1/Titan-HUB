@@ -43,7 +43,13 @@ export function RoomPanel() {
   const landscape = width >= height;
   const close = () => useVisit.getState().setRoom(false);
   return (
-    <Layer visible={open && !!room} onClose={close} variant="side" style={{ width: landscape ? 420 : Math.min(480, width - 24) }}>
+    <Layer
+      visible={open && !!room}
+      onClose={close}
+      variant="side"
+      // С кондиционером панель во всю высоту; только свет — по содержимому.
+      style={[{ width: landscape ? 420 : Math.min(480, width - 24) }, room?.climate ? { bottom: 12 } : null]}
+    >
       {room ? <RoomBody lights={room.lights} climate={room.climate} onClose={close} /> : null}
     </Layer>
   );
