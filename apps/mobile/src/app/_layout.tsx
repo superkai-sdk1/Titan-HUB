@@ -14,7 +14,7 @@ import { LocalTour } from '@/components/local-tour';
 import { NotificationBanner } from '@/components/notification-banner';
 import { OfflineBanner } from '@/components/offline-banner';
 import { SessionLock } from '@/components/session-lock';
-import { CACHE_MAX_AGE, queryClient, queryPersister, subscribeAppFocus, subscribeNetwork } from '@/lib/query';
+import { CACHE_BUSTER, CACHE_MAX_AGE, queryClient, queryPersister, subscribeAppFocus, subscribeNetwork } from '@/lib/query';
 import { NEEDS_WARMUP, SwiftUIWarmup } from '@/components/swiftui-warmup';
 import { useRealtime } from '@/lib/realtime';
 import { useStaffPush } from '@/lib/staff-push';
@@ -77,7 +77,7 @@ export default function RootLayout() {
     <SafeAreaProvider>
     <KeyboardProvider>
     <ThemeProvider value={theme}>
-      <PersistQueryClientProvider client={queryClient} persistOptions={{ persister: queryPersister, maxAge: CACHE_MAX_AGE }}>
+      <PersistQueryClientProvider client={queryClient} persistOptions={{ persister: queryPersister, maxAge: CACHE_MAX_AGE, buster: CACHE_BUSTER }}>
         <Stack screenOptions={{ headerShown: false }} screenLayout={sheetLayout}>
           <Stack.Protected guard={!signedIn}>
             <Stack.Screen name="(auth)" />

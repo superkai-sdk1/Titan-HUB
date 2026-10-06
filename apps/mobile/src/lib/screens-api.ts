@@ -192,11 +192,34 @@ export function refreshScreens(): void {
   void queryClient.invalidateQueries({ queryKey: screensKey(clubNow()) });
 }
 
+/**
+ * Кэш запросов переживает перезапуск и обновление приложения, а до показа (миграция
+ * 069) экраны приходили без сводки `show` и элементы — без `placement`. `select`
+ * применяется и к сохранённому кэшу: достраиваем старый формат, а не падаем на нём,
+ * пока не пришёл свежий ответ.
+ */
+type StoredScreen = Omit<Screen, 'show'> & { show?: ShowSummary; kind?: string };
+
+function normalizeScreen(s: StoredScreen): Screen {
+  return { ...s, show: s.show ?? { menu: s.kind !== 'slideshow', images: 0 } };
+}
+
+const selectScreens = (list: StoredScreen[]): Screen[] => list.map(normalizeScreen);
+
+function selectDetail(d: { screen: StoredScreen; show?: ScreenSlide[]; slides?: ScreenSlide[] }): ScreenDetail {
+  return {
+    screen: normalizeScreen(d.screen),
+    show: d.show ?? [],
+    slides: (d.slides ?? []).filter((s) => (s.placement ?? 'band') === 'band'),
+  };
+}
+
 export function useScreens() {
   const club = useClubKey();
   return useQuery({
     queryKey: screensKey(club),
-    queryFn: () => api.get<{ screens: Screen[] }>('/screens').then((r) => r.screens),
+    queryFn: () => api.get<{ screens: StoredScreen[] }>('/screens').then((r) => r.screens),
+    select: selectScreens,
     refetchInterval: 20_000, // «в сети» приставок
   });
 }
@@ -205,7 +228,8 @@ export function useScreen(id: string | undefined) {
   const club = useClubKey();
   return useQuery({
     queryKey: screenKey(club, id ?? 'none'),
-    queryFn: () => api.get<ScreenDetail>(`/screens/${id}`),
+    queryFn: () => api.get<{ screen: StoredScreen; show?: ScreenSlide[]; slides?: ScreenSlide[] }>(`/screens/${id}`),
+    select: selectDetail,
     enabled: !!id,
     refetchInterval: 20_000,
   });
