@@ -931,9 +931,14 @@ const styles = StyleSheet.create({
     backgroundColor: colors.fill,
   },
   restPillText: { color: colors.accent, fontWeight: '600' },
+  // Рамка по размеру суммы. У поля внутри НЕ должно быть flex: 1: рамка без своей ширины
+  // тогда забирала всю строку — подпись слева сжималась в ноль, а рамка вылезала за карточку.
   amountBox: {
+    flexShrink: 0,
+    maxWidth: '55%',
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'flex-end',
     gap: 4,
     minWidth: 96,
     paddingHorizontal: space.md,
@@ -943,7 +948,6 @@ const styles = StyleSheet.create({
     backgroundColor: colors.fill,
   },
   amountInput: {
-    flex: 1,
     minWidth: 56,
     padding: 0,
     textAlign: 'right',

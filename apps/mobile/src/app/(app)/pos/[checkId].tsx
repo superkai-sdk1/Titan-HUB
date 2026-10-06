@@ -56,15 +56,18 @@ export default function CheckScreen() {
                 Чат с кабинкой
               </ToolbarMenuAction>
             )}
+            {/* Каждый пункт — прямым ребёнком, без фрагмента: на iOS expo-router берёт пункты
+                через Children.toArray с фильтром по типу, и фрагмент выпадает целиком —
+                меню оставалось пустым и не открывалось. */}
             {isOpen && (
-              <>
-                <ToolbarMenuAction icon="percent" onPress={actions.onAddDiscount}>
-                  Скидка
-                </ToolbarMenuAction>
-                <ToolbarMenuAction icon="xmark.circle" destructive onPress={actions.onCancel}>
-                  Отменить чек
-                </ToolbarMenuAction>
-              </>
+              <ToolbarMenuAction icon="percent" onPress={actions.onAddDiscount}>
+                Скидка
+              </ToolbarMenuAction>
+            )}
+            {isOpen && (
+              <ToolbarMenuAction icon="xmark.circle" destructive onPress={actions.onCancel}>
+                Отменить чек
+              </ToolbarMenuAction>
             )}
           </ToolbarMenu>
         </Stack.Toolbar>
