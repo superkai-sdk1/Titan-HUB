@@ -1,5 +1,5 @@
 // Шапка экрана гостя: логотип (5 касаний подряд — вход сотрудника), кабинка,
-// значок «нет связи», кнопка «Свет и климат», часы.
+// значок «нет связи», часы.
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { WifiOff } from 'lucide-react-native';
@@ -8,7 +8,6 @@ import { StyleSheet, View } from 'react-native';
 
 import { useNetwork } from '@/data/api';
 import { useSession } from '@/data/session';
-import { RoomButton } from '@/features/room/RoomButton';
 import { useVisit } from '@/features/visit/store';
 import { hhmm } from '@/lib/format';
 import { haptic } from '@/lib/haptics';
@@ -76,7 +75,6 @@ export function GuestHeader({ portrait }: { portrait: boolean }) {
           {portrait ? null : <T variant="small" tone="red">Нет связи</T>}
         </View>
       ) : null}
-      <RoomButton compact={portrait} />
       <Clock />
     </View>
   );

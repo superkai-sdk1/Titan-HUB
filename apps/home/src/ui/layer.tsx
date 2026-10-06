@@ -7,6 +7,7 @@ import { Pressable, StyleSheet, View, type StyleProp, type ViewStyle } from 'rea
 import Animated, { FadeIn, FadeInDown, FadeOut, FadeOutDown, SlideInRight, SlideOutRight } from 'react-native-reanimated';
 
 import { glassStyle } from './glass';
+import { useKeyboardHeight } from './keyboard';
 import { color, motion, radius } from './tokens';
 
 export type LayerVariant = 'side' | 'dialog' | 'full';
@@ -21,6 +22,7 @@ export function Layer({
   style?: StyleProp<ViewStyle>;
   closeOnScrim?: boolean;
 }) {
+  const keyboard = useKeyboardHeight();
   const entering = variant === 'side' ? SlideInRight.duration(motion.enter + 40) : FadeInDown.duration(motion.enter);
   const exiting = variant === 'side' ? SlideOutRight.duration(motion.exit) : FadeOutDown.duration(motion.exit);
   return (
@@ -31,7 +33,7 @@ export function Layer({
         </Animated.View>
       ) : null}
       {variant === 'dialog' ? (
-        <View style={styles.center} pointerEvents="box-none">
+        <View style={[styles.center, { bottom: keyboard }]} pointerEvents="box-none">
           {visible ? (
             <Animated.View entering={entering} exiting={exiting} style={[styles.dialog, glassStyle('overlay', 40), style]}>
               {children}

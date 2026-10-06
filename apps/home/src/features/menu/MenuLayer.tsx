@@ -3,13 +3,12 @@
 // счёта меню можно только посмотреть.
 import { ArrowLeft, ArrowRight, Check, Info, Plus, Search, ShoppingBag, X } from 'lucide-react-native';
 import { useEffect, useEffectEvent, useMemo, useState } from 'react';
-import { FlatList, ScrollView, StyleSheet, TextInput, useWindowDimensions, View } from 'react-native';
+import { ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import Animated, { FadeIn, FadeInDown, FadeOutDown, useAnimatedStyle, withTiming } from 'react-native-reanimated';
 
 import { sendOrder } from '@/data/actions';
 import { useMenu } from '@/data/menu';
 import type { MenuItem } from '@/data/types';
-import { RoomButton } from '@/features/room/RoomButton';
 import { sessionCheckId, useVisit } from '@/features/visit/store';
 import { money, plural } from '@/lib/format';
 import { Button, IconButton } from '@/ui/button';
@@ -18,6 +17,7 @@ import { Glass, glassStyle } from '@/ui/glass';
 import { Icon } from '@/ui/icon';
 import { Layer } from '@/ui/layer';
 import { Press } from '@/ui/press';
+import { useScreen } from '@/ui/screen';
 import { T } from '@/ui/text';
 import { color, font, GUTTER, motion, radius } from '@/ui/tokens';
 
@@ -67,7 +67,7 @@ function MenuScreen({ open }: { open: boolean }) {
   const [review, setReview] = useState(false);
   const [sent, setSent] = useState(false);
   // Ширина сетки — от окна, а не замером: список строится сразу, без второго прохода.
-  const { width } = useWindowDimensions();
+  const { width } = useScreen();
   const sizes = layoutFor(width);
   const gridWidth = width - GUTTER * 2 - sizes.rail - 16;
   const count = useCart((s) => cartSummary(s.lines).count);
@@ -89,6 +89,7 @@ function MenuScreen({ open }: { open: boolean }) {
   }, [data, cat, query]);
 
   const columns = Math.max(1, Math.floor((gridWidth + GAP) / (sizes.tile + GAP)));
+  const tileWidth = Math.floor((gridWidth - GAP * (columns - 1)) / columns);
   const close = () => useVisit.getState().close();
 
   if (sent) return <SentView onDone={() => { setSent(false); close(); }} />;
@@ -111,7 +112,6 @@ function MenuScreen({ open }: { open: boolean }) {
           />
           {query ? <IconButton icon={X} label="Очистить поиск" size={36} variant="quiet" onPress={() => setQuery('')} /> : null}
         </View>
-        <RoomButton compact />
       </View>
 
       <View style={styles.body}>
@@ -142,23 +142,17 @@ function MenuScreen({ open }: { open: boolean }) {
               <Button title="Повторить" onPress={() => void menu.refetch()} />
             </View>
           ) : (
-            <FlatList
-              key={columns}
-              data={items}
-              numColumns={columns}
-              keyExtractor={(i) => i.id}
-              columnWrapperStyle={columns > 1 ? { gap: GAP } : undefined}
-              contentContainerStyle={styles.grid}
-              keyboardShouldPersistTaps="handled"
-              // Меню небольшое: все плитки строим сразу при открытии — при прокрутке
-              // ничего не достраивается (на Honor это давало рывки).
-              initialNumToRender={items.length}
-              maxToRenderPerBatch={items.length}
-              windowSize={101}
-              removeClippedSubviews={false}
-              renderItem={({ item }) => <ItemTile item={item} canOrder={canOrder} />}
-              ListEmptyComponent={<T variant="body" tone="secondary" style={{ textAlign: 'center', paddingTop: 48 }}>Ничего не нашлось</T>}
-            />
+            // Плитки — в одном родителе с переносом строк, а не FlatList с колонками:
+            // при повороте FlatList перемонтировал всю сетку (key={columns}), и
+            // Reanimated секундами разбирал обновления ещё не смонтированных плиток.
+            // Меню небольшое — все плитки строятся сразу, при прокрутке ничего не достраивается.
+            <ScrollView contentContainerStyle={styles.grid} keyboardShouldPersistTaps="handled">
+              {items.length ? (
+                items.map((item) => <ItemTile key={item.id} item={item} width={tileWidth} canOrder={canOrder} />)
+              ) : (
+                <T variant="body" tone="secondary" style={styles.nothing}>Ничего не нашлось</T>
+              )}
+            </ScrollView>
           )}
         </View>
       </View>
@@ -197,7 +191,7 @@ function Category({ name, count, active, onPress, compact }: { id: string; name:
   );
 }
 
-function ItemTile({ item, canOrder }: { item: MenuItem; canOrder: boolean }) {
+function ItemTile({ item, width, canOrder }: { item: MenuItem; width: number; canOrder: boolean }) {
   const qty = useCart((s) => qtyOf(s.lines, item.id));
   const add = () => useCart.getState().add(item);
   return (
@@ -205,7 +199,7 @@ function ItemTile({ item, canOrder }: { item: MenuItem; canOrder: boolean }) {
       onPress={canOrder ? add : undefined}
       scaleTo={canOrder ? 0.96 : 1}
       accessibilityLabel={`${item.name}, ${money(item.price)}`}
-      style={[styles.tile, glassStyle(qty > 0 ? 'accent' : 'control', radius.card), qty > 0 && styles.tileInCart]}
+      style={[styles.tile, { width }, glassStyle(qty > 0 ? 'accent' : 'control', radius.card), qty > 0 && styles.tileInCart]}
     >
       <T variant="subheading" numberOfLines={2} style={{ lineHeight: 23 }}>{item.name}</T>
       <View style={styles.tileFoot}>
@@ -324,8 +318,9 @@ const styles = StyleSheet.create({
   rail: { padding: 10, marginBottom: 22 },
   category: { minHeight: 56, paddingHorizontal: 16, borderRadius: 22, flexDirection: 'row', alignItems: 'center', gap: 8, borderWidth: 1, borderColor: 'transparent' },
   categoryActive: { backgroundColor: color.text, borderColor: color.text },
-  grid: { gap: GAP, paddingBottom: 120 },
-  tile: { flex: 1, height: 136, paddingTop: 16, paddingBottom: 14, paddingLeft: 18, paddingRight: 14, justifyContent: 'space-between' },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: GAP, paddingBottom: 120 },
+  nothing: { width: '100%', textAlign: 'center', paddingTop: 48 },
+  tile: { height: 136, paddingTop: 16, paddingBottom: 14, paddingLeft: 18, paddingRight: 14, justifyContent: 'space-between' },
   tileInCart: { backgroundColor: 'rgba(139,92,246,0.22)' },
   tileFoot: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
   addDot: { width: 52, height: 52, alignItems: 'center', justifyContent: 'center' },

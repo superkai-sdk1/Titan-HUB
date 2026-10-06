@@ -1,7 +1,7 @@
 // Счёт оплачен или закрыт: «спасибо» и оценка вечера (звёзды → быстрые теги →
 // комментарий). Без касаний минуту — сами возвращаемся к ожиданию следующего гостя.
 import { Check, Heart, Send, Star } from 'lucide-react-native';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import Animated, { FadeIn } from 'react-native-reanimated';
 
@@ -14,6 +14,7 @@ import { haptic } from '@/lib/haptics';
 import { Button } from '@/ui/button';
 import { Glass, glassStyle } from '@/ui/glass';
 import { Icon } from '@/ui/icon';
+import { useKeyboardHeight } from '@/ui/keyboard';
 import { Press } from '@/ui/press';
 import { T } from '@/ui/text';
 import { color, font, radius } from '@/ui/tokens';
@@ -34,6 +35,12 @@ export function FinishView() {
   const [comment, setComment] = useState('');
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
+  const keyboard = useKeyboardHeight();
+  const scroll = useRef<ScrollView>(null);
+
+  useEffect(() => {
+    if (keyboard > 0) scroll.current?.scrollToEnd({ animated: true });
+  }, [keyboard]);
 
   // Гость ушёл, не оценив, — через минуту без касаний экран вернётся к ожиданию.
   useEffect(() => {
@@ -79,11 +86,11 @@ export function FinishView() {
   }
 
   return (
-    <View style={{ flex: 1 }}>
+    <View style={{ flex: 1, paddingBottom: keyboard }}>
       <View style={styles.top}>
         <StaffLogo />
       </View>
-      <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+      <ScrollView ref={scroll} contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
         <View style={[styles.badge, { backgroundColor: color.greenTint, borderColor: 'rgba(52,211,153,0.5)' }]}>
           <Icon as={Check} size={56} tone={color.green} stroke={2.4} />
         </View>
@@ -130,6 +137,7 @@ export function FinishView() {
                   placeholderTextColor={color.textTertiary}
                   multiline
                   maxLength={1000}
+                  disableFullscreenUI
                   style={styles.commentText}
                 />
               </View>

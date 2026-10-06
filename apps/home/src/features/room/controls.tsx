@@ -1,18 +1,15 @@
-// Панель «Свет и климат»: выезжает справа поверх экрана гостя (в обеих
-// ориентациях). Плитки подписаны на свои устройства — изменение одного
-// устройства перерисовывает только его плитку.
-import { Lightbulb, Minus, Plus, Power, Snowflake, Thermometer, X } from 'lucide-react-native';
+// Плитки «Свет и климат»: лампа (вкл/выкл) и кондиционер. Каждая подписана на
+// своё устройство — изменение одного устройства перерисовывает только его плитку.
+import { Lightbulb, Minus, Plus, Power, Snowflake, Thermometer } from 'lucide-react-native';
 import { useEffect, useRef, useState } from 'react';
-import { StyleSheet, useWindowDimensions, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 
-import type { SmartDevice } from '@/data/types';
-import { useVisit } from '@/features/visit/store';
 import { errorText } from '@/data/api';
+import type { SmartDevice } from '@/data/types';
 import { IconButton } from '@/ui/button';
 import { SwitchKnob } from '@/ui/controls';
 import { Glass, glassStyle } from '@/ui/glass';
 import { Icon } from '@/ui/icon';
-import { Layer } from '@/ui/layer';
 import { Press } from '@/ui/press';
 import { Segmented } from '@/ui/segmented';
 import { T } from '@/ui/text';
@@ -24,11 +21,10 @@ import {
   climateInfo, fanLabel, fmtTemp, HVAC_ICON, HVAC_LABEL, HVAC_SHORT, HVAC_TONE, isOn, isUnavailable, powerClimate,
   setFanMode, setHvacMode, setLight, setTemperature,
 } from './room';
-import { useRoom } from './use-room';
 
 const fail = (e: unknown) => toast(errorText(e), 'error');
 
-const STATUS_TEXT: Record<HaStatus, { text: string; tone: string }> = {
+export const STATUS_TEXT: Record<HaStatus, { text: string; tone: string }> = {
   connected: { text: 'на связи', tone: color.green },
   connecting: { text: 'подключаемся…', tone: color.amber },
   offline: { text: 'нет связи — команды выполнятся, как только она вернётся', tone: color.amber },
@@ -36,54 +32,7 @@ const STATUS_TEXT: Record<HaStatus, { text: string; tone: string }> = {
   idle: { text: 'не настроено', tone: color.textTertiary },
 };
 
-export function RoomPanel() {
-  const open = useVisit((s) => s.roomOpen);
-  const { room } = useRoom();
-  const { width, height } = useWindowDimensions();
-  const landscape = width >= height;
-  const close = () => useVisit.getState().setRoom(false);
-  return (
-    <Layer
-      visible={open && !!room}
-      onClose={close}
-      variant="side"
-      // С кондиционером панель во всю высоту; только свет — по содержимому.
-      style={[{ width: landscape ? 420 : Math.min(480, width - 24) }, room?.climate ? { bottom: 12 } : null]}
-    >
-      {room ? <RoomBody lights={room.lights} climate={room.climate} onClose={close} /> : null}
-    </Layer>
-  );
-}
-
-function RoomBody({ lights, climate, onClose }: { lights: SmartDevice[]; climate: SmartDevice | null; onClose: () => void }) {
-  const status = useHa((s) => s.status);
-  const space = useVisit((s) => s.snapshot?.space.name ?? null);
-  const st = STATUS_TEXT[status];
-  return (
-    <>
-      <View style={styles.header}>
-        <View style={{ flex: 1, gap: 4 }}>
-          <T variant="title">Свет и климат</T>
-          <View style={styles.statusRow}>
-            <View style={[styles.dot, { backgroundColor: st.tone }]} />
-            <T variant="caption" tone="secondary" numberOfLines={2} style={{ flex: 1 }}>{space ? `${space} · ${st.text}` : st.text}</T>
-          </View>
-        </View>
-        <IconButton icon={X} label="Закрыть панель" onPress={onClose} />
-      </View>
-
-      {lights.length ? (
-        <View style={styles.lights}>
-          {lights.map((l) => <LightTile key={l.entityId} device={l} wide={lights.length === 1} />)}
-        </View>
-      ) : null}
-
-      {climate ? <ClimateCard device={climate} /> : null}
-    </>
-  );
-}
-
-function LightTile({ device, wide }: { device: SmartDevice; wide: boolean }) {
+export function LightTile({ device, wide }: { device: SmartDevice; wide: boolean }) {
   const entity = useHa((s) => s.entities[device.entityId]);
   const on = isOn(entity);
   const unavailable = !!entity && isUnavailable(entity);
@@ -113,7 +62,7 @@ function LightTile({ device, wide }: { device: SmartDevice; wide: boolean }) {
   );
 }
 
-function ClimateCard({ device }: { device: SmartDevice }) {
+export function ClimateCard({ device }: { device: SmartDevice }) {
   const entity = useHa((s) => s.entities[device.entityId]);
   const info = climateInfo(entity);
   const off = info.mode === 'off';
@@ -207,14 +156,10 @@ function ClimateCard({ device }: { device: SmartDevice }) {
 }
 
 const styles = StyleSheet.create({
-  header: { flexDirection: 'row', alignItems: 'center', gap: 14 },
-  statusRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  dot: { width: 8, height: 8, borderRadius: 4 },
-  lights: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
   light: { flexGrow: 1, flexBasis: '45%', height: 124, padding: 16, justifyContent: 'space-between' },
   lightTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   bulb: { width: 46, height: 46, borderRadius: 23, alignItems: 'center', justifyContent: 'center' },
-  climate: { flex: 1, minHeight: 0, padding: 18, gap: 14, justifyContent: 'space-between' },
+  climate: { padding: 18, gap: 16 },
   climateHead: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   climateIcon: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
   power: { width: 52, height: 52, alignItems: 'center', justifyContent: 'center' },

@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Image } from 'expo-image';
 import { ArrowLeft, ArrowLeftRight, ArrowRight, RefreshCw, Sofa, Store } from 'lucide-react-native';
 import { useState } from 'react';
-import { ScrollView, StyleSheet, TextInput, useWindowDimensions, View } from 'react-native';
+import { ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import Animated, { FadeIn } from 'react-native-reanimated';
 
 import { api, errorText } from '@/data/api';
@@ -18,6 +18,7 @@ import { Loader } from '@/ui/controls';
 import { Glass, glassStyle } from '@/ui/glass';
 import { Icon } from '@/ui/icon';
 import { Press } from '@/ui/press';
+import { useScreen } from '@/ui/screen';
 import { T } from '@/ui/text';
 import { color, font, radius } from '@/ui/tokens';
 
@@ -27,7 +28,7 @@ export default function SetupScreen() {
   const club = useSession((s) => s.club);
   const savedSpace = useSession((s) => s.space);
   const step: 'club' | 'space' | 'pin' = !club ? 'club' : !savedSpace ? 'space' : 'pin';
-  const { width, height } = useWindowDimensions();
+  const { width, height } = useScreen();
   const landscape = width >= height;
 
   return (

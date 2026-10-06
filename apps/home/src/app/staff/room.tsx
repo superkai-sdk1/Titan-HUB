@@ -21,6 +21,7 @@ import { Loader } from '@/ui/controls';
 import { Glass, glassStyle } from '@/ui/glass';
 import { Icon } from '@/ui/icon';
 import { Press } from '@/ui/press';
+import { useKeyboardHeight } from '@/ui/keyboard';
 import { ScreenHeader } from '@/ui/screen-header';
 import { T } from '@/ui/text';
 import { toast } from '@/ui/toast';
@@ -78,6 +79,7 @@ function Editor({ initial, spaceId, entities, onTouch, onSaved }: {
   onTouch: () => void;
   onSaved: () => void;
 }) {
+  const keyboard = useKeyboardHeight();
   const [lights, setLights] = useState<SmartDevice[]>(initial.lights);
   const [climate, setClimate] = useState<SmartDevice | null>(initial.climate);
   const [query, setQuery] = useState('');
@@ -122,7 +124,7 @@ function Editor({ initial, spaceId, entities, onTouch, onSaved }: {
   };
 
   return (
-    <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled" onScrollBeginDrag={onTouch} showsVerticalScrollIndicator={false}>
+    <ScrollView contentContainerStyle={[styles.body, { paddingBottom: GUTTER + keyboard }]} keyboardShouldPersistTaps="handled" onScrollBeginDrag={onTouch} showsVerticalScrollIndicator={false}>
       <View style={[styles.search, glassStyle('control', radius.pill)]}>
         <Icon as={Search} size={20} tone={color.textTertiary} />
         <TextInput value={query} onChangeText={setQuery} placeholder="Поиск устройства" placeholderTextColor={color.textTertiary} style={styles.searchInput} />

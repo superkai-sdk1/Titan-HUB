@@ -7,7 +7,7 @@
 //  - heartbeat для Titan HUB («Управление → Экраны»): версия, связь с HA и потоком.
 import * as Application from 'expo-application';
 import { useEffect, useEffectEvent } from 'react';
-import { AppState, Dimensions } from 'react-native';
+import { AppState } from 'react-native';
 
 import { api } from '@/data/api';
 import { useMenu } from '@/data/menu';
@@ -25,6 +25,7 @@ import { useStaff } from '@/features/staff/staff';
 import { idleFor } from '@/lib/activity';
 import { haptic } from '@/lib/haptics';
 import { usePrefs } from '@/lib/prefs';
+import { getScreenSize } from '@/ui/screen';
 import { toast } from '@/ui/toast';
 
 import { Kiosk } from '../../../modules/titan-kiosk';
@@ -141,7 +142,7 @@ export function useGuestDriver() {
 
   // Heartbeat: в Titan HUB видно, что планшет жив, его версия и связь.
   const beat = useEffectEvent(() => {
-    const { width, height } = Dimensions.get('window');
+    const { width, height } = getScreenSize();
     const kiosk = Kiosk.getStatus();
     void api
       .post('/tablet/heartbeat', {

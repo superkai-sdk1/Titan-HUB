@@ -55,7 +55,8 @@ export const useVisit = create<VisitState>()((set, get) => {
     },
     open: (layer) => set({ layer, roomOpen: false }),
     close: () => set({ layer: null }),
-    setRoom: (roomOpen) => set(roomOpen ? { roomOpen, layer: null } : { roomOpen }),
+    // Панель «Свет и климат» вытягивается поверх любого слоя (и меню) — слой не закрываем.
+    setRoom: (roomOpen) => set({ roomOpen }),
   };
 });
 

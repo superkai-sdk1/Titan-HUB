@@ -4,7 +4,7 @@
 import { Image } from 'expo-image';
 import { ReceiptText, X } from 'lucide-react-native';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, StyleSheet, useWindowDimensions, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, View } from 'react-native';
 
 import { createQr, type Qr, requestBill } from '@/data/actions';
 import { errorText } from '@/data/api';
@@ -12,6 +12,7 @@ import { useSessionCheck, useVisit } from '@/features/visit/store';
 import { amount, money } from '@/lib/format';
 import { Button, IconButton } from '@/ui/button';
 import { Layer } from '@/ui/layer';
+import { useScreen } from '@/ui/screen';
 import { Segmented } from '@/ui/segmented';
 import { T } from '@/ui/text';
 import { color } from '@/ui/tokens';
@@ -21,7 +22,7 @@ type Tip = `${(typeof TIPS)[number]}`;
 
 export function PayLayer() {
   const open = useVisit((s) => s.layer === 'pay');
-  const { width } = useWindowDimensions();
+  const { width } = useScreen();
   return (
     <Layer visible={open} onClose={() => useVisit.getState().close()} variant="dialog" style={{ width: Math.min(960, width - 48) }}>
       <PayBody />
@@ -31,7 +32,7 @@ export function PayLayer() {
 
 function PayBody() {
   const check = useSessionCheck();
-  const { width, height } = useWindowDimensions();
+  const { width, height } = useScreen();
   const portrait = width < height;
   const [tip, setTip] = useState<Tip>('0');
   const [qr, setQr] = useState<Qr | null>(null);

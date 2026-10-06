@@ -2,7 +2,7 @@
 // столу и переписка в рамках счёта (быстрые фразы + своё сообщение).
 import { BellRing, Check, Send, X } from 'lucide-react-native';
 import { useEffect, useEffectEvent, useState } from 'react';
-import { FlatList, StyleSheet, TextInput, useWindowDimensions, View } from 'react-native';
+import { FlatList, StyleSheet, TextInput, View } from 'react-native';
 
 import { callStaff, markChatRead, sendChat, useCallState } from '@/data/actions';
 import { useChat } from '@/data/chat';
@@ -12,8 +12,10 @@ import { hhmm } from '@/lib/format';
 import { Button, IconButton } from '@/ui/button';
 import { Loader } from '@/ui/controls';
 import { Glass, glassStyle } from '@/ui/glass';
+import { useKeyboardHeight } from '@/ui/keyboard';
 import { Layer } from '@/ui/layer';
 import { Press } from '@/ui/press';
+import { useScreen } from '@/ui/screen';
 import { T } from '@/ui/text';
 import { color, font, radius } from '@/ui/tokens';
 
@@ -22,9 +24,10 @@ const CALLED_MS = 30_000;
 
 export function AdminLayer() {
   const open = useVisit((s) => s.layer === 'admin');
-  const { width, height } = useWindowDimensions();
+  const { width, height } = useScreen();
+  const keyboard = useKeyboardHeight();
   return (
-    <Layer visible={open} onClose={() => useVisit.getState().close()} variant="dialog" style={{ width: Math.min(760, width - 48), height: height - 48 }}>
+    <Layer visible={open} onClose={() => useVisit.getState().close()} variant="dialog" style={{ width: Math.min(760, width - 48), height: height - 48 - keyboard }}>
       <AdminBody />
     </Layer>
   );
@@ -33,6 +36,7 @@ export function AdminLayer() {
 function AdminBody() {
   const checkId = useVisit((s) => (s.phase.kind === 'session' ? s.phase.checkId : null));
   const calledAt = useCallState((s) => s.calledAt);
+  const typing = useKeyboardHeight() > 0;
   const [now, setNow] = useState(() => Date.now());
   const called = now - calledAt < CALLED_MS;
 
@@ -48,12 +52,12 @@ function AdminBody() {
       <View style={styles.head}>
         <View style={{ flex: 1, gap: 3 }}>
           <T variant="title">Администратор</T>
-          <T variant="caption" tone="secondary">{checkId ? 'Ответят прямо здесь — обычно за пару минут' : 'Подойдёт к вашему столу'}</T>
+          {typing ? null : <T variant="caption" tone="secondary">{checkId ? 'Ответят прямо здесь — обычно за пару минут' : 'Подойдёт к вашему столу'}</T>}
         </View>
         <IconButton icon={X} label="Закрыть" onPress={() => useVisit.getState().close()} />
       </View>
 
-      {called ? (
+      {typing ? null : called ? (
         <Glass kind="panel" radius={radius.pill} style={[styles.call, { backgroundColor: color.greenTint, borderColor: 'rgba(52,211,153,0.45)' }]}>
           <Check size={24} color={color.green} strokeWidth={2.2} />
           <T variant="subheading" tone="green">Администратор уже идёт</T>
@@ -82,6 +86,7 @@ function Chat({ checkId }: { checkId: string }) {
   const chat = useChat(checkId, true);
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
+  const typing = useKeyboardHeight() > 0;
   const messages = chat.data ?? [];
   const unread = messages.filter((m) => m.sender === 'staff' && !m.readAt).length;
 
@@ -117,13 +122,15 @@ function Chat({ checkId }: { checkId: string }) {
           />
         )}
       </Glass>
-      <View style={styles.quick}>
-        {QUICK.map((q) => (
-          <Press key={q} onPress={() => void send(q)} disabled={sending} scaleTo={0.95} style={[styles.chip, glassStyle('control', radius.pill)]}>
-            <T variant="label" style={{ color: '#E4DCFF', fontSize: 15 }}>{q}</T>
-          </Press>
-        ))}
-      </View>
+      {typing ? null : (
+        <View style={styles.quick}>
+          {QUICK.map((q) => (
+            <Press key={q} onPress={() => void send(q)} disabled={sending} scaleTo={0.95} style={[styles.chip, glassStyle('control', radius.pill)]}>
+              <T variant="label" style={{ color: '#E4DCFF', fontSize: 15 }}>{q}</T>
+            </Press>
+          ))}
+        </View>
+      )}
       <View style={styles.composer}>
         <View style={[styles.input, glassStyle('control', radius.pill)]}>
           <TextInput
@@ -135,6 +142,8 @@ function Chat({ checkId }: { checkId: string }) {
             maxLength={1000}
             accessibilityLabel="Сообщение администратору"
             onSubmitEditing={() => void send(text)}
+            submitBehavior="submit"
+            disableFullscreenUI
             returnKeyType="send"
           />
         </View>

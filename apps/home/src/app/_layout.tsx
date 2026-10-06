@@ -18,6 +18,7 @@ import { useGuestDriver } from '@/features/visit/driver';
 import { markActivity } from '@/lib/activity';
 import { applyKioskWindow, usePrefs } from '@/lib/prefs';
 import { ErrorBoundary } from '@/ui/error-boundary';
+import { setScreenSize } from '@/ui/screen';
 import { ToastHost } from '@/ui/toast';
 import { color } from '@/ui/tokens';
 
@@ -26,7 +27,10 @@ void SystemUI.setBackgroundColorAsync(color.ground);
 
 export default function RootLayout() {
   return (
-    <GestureHandlerRootView style={{ flex: 1, backgroundColor: color.ground }}>
+    <GestureHandlerRootView
+      style={{ flex: 1, backgroundColor: color.ground }}
+      onLayout={(e) => setScreenSize(e.nativeEvent.layout.width, e.nativeEvent.layout.height)}
+    >
       <SafeAreaProvider>
         <QueryClientProvider client={queryClient}>
           <StatusBar style="light" hidden />
