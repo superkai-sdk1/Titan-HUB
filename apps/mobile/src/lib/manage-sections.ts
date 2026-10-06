@@ -10,6 +10,7 @@ export type ManageSectionKey =
   | 'menu'
   | 'inventory'
   | 'pricing'
+  | 'screens'
   | 'clients'
   | 'customers'
   | 'balances'
@@ -42,6 +43,7 @@ export const MANAGE_GROUPS: { title: string; items: ManageSection[] }[] = [
       { key: 'menu', title: 'Меню', subtitle: 'Категории, позиции, цены', icon: 'menucard', color: '#FF9500', roles: ['owner', 'staff'], perm: 'menu' },
       { key: 'pricing', title: 'Тарифы и аренда', subtitle: 'Статусы, зоны, пакеты мероприятий', icon: 'tag', color: '#30B0C7', roles: ['owner', 'staff'] },
       { key: 'inventory', title: 'Склад', subtitle: 'Остатки, поставки, ревизии, расходы', icon: 'shippingbox', color: '#A2845E', roles: ['owner', 'staff'], perm: 'inventory' },
+      { key: 'screens', title: 'Экраны', subtitle: 'Телевизоры: меню и слайдшоу', icon: 'tv', color: '#8B5CF6', roles: ['owner', 'staff'] },
     ],
   },
   {

@@ -17,6 +17,7 @@ const SECTION_SCREENS: Record<ManageSectionKey, Href> = {
   menu: '/manage/menu',
   inventory: '/manage/inventory',
   pricing: '/manage/pricing',
+  screens: '/manage/screens',
   clients: '/manage/clients',
   balances: '/manage/balances',
   customers: '/manage/customers',

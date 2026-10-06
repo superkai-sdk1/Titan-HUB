@@ -7,35 +7,54 @@ import { Alert } from 'react-native';
 import { EditorToolbar } from '@/components/editor-toolbar';
 import { ActionRow, FieldRow, FormHost } from '@/components/native-form';
 import { haptic } from '@/lib/haptics';
-import { SLIDE_DURATIONS, createSlide, deleteSlide, pickAdImage, reorderSlides, updateSlide, useScreenSlides, type ScreenSlide } from '@/lib/screen-api';
+import {
+  FITS,
+  SLIDE_DURATIONS,
+  TRANSITIONS,
+  createSlide,
+  deleteSlide,
+  pickScreenImages,
+  reorderSlides,
+  updateSlide,
+  useScreen,
+  withCurrent,
+  type Fit,
+  type Screen,
+  type ScreenSlide,
+  type Transition,
+} from '@/lib/screens-api';
 
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
-/** Слайд рекламы Titan Menu: карточка (заголовок, текст, QR по ссылке) или картинка. */
+/** Слайд экрана: картинка (у слайдшоу — с анимацией и вписыванием) или карточка с QR. */
 export default function ScreenSlideEditor() {
-  const { slideId } = useLocalSearchParams<{ slideId?: string }>();
-  const slides = useScreenSlides();
+  const { screenId, slideId, kind } = useLocalSearchParams<{ screenId: string; slideId?: string; kind?: 'card' }>();
+  const query = useScreen(screenId);
 
-  if (slideId && !slides.data) {
+  if (!query.data) {
     return (
       <FormHost>
         <ProgressView />
       </FormHost>
     );
   }
-  const list = slides.data ?? [];
-  const original = slideId ? (list.find((s) => s.id === slideId) ?? null) : null;
-  return <SlideForm key={original?.id ?? 'new'} original={original} list={list} />;
+  const { screen, slides } = query.data;
+  const original = slideId ? (slides.find((s) => s.id === slideId) ?? null) : null;
+  const list = screen.kind === 'slideshow' ? slides.filter((s) => s.kind === 'image') : slides;
+  return <SlideForm key={original?.id ?? 'new'} screen={screen} original={original} list={list} newKind={kind === 'card' ? 'card' : 'image'} />;
 }
 
-function SlideForm({ original, list }: { original: ScreenSlide | null; list: ScreenSlide[] }) {
+function SlideForm({ screen, original, list, newKind }: { screen: Screen; original: ScreenSlide | null; list: ScreenSlide[]; newKind: 'image' | 'card' }) {
   const router = useRouter();
-  const kind = original?.kind ?? 'card';
+  const slideshow = screen.kind === 'slideshow';
+  const kind = original?.kind ?? newKind;
   const [title, setTitle] = useState(original?.title ?? '');
   const [body, setBody] = useState(original?.body ?? '');
   const [link, setLink] = useState(original?.linkUrl ?? '');
   const [imageUrl, setImageUrl] = useState(original?.imageUrl ?? null);
   const [duration, setDuration] = useState(original?.durationSec ?? 10);
+  const [transition, setTransition] = useState<Transition>(original?.transition ?? 'fade');
+  const [fit, setFit] = useState<Fit>(original?.fit ?? 'contain');
   const [active, setActive] = useState(original?.isActive ?? true);
   const [busy, setBusy] = useState(false);
 
@@ -66,15 +85,17 @@ function SlideForm({ original, list }: { original: ScreenSlide | null; list: Scr
       body: kind === 'card' ? body.trim() || null : null,
       linkUrl: kind === 'card' ? link.trim() || null : null,
       durationSec: duration,
+      transition,
+      fit,
       isActive: active,
     };
-    void run(() => (original ? updateSlide(original.id, fields) : createSlide({ kind, ...fields })), 'Слайд не сохранён');
+    void run(() => (original ? updateSlide(screen.id, original.id, fields) : createSlide(screen.id, { kind, ...fields })), 'Слайд не сохранён');
   };
 
   const replaceImage = () =>
     void run(
       async () => {
-        const url = await pickAdImage();
+        const [url] = await pickScreenImages(false);
         if (url) setImageUrl(url);
       },
       'Картинка не загрузилась',
@@ -86,15 +107,17 @@ function SlideForm({ original, list }: { original: ScreenSlide | null; list: Scr
     const next = list.slice();
     const [item] = next.splice(index, 1);
     next.splice(index + dir, 0, item!);
-    void run(() => reorderSlides(next.map((s, i) => ({ id: s.id, sortOrder: i }))), 'Порядок не изменился', false);
+    void run(() => reorderSlides(screen.id, next.map((s, i) => ({ id: s.id, sortOrder: i }))), 'Порядок не изменился', false);
   };
 
   const remove = () =>
     original &&
-    Alert.alert('Удалить слайд?', 'Он пропадёт с экрана ТВ в течение 20 секунд.', [
+    Alert.alert(slideshow ? 'Удалить картинку?' : 'Удалить слайд?', 'Она пропадёт с экрана ТВ в течение 20 секунд.', [
       { text: 'Отмена', style: 'cancel' },
-      { text: 'Удалить', style: 'destructive', onPress: () => void run(() => deleteSlide(original.id), 'Слайд не удалён') },
+      { text: 'Удалить', style: 'destructive', onPress: () => void run(() => deleteSlide(screen.id, original.id), 'Слайд не удалён') },
     ]);
+
+  const durations = withCurrent(SLIDE_DURATIONS, duration);
 
   return (
     <>
@@ -102,7 +125,9 @@ function SlideForm({ original, list }: { original: ScreenSlide | null; list: Scr
       <FormHost>
         <Form>
           {kind === 'image' ? (
-            <Section title="Картинка" footer={<Text>Вписывается в панель целиком. Лучше всего широкая, примерно 3:1 (например 1500×500).</Text>}>
+            <Section
+              title="Картинка"
+              footer={<Text>{slideshow ? 'Лучше в пропорциях экрана: вертикальная для вертикального ТВ.' : 'Вписывается в ленту целиком. Лучше широкая, примерно 3:1 (например 1500×500).'}</Text>}>
               <ActionRow title={busy ? 'Загружаем…' : 'Заменить картинку'} icon="photo" disabled={busy} onPress={replaceImage} />
             </Section>
           ) : (
@@ -121,7 +146,7 @@ function SlideForm({ original, list }: { original: ScreenSlide | null; list: Scr
             </>
           )}
 
-          <Section title="Показ">
+          <Section title="Показ" footer={slideshow ? <Text>«Целиком» — картинка полностью на приглушённом фоне, «Во весь экран» — края обрезаются.</Text> : undefined}>
             <Picker
               label="Длительность"
               selection={duration}
@@ -130,17 +155,49 @@ function SlideForm({ original, list }: { original: ScreenSlide | null; list: Scr
                 setDuration(Number(next));
               }}
               modifiers={[pickerStyle('menu')]}>
-              {(SLIDE_DURATIONS.includes(duration) ? SLIDE_DURATIONS : [...SLIDE_DURATIONS, duration].sort((a, b) => a - b)).map((sec) => (
+              {durations.map((sec) => (
                 <Text key={sec} modifiers={[tag(sec)]}>
                   {`${sec} с`}
                 </Text>
               ))}
             </Picker>
+            {slideshow && (
+              <>
+                <Picker
+                  label="Анимация смены"
+                  selection={transition}
+                  onSelectionChange={(next) => {
+                    haptic.selection();
+                    setTransition(next as Transition);
+                  }}
+                  modifiers={[pickerStyle('menu')]}>
+                  {TRANSITIONS.map((t) => (
+                    <Text key={t.key} modifiers={[tag(t.key)]}>
+                      {t.label}
+                    </Text>
+                  ))}
+                </Picker>
+                <Picker
+                  label="Картинка"
+                  selection={fit}
+                  onSelectionChange={(next) => {
+                    haptic.selection();
+                    setFit(next as Fit);
+                  }}
+                  modifiers={[pickerStyle('menu')]}>
+                  {FITS.map((f) => (
+                    <Text key={f.key} modifiers={[tag(f.key)]}>
+                      {f.label}
+                    </Text>
+                  ))}
+                </Picker>
+              </>
+            )}
             <Toggle label="Показывать на экране" isOn={active} onIsOnChange={setActive} />
           </Section>
 
           {original && list.length > 1 && (
-            <Section title="Порядок" footer={<Text>{`Слайд ${index + 1} из ${list.length}. Перед первым слайдом всегда идёт лента тарифов.`}</Text>}>
+            <Section title="Порядок" footer={<Text>{`Слайд ${index + 1} из ${list.length}.${slideshow ? '' : ' Перед первым слайдом всегда идёт лента тарифов.'}`}</Text>}>
               <ActionRow title="Показывать раньше" icon="arrow.up" disabled={busy || index <= 0} onPress={() => move(-1)} />
               <ActionRow title="Показывать позже" icon="arrow.down" disabled={busy || index >= list.length - 1} onPress={() => move(1)} />
             </Section>
@@ -148,7 +205,7 @@ function SlideForm({ original, list }: { original: ScreenSlide | null; list: Scr
 
           {original && (
             <Section>
-              <ActionRow title="Удалить слайд" icon="trash" destructive disabled={busy} onPress={remove} />
+              <ActionRow title={slideshow ? 'Удалить картинку' : 'Удалить слайд'} icon="trash" destructive disabled={busy} onPress={remove} />
             </Section>
           )}
         </Form>

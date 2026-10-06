@@ -1,0 +1,368 @@
+import { useQuery } from '@tanstack/react-query';
+import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
+import * as ImagePicker from 'expo-image-picker';
+import * as Network from 'expo-network';
+import { Alert, Linking } from 'react-native';
+import type { SFSymbol } from 'sf-symbols-typescript';
+
+import { api } from './api';
+import { queryClient } from './query';
+import { useClubKey } from './queries';
+import { useSession } from './session';
+
+/**
+ * «Экраны» — телевизоры клуба с приложением Titan Menu (тот же раздел, что «Управление →
+ * Экраны» в вебе). У каждого экрана свои настройки: что показывает (меню или слайдшоу),
+ * как висит ТВ, тема и лента у меню, картинки у слайдшоу. Приставка просто показывает
+ * то, что задано здесь, и подхватывает изменения в течение 20 секунд.
+ *
+ * Подключение ТВ: приставка без привязки показывает код и держит в локальной сети HTTP
+ * на порту 8788. Телефон находит её перебором своей Wi‑Fi подсети (мультикаст в сетях
+ * клубов часто режется — Bonjour ненадёжен), берёт в HUB одноразовый секрет и передаёт
+ * его приставке вместе с кодом; дальше приставка сама получает свой токен.
+ */
+
+export type ScreenKind = 'menu' | 'slideshow';
+export type Rotation = 0 | 90 | 270;
+export type Transition = 'fade' | 'slide' | 'zoom' | 'flip' | 'none';
+export type Fit = 'contain' | 'cover';
+
+export type Screen = {
+  id: string;
+  name: string;
+  kind: ScreenKind;
+  rotation: Rotation;
+  theme: string;
+  bandSec: number;
+  sortOrder: number;
+  paired: boolean;
+  online: boolean;
+  deviceModel: string | null;
+  appVersion: string | null;
+  deviceIp: string | null;
+  pairedAt: string | null;
+  lastSeenAt: string | null;
+};
+
+export type ScreenSlide = {
+  id: string;
+  screenId: string;
+  kind: 'image' | 'card';
+  imageUrl: string | null;
+  title: string | null;
+  body: string | null;
+  linkUrl: string | null;
+  durationSec: number;
+  transition: Transition;
+  fit: Fit;
+  isActive: boolean;
+  sortOrder: number;
+};
+
+export type SlideInput = {
+  kind: 'image' | 'card';
+  imageUrl?: string | null;
+  title?: string | null;
+  body?: string | null;
+  linkUrl?: string | null;
+  durationSec?: number;
+  transition?: Transition;
+  fit?: Fit;
+  isActive?: boolean;
+};
+
+export type ScreenPatch = Partial<Pick<Screen, 'name' | 'kind' | 'rotation' | 'theme' | 'bandSec'>>;
+
+export const KINDS: { key: ScreenKind; label: string; note: string; icon: SFSymbol }[] = [
+  { key: 'menu', label: 'Меню', note: 'Цены из «Меню» и «Тарифов», лента и реклама внизу', icon: 'menucard' },
+  { key: 'slideshow', label: 'Слайдшоу', note: 'Картинки на весь экран по очереди', icon: 'photo.on.rectangle' },
+];
+
+export const ROTATIONS: { key: Rotation; label: string }[] = [
+  { key: 0, label: 'Горизонтально' },
+  { key: 90, label: 'Вертикально ↻' },
+  { key: 270, label: 'Вертикально ↺' },
+];
+
+export const TRANSITIONS: { key: Transition; label: string }[] = [
+  { key: 'fade', label: 'Растворение' },
+  { key: 'slide', label: 'Сдвиг' },
+  { key: 'zoom', label: 'Приближение' },
+  { key: 'flip', label: 'Переворот' },
+  { key: 'none', label: 'Без анимации' },
+];
+
+export const FITS: { key: Fit; label: string }[] = [
+  { key: 'contain', label: 'Целиком' },
+  { key: 'cover', label: 'Во весь экран' },
+];
+
+export const THEMES: { key: string; name: string }[] = [
+  { key: 'night', name: 'Ночь' },
+  { key: 'neon', name: 'Неон' },
+  { key: 'deco', name: 'Ар-деко' },
+  { key: 'synth', name: 'Синтвейв' },
+  { key: 'avant', name: 'Конструктивизм' },
+  { key: 'dossier', name: 'Досье' },
+  { key: 'halloween', name: 'Хеллоуин' },
+];
+
+export const SLIDE_DURATIONS = [5, 8, 10, 15, 20, 30, 45, 60];
+export const BAND_DURATIONS = [10, 15, 20, 30, 45, 60];
+
+/** Список с текущим значением, даже если его нет среди готовых (задано в вебе). */
+export function withCurrent(values: number[], current: number): number[] {
+  return values.includes(current) ? values : [...values, current].sort((a, b) => a - b);
+}
+
+/** «В сети» / «Не в сети · 5 мин» / «ТВ не подключён». */
+export function deviceStatus(s: Pick<Screen, 'paired' | 'online' | 'lastSeenAt'>): { label: string; color: string } {
+  if (!s.paired) return { label: 'ТВ не подключён', color: '#8E8E93' };
+  if (s.online) return { label: 'В сети', color: '#34C759' };
+  if (!s.lastSeenAt) return { label: 'Не в сети', color: '#FF9500' };
+  const min = Math.max(1, Math.round((Date.now() - new Date(s.lastSeenAt).getTime()) / 60_000));
+  const ago = min < 60 ? `${min} мин` : min < 48 * 60 ? `${Math.round(min / 60)} ч` : `${Math.round(min / 1440)} дн`;
+  return { label: `Не в сети · ${ago}`, color: '#FF9500' };
+}
+
+/** Адрес показа экрана, например `https://kbr.titanpos.ru/screen/<id>`. */
+export function screenPageUrl(id: string, theme?: string): string {
+  const host = useSession.getState().club?.host ?? 'titanpos.ru';
+  return `https://${host}/screen/${id}${theme ? `?theme=${theme}` : ''}`;
+}
+
+// ── Данные ────────────────────────────────────────────────────────────────
+
+const screensKey = (club: string) => [club, 'screens'];
+const screenKey = (club: string, id: string) => [club, 'screens', id];
+const clubNow = () => useSession.getState().club?.host ?? 'none';
+
+/** Обновить список и открытый экран (статус приставки, слайды). */
+export function refreshScreens(): void {
+  void queryClient.invalidateQueries({ queryKey: screensKey(clubNow()) });
+}
+
+export function useScreens() {
+  const club = useClubKey();
+  return useQuery({
+    queryKey: screensKey(club),
+    queryFn: () => api.get<{ screens: Screen[] }>('/screens').then((r) => r.screens),
+    refetchInterval: 20_000, // «в сети» приставок
+  });
+}
+
+export function useScreen(id: string | undefined) {
+  const club = useClubKey();
+  return useQuery({
+    queryKey: screenKey(club, id ?? 'none'),
+    queryFn: () => api.get<{ screen: Screen; slides: ScreenSlide[] }>(`/screens/${id}`),
+    enabled: !!id,
+    refetchInterval: 20_000,
+  });
+}
+
+export async function createScreen(input: { name: string; kind: ScreenKind }): Promise<Screen> {
+  const { screen } = await api.post<{ screen: Screen }>('/screens', input);
+  refreshScreens();
+  return screen;
+}
+
+export async function updateScreen(id: string, patch: ScreenPatch): Promise<void> {
+  await api.patch(`/screens/${id}`, patch);
+  refreshScreens();
+}
+
+export async function deleteScreen(id: string): Promise<void> {
+  await api.delete(`/screens/${id}`);
+  refreshScreens();
+}
+
+export async function unpairScreen(id: string): Promise<void> {
+  await api.post(`/screens/${id}/unpair`);
+  refreshScreens();
+}
+
+export async function createSlide(screenId: string, input: SlideInput): Promise<void> {
+  await api.post(`/screens/${screenId}/slides`, input);
+  refreshScreens();
+}
+
+export async function updateSlide(screenId: string, slideId: string, patch: Partial<SlideInput>): Promise<void> {
+  await api.patch(`/screens/${screenId}/slides/${slideId}`, patch);
+  refreshScreens();
+}
+
+export async function deleteSlide(screenId: string, slideId: string): Promise<void> {
+  await api.delete(`/screens/${screenId}/slides/${slideId}`);
+  refreshScreens();
+}
+
+export async function reorderSlides(screenId: string, items: { id: string; sortOrder: number }[]): Promise<void> {
+  await api.patch(`/screens/${screenId}/slides/reorder`, { items });
+  refreshScreens();
+}
+
+/** Карточка-приглашение в клиентское приложение My Titan (веб-версия на поддомене клуба). */
+export function myTitanSlide(): SlideInput {
+  const host = useSession.getState().club?.host ?? 'titanpos.ru';
+  return {
+    kind: 'card',
+    title: 'My Titan — твой клуб в телефоне',
+    body: 'Баланс, бонусы и запись на игры. Наведи камеру на QR',
+    linkUrl: `https://${host}/residents`,
+    durationSec: 10,
+  };
+}
+
+// ── Картинки ──────────────────────────────────────────────────────────────
+
+async function mediaAllowed(): Promise<boolean> {
+  const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+  if (permission.granted) return true;
+  Alert.alert('Нужен доступ к фото', 'Разрешите доступ в настройках телефона.', [
+    { text: 'Отмена', style: 'cancel' },
+    { text: 'Открыть настройки', onPress: () => void Linking.openSettings() },
+  ]);
+  return false;
+}
+
+/**
+ * Уменьшение до 1920 px по длинной стороне и 1080 по короткой, JPEG: снимок с камеры
+ * весит 2–3 МБ (API принимает до 1 МБ), а слабой ТВ-приставке тяжело декодировать
+ * 12 Мп. Вертикальная картинка для вертикального ТВ остаётся 1080×1920.
+ */
+async function uploadAsset(asset: ImagePicker.ImagePickerAsset): Promise<string> {
+  const w = asset.width ?? 0;
+  const h = asset.height ?? 0;
+  const scale = w && h ? Math.min(1, 1920 / Math.max(w, h), 1080 / Math.min(w, h)) : 1;
+  const context = ImageManipulator.manipulate(asset.uri);
+  if (scale < 1) context.resize({ width: Math.round(w * scale) });
+  const image = await context.renderAsync();
+  const saved = await image.saveAsync({ compress: 0.82, format: SaveFormat.JPEG });
+  const form = new FormData();
+  form.append('file', { uri: saved.uri, name: 'slide.jpg', type: 'image/jpeg' } as unknown as Blob);
+  const { url } = await api.post<{ url: string }>('/upload/image', form);
+  return url;
+}
+
+/**
+ * Картинки из галереи без обрезки (системная обрезка на iOS только квадратная).
+ * `multiple` — для слайдшоу, до 10 штук за раз. `[]` — отменили или не дали доступ.
+ */
+export async function pickScreenImages(multiple: boolean, onProgress?: (done: number, total: number) => void): Promise<string[]> {
+  if (!(await mediaAllowed())) return [];
+  const result = await ImagePicker.launchImageLibraryAsync({
+    mediaTypes: ['images'],
+    quality: 1,
+    allowsMultipleSelection: multiple,
+    selectionLimit: multiple ? 10 : 1,
+    orderedSelection: multiple,
+  });
+  if (result.canceled) return [];
+  const urls: string[] = [];
+  for (const asset of result.assets) {
+    onProgress?.(urls.length, result.assets.length);
+    urls.push(await uploadAsset(asset));
+  }
+  return urls;
+}
+
+// ── Поиск и подключение ТВ в локальной сети ───────────────────────────────
+
+export const TV_PORT = 8788;
+const PROBE_TIMEOUT_MS = 1500;
+const SCAN_CONCURRENCY = 32;
+
+export type FoundTv = {
+  ip: string;
+  deviceId: string;
+  code: string;
+  name: string;
+  model: string;
+  appVersion: string;
+  paired: boolean;
+  screenName: string | null;
+};
+
+async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number, outer?: AbortSignal): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const relay = () => controller.abort();
+  outer?.addEventListener('abort', relay);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+    outer?.removeEventListener('abort', relay);
+  }
+}
+
+/** Есть ли по адресу приставка Titan Menu: её `/info` или `null`. */
+export async function probeTv(ip: string, signal?: AbortSignal, timeoutMs = PROBE_TIMEOUT_MS): Promise<FoundTv | null> {
+  try {
+    const res = await fetchWithTimeout(`http://${ip}:${TV_PORT}/info`, { headers: { Accept: 'application/json' } }, timeoutMs, signal);
+    if (!res.ok) return null;
+    const info = (await res.json()) as Partial<FoundTv>;
+    if (!info || typeof info.code !== 'string' || typeof info.deviceId !== 'string') return null;
+    return {
+      ip,
+      deviceId: info.deviceId,
+      code: info.code,
+      name: info.name || `Titan TV ${info.code}`,
+      model: info.model || 'ТВ-приставка',
+      appVersion: info.appVersion || '',
+      paired: !!info.paired,
+      screenName: info.screenName ?? null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** IPv4 телефона в Wi‑Fi или `null` (мобильный интернет, авиарежим). */
+export async function localIp(): Promise<string | null> {
+  const ip = await Network.getIpAddressAsync().catch(() => '');
+  return /^(\d{1,3}\.){3}\d{1,3}$/.test(ip) && ip !== '0.0.0.0' && !ip.startsWith('127.') ? ip : null;
+}
+
+/**
+ * Перебор подсети /24 телефона: 254 адреса по 32 параллельно, ~1,5 с на ответ.
+ * Найденные приставки отдаются сразу (`onFound`), не дожидаясь конца.
+ */
+export async function scanForTvs(onFound: (tv: FoundTv) => void, signal: AbortSignal): Promise<void> {
+  const ip = await localIp();
+  if (!ip) throw new Error('Телефон не в Wi‑Fi. Подключитесь к той же сети, что и приставка.');
+  const prefix = ip.split('.').slice(0, 3).join('.');
+  const queue = Array.from({ length: 254 }, (_, i) => `${prefix}.${i + 1}`).filter((addr) => addr !== ip);
+  const worker = async () => {
+    while (queue.length && !signal.aborted) {
+      const addr = queue.shift();
+      if (!addr) return;
+      const tv = await probeTv(addr, signal);
+      if (tv && !signal.aborted) onFound(tv);
+    }
+  };
+  await Promise.all(Array.from({ length: SCAN_CONCURRENCY }, worker));
+}
+
+/**
+ * Подключить приставку к экрану: секрет из HUB (10 минут) + адрес клуба → приставке по
+ * локальной сети вместе с кодом с её экрана. Приставка сама меняет секрет на свой токен.
+ */
+export async function pairTv(tv: FoundTv, screenId: string): Promise<{ name: string }> {
+  const { secret, host } = await api.post<{ secret: string; host: string }>(`/screens/${screenId}/pairing`);
+  let res: Response;
+  try {
+    res = await fetchWithTimeout(
+      `http://${tv.ip}:${TV_PORT}/pair`,
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ host, secret, code: tv.code }) },
+      25_000,
+    );
+  } catch {
+    throw new Error('Приставка не ответила. Проверьте, что телефон и ТВ в одной Wi‑Fi сети.');
+  }
+  const body = (await res.json().catch(() => null)) as { ok?: boolean; name?: string; error?: string } | null;
+  if (!res.ok || !body?.ok) throw new Error(body?.error || `Приставка ответила ${res.status}`);
+  refreshScreens();
+  return { name: body.name ?? '' };
+}
