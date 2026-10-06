@@ -1,8 +1,13 @@
 /**
  * «Экраны» — телевизоры клуба с приложением Titan Menu (миграция 068).
  *
- * HUB (веб и приложение): список экранов, настройки каждого (тип, поворот, тема,
- * лента), слайды, привязка и отвязка приставки. Правит владелец, персонал смотрит.
+ * HUB (веб и приложение): список экранов, настройки каждого (поворот, тема, лента),
+ * показ и реклама ленты, привязка и отвязка приставки. Правит владелец, персонал смотрит.
+ *
+ * Элементы экрана — screen_slides (миграция 069):
+ *   placement 'show' — показ по кругу на весь экран: меню клуба или картинка, у каждого
+ *     своё время, анимация входа и её скорость (transitionMs);
+ *   placement 'band' — реклама в ленте тарифов внутри меню: картинка или карточка с QR.
  *
  * Приставка: телефон находит её в локальной сети, берёт здесь одноразовый секрет
  * (POST /:id/pairing, 10 минут) и передаёт приставке; та меняет его на свой токен
@@ -35,6 +40,7 @@ const httpUrl = z.string().trim().max(1000).url().refine((u) => /^https?:\/\//i.
 
 const ScreenSchema = z.object({
   name: z.string().trim().min(1).max(60),
+  // Устарело с миграции 069 (показ задаётся элементами), принимается от старых сборок.
   kind: z.enum(['menu', 'slideshow']).default('menu'),
   rotation: z.union([z.literal(0), z.literal(90), z.literal(270)]).default(0),
   theme: z.enum(SCREEN_THEMES).default('night'),
@@ -42,16 +48,28 @@ const ScreenSchema = z.object({
 })
 
 const SlideSchema = z.object({
-  kind: z.enum(['image', 'card']),
+  placement: z.enum(['band', 'show']).default('band'),
+  kind: z.enum(['image', 'card', 'menu']),
   imageUrl: httpUrl.nullable().optional(),
   title: z.string().trim().max(80).nullable().optional(),
   body: z.string().trim().max(240).nullable().optional(),
   linkUrl: httpUrl.nullable().optional(),
-  durationSec: z.number().int().min(3).max(600).default(10),
+  durationSec: z.number().int().min(3).max(3600).default(10),
   transition: z.enum(['fade', 'slide', 'zoom', 'flip', 'none']).default('fade'),
+  transitionMs: z.number().int().min(200).max(5000).default(900),
   fit: z.enum(['contain', 'cover']).default('contain'),
   isActive: z.boolean().default(true),
 })
+
+type SlideShape = { placement: 'band' | 'show'; kind: 'image' | 'card' | 'menu'; imageUrl?: string | null }
+
+/** Что где допустимо: в показе — меню и картинки, в ленте — картинки и карточки. */
+function slideError(s: SlideShape): string | null {
+  if (s.placement === 'show' && s.kind === 'card') return 'В показе — только меню и картинки'
+  if (s.placement === 'band' && s.kind === 'menu') return 'Меню добавляется в показ, а не в ленту'
+  if (s.kind === 'image' && !s.imageUrl) return 'Нужна картинка'
+  return null
+}
 
 const ClaimSchema = z.object({
   secret: z.string().min(16).max(200),
@@ -62,12 +80,34 @@ const ClaimSchema = z.object({
 
 const HeartbeatSchema = z.object({ appVersion: z.string().trim().max(30).optional() })
 
-/** Экран для HUB: без хэшей токенов, со статусом приставки. */
-function publicScreen(s: Screen) {
+/** Что в показе экрана: есть ли меню и сколько картинок (для списка и подписи). */
+type ShowSummary = { menu: boolean; images: number }
+
+async function showSummaries(db: AppEnv['Variables']['db'], screenId?: string): Promise<Map<string, ShowSummary>> {
+  const rows = await db.select({ screenId: screenSlides.screenId, kind: screenSlides.kind }).from(screenSlides)
+    .where(and(
+      eq(screenSlides.placement, 'show'),
+      eq(screenSlides.isActive, true),
+      ...(screenId ? [eq(screenSlides.screenId, screenId)] : []),
+    ))
+  const out = new Map<string, ShowSummary>()
+  for (const r of rows) {
+    if (!r.screenId) continue
+    const sum = out.get(r.screenId) ?? { menu: false, images: 0 }
+    out.set(r.screenId, r.kind === 'menu' ? { ...sum, menu: true } : { ...sum, images: sum.images + 1 })
+  }
+  return out
+}
+
+/** Экран для HUB: без хэшей токенов, со статусом приставки и сводкой показа. */
+function publicScreen(s: Screen, summary?: ShowSummary) {
+  // Пустой показ на ТВ — это меню (screen-content.ts).
+  const show = summary && (summary.menu || summary.images) ? summary : { menu: true, images: 0 }
   return {
     id: s.id,
     name: s.name,
-    kind: s.kind,
+    kind: show.menu ? 'menu' as const : 'slideshow' as const,
+    show,
     rotation: s.rotation,
     theme: s.theme,
     bandSec: s.bandSec,
@@ -163,35 +203,55 @@ async function findScreen(db: AppEnv['Variables']['db'], id: string): Promise<Sc
 
 screensRouter.get('/', requireAuth, requireRole('owner', 'staff'), async (c) => {
   const db = c.var.db
-  const rows = await db.select().from(screens).orderBy(asc(screens.sortOrder), asc(screens.createdAt))
-  return c.json({ screens: rows.map(publicScreen) })
+  const [rows, summaries] = await Promise.all([
+    db.select().from(screens).orderBy(asc(screens.sortOrder), asc(screens.createdAt)),
+    showSummaries(db),
+  ])
+  return c.json({ screens: rows.map((s) => publicScreen(s, summaries.get(s.id))) })
 })
 
 screensRouter.post('/', requireAuth, requireRole('owner'), zValidator('json', ScreenSchema), async (c) => {
   const db = c.var.db
   const body = c.req.valid('json')
   const [last] = await db.select({ sortOrder: screens.sortOrder }).from(screens).orderBy(desc(screens.sortOrder)).limit(1)
-  const [screen] = await db.insert(screens).values({ ...body, sortOrder: (last?.sortOrder ?? -1) + 1 }).returning()
+  // Новый экран сразу показывает меню; картинки владелец добавит в показ сам.
+  const screen = await db.transaction(async (tx) => {
+    const [created] = await tx.insert(screens).values({ ...body, sortOrder: (last?.sortOrder ?? -1) + 1 }).returning()
+    if (!created) return null
+    await tx.insert(screenSlides).values({
+      screenId: created.id, placement: 'show', kind: 'menu', durationSec: 60, transition: 'fade', transitionMs: 900, sortOrder: 0,
+    })
+    return created
+  })
   if (!screen) return c.json({ error: 'Экран не создан' }, 500)
-  return c.json({ screen: publicScreen(screen) }, 201)
+  return c.json({ screen: publicScreen(screen, { menu: true, images: 0 }) }, 201)
 })
 
 screensRouter.get('/:id', requireAuth, requireRole('owner', 'staff'), async (c) => {
   const db = c.var.db
   const screen = await findScreen(db, c.req.param('id'))
   if (!screen) return c.json({ error: 'Экран не найден' }, 404)
-  const slides = await db.select().from(screenSlides)
-    .where(eq(screenSlides.screenId, screen.id)).orderBy(asc(screenSlides.sortOrder), asc(screenSlides.createdAt))
-  return c.json({ screen: publicScreen(screen), slides })
+  const [rows, summaries] = await Promise.all([
+    db.select().from(screenSlides)
+      .where(eq(screenSlides.screenId, screen.id)).orderBy(asc(screenSlides.sortOrder), asc(screenSlides.createdAt)),
+    showSummaries(db, screen.id),
+  ])
+  return c.json({
+    screen: publicScreen(screen, summaries.get(screen.id)),
+    show: rows.filter((r) => r.placement === 'show'),
+    slides: rows.filter((r) => r.placement === 'band'),
+  })
 })
 
 screensRouter.patch('/:id', requireAuth, requireRole('owner'), zValidator('json', ScreenSchema.partial()), async (c) => {
   const db = c.var.db
   const screen = await findScreen(db, c.req.param('id'))
   if (!screen) return c.json({ error: 'Экран не найден' }, 404)
-  const [updated] = await db.update(screens).set({ ...c.req.valid('json'), updatedAt: new Date() })
-    .where(eq(screens.id, screen.id)).returning()
-  return c.json({ screen: publicScreen(updated ?? screen) })
+  const [[updated], summaries] = await Promise.all([
+    db.update(screens).set({ ...c.req.valid('json'), updatedAt: new Date() }).where(eq(screens.id, screen.id)).returning(),
+    showSummaries(db, screen.id),
+  ])
+  return c.json({ screen: publicScreen(updated ?? screen, summaries.get(screen.id)) })
 })
 
 screensRouter.delete('/:id', requireAuth, requireRole('owner'), async (c) => {
@@ -219,20 +279,28 @@ screensRouter.post('/:id/unpair', requireAuth, requireRole('owner'), async (c) =
   const db = c.var.db
   const screen = await findScreen(db, c.req.param('id'))
   if (!screen) return c.json({ error: 'Экран не найден' }, 404)
-  const [updated] = await db.update(screens)
-    .set({ ...unpairedFields, pairingHash: null, pairingExpiresAt: null, updatedAt: new Date() })
-    .where(eq(screens.id, screen.id)).returning()
-  return c.json({ screen: publicScreen(updated ?? screen) })
+  const [[updated], summaries] = await Promise.all([
+    db.update(screens)
+      .set({ ...unpairedFields, pairingHash: null, pairingExpiresAt: null, updatedAt: new Date() })
+      .where(eq(screens.id, screen.id)).returning(),
+    showSummaries(db, screen.id),
+  ])
+  return c.json({ screen: publicScreen(updated ?? screen, summaries.get(screen.id)) })
 })
 
-// ── HUB: слайды экрана ──────────────────────────────────────────────────────
+// ── HUB: показ и реклама ленты (элементы экрана) ────────────────────────────
 
 screensRouter.get('/:id/slides', requireAuth, requireRole('owner', 'staff'), async (c) => {
   const db = c.var.db
   const screen = await findScreen(db, c.req.param('id'))
   if (!screen) return c.json({ error: 'Экран не найден' }, 404)
+  const placement = c.req.query('placement')
   const slides = await db.select().from(screenSlides)
-    .where(eq(screenSlides.screenId, screen.id)).orderBy(asc(screenSlides.sortOrder), asc(screenSlides.createdAt))
+    .where(and(
+      eq(screenSlides.screenId, screen.id),
+      ...(placement === 'band' || placement === 'show' ? [eq(screenSlides.placement, placement)] : []),
+    ))
+    .orderBy(asc(screenSlides.sortOrder), asc(screenSlides.createdAt))
   return c.json({ slides })
 })
 
@@ -241,10 +309,11 @@ screensRouter.post('/:id/slides', requireAuth, requireRole('owner'), zValidator(
   const screen = await findScreen(db, c.req.param('id'))
   if (!screen) return c.json({ error: 'Экран не найден' }, 404)
   const body = c.req.valid('json')
-  if (body.kind === 'image' && !body.imageUrl) return c.json({ error: 'Нужна картинка' }, 400)
-  if (body.kind === 'card' && screen.kind === 'slideshow') return c.json({ error: 'В слайдшоу — только картинки' }, 400)
+  const error = slideError(body)
+  if (error) return c.json({ error }, 400)
   const [last] = await db.select({ sortOrder: screenSlides.sortOrder }).from(screenSlides)
-    .where(eq(screenSlides.screenId, screen.id)).orderBy(desc(screenSlides.sortOrder)).limit(1)
+    .where(and(eq(screenSlides.screenId, screen.id), eq(screenSlides.placement, body.placement)))
+    .orderBy(desc(screenSlides.sortOrder)).limit(1)
   const [slide] = await db.insert(screenSlides)
     .values({ ...body, screenId: screen.id, sortOrder: (last?.sortOrder ?? -1) + 1 }).returning()
   return c.json({ slide }, 201)
@@ -272,8 +341,13 @@ screensRouter.patch('/:id/slides/:slideId', requireAuth, requireRole('owner'), z
   const screen = await findScreen(db, c.req.param('id'))
   const slideId = c.req.param('slideId')
   if (!screen || !UUID.test(slideId)) return c.json({ error: 'Слайд не найден' }, 404)
-  const [slide] = await db.update(screenSlides).set({ ...c.req.valid('json'), updatedAt: new Date() })
-    .where(and(eq(screenSlides.id, slideId), eq(screenSlides.screenId, screen.id))).returning()
+  const where = and(eq(screenSlides.id, slideId), eq(screenSlides.screenId, screen.id))
+  const [current] = await db.select().from(screenSlides).where(where)
+  if (!current) return c.json({ error: 'Слайд не найден' }, 404)
+  const patch = c.req.valid('json')
+  const error = slideError({ ...current, ...patch })
+  if (error) return c.json({ error }, 400)
+  const [slide] = await db.update(screenSlides).set({ ...patch, updatedAt: new Date() }).where(where).returning()
   if (!slide) return c.json({ error: 'Слайд не найден' }, 404)
   return c.json({ slide })
 })

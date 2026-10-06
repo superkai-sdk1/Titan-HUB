@@ -117,8 +117,10 @@ menuRouter.get('/slides', requireAuth, requireRole('owner', 'staff'), async (c) 
   const db = c.var.db
   const screen = await defaultMenuScreen(db)
   if (!screen) return c.json({ slides: [] })
+  // Только реклама ленты: элементы показа (миграция 069) старые сборки не знают.
   const slides = await db.select().from(screenSlides)
-    .where(eq(screenSlides.screenId, screen.id)).orderBy(asc(screenSlides.sortOrder), asc(screenSlides.createdAt))
+    .where(and(eq(screenSlides.screenId, screen.id), eq(screenSlides.placement, 'band')))
+    .orderBy(asc(screenSlides.sortOrder), asc(screenSlides.createdAt))
   return c.json({ slides })
 })
 
@@ -129,9 +131,10 @@ menuRouter.post('/slides', requireAuth, requireRole('owner'), zValidator('json',
   const screen = await defaultMenuScreen(db)
   if (!screen) return c.json({ error: 'Нет экрана меню — добавьте его в «Экранах»' }, 404)
   const [last] = await db.select({ sortOrder: screenSlides.sortOrder }).from(screenSlides)
-    .where(eq(screenSlides.screenId, screen.id)).orderBy(desc(screenSlides.sortOrder)).limit(1)
+    .where(and(eq(screenSlides.screenId, screen.id), eq(screenSlides.placement, 'band')))
+    .orderBy(desc(screenSlides.sortOrder)).limit(1)
   const [slide] = await db.insert(screenSlides)
-    .values({ ...body, screenId: screen.id, sortOrder: (last?.sortOrder ?? -1) + 1 }).returning()
+    .values({ ...body, screenId: screen.id, placement: 'band', sortOrder: (last?.sortOrder ?? -1) + 1 }).returning()
   return c.json({ slide }, 201)
 })
 

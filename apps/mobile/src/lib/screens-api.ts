@@ -3,7 +3,6 @@ import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
 import * as Network from 'expo-network';
 import { Alert, Linking } from 'react-native';
-import type { SFSymbol } from 'sf-symbols-typescript';
 
 import { api } from './api';
 import { queryClient } from './query';
@@ -12,9 +11,10 @@ import { useSession } from './session';
 
 /**
  * «Экраны» — телевизоры клуба с приложением Titan Menu (тот же раздел, что «Управление →
- * Экраны» в вебе). У каждого экрана свои настройки: что показывает (меню или слайдшоу),
- * как висит ТВ, тема и лента у меню, картинки у слайдшоу. Приставка просто показывает
- * то, что задано здесь, и подхватывает изменения в течение 20 секунд.
+ * Экраны» в вебе). У каждого экрана свои настройки: как висит ТВ, показ (по кругу меню
+ * и картинки на весь экран, у каждого своё время, анимация и её скорость), а если в
+ * показе есть меню — его тема, лента и реклама в ней. Приставка просто показывает то,
+ * что задано здесь, и подхватывает изменения в течение 20 секунд.
  *
  * Подключение ТВ: приставка без привязки показывает код и держит в локальной сети HTTP
  * на порту 8788. Телефон находит её перебором своей Wi‑Fi подсети (мультикаст в сетях
@@ -22,15 +22,20 @@ import { useSession } from './session';
  * его приставке вместе с кодом; дальше приставка сама получает свой токен.
  */
 
-export type ScreenKind = 'menu' | 'slideshow';
 export type Rotation = 0 | 90 | 270;
 export type Transition = 'fade' | 'slide' | 'zoom' | 'flip' | 'none';
 export type Fit = 'contain' | 'cover';
+/** 'show' — показ на весь экран (меню, картинки); 'band' — реклама в ленте меню. */
+export type Placement = 'show' | 'band';
+export type SlideKind = 'image' | 'card' | 'menu';
+
+/** Что в показе: есть ли меню и сколько картинок. */
+export type ShowSummary = { menu: boolean; images: number };
 
 export type Screen = {
   id: string;
   name: string;
-  kind: ScreenKind;
+  show: ShowSummary;
   rotation: Rotation;
   theme: string;
   bandSec: number;
@@ -44,39 +49,42 @@ export type Screen = {
   lastSeenAt: string | null;
 };
 
+/** Элемент экрана: в показе — меню или картинка, в ленте — картинка или карточка. */
 export type ScreenSlide = {
   id: string;
   screenId: string;
-  kind: 'image' | 'card';
+  placement: Placement;
+  kind: SlideKind;
   imageUrl: string | null;
   title: string | null;
   body: string | null;
   linkUrl: string | null;
   durationSec: number;
   transition: Transition;
+  transitionMs: number;
   fit: Fit;
   isActive: boolean;
   sortOrder: number;
 };
 
 export type SlideInput = {
-  kind: 'image' | 'card';
+  placement?: Placement;
+  kind: SlideKind;
   imageUrl?: string | null;
   title?: string | null;
   body?: string | null;
   linkUrl?: string | null;
   durationSec?: number;
   transition?: Transition;
+  transitionMs?: number;
   fit?: Fit;
   isActive?: boolean;
 };
 
-export type ScreenPatch = Partial<Pick<Screen, 'name' | 'kind' | 'rotation' | 'theme' | 'bandSec'>>;
+export type ScreenPatch = Partial<Pick<Screen, 'name' | 'rotation' | 'theme' | 'bandSec'>>;
 
-export const KINDS: { key: ScreenKind; label: string; note: string; icon: SFSymbol }[] = [
-  { key: 'menu', label: 'Меню', note: 'Цены из «Меню» и «Тарифов», лента и реклама внизу', icon: 'menucard' },
-  { key: 'slideshow', label: 'Слайдшоу', note: 'Картинки на весь экран по очереди', icon: 'photo.on.rectangle' },
-];
+/** GET /screens/:id — экран, его показ и реклама ленты. */
+export type ScreenDetail = { screen: Screen; show: ScreenSlide[]; slides: ScreenSlide[] };
 
 export const ROTATIONS: { key: Rotation; label: string }[] = [
   { key: 0, label: 'Горизонтально' },
@@ -107,8 +115,50 @@ export const THEMES: { key: string; name: string }[] = [
   { key: 'halloween', name: 'Хеллоуин' },
 ];
 
+/** Скорость анимации появления элемента показа. */
+export const SPEEDS: { ms: number; label: string }[] = [
+  { ms: 500, label: 'Быстро' },
+  { ms: 900, label: 'Обычно' },
+  { ms: 1600, label: 'Медленно' },
+];
+
 export const SLIDE_DURATIONS = [5, 8, 10, 15, 20, 30, 45, 60];
+export const MENU_DURATIONS = [15, 20, 30, 45, 60, 90, 120, 180, 300];
 export const BAND_DURATIONS = [10, 15, 20, 30, 45, 60];
+
+/** «45 с», «2 мин», «1,5 мин». */
+export function durationLabel(sec: number): string {
+  if (sec < 60) return `${sec} с`;
+  const min = sec / 60;
+  return `${Number.isInteger(min) ? min : min.toFixed(1).replace('.', ',')} мин`;
+}
+
+/** «Обычно», или «1,2 с», если скорость задана не из готовых. */
+export function speedLabel(ms: number): string {
+  return SPEEDS.find((s) => s.ms === ms)?.label ?? `${(ms / 1000).toFixed(1).replace('.', ',')} с`;
+}
+
+function plural(n: number, forms: [string, string, string]): string {
+  const m10 = n % 10;
+  const m100 = n % 100;
+  if (m10 === 1 && m100 !== 11) return forms[0];
+  if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return forms[1];
+  return forms[2];
+}
+
+/** «Меню», «Меню и 2 картинки», «5 картинок». */
+export function showLabel(show: ShowSummary): string {
+  const pics = show.images ? `${show.images} ${plural(show.images, ['картинка', 'картинки', 'картинок'])}` : '';
+  if (show.menu) return pics ? `Меню и ${pics}` : 'Меню';
+  return pics || 'Меню';
+}
+
+/** «10 с · Сдвиг», скорость — только если не обычная: «1 мин · Сдвиг · быстро». */
+export function showItemSummary(item: ScreenSlide): string {
+  const parts = [durationLabel(item.durationSec), TRANSITIONS.find((t) => t.key === item.transition)?.label ?? 'Растворение'];
+  if (item.transition !== 'none' && item.transitionMs !== 900) parts.push(speedLabel(item.transitionMs).toLowerCase());
+  return parts.join(' · ');
+}
 
 /** Список с текущим значением, даже если его нет среди готовых (задано в вебе). */
 export function withCurrent(values: number[], current: number): number[] {
@@ -155,13 +205,14 @@ export function useScreen(id: string | undefined) {
   const club = useClubKey();
   return useQuery({
     queryKey: screenKey(club, id ?? 'none'),
-    queryFn: () => api.get<{ screen: Screen; slides: ScreenSlide[] }>(`/screens/${id}`),
+    queryFn: () => api.get<ScreenDetail>(`/screens/${id}`),
     enabled: !!id,
     refetchInterval: 20_000,
   });
 }
 
-export async function createScreen(input: { name: string; kind: ScreenKind }): Promise<Screen> {
+/** Новый экран сразу показывает меню — картинки добавляются в его показ. */
+export async function createScreen(input: { name: string }): Promise<Screen> {
   const { screen } = await api.post<{ screen: Screen }>('/screens', input);
   refreshScreens();
   return screen;
@@ -206,6 +257,7 @@ export async function reorderSlides(screenId: string, items: { id: string; sortO
 export function myTitanSlide(): SlideInput {
   const host = useSession.getState().club?.host ?? 'titanpos.ru';
   return {
+    placement: 'band',
     kind: 'card',
     title: 'My Titan — твой клуб в телефоне',
     body: 'Баланс, бонусы и запись на игры. Наведи камеру на QR',
@@ -247,7 +299,7 @@ async function uploadAsset(asset: ImagePicker.ImagePickerAsset): Promise<string>
 
 /**
  * Картинки из галереи без обрезки (системная обрезка на iOS только квадратная).
- * `multiple` — для слайдшоу, до 10 штук за раз. `[]` — отменили или не дали доступ.
+ * `multiple` — для показа, до 10 штук за раз. `[]` — отменили или не дали доступ.
  */
 export async function pickScreenImages(multiple: boolean, onProgress?: (done: number, total: number) => void): Promise<string[]> {
   if (!(await mediaAllowed())) return [];

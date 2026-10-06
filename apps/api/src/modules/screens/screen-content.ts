@@ -86,16 +86,45 @@ export async function menuSections(db: Database): Promise<MenuSection[]> {
   return [...sections, ...menu]
 }
 
-/** Включённые слайды экрана по порядку: у карточек со ссылкой — готовый QR. */
-async function playerSlides(db: Database, screen: Screen) {
+export type ShowItem = {
+  kind: 'menu' | 'image'
+  imageUrl: string | null
+  durationSec: number
+  transition: string
+  transitionMs: number
+  fit: string
+}
+
+/** Показ, когда в нём ничего не включено: просто меню. */
+const MENU_ONLY: ShowItem[] = [{ kind: 'menu', imageUrl: null, durationSec: 60, transition: 'fade', transitionMs: 900, fit: 'contain' }]
+
+/**
+ * Включённые элементы экрана по порядку: показ (меню и картинки на весь экран) и
+ * реклама ленты меню (картинки и карточки, у карточек со ссылкой — готовый QR).
+ */
+async function screenContent(db: Database, screen: Screen) {
   const rows = await db.select().from(screenSlides)
     .where(and(eq(screenSlides.screenId, screen.id), eq(screenSlides.isActive, true)))
     .orderBy(asc(screenSlides.sortOrder), asc(screenSlides.createdAt))
-  const slides = []
+  const playlist: ShowItem[] = []
+  const band = []
   for (const sl of rows) {
+    if (sl.placement === 'show') {
+      if (sl.kind !== 'menu' && !(sl.kind === 'image' && sl.imageUrl)) continue
+      playlist.push({
+        kind: sl.kind === 'menu' ? 'menu' : 'image',
+        imageUrl: sl.kind === 'image' ? sl.imageUrl : null,
+        durationSec: sl.durationSec,
+        transition: sl.transition,
+        transitionMs: sl.transitionMs,
+        fit: sl.fit,
+      })
+      continue
+    }
     if (sl.kind === 'image' && !sl.imageUrl) continue
-    if (sl.kind === 'card' && (screen.kind === 'slideshow' || (!sl.title && !sl.body && !sl.linkUrl))) continue
-    slides.push({
+    if (sl.kind === 'card' && !sl.title && !sl.body && !sl.linkUrl) continue
+    if (sl.kind === 'menu') continue
+    band.push({
       kind: sl.kind,
       imageUrl: sl.kind === 'image' ? sl.imageUrl : null,
       title: sl.kind === 'card' ? sl.title : null,
@@ -106,7 +135,7 @@ async function playerSlides(db: Database, screen: Screen) {
       fit: sl.fit,
     })
   }
-  return slides
+  return { playlist: playlist.length ? playlist : MENU_ONLY, band }
 }
 
 async function venueName(db: Database): Promise<string | null> {
@@ -114,31 +143,45 @@ async function venueName(db: Database): Promise<string | null> {
   return row?.value || null
 }
 
-/** Экран для старой ссылки /menu — первый экран-меню (после миграции 068 он есть всегда). */
+/**
+ * Экран для старой ссылки /menu — первый экран, в показе которого есть меню (после
+ * миграции 069 у «Экрана меню» он есть всегда). Нет такого — просто меню без экрана.
+ */
 export async function defaultMenuScreen(db: Database): Promise<Screen | null> {
-  const [screen] = await db.select().from(screens)
-    .where(eq(screens.kind, 'menu')).orderBy(asc(screens.sortOrder), asc(screens.createdAt)).limit(1)
-  return screen ?? null
+  const [row] = await db.select({ screen: screens }).from(screens)
+    .innerJoin(screenSlides, and(
+      eq(screenSlides.screenId, screens.id),
+      eq(screenSlides.placement, 'show'),
+      eq(screenSlides.kind, 'menu'),
+      eq(screenSlides.isActive, true),
+    ))
+    .orderBy(asc(screens.sortOrder), asc(screens.createdAt)).limit(1)
+  return row?.screen ?? null
 }
 
-/** Всё, что нужно странице экрана (public/tv-menu.html) для показа. */
+/**
+ * Всё, что нужно странице экрана (public/tv-menu.html) для показа.
+ * playlist — показ по кругу; slides — реклама в ленте меню. kind оставлен для страниц,
+ * открытых до миграции 069: без меню в показе они видят слайдшоу из тех же картинок.
+ */
 export async function screenPayload(db: Database, screen: Screen | null) {
-  const kind = screen?.kind ?? 'menu'
   const theme = screen && (SCREEN_THEMES as readonly string[]).includes(screen.theme) ? screen.theme : 'night'
-  const [clubName, slides, sections] = await Promise.all([
+  const content = screen ? await screenContent(db, screen) : { playlist: MENU_ONLY, band: [] }
+  const hasMenu = content.playlist.some((item) => item.kind === 'menu')
+  const [clubName, sections] = await Promise.all([
     venueName(db),
-    screen ? playerSlides(db, screen) : Promise.resolve([]),
-    kind === 'menu' ? menuSections(db) : Promise.resolve([] as MenuSection[]),
+    hasMenu ? menuSections(db) : Promise.resolve([] as MenuSection[]),
   ])
   return {
     id: screen?.id ?? null,
     name: screen?.name ?? null,
-    kind,
+    kind: hasMenu ? 'menu' as const : 'slideshow' as const,
     rotation: screen?.rotation ?? 0,
     clubName,
     theme,
     bandSec: Math.min(300, Math.max(5, screen?.bandSec ?? 20)),
-    slides,
+    playlist: content.playlist,
+    slides: hasMenu ? content.band : content.playlist,
     sections,
   }
 }

@@ -1,8 +1,8 @@
 'use client'
 /**
  * «Экраны» — телевизоры клуба с приложением Titan Menu. Каждый экран настраивается
- * отдельно: тип (меню или слайдшоу), как висит ТВ, тема, слайды; приставка просто
- * показывает то, что задано здесь. Подключение ТВ — с телефона: Titan HUB находит
+ * отдельно: как висит ТВ, показ (меню и картинки по кругу), тема и реклама меню;
+ * приставка просто показывает то, что задано здесь. Подключение ТВ — с телефона: Titan HUB находит
  * приставку в локальной сети (Управление → Экраны → «Подключить ТВ»).
  */
 import React, { useState } from 'react'
@@ -15,21 +15,20 @@ import { StateView } from '@/components/StateView'
 import { useToast } from '@/components/Toast'
 import { useAuthStore } from '@/store/auth.store'
 import { PageHeader, Sheet, Button, INP, LBL } from '@/components/manage/DesignSystem'
-import { KINDS, ROTATIONS, SCREENS_KEY, deviceStatus, type Screen, type ScreenKind } from '@/lib/screens'
+import { ROTATIONS, SCREENS_KEY, deviceStatus, showLabel, type Screen } from '@/lib/screens'
 
 function ScreenCard({ s }: { s: Screen }) {
   const status = deviceStatus(s)
-  const kind = KINDS.find((k) => k.key === s.kind)
   const rotation = ROTATIONS.find((r) => r.key === s.rotation)
   return (
     <Link href={`/manage/screens/${s.id}`} style={{ textDecoration: 'none', color: 'inherit' }}>
       <div className="glass-l2" style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 16px', borderRadius: 18, border: '1px solid rgba(255,255,255,0.08)' }}>
         <div style={{ width: 44, height: 44, borderRadius: 13, flexShrink: 0, background: 'rgba(139,92,246,0.14)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <Icon name={s.kind === 'slideshow' ? 'slideshow' : 'tv'} size={21} color="#a78bfa" />
+          <Icon name={s.show.menu ? 'tv' : 'slideshow'} size={21} color="#a78bfa" />
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <p style={{ fontSize: 15, fontWeight: 700, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.name}</p>
-          <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: '2px 0 0' }}>{kind?.label} · {rotation?.short}</p>
+          <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: '2px 0 0' }}>{showLabel(s.show)} · {rotation?.short}</p>
           <p style={{ fontSize: 12, margin: '4px 0 0', display: 'flex', alignItems: 'center', gap: 6, color: status.color }}>
             <span style={{ width: 7, height: 7, borderRadius: 4, background: status.color, flexShrink: 0 }} />
             {status.label}
@@ -48,7 +47,6 @@ export default function ScreensPage() {
   const isOwner = (useAuthStore((s) => s.user)?.role ?? 'staff') === 'owner'
   const [adding, setAdding] = useState(false)
   const [name, setName] = useState('')
-  const [kind, setKind] = useState<ScreenKind>('slideshow')
 
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: SCREENS_KEY,
@@ -58,7 +56,7 @@ export default function ScreensPage() {
   const screens = data?.screens ?? []
 
   const create = useMutation({
-    mutationFn: () => api.post<{ screen: Screen }>('/screens', { name: name.trim(), kind }),
+    mutationFn: () => api.post<{ screen: Screen }>('/screens', { name: name.trim() }),
     onSuccess: (r) => {
       qc.invalidateQueries({ queryKey: SCREENS_KEY })
       setAdding(false)
@@ -82,7 +80,7 @@ export default function ScreensPage() {
         ) : isError ? (
           <StateView state="error" title="Экраны не загрузились" action={{ label: 'Повторить', onClick: () => void refetch() }} />
         ) : screens.length === 0 ? (
-          <StateView state="empty" icon="tv" title="Экранов пока нет" description="Добавьте экран — меню или слайдшоу — и подключите к нему телевизор с телефона." />
+          <StateView state="empty" icon="tv" title="Экранов пока нет" description="Добавьте экран, соберите показ из меню и картинок и подключите к нему телевизор с телефона." />
         ) : (
           screens.map((s) => <ScreenCard key={s.id} s={s} />)
         )}
@@ -98,7 +96,7 @@ export default function ScreensPage() {
             <li>Выберите приставку с тем же кодом и экран, который она будет показывать.</li>
           </ol>
           <p style={{ fontSize: 12, margin: 0, color: 'var(--on-surface-variant)' }}>
-            Дальше всё настраивается здесь: тип, как висит ТВ, тема и слайды. Приставка подхватывает изменения в течение 20 секунд.
+            Дальше всё настраивается здесь: как висит ТВ, показ из меню и картинок, тема и реклама. Приставка подхватывает изменения в течение 20 секунд.
           </p>
         </section>
       </div>
@@ -109,33 +107,9 @@ export default function ScreensPage() {
             <label style={LBL}>Название</label>
             <input style={INP} value={name} maxLength={60} placeholder="Например: ТВ у бара" autoFocus onChange={(e) => setName(e.target.value)} />
           </div>
-          <div>
-            <label style={LBL}>Что показывает</label>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {KINDS.map((k) => {
-                const active = kind === k.key
-                return (
-                  <button
-                    key={k.key}
-                    onClick={() => setKind(k.key)}
-                    aria-pressed={active}
-                    style={{
-                      display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', borderRadius: 14, textAlign: 'left', cursor: 'pointer',
-                      border: active ? '1.5px solid #a78bfa' : '1px solid rgba(255,255,255,0.1)',
-                      background: active ? 'rgba(139,92,246,0.12)' : 'rgba(255,255,255,0.03)', color: 'inherit',
-                    }}
-                  >
-                    <Icon name={k.icon} size={20} color={active ? '#c4b5fd' : 'var(--on-surface-variant)'} />
-                    <span style={{ flex: 1 }}>
-                      <span style={{ display: 'block', fontSize: 14, fontWeight: 700 }}>{k.label}</span>
-                      <span style={{ display: 'block', fontSize: 12, color: 'var(--on-surface-variant)', marginTop: 1 }}>{k.note}</span>
-                    </span>
-                    {active && <Icon name="check" size={18} color="#c4b5fd" />}
-                  </button>
-                )
-              })}
-            </div>
-          </div>
+          <p style={{ fontSize: 12.5, color: 'var(--on-surface-variant)', margin: 0, lineHeight: 1.5 }}>
+            Новый экран сразу показывает меню. Картинки, их порядок, время и анимации добавите в его настройках.
+          </p>
           <Button fullWidth loading={create.isPending} disabled={!name.trim()} onClick={() => create.mutate()}>Создать экран</Button>
         </div>
       </Sheet>

@@ -1,8 +1,9 @@
 'use client'
 /**
- * Настройка одного экрана (Управление → Экраны → экран): что показывает, как висит
- * ТВ, тема и лента (меню) или картинки (слайдшоу), привязанная приставка. Всё
- * сохраняется сразу — приставка подхватывает изменения в течение 20 секунд.
+ * Настройка одного экрана (Управление → Экраны → экран): как висит ТВ, показ (по
+ * кругу меню и картинки со своими временем, анимацией и скоростью), а если в показе
+ * есть меню — его тема, лента и реклама в ней; привязанная приставка. Всё сохраняется
+ * сразу — приставка подхватывает изменения в течение 20 секунд.
  */
 import React, { use, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
@@ -15,13 +16,14 @@ import { useAuthStore } from '@/store/auth.store'
 import { PageHeader, Button, ConfirmDialog, Chip, INP, LBL } from '@/components/manage/DesignSystem'
 import { ScreenThemePicker } from '@/components/manage/screens/ScreenThemePicker'
 import { ScreenSlides } from '@/components/manage/screens/ScreenSlides'
+import { ScreenShow } from '@/components/manage/screens/ScreenShow'
 import {
-  BAND_DURATIONS, KINDS, ROTATIONS, SCREENS_KEY, deviceStatus, screenKey,
-  type Screen, type ScreenSlide,
+  BAND_DURATIONS, ROTATIONS, SCREENS_KEY, deviceStatus, screenKey, showLabel, withCurrent,
+  type Screen, type ScreenDetail,
 } from '@/lib/screens'
 
-type Detail = { screen: Screen; slides: ScreenSlide[] }
-type ScreenPatch = Partial<Pick<Screen, 'name' | 'kind' | 'rotation' | 'bandSec'>>
+type Detail = ScreenDetail
+type ScreenPatch = Partial<Pick<Screen, 'name' | 'rotation' | 'bandSec'>>
 
 const CARD: React.CSSProperties = { borderRadius: 18, padding: 16, border: '1px solid rgba(255,255,255,0.08)', display: 'flex', flexDirection: 'column', gap: 14 }
 const SEL: React.CSSProperties = { padding: '8px 10px', borderRadius: 10, border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(255,255,255,0.04)', color: 'var(--on-surface)', fontSize: 13 }
@@ -97,11 +99,13 @@ export default function ScreenEditorPage({ params }: { params: Promise<{ id: str
   }
 
   const status = deviceStatus(screen)
-  const isShow = screen.kind === 'slideshow'
+  // Оформление и лента нужны, только если меню есть в показе (пустой показ — тоже меню).
+  const active = data.show.filter((x) => x.isActive)
+  const hasMenu = active.length === 0 || active.some((x) => x.kind === 'menu')
 
   return (
     <div style={{ minHeight: '100dvh', display: 'flex', flexDirection: 'column' }}>
-      <PageHeader title={screen.name} subtitle={KINDS.find((k) => k.key === screen.kind)?.label} onBack={back} />
+      <PageHeader title={screen.name} subtitle={showLabel(screen.show)} onBack={back} />
       <div style={{ padding: '16px 16px var(--bottom-nav-clear, 24px)', maxWidth: 'var(--content-narrow)', margin: '0 auto', width: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', gap: 16 }}>
 
         {/* Приставка */}
@@ -132,7 +136,7 @@ export default function ScreenEditorPage({ params }: { params: Promise<{ id: str
 
         {/* Экран */}
         <section className="glass-l2" style={CARD}>
-          <Title icon={isShow ? 'slideshow' : 'restaurant_menu'}>Экран</Title>
+          <Title icon="tv">Экран</Title>
           <div>
             <label style={LBL}>Название</label>
             <input
@@ -141,15 +145,6 @@ export default function ScreenEditorPage({ params }: { params: Promise<{ id: str
               onBlur={saveName}
               onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
             />
-          </div>
-          <div>
-            <label style={LBL}>Что показывает</label>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-              {KINDS.map((k) => (
-                <Chip key={k.key} icon={k.icon} active={screen.kind === k.key} onClick={() => isOwner && screen.kind !== k.key && save.mutate({ kind: k.key })}>{k.label}</Chip>
-              ))}
-            </div>
-            <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', margin: '8px 2px 0' }}>{KINDS.find((k) => k.key === screen.kind)?.note}</p>
           </div>
           <div>
             <label style={LBL}>Как висит телевизор</label>
@@ -164,15 +159,15 @@ export default function ScreenEditorPage({ params }: { params: Promise<{ id: str
           </div>
         </section>
 
-        {isShow ? (
-          <section className="glass-l2" style={CARD}>
-            <Title icon="image">Картинки</Title>
-            <p style={{ fontSize: 12.5, color: 'var(--on-surface-variant)', margin: 0, lineHeight: 1.5 }}>
-              Показываются по очереди на весь экран. У каждой — своё время, анимация смены и вписывание: «Целиком» показывает картинку полностью на приглушённом фоне, «Во весь экран» обрезает края.
-            </p>
-            <ScreenSlides screen={screen} slides={data.slides} isOwner={isOwner} />
-          </section>
-        ) : (
+        <section className="glass-l2" style={CARD}>
+          <Title icon="slideshow">Показ</Title>
+          <p style={{ fontSize: 12.5, color: 'var(--on-surface-variant)', margin: 0, lineHeight: 1.5 }}>
+            Экран показывает элементы по кругу, сверху вниз. Картинка появляется поверх меню на весь экран, меню — из-под уходящей картинки. Нажмите на элемент, чтобы задать время, анимацию и её скорость.
+          </p>
+          <ScreenShow screen={screen} items={data.show} isOwner={isOwner} />
+        </section>
+
+        {hasMenu && (
           <>
             <section className="glass-l2" style={CARD}>
               <Title icon="restaurant_menu">Оформление</Title>
@@ -189,7 +184,7 @@ export default function ScreenEditorPage({ params }: { params: Promise<{ id: str
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
                 <span style={{ fontSize: 13.5 }}>Лента тарифов и кабинок на экране</span>
                 <select style={SEL} value={screen.bandSec} disabled={!isOwner} onChange={(e) => save.mutate({ bandSec: Number(e.target.value) })} aria-label="Время ленты">
-                  {(BAND_DURATIONS.includes(screen.bandSec) ? BAND_DURATIONS : [...BAND_DURATIONS, screen.bandSec].sort((a, b) => a - b)).map((s) => <option key={s} value={s}>{s} с</option>)}
+                  {withCurrent(BAND_DURATIONS, screen.bandSec).map((s) => <option key={s} value={s}>{s} с</option>)}
                 </select>
               </div>
               <ScreenSlides screen={screen} slides={data.slides} isOwner={isOwner} />
@@ -217,7 +212,7 @@ export default function ScreenEditorPage({ params }: { params: Promise<{ id: str
         onClose={() => setConfirm(null)}
         onConfirm={() => remove.mutate()}
         title={`Удалить «${screen.name}»?`}
-        message="Настройки и слайды экрана удалятся, привязанная приставка вернётся к экрану подключения."
+        message="Настройки, показ и реклама экрана удалятся, привязанная приставка вернётся к экрану подключения."
         confirmLabel="Удалить"
         danger
         loading={remove.isPending}

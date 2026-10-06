@@ -6,7 +6,7 @@ import { Alert } from 'react-native';
 import { ActionRow, LinkRow, secondary } from '@/components/native-form';
 import { chooseAction, promptText, type DialogButton } from '@/lib/dialog';
 import { haptic } from '@/lib/haptics';
-import { KINDS, createScreen, pairTv, probeTv, scanForTvs, useScreens, type FoundTv, type Screen, type ScreenKind } from '@/lib/screens-api';
+import { createScreen, pairTv, probeTv, scanForTvs, useScreens, type FoundTv, type Screen } from '@/lib/screens-api';
 
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
@@ -109,21 +109,11 @@ export default function ConnectTvScreen() {
         {
           text: 'Дальше',
           onPress: (value?: string) => {
+            // Новый экран сразу показывает меню; картинки добавляются в его показ потом.
             const name = (value ?? '').trim() || `ТВ ${tv.code}`;
-            chooseAction(
-              'Что будет показывать?',
-              undefined,
-              [
-                ...KINDS.map((k) => ({
-                  text: k.label,
-                  onPress: () =>
-                    void createScreen({ name, kind: k.key as ScreenKind })
-                      .then((screen) => connect(tv, screen))
-                      .catch((error: unknown) => Alert.alert('Экран не создан', errorText(error))),
-                })),
-                { text: 'Отмена', style: 'cancel' },
-              ],
-            );
+            void createScreen({ name })
+              .then((screen) => connect(tv, screen))
+              .catch((error: unknown) => Alert.alert('Экран не создан', errorText(error)));
           },
         },
       ],

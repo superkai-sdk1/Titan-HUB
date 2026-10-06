@@ -92,8 +92,11 @@ export const tariffs = pgTable('tariffs', {
 export const screenSlides = pgTable('screen_slides', {
   id: uuid('id').primaryKey().defaultRandom(),
   screenId: uuid('screen_id').references(() => screens.id, { onDelete: 'cascade' }),
-  kind: text('kind').$type<'image' | 'card'>().notNull().default('image'),
+  // 'band' — реклама в ленте меню (image|card); 'show' — элемент показа (menu|image), миграция 069.
+  placement: text('placement').$type<'band' | 'show'>().notNull().default('band'),
+  kind: text('kind').$type<'image' | 'card' | 'menu'>().notNull().default('image'),
   transition: text('transition').$type<'fade' | 'slide' | 'zoom' | 'flip' | 'none'>().notNull().default('fade'),
+  transitionMs: integer('transition_ms').notNull().default(900),
   fit: text('fit').$type<'contain' | 'cover'>().notNull().default('contain'),
   imageUrl: text('image_url'),
   title: text('title'),

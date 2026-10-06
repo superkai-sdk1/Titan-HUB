@@ -3,12 +3,12 @@ import { refreshable } from '@expo/ui/swift-ui/modifiers';
 import { Stack, useRouter } from 'expo-router';
 
 import { ActionRow, LinkRow } from '@/components/native-form';
-import { KINDS, ROTATIONS, deviceStatus, useScreens } from '@/lib/screens-api';
+import { ROTATIONS, deviceStatus, showLabel, useScreens } from '@/lib/screens-api';
 import { useSession } from '@/lib/session';
 
 /**
- * «Экраны» — телевизоры клуба с приложением Titan Menu. У каждого свои настройки (что
- * показывает, как висит, тема, слайды); подключить новый ТВ — поиском в Wi‑Fi сети.
+ * «Экраны» — телевизоры клуба с приложением Titan Menu. У каждого свои настройки (как
+ * висит, показ из меню и картинок, тема, реклама); подключить новый ТВ — поиском в Wi‑Fi сети.
  */
 export default function ScreensScreen() {
   const router = useRouter();
@@ -43,21 +43,20 @@ export default function ScreensScreen() {
           ]}>
           <Section
             title="Телевизоры"
-            footer={<Text>У каждого экрана свои настройки: меню или слайдшоу, как висит ТВ, тема и картинки. Приставка подхватывает изменения за 20 секунд.</Text>}>
+            footer={<Text>У каждого экрана свои настройки: как висит ТВ, показ из меню и картинок, тема и реклама. Приставка подхватывает изменения за 20 секунд.</Text>}>
             {list.length === 0 ? (
               <Text>Экранов пока нет</Text>
             ) : (
               list.map((s) => {
                 const status = deviceStatus(s);
-                const kind = KINDS.find((k) => k.key === s.kind);
                 const rotation = ROTATIONS.find((r) => r.key === s.rotation);
                 return (
                   <LinkRow
                     key={s.id}
-                    icon={s.kind === 'slideshow' ? 'photo.on.rectangle' : 'tv'}
-                    color={s.kind === 'slideshow' ? '#FF9500' : '#8B5CF6'}
+                    icon={s.show.menu ? 'tv' : 'photo.on.rectangle'}
+                    color={s.show.menu ? '#8B5CF6' : '#FF9500'}
                     title={s.name}
-                    subtitle={`${kind?.label ?? ''} · ${rotation?.label ?? ''} · ${status.label}`}
+                    subtitle={`${showLabel(s.show)} · ${rotation?.label ?? ''} · ${status.label}`}
                     onPress={() => router.push({ pathname: '/manage/screens/[screenId]', params: { screenId: s.id } })}
                   />
                 );

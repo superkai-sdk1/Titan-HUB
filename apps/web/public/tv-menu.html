@@ -6,7 +6,9 @@
 <meta name="robots" content="noindex">
 <title>Titan Menu</title>
 <!--
-  Меню для экрана ТВ (AbleSign) — отдаётся по /menu (rewrite в next.config.ts).
+  Экран ТВ (Titan Menu, AbleSign) — отдаётся по /screen/<id> и /menu (rewrite в
+  next.config.ts). Показывает по кругу «показ» экрана из раздела «Экраны»: меню клуба
+  и картинки на весь экран, у каждого своё время, анимация входа и её скорость.
 
   Намеренно БЕЗ React/Next и без оболочки приложения: плееры вывесок открывают
   ссылку во встроенном WebView, часто устаревшем или с отключённым хранилищем, и
@@ -361,12 +363,15 @@ html.t-halloween, .t-halloween body { background: #0b0712; }
 .t-halloween .seg { background: rgba(255,138,31,.2); }
 .t-halloween .seg-fill { background: #ff8a1f; }
 
-/* Слайдшоу (экран с типом «Слайдшоу» в «Экранах»): картинки на весь экран, у каждой
-   своё время и анимация смены. Только 2D (opacity/transform): 3D плееры рисуют с
-   артефактами. Вписывание — целиком на приглушённой копии (contain) или во весь экран. */
-.show { display: none; position: absolute; top: 0; left: 0; right: 0; bottom: 0; overflow: hidden; background: #0b0810; }
-.mode-show .show { display: block; }
+/* Показ экрана (раздел «Экраны»): по кругу меню и картинки на весь экран, у каждого
+   своё время, анимация входа и её скорость. Картинки — слоями поверх меню; меню
+   появляется, когда картинка уходит. Только 2D (opacity/transform): 3D плееры рисуют
+   с артефактами. Вписывание — целиком на приглушённой копии (contain) или во весь экран.
+   Пока картинка закрывает экран (.covered), меню под ней скрыто и не анимируется. */
+.show { position: absolute; top: 0; left: 0; right: 0; bottom: 0; overflow: hidden; pointer-events: none; }
+.mode-show .show { background: #0b0810; }
 .mode-show .header, .mode-show .body, .mode-show .bg { display: none; }
+.covered .header, .covered .body, .covered .bg { visibility: hidden; }
 .sl { position: absolute; top: 0; left: 0; width: 100%; height: 100%; overflow: hidden; background: #0b0810;
   -webkit-transition: opacity .9s ease, -webkit-transform .9s cubic-bezier(.22,.61,.36,1); transition: opacity .9s ease, transform .9s cubic-bezier(.22,.61,.36,1); }
 .sl-fill, .sl-pic { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background-position: center; background-repeat: no-repeat; }
@@ -379,9 +384,9 @@ html.t-halloween, .t-halloween body { background: #0b0712; }
 .sl.pre-slide { -webkit-transform: translateX(100%); transform: translateX(100%); }
 .sl.post-slide { -webkit-transform: translateX(-100%); transform: translateX(-100%); }
 .sl.pre-flip, .sl.post-flip { -webkit-transform: scaleX(.01); transform: scaleX(.01); }
-.sl.half { -webkit-transition-duration: .45s; transition-duration: .45s; }
+.sl.post-fade { opacity: 0; }
+.sl.post-zoom { opacity: 0; -webkit-transform: scale(1.08); transform: scale(1.08); }
 .sl.instant { -webkit-transition: none; transition: none; }
-.show-empty { position: absolute; top: 50%; left: 8%; right: 8%; -webkit-transform: translateY(-50%); transform: translateY(-50%); text-align: center; color: rgba(243,238,248,.72); font-size: 4vmin; font-weight: 600; line-height: 1.45; }
 
 @media (prefers-reduced-motion: reduce) {
   .sheen { -webkit-animation: none; animation: none; }
@@ -463,7 +468,7 @@ html.t-halloween, .t-halloween body { background: #0b0712; }
 
   var $ = function (id) { return document.getElementById(id); };
   var errors = [];
-  var state = { mode: 'menu', data: null, raw: null, plan: null, sig: null, sp: null, geo: null, page: 0, rendered: false, ready: false, quiet: false, timers: [], loads: 0, renders: 0, lastWhy: '' };
+  var state = { data: null, raw: null, plan: null, sig: null, sp: null, geo: null, page: 0, rendered: false, ready: false, quiet: false, timers: [], loads: 0, renders: 0, lastWhy: '' };
 
   function showMsg() {
     var el = $('msg');
@@ -758,7 +763,9 @@ html.t-halloween, .t-halloween body { background: #0b0712; }
   // why: 'data' — меню изменилось (перерисовка с появлением); 'resize' / 'fonts' —
   // тихая перестройка без анимации, если раскладка вообще поменялась.
   function relayout(why) {
-    if (state.mode === 'show') return;
+    // Меню не показывается (в показе одни картинки) или закрыто картинкой — перестроим,
+    // когда оно снова выйдет на экран (setCovered).
+    if (!play.hasMenu || play.covered) return;
     try {
       var geo = geometry();
       var root = $('root');
@@ -796,7 +803,7 @@ html.t-halloween, .t-halloween body { background: #0b0712; }
       if (state.page >= next.pages.length) state.page = 0;
       var first = !state.rendered;
       state.renders++;
-      state.lastWhy = first ? 'первый показ' : why === 'data' ? 'меню изменилось' : why === 'theme' ? 'тема' : why === 'resize' ? 'размер экрана' : 'шрифт';
+      state.lastWhy = first ? 'первый показ' : why === 'data' ? 'меню изменилось' : why === 'theme' ? 'тема' : why === 'resize' ? 'размер экрана' : why === 'reveal' ? 'показ меню' : 'шрифт';
       renderPage(first ? (state.quiet ? 'silent' : 'enter') : why === 'data' || why === 'theme' ? 'enter' : 'silent');
     } catch (e) {
       report('Раскладка: ' + (e && e.message ? e.message : e));
@@ -1061,14 +1068,15 @@ html.t-halloween, .t-halloween body { background: #0b0712; }
     }, ms));
   }
 
-  // ── Слайдшоу ──────────────────────────────────────────────────────────────
-  // Картинки по очереди, у каждой своё время (durationSec) и анимация смены
-  // (transition): растворение, сдвиг, приближение, плоский переворот или без анимации.
+  // ── Показ ─────────────────────────────────────────────────────────────────
+  // Элементы показа по кругу: меню или картинка, у каждого своё время (durationSec),
+  // анимация входа (transition) и её скорость (transitionMs). Картинка входит поверх
+  // того, что на экране; меню появляется из-под уходящей картинки той же анимацией.
   // Следующую картинку грузим заранее и меняем, только когда она готова (≤4 с).
 
-  var show = { list: [], sig: '', index: -1, layer: null, timer: null };
+  var play = { list: [], sig: '', index: -1, layer: null, timer: null, gen: 0, covered: false, hasMenu: true, warm: '' };
   var TRANSITIONS = { fade: 1, slide: 1, zoom: 1, flip: 1, none: 1 };
-  var FLIP_HALF_MS = 450, SWAP_MS = 1000;
+  var MENU_ITEM = { kind: 'menu', durationSec: 60, transition: 'fade', transitionMs: 900 };
 
   function setRootClass(name, on) {
     var root = $('root');
@@ -1077,6 +1085,29 @@ html.t-halloween, .t-halloween body { background: #0b0712; }
   }
 
   function dropLayer(el) { if (el && el.parentNode) el.parentNode.removeChild(el); }
+  // Убрать всё, что осталось от прерванных смен, кроме текущей картинки.
+  function sweep() {
+    var box = $('show'), kids = box.children;
+    for (var i = kids.length - 1; i >= 0; i--) if (kids[i] !== play.layer) box.removeChild(kids[i]);
+  }
+
+  function itemMs(it) { return Math.max(3, Number(it.durationSec) || 10) * 1000; }
+  function transitionOf(it) { return TRANSITIONS[it.transition] ? it.transition : 'fade'; }
+  // Скорость анимации — не дольше половины времени показа элемента.
+  function speedOf(it) {
+    var v = Number(it.transitionMs);
+    return Math.min(v >= 200 && v <= 5000 ? v : 900, itemMs(it) / 2);
+  }
+  function setSpeed(el, ms) {
+    el.style.webkitTransitionDuration = ms + 'ms';
+    el.style.transitionDuration = ms + 'ms';
+  }
+  // Уход картинки: класс конечного состояния с нужной скоростью (и с анимацией, даже
+  // если сама она появилась мгновенно).
+  function leave(el, t, ms) {
+    el.className = el.className.replace(' instant', '') + ' post-' + t;
+    setSpeed(el, ms);
+  }
 
   function slideLayer(sl) {
     var el = document.createElement('div');
@@ -1095,100 +1126,142 @@ html.t-halloween, .t-halloween body { background: #0b0712; }
     im.src = url;
   }
 
-  // Новая картинка поверх текущей; старую убираем, когда анимация закончилась.
-  function transitionTo(sl, first) {
-    var box = $('show'), old = show.layer, el = slideLayer(sl);
-    var t = first ? (state.quiet ? 'none' : 'fade') : (TRANSITIONS[sl.transition] ? sl.transition : 'fade');
-    show.layer = el;
-    if (first) box.innerHTML = '';
+  // Все картинки показа — по одной заранее: приставка сохраняет их на диск и покажет
+  // без интернета даже те, до которых очередь ещё не дошла.
+  function warmImages(list) {
+    var urls = [];
+    list.forEach(function (it) { if (it.kind === 'image') urls.push(it.imageUrl); });
+    var sig = urls.join('|');
+    if (sig === play.warm) return;
+    play.warm = sig;
+    (function next(i) {
+      if (i >= urls.length || play.warm !== sig) return;
+      whenLoaded(urls[i], function () { next(i + 1); });
+    })(0);
+  }
+
+  // Картинка закрыла экран — меню под ней прячем и останавливаем; открылась — меню
+  // рисуем заново, без вступительной анимации (её роль играет уход картинки).
+  function setCovered(on) {
+    if (play.covered === on) return;
+    play.covered = on;
+    setRootClass('covered', on);
+    if (on) { clearTimers(); clearSlot(); return; }
+    state.sig = null;
+    relayout('reveal');
+  }
+
+  // Картинка входит поверх текущего (меню или прошлой картинки).
+  function coverWith(sl, first) {
+    var gen = ++play.gen;
+    var box = $('show'), old = play.layer && play.layer.parentNode ? play.layer : null, el = slideLayer(sl);
+    var t = first ? (state.quiet ? 'none' : 'fade') : transitionOf(sl);
+    var ms = speedOf(sl);
+    play.layer = el;
+    function settle() { if (gen !== play.gen) return; sweep(); setCovered(true); }
     if (t === 'none') {
       el.className += ' instant';
       box.appendChild(el);
-      dropLayer(old);
+      settle();
       return;
     }
     if (t === 'flip') {
-      // Плоский «переворот»: старая сжимается к вертикальной оси, новая раскрывается.
-      if (old) old.className += ' half post-flip';
-      el.className += ' half pre-flip';
+      // Плоский «переворот»: прошлая картинка сжимается к вертикальной оси, новая раскрывается.
+      var half = Math.round(ms / 2);
+      setSpeed(el, half);
+      el.className += ' pre-flip';
+      if (old) leave(old, 'flip', half);
       setTimeout(function () {
+        if (gen !== play.gen) return;
         dropLayer(old);
         box.appendChild(el);
         el.offsetWidth; // применить исходное состояние до перехода
         el.className = el.className.replace(' pre-flip', '');
-      }, old ? FLIP_HALF_MS : 0);
+        setTimeout(settle, half + 50);
+      }, old ? half : 0);
       return;
     }
+    setSpeed(el, ms);
     el.className += ' pre-' + t;
     box.appendChild(el);
     el.offsetWidth; // применить исходное состояние до перехода
     el.className = el.className.replace(' pre-' + t, '');
-    if (old && t === 'slide') old.className += ' post-slide';
-    if (old) setTimeout(function () { dropLayer(old); }, SWAP_MS);
+    if (old && t === 'slide') leave(old, 'slide', ms);
+    setTimeout(settle, ms + 50);
   }
 
-  function showNext() {
-    clearTimeout(show.timer);
-    var list = show.list;
+  // Меню выходит на экран: картинка над ним уходит анимацией элемента «Меню».
+  function revealMenu(it, first) {
+    var gen = ++play.gen;
+    var old = play.layer && play.layer.parentNode ? play.layer : null;
+    play.layer = null;
+    setCovered(false);
+    var t = first || !old ? 'none' : transitionOf(it);
+    var ms = speedOf(it);
+    function settle() { if (gen === play.gen) sweep(); }
+    if (t === 'none') { settle(); return; }
+    leave(old, t, ms);
+    setTimeout(settle, ms + 50);
+  }
+
+  function playNext() {
+    clearTimeout(play.timer);
+    var list = play.list;
     if (!list.length) return;
-    var i = (show.index + 1) % list.length;
-    var sl = list[i];
-    if (list.length === 1 && show.layer && show.index === 0) return; // одна картинка — просто стоит
-    whenLoaded(sl.imageUrl, function () {
-      if (show.list !== list) return; // пока грузили, список сменился
-      transitionTo(sl, !show.layer);
-      show.index = i;
-      var after = list[(i + 1) % list.length];
-      if (after && after !== sl) whenLoaded(after.imageUrl, function () {});
-      if (list.length > 1) show.timer = setTimeout(showNext, Math.max(3, Number(sl.durationSec) || 10) * 1000);
+    var i = (play.index + 1) % list.length;
+    if (list.length === 1 && play.index === 0) return; // один элемент — просто стоит
+    var it = list[i];
+    var go = function () {
+      if (play.list !== list) return; // пока грузили, показ сменился
+      var first = play.index < 0 && !play.layer;
+      if (it.kind === 'image') coverWith(it, first);
+      else revealMenu(it, first);
+      play.index = i;
+      if (list.length > 1) play.timer = setTimeout(playNext, itemMs(it));
+    };
+    if (it.kind === 'image') whenLoaded(it.imageUrl, go);
+    else go();
+  }
+
+  function sameItem(a, b) { return a.kind === b.kind && (a.kind === 'menu' || a.imageUrl === b.imageUrl); }
+
+  // Показ из ответа сервера. Сервер до миграции 069 (или старый кэш) показа не знает:
+  // слайдшоу — его картинки, иначе — одно меню.
+  function playlistOf(data) {
+    var src = data.playlist;
+    if (!src || !src.length) src = data.kind === 'slideshow' ? data.slides || [] : [MENU_ITEM];
+    var list = [];
+    src.forEach(function (it) {
+      if (it && it.kind === 'menu') list.push(it);
+      else if (it && it.kind === 'image' && it.imageUrl) list.push(it);
     });
+    return list.length ? list : [MENU_ITEM];
   }
 
-  function enterShow(data) {
-    if (state.mode !== 'show') {
-      state.mode = 'show';
-      clearTimers();
-      clearSlot();
-      $('body').innerHTML = '';
-      setRootClass('mode-show', true);
-    }
-    state.rendered = true;
-    var list = (data.slides || []).filter(function (s) { return s && s.kind === 'image' && s.imageUrl; });
+  function hasMenuIn(list) {
+    for (var i = 0; i < list.length; i++) if (list[i].kind === 'menu') return true;
+    return false;
+  }
+
+  function updatePlay(list) {
     var sig = JSON.stringify(list);
-    if (sig === show.sig) return;
-    show.sig = sig;
-    var current = show.layer && show.list[show.index];
-    show.list = list;
-    if (!list.length) {
-      clearTimeout(show.timer);
-      show.layer = null;
-      show.index = -1;
-      $('show').innerHTML = '<div class="show-empty">Слайдов пока нет.<br>Добавьте картинки в Titan HUB → Управление → Экраны.</div>';
-      return;
-    }
-    // Текущая картинка осталась в списке — досматриваем её и идём дальше по новому.
-    var keep = -1;
-    for (var i = 0; current && i < list.length; i++) if (list[i].imageUrl === current.imageUrl) { keep = i; break; }
+    if (sig === play.sig) return;
+    play.sig = sig;
+    warmImages(list);
+    var current = play.index >= 0 ? play.list[play.index] : null;
+    play.list = list;
+    // Текущий элемент остался в показе — досматриваем его и идём дальше по новому
+    // (сначала на прежнем месте: меню в показе может стоять не один раз).
+    var keep = current && play.index < list.length && sameItem(list[play.index], current) ? play.index : -1;
+    for (var i = 0; current && keep < 0 && i < list.length; i++) if (sameItem(list[i], current)) keep = i;
     if (keep >= 0) {
-      show.index = keep;
-      clearTimeout(show.timer);
-      if (list.length > 1) show.timer = setTimeout(showNext, Math.max(3, Number(list[keep].durationSec) || 10) * 1000);
+      play.index = keep;
+      clearTimeout(play.timer);
+      if (list.length > 1) play.timer = setTimeout(playNext, itemMs(list[keep]));
       return;
     }
-    show.index = -1;
-    showNext();
-  }
-
-  function leaveShow() {
-    state.mode = 'menu';
-    clearTimeout(show.timer);
-    show.sig = '';
-    show.list = [];
-    show.layer = null;
-    show.index = -1;
-    $('show').innerHTML = '';
-    setRootClass('mode-show', false);
-    state.sig = null; // меню рисуем заново, даже если оно не менялось
+    play.index = -1;
+    playNext();
   }
 
   // ── Данные ────────────────────────────────────────────────────────────────
@@ -1200,11 +1273,21 @@ html.t-halloween, .t-halloween body { background: #0b0712; }
     if (!parsed || !parsed.sections) return;
     state.raw = raw;
     state.data = parsed;
-    if (parsed.kind === 'slideshow') { enterShow(parsed); return; }
-    if (state.mode === 'show') leaveShow();
-    var want = URL_THEME || (isTheme(parsed.theme) ? parsed.theme : 'night');
-    if (want !== THEME) { switchTheme(want); return; }
-    relayout('data');
+    var list = playlistOf(parsed);
+    var hasMenu = hasMenuIn(list);
+    if (hasMenu !== play.hasMenu) {
+      play.hasMenu = hasMenu;
+      setRootClass('mode-show', !hasMenu);
+      if (!hasMenu) { clearTimers(); clearSlot(); $('body').innerHTML = ''; }
+      state.sig = null; // меню вернулось — рисуем заново, даже если оно не менялось
+    }
+    state.rendered = state.rendered || !hasMenu;
+    if (hasMenu) {
+      var want = URL_THEME || (isTheme(parsed.theme) ? parsed.theme : 'night');
+      if (want !== THEME) switchTheme(want);
+      else relayout('data');
+    }
+    updatePlay(list);
   }
 
   function load() {
