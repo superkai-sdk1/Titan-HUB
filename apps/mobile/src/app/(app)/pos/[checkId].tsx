@@ -39,10 +39,15 @@ export default function CheckScreen() {
     if (host && checkId) void markCheckNotificationsRead(host, { id: checkId, spaceId });
   }, [host, checkId, spaceId]);
 
+  // В меню — только то, чего нет на экране: клиенты открываются тапом по карточке клиента,
+  // позиции и возврат — кнопками в плашке над таб-баром.
+  const isOpen = data?.status === 'open';
+  const hasMenu = !!data && (isOpen || !!spaceId);
+
   return (
     <AmbientBackdrop style={styles.screen}>
       <Stack.Title>{data ? checkTitle(data) : 'Чек'}</Stack.Title>
-      {data && (
+      {hasMenu && (
         <Stack.Toolbar placement="right">
           <ToolbarMenu icon="ellipsis" accessibilityLabel="Действия с чеком">
             {/* Чат идёт через планшет кабинки — у чека без зоны его нет. */}
@@ -51,11 +56,8 @@ export default function CheckScreen() {
                 Чат с кабинкой
               </ToolbarMenuAction>
             )}
-            {data.status === 'open' && (
+            {isOpen && (
               <>
-                <ToolbarMenuAction icon="person.crop.circle" onPress={actions.onOpenPlayer}>
-                  {data.playerId ? 'Клиенты чека' : 'Добавить клиента'}
-                </ToolbarMenuAction>
                 <ToolbarMenuAction icon="percent" onPress={actions.onAddDiscount}>
                   Скидка
                 </ToolbarMenuAction>
@@ -63,11 +65,6 @@ export default function CheckScreen() {
                   Отменить чек
                 </ToolbarMenuAction>
               </>
-            )}
-            {data.status === 'closed' && (
-              <ToolbarMenuAction icon="arrow.uturn.backward" destructive onPress={() => router.push({ pathname: '/pos/refund', params: { checkId } })}>
-                Оформить возврат
-              </ToolbarMenuAction>
             )}
           </ToolbarMenu>
         </Stack.Toolbar>

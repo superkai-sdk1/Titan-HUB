@@ -23,9 +23,14 @@ import { useNow } from '@/lib/use-now';
 
 /**
  * Открытый чек в стиле Liquid Glass: сумма крупно на фирменном фоне, дальше стеклянные
- * карточки — клиент, заказ из кабинки, позиции, скидки, аренда, итог. Общий для экрана
- * чека на iPhone и правой панели на iPad. Цифры сменяются «прокруткой», строки
+ * карточки — клиент, заказ из кабинки, позиции, подсказки Tai, скидки, аренда. Общий для
+ * экрана чека на iPhone и правой панели на iPad. Цифры сменяются «прокруткой», строки
  * появляются и уходят анимацией, позиции и скидки снимаются свайпом.
+ *
+ * У каждого действия одно место: позиции добавляются кнопкой внизу (плашка над таб-баром,
+ * на iPad — панель под чеком), скидка и отмена чека — в меню «…», клиенты — тапом по
+ * карточке клиента. Сумма к оплате — только крупно сверху и на кнопке оплаты; пустые
+ * карточки (скидок нет) не показываются.
  */
 
 const rowLayout = LinearTransition.springify().damping(22).stiffness(220);
@@ -46,6 +51,16 @@ export function CheckView({ check, totals, actions, player, now, contentInsetAdj
   const itemRows = check.items.filter((row) => row.checkItem.quantity > 0);
   const discountsTotal = check.discounts.reduce((sum, d) => sum + toNumber(d.amount), 0);
   const guests = check.guestNames ?? [];
+  // Сумма позиций нужна отдельно, только когда к оплате добавляются аренда или мероприятие
+  // (их суммы — в своих карточках) или вычитается предоплата; иначе она равна сумме сверху.
+  const hasExtras = totals.rental > 0 || totals.eventBase > 0 || totals.prepaid > 0;
+  const itemsDetail = [
+    itemRows.length > 0 ? `${itemRows.length} ${plural(itemRows.length, ['позиция', 'позиции', 'позиций'])}` : null,
+    hasExtras && itemRows.length > 0 ? formatMoney(totals.items) : null,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+  const opened = isOpen ? `Открыт в ${formatTime(check.createdAt)} · ${formatDuration(check.createdAt, now)}` : `Открыт в ${formatTime(check.createdAt)}`;
 
   return (
     <ScrollView
@@ -58,7 +73,7 @@ export function CheckView({ check, totals, actions, player, now, contentInsetAdj
           <Text style={[type.footnote, styles.heroCaption]}>{isOpen ? 'К ОПЛАТЕ' : check.status === 'closed' ? 'ОПЛАЧЕН' : 'ОТМЕНЁН'}</Text>
           <RollingText text={formatMoney(totals.due)} style={[styles.heroAmount, type.amount]} />
           <Text style={[type.subhead, styles.secondary]}>
-            {isOpen ? `Открыт в ${formatTime(check.createdAt)} · ${formatDuration(check.createdAt, now)}` : `Открыт в ${formatTime(check.createdAt)}`}
+            {totals.prepaid > 0 ? `${opened} · предоплата ${formatMoney(-totals.prepaid)}` : opened}
           </Text>
           {check.staffCompId && <Pill icon="person.badge.shield.checkmark" text="Списание на персонал — гостю бесплатно" color={colors.indigo} />}
         </View>
@@ -157,14 +172,9 @@ export function CheckView({ check, totals, actions, player, now, contentInsetAdj
           })}
 
         <GlassView style={styles.card}>
-          <CardHeader
-            icon="list.bullet"
-            title="Позиции"
-            detail={itemRows.length > 0 ? `${itemRows.length} ${plural(itemRows.length, ['позиция', 'позиции', 'позиций'])}` : undefined}
-            action={isOpen ? { label: 'Добавить', icon: 'plus', onPress: actions.onAddItems } : undefined}
-          />
+          <CardHeader title="Позиции" detail={itemsDetail || undefined} />
           {itemRows.length === 0 ? (
-            <Text style={[type.subhead, styles.secondary, styles.empty]}>{isOpen ? 'Чек пуст — добавьте позиции из меню' : 'Позиций нет'}</Text>
+            <Text style={[type.subhead, styles.secondary, styles.empty]}>{isOpen ? 'Чек пуст — нажмите «Добавить» внизу' : 'Позиций нет'}</Text>
           ) : (
             itemRows.map((row, index) => (
               <Animated.View key={row.checkItem.id} entering={FadeIn} exiting={FadeOut} layout={rowLayout}>
@@ -186,18 +196,12 @@ export function CheckView({ check, totals, actions, player, now, contentInsetAdj
 
         {check.linkedEventId && <LinkedEventCard check={check} isOpen={isOpen} base={totals.eventBase} />}
 
-        {(isOpen || check.discounts.length > 0) && (
-          <GlassView style={styles.card}>
-            <CardHeader
-              icon="percent"
-              title="Скидки"
-              detail={discountsTotal > 0 ? formatMoney(-discountsTotal) : undefined}
-              action={isOpen ? { label: 'Добавить', icon: 'plus', onPress: actions.onAddDiscount } : undefined}
-            />
-            {check.discounts.length === 0 ? (
-              <Text style={[type.subhead, styles.secondary, styles.empty]}>Скидок нет</Text>
-            ) : (
-              check.discounts.map((d, index) => (
+        {/* Скидка добавляется из меню «…», здесь — только уже применённые (снимаются свайпом). */}
+        {check.discounts.length > 0 && (
+          <Animated.View entering={FadeIn} exiting={FadeOut} layout={rowLayout}>
+            <GlassView style={styles.card}>
+              <CardHeader title="Скидки" detail={formatMoney(-discountsTotal)} detailColor={colors.green} />
+              {check.discounts.map((d, index) => (
                 <Animated.View key={d.id} entering={FadeIn} exiting={FadeOut} layout={rowLayout}>
                   {index > 0 && <View style={styles.divider} />}
                   <SwipeToDelete enabled={isOpen} label="Снять" onDelete={() => actions.onRemoveDiscount(d.id)}>
@@ -212,9 +216,9 @@ export function CheckView({ check, totals, actions, player, now, contentInsetAdj
                     </View>
                   </SwipeToDelete>
                 </Animated.View>
-              ))
-            )}
-          </GlassView>
+              ))}
+            </GlassView>
+          </Animated.View>
         )}
 
         {check.spaceId && check.spaceStartAt && (
@@ -235,26 +239,6 @@ export function CheckView({ check, totals, actions, player, now, contentInsetAdj
               </Pressable>
             )}
           </GlassView>
-        )}
-
-        <GlassView style={styles.card}>
-          <CardHeader icon="sum" title="Итого" />
-          <TotalRow label="Позиции" value={totals.items} />
-          {discountsTotal > 0 && <TotalRow label="В том числе скидки" value={-discountsTotal} muted />}
-          {totals.rental > 0 && <TotalRow label="Аренда" value={totals.rental} />}
-          {totals.eventBase > 0 && <TotalRow label="Мероприятие" value={totals.eventBase} />}
-          {totals.prepaid > 0 && <TotalRow label="Предоплата" value={-totals.prepaid} />}
-          <View style={styles.divider} />
-          <View style={styles.lineRow}>
-            <Text style={[type.headline, styles.label, styles.flex]}>К оплате</Text>
-            <RollingText text={formatMoney(totals.due)} style={[type.title3, type.amount, styles.label]} />
-          </View>
-        </GlassView>
-
-        {isOpen && (
-          <Pressable onPress={actions.onCancel} style={({ pressed }) => [styles.cancel, pressed && styles.pressed]} accessibilityRole="button">
-            <Text style={[type.body, styles.cancelText]}>Отменить чек</Text>
-          </Pressable>
         )}
       </LayoutAnimationConfig>
     </ScrollView>
@@ -294,6 +278,8 @@ function ItemRow({
     });
   };
 
+  // Одна строка: название, степпер, сумма. Цена за штуку — только когда штук больше одной
+  // (иначе она совпадает с суммой); в закрытом чеке степпера нет — там «× N».
   return (
     <SwipeToDelete enabled={isOpen} label="Удалить" onDelete={() => change(0)}>
       <View style={[styles.itemRow, qty === 0 && styles.removing]}>
@@ -301,32 +287,30 @@ function ItemRow({
           <Text style={[type.body, styles.label]} numberOfLines={2}>
             {name}
           </Text>
-          <RollingText text={`${qty} × ${formatMoney(price)}`} style={[type.footnote, styles.secondary]} />
+          {qty > 1 && <RollingText text={`${isOpen ? '' : `${qty} × `}${formatMoney(price)}${isOpen ? ' за шт.' : ''}`} style={[type.footnote, styles.secondary]} />}
         </View>
-        <View style={styles.itemRight}>
-          <RollingText text={formatMoney(price * qty)} style={[type.body, type.amount, styles.label]} />
-          {isOpen && (
-            <View style={styles.stepper}>
-              <Pressable
-                hitSlop={6}
-                onPress={() => change(qty - 1)}
-                style={({ pressed }) => [styles.stepperButton, pressed && styles.stepperPressed]}
-                accessibilityRole="button"
-                accessibilityLabel={qty <= 1 ? `Удалить ${name}` : `Меньше: ${name}`}>
-                <SymbolView name={qty <= 1 ? 'trash' : 'minus'} size={13} weight="semibold" tintColor={qty <= 1 ? colors.red : colors.label} />
-              </Pressable>
-              <RollingText text={String(qty)} style={[type.subhead, styles.stepperValue]} />
-              <Pressable
-                hitSlop={6}
-                onPress={() => change(qty + 1)}
-                style={({ pressed }) => [styles.stepperButton, pressed && styles.stepperPressed]}
-                accessibilityRole="button"
-                accessibilityLabel={`Больше: ${name}`}>
-                <SymbolView name="plus" size={13} weight="semibold" tintColor={colors.label} />
-              </Pressable>
-            </View>
-          )}
-        </View>
+        {isOpen && (
+          <View style={styles.stepper}>
+            <Pressable
+              hitSlop={6}
+              onPress={() => change(qty - 1)}
+              style={({ pressed }) => [styles.stepperButton, pressed && styles.stepperPressed]}
+              accessibilityRole="button"
+              accessibilityLabel={qty <= 1 ? `Удалить ${name}` : `Меньше: ${name}`}>
+              <SymbolView name={qty <= 1 ? 'trash' : 'minus'} size={13} weight="semibold" tintColor={qty <= 1 ? colors.red : colors.label} />
+            </Pressable>
+            <RollingText text={String(qty)} style={[type.subhead, styles.stepperValue]} />
+            <Pressable
+              hitSlop={6}
+              onPress={() => change(qty + 1)}
+              style={({ pressed }) => [styles.stepperButton, pressed && styles.stepperPressed]}
+              accessibilityRole="button"
+              accessibilityLabel={`Больше: ${name}`}>
+              <SymbolView name="plus" size={13} weight="semibold" tintColor={colors.label} />
+            </Pressable>
+          </View>
+        )}
+        <RollingText text={formatMoney(price * qty)} style={[type.body, type.amount, styles.label, styles.itemSum]} />
       </View>
     </SwipeToDelete>
   );
@@ -336,7 +320,8 @@ function ItemRow({
 
 /**
  * Частые заказы резидента, которых ещё нет в чеке, — как «Tai предлагает» в веб-кассе.
- * Тап добавляет позицию. Сервер сам отдаёт пусто без подписки Tai и для не-резидентов.
+ * Компактно: чипсы в одну-две строки вместо строки на каждую позицию. Тап добавляет позицию.
+ * Сервер сам отдаёт пусто без подписки Tai и для не-резидентов.
  */
 function TaiSuggestions({ checkId, itemIds }: { checkId: string; itemIds: Set<string> }) {
   const suggestions = useCheckSuggestions(checkId, true);
@@ -359,27 +344,28 @@ function TaiSuggestions({ checkId, itemIds }: { checkId: string; itemIds: Set<st
     <Animated.View entering={FadeIn} exiting={FadeOut} layout={rowLayout}>
       <GlassView tintColor={TAI_TINT} style={styles.card}>
         <CardHeader icon="sparkles" iconColor={colors.accent} title="Tai предлагает" detail="обычно берёт" />
-        {list.map((s, index) => (
-          <Animated.View key={s.itemId} entering={FadeIn} exiting={FadeOut} layout={rowLayout}>
-            {index > 0 && <View style={styles.divider} />}
-            <Pressable
-              disabled={adding !== null}
-              onPress={() => add(s.itemId)}
-              style={({ pressed }) => [styles.suggestionRow, pressed && styles.pressed]}
-              accessibilityRole="button"
-              accessibilityLabel={`Добавить ${s.name}, ${formatMoney(toNumber(s.price))}`}>
-              <View style={styles.flex}>
-                <Text style={[type.body, styles.label]} numberOfLines={1}>
+        <View style={styles.chips}>
+          {list.map((s) => (
+            <Animated.View key={s.itemId} entering={FadeIn} exiting={FadeOut} layout={rowLayout}>
+              <Pressable
+                disabled={adding !== null}
+                onPress={() => add(s.itemId)}
+                style={({ pressed }) => [styles.suggestionChip, pressed && styles.pressed]}
+                accessibilityRole="button"
+                accessibilityLabel={`Добавить ${s.name}, ${formatMoney(toNumber(s.price))}`}>
+                {adding === s.itemId ? (
+                  <ActivityIndicator size="small" color={colors.accent} />
+                ) : (
+                  <SymbolView name="plus" size={12} weight="bold" tintColor={colors.accent} />
+                )}
+                <Text style={[type.subhead, styles.label]} numberOfLines={1}>
                   {s.name}
                 </Text>
-                <Text style={[type.footnote, styles.secondary]}>{formatMoney(toNumber(s.price))}</Text>
-              </View>
-              <View style={styles.addBadge}>
-                {adding === s.itemId ? <ActivityIndicator color="white" size="small" /> : <SymbolView name="plus" size={14} weight="bold" tintColor="white" />}
-              </View>
-            </Pressable>
-          </Animated.View>
-        ))}
+                <Text style={[type.subhead, type.amount, styles.secondary]}>{formatMoney(toNumber(s.price))}</Text>
+              </Pressable>
+            </Animated.View>
+          ))}
+        </View>
       </GlassView>
     </Animated.View>
   );
@@ -489,42 +475,30 @@ function LinkedEventCard({ check, isOpen, base }: { check: CheckDetail; isOpen: 
 
 /* ─────────────────────────── Мелкие части ─────────────────────────── */
 
+/** Заголовок карточки. Значок — только у особых карточек (Tai, заказ, аренда, мероприятие). */
 function CardHeader({
   icon,
   iconColor = colors.secondaryLabel,
   title,
   detail,
   detailColor,
-  action,
 }: {
-  icon: SFSymbol;
+  icon?: SFSymbol;
   iconColor?: typeof colors.secondaryLabel;
   title: string;
   detail?: string;
   detailColor?: typeof colors.green;
-  action?: { label: string; icon: SFSymbol; onPress: () => void };
 }) {
   return (
     <View style={styles.cardHeader}>
-      <SymbolView name={icon} size={15} weight="semibold" tintColor={iconColor} />
+      {icon && <SymbolView name={icon} size={15} weight="semibold" tintColor={iconColor} />}
       <Text style={[type.headline, styles.label]}>{title}</Text>
-      {detail && <Text style={[type.subhead, detailColor ? { color: detailColor } : styles.secondary]}>{detail}</Text>}
       <View style={styles.flex} />
-      {action && (
-        <Pressable onPress={action.onPress} hitSlop={8} style={({ pressed }) => [styles.headerAction, pressed && styles.pressed]} accessibilityRole="button">
-          <SymbolView name={action.icon} size={13} weight="bold" tintColor={colors.accent} />
-          <Text style={[type.subhead, styles.headerActionText]}>{action.label}</Text>
-        </Pressable>
+      {detail && (
+        <Text style={[type.subhead, type.amount, detailColor ? { color: detailColor } : styles.secondary]} numberOfLines={1}>
+          {detail}
+        </Text>
       )}
-    </View>
-  );
-}
-
-function TotalRow({ label, value, muted }: { label: string; value: number; muted?: boolean }) {
-  return (
-    <View style={styles.lineRow}>
-      <Text style={[type.subhead, muted ? styles.tertiary : styles.secondary, styles.flex]}>{label}</Text>
-      <RollingText text={formatMoney(value)} style={[type.subhead, type.amount, muted ? styles.tertiary : styles.label]} />
     </View>
   );
 }
@@ -551,7 +525,9 @@ function RentalTimer({ startAt, endAt }: { startAt: string; endAt: string | null
 }
 
 const styles = StyleSheet.create({
-  content: { paddingHorizontal: space.lg, paddingTop: space.sm, paddingBottom: 120, gap: space.md },
+  // Низ: на iOS отступ под таб-бар и плашку чека даёт сам UIKit (contentInsetAdjustmentBehavior),
+  // прежние 120 pt добавлялись сверху и оставляли пустоту под последней карточкой.
+  content: { paddingHorizontal: space.lg, paddingTop: space.sm, paddingBottom: space.xl, gap: space.md },
   flex: { flex: 1 },
   label: { color: colors.label },
   secondary: { color: colors.secondaryLabel },
@@ -575,8 +551,6 @@ const styles = StyleSheet.create({
 
   card: { borderRadius: radius.card, borderCurve: 'continuous', padding: space.lg, gap: space.sm, overflow: 'hidden' },
   cardHeader: { flexDirection: 'row', alignItems: 'center', gap: space.sm, minHeight: 28 },
-  headerAction: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: space.md, paddingVertical: 5, borderRadius: 999, backgroundColor: colors.fill },
-  headerActionText: { color: colors.accent, fontWeight: '600' },
   divider: { height: StyleSheet.hairlineWidth, backgroundColor: colors.separator },
   empty: { paddingVertical: space.sm },
 
@@ -595,7 +569,8 @@ const styles = StyleSheet.create({
 
   itemRow: { flexDirection: 'row', alignItems: 'center', gap: space.md, paddingVertical: space.sm },
   removing: { opacity: 0.4 },
-  itemRight: { alignItems: 'flex-end', gap: 6 },
+  // Суммы в столбик выравниваются по правому краю и не прыгают при смене количества.
+  itemSum: { minWidth: 64, textAlign: 'right' },
   stepper: { flexDirection: 'row', alignItems: 'center', height: 32, borderRadius: 999, backgroundColor: colors.fill, paddingHorizontal: 2 },
   stepperButton: { width: 32, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
   stepperPressed: { backgroundColor: colors.fill },
@@ -615,14 +590,20 @@ const styles = StyleSheet.create({
   },
   softButtonText: { color: colors.accent, fontWeight: '600' },
 
-  suggestionRow: { flexDirection: 'row', alignItems: 'center', gap: space.md, paddingVertical: space.sm },
-  addBadge: { width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.accent },
+  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm },
+  suggestionChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    maxWidth: '100%',
+    minHeight: 36,
+    paddingHorizontal: space.md,
+    borderRadius: 999,
+    backgroundColor: colors.fill,
+  },
   hoursGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm, marginTop: space.xs },
   hourChip: { flexGrow: 1, minWidth: 64, alignItems: 'center', gap: 2, paddingVertical: space.sm, paddingHorizontal: space.sm, borderRadius: 14, borderCurve: 'continuous', backgroundColor: colors.fill },
   hourChipActive: { backgroundColor: colors.accent },
   hourText: { color: colors.label, fontWeight: '700' },
   hourTextActive: { color: 'white' },
-  cancel: { alignSelf: 'center', paddingHorizontal: space.xl, paddingVertical: space.md },
-  cancelText: { color: colors.red, fontWeight: '600' },
-
 });
