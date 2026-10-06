@@ -53,6 +53,7 @@
             <Button
                 android:id="@+id/start"
                 style="@style/Setup.Button.Primary"
+                android:focusedByDefault="true"
                 android:text="@string/setup_start" />
 
             <Button

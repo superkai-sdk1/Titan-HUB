@@ -45,7 +45,8 @@ class SetupActivity : Activity() {
         findViewById<Button>(R.id.home_button).setOnClickListener { openSettings(Settings.ACTION_HOME_SETTINGS) }
         findViewById<Button>(R.id.system_settings).setOnClickListener { openSettings(Settings.ACTION_SETTINGS) }
         findViewById<Button>(R.id.exit).setOnClickListener { finishAffinity() }
-        startButton.requestFocus()
+        // Фокус пульта — на «Запустить меню», когда экран уже собран (иначе приставка ставит его куда придётся).
+        startButton.post { startButton.requestFocus() }
     }
 
     override fun onResume() {

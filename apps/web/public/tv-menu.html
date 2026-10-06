@@ -45,10 +45,13 @@ html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: 
 body { color: #f3eef8; font-family: Inter, 'Helvetica Neue', Arial, sans-serif; -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; cursor: default; -webkit-user-select: none; user-select: none; }
 .root { position: fixed; top: 0; left: 0; right: 0; bottom: 0; overflow: hidden; }
 .bg { position: absolute; top: 0; left: 0; right: 0; bottom: 0; pointer-events: none; }
-.blob { position: absolute; width: 90vmax; height: 90vmax; border-radius: 50%; will-change: transform; }
-.blob-a { left: -40vmax; top: -50vmax; background: radial-gradient(circle, rgba(140,82,255,.34) 0%, rgba(140,82,255,0) 62%); -webkit-animation: drift-a 46s ease-in-out infinite alternate; animation: drift-a 46s ease-in-out infinite alternate; }
-.blob-b { right: -45vmax; bottom: -55vmax; background: radial-gradient(circle, rgba(94,23,235,.5) 0%, rgba(94,23,235,0) 64%); -webkit-animation: drift-b 58s ease-in-out infinite alternate; animation: drift-b 58s ease-in-out infinite alternate; }
-.blob-c { left: 20vw; top: 25vh; width: 60vmax; height: 60vmax; background: radial-gradient(circle, rgba(76,215,246,.07) 0%, rgba(76,215,246,0) 60%); -webkit-animation: drift-c 70s ease-in-out infinite alternate; animation: drift-c 70s ease-in-out infinite alternate; }
+/* Пятна света — неподвижные: три полупрозрачных слоя почти во весь экран, плавающие
+   каждый кадр, роняли ТВ-приставку до ~20 кадров/с (замер 2026-10-06). Без движения
+   они рисуются один раз вместе с фоном. */
+.blob { position: absolute; width: 90vmax; height: 90vmax; border-radius: 50%; }
+.blob-a { left: -40vmax; top: -50vmax; background: radial-gradient(circle, rgba(140,82,255,.34) 0%, rgba(140,82,255,0) 62%); }
+.blob-b { right: -45vmax; bottom: -55vmax; background: radial-gradient(circle, rgba(94,23,235,.5) 0%, rgba(94,23,235,0) 64%); }
+.blob-c { left: 20vw; top: 25vh; width: 60vmax; height: 60vmax; background: radial-gradient(circle, rgba(76,215,246,.07) 0%, rgba(76,215,246,0) 60%); }
 .vignette { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: radial-gradient(ellipse at 50% 40%, rgba(15,11,23,0) 50%, rgba(8,6,13,.7) 100%); }
 
 .header { position: absolute; display: -webkit-box; display: -webkit-flex; display: flex; -webkit-align-items: flex-end; align-items: flex-end; -webkit-justify-content: space-between; justify-content: space-between; }
@@ -135,12 +138,6 @@ body { color: #f3eef8; font-family: Inter, 'Helvetica Neue', Arial, sans-serif; 
 @keyframes fill { from { transform: scaleX(0); } to { transform: scaleX(1); } }
 @-webkit-keyframes sheen { 0%, 72% { -webkit-transform: translateX(-110%); } 100% { -webkit-transform: translateX(110%); } }
 @keyframes sheen { 0%, 72% { transform: translateX(-110%); } 100% { transform: translateX(110%); } }
-@-webkit-keyframes drift-a { from { -webkit-transform: translate3d(0,0,0) scale(1); } to { -webkit-transform: translate3d(14vmax,12vmax,0) scale(1.12); } }
-@keyframes drift-a { from { transform: translate3d(0,0,0) scale(1); } to { transform: translate3d(14vmax,12vmax,0) scale(1.12); } }
-@-webkit-keyframes drift-b { from { -webkit-transform: translate3d(0,0,0) scale(1.08); } to { -webkit-transform: translate3d(-14vmax,-10vmax,0) scale(.94); } }
-@keyframes drift-b { from { transform: translate3d(0,0,0) scale(1.08); } to { transform: translate3d(-14vmax,-10vmax,0) scale(.94); } }
-@-webkit-keyframes drift-c { from { -webkit-transform: translate3d(0,0,0); } to { -webkit-transform: translate3d(-18vw,-14vh,0); } }
-@keyframes drift-c { from { transform: translate3d(0,0,0); } to { transform: translate3d(-18vw,-14vh,0); } }
 
 /* ════ Темы оформления (/menu?theme=…). Раскладка общая: темы меняют шрифты, цвета
    и декор, но НЕ вертикальные метрики (строка 1.2, заголовок 1.06em, поля) — на них
@@ -365,7 +362,7 @@ html.t-halloween, .t-halloween body { background: #0b0712; }
 .t-halloween .seg-fill { background: #ff8a1f; }
 
 @media (prefers-reduced-motion: reduce) {
-  .blob, .sheen { -webkit-animation: none; animation: none; }
+  .sheen { -webkit-animation: none; animation: none; }
 }
 </style>
 </head>
