@@ -21,7 +21,7 @@ export default function ConnectTvScreen() {
   const router = useRouter();
   const screens = useScreens();
   const [found, setFound] = useState<FoundTv[]>([]);
-  const [scanning, setScanning] = useState(false);
+  const [scanning, setScanning] = useState(true); // первый поиск стартует сразу при открытии
   const [scanError, setScanError] = useState<string | null>(null);
   const [pairing, setPairing] = useState<string | null>(null);
   const abort = useRef<AbortController | null>(null);
@@ -30,13 +30,10 @@ export default function ConnectTvScreen() {
     setFound((list) => [...list.filter((x) => x.deviceId !== tv.deviceId), tv].sort((a, b) => Number(a.paired) - Number(b.paired)));
   }, []);
 
-  const scan = useCallback(() => {
+  const runScan = useCallback(() => {
     abort.current?.abort();
     const controller = new AbortController();
     abort.current = controller;
-    setFound([]);
-    setScanError(null);
-    setScanning(true);
     scanForTvs(add, controller.signal)
       .catch((error: unknown) => setScanError(errorText(error)))
       .finally(() => {
@@ -45,9 +42,16 @@ export default function ConnectTvScreen() {
   }, [add]);
 
   useEffect(() => {
-    scan();
+    runScan();
     return () => abort.current?.abort();
-  }, [scan]);
+  }, [runScan]);
+
+  const scan = () => {
+    setFound([]);
+    setScanError(null);
+    setScanning(true);
+    runScan();
+  };
 
   const enterIp = () =>
     promptText(
