@@ -117,6 +117,11 @@ class TitanKioskModule : Module() {
   override fun definition() = ModuleDefinition {
     Name("TitanKiosk")
 
+    // Падение — не повод оставлять гостя на системном экране.
+    OnCreate {
+      appContext.reactContext?.let { CrashRestart.install(it) }
+    }
+
     Function("getStatus") {
       mapOf(
         "isDeviceOwner" to isDeviceOwner(),

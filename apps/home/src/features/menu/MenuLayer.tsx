@@ -1,0 +1,307 @@
+// Меню: разделы в стеклянной колонке слева, плитки без фото справа, плавающая
+// плашка корзины. Заказ уходит администратору на подтверждение; без открытого
+// счёта меню можно только посмотреть.
+import { ArrowLeft, ArrowRight, Check, Info, Plus, Search, ShoppingBag, X } from 'lucide-react-native';
+import { useEffect, useEffectEvent, useMemo, useState } from 'react';
+import { FlatList, ScrollView, StyleSheet, TextInput, View, type LayoutChangeEvent } from 'react-native';
+import Animated, { FadeIn, FadeInDown, FadeOutDown } from 'react-native-reanimated';
+
+import { sendOrder } from '@/data/actions';
+import { useMenu } from '@/data/menu';
+import type { MenuItem } from '@/data/types';
+import { RoomButton } from '@/features/room/RoomButton';
+import { sessionCheckId, useVisit } from '@/features/visit/store';
+import { money, plural } from '@/lib/format';
+import { Background } from '@/ui/background';
+import { Button, IconButton } from '@/ui/button';
+import { Loader, Stepper } from '@/ui/controls';
+import { Glass, glassStyle } from '@/ui/glass';
+import { Icon } from '@/ui/icon';
+import { Layer } from '@/ui/layer';
+import { Press } from '@/ui/press';
+import { T } from '@/ui/text';
+import { color, font, GUTTER, radius } from '@/ui/tokens';
+
+import { cartSummary, qtyOf, useCart } from './cart';
+
+const ALL = '__all';
+const TOP = '__top';
+const TILE_MIN = 210;
+const GAP = 14;
+
+export function MenuLayer() {
+  const open = useVisit((s) => s.layer === 'menu');
+  return (
+    <Layer visible={open} onClose={() => useVisit.getState().close()} variant="full">
+      <MenuScreen />
+    </Layer>
+  );
+}
+
+function MenuScreen() {
+  const menu = useMenu();
+  const canOrder = useVisit((s) => s.phase.kind === 'session');
+  const [cat, setCat] = useState(ALL);
+  const [query, setQuery] = useState('');
+  const [gridWidth, setGridWidth] = useState(0);
+  const [review, setReview] = useState(false);
+  const [sent, setSent] = useState(false);
+  const count = useCart((s) => cartSummary(s.lines).count);
+
+  const data = menu.data;
+  const hasTop = !!data?.items.some((i) => i.isTop);
+  const items = useMemo(() => {
+    if (!data) return [];
+    const q = query.trim().toLowerCase();
+    if (q) return data.items.filter((i) => i.name.toLowerCase().includes(q) || i.tags.some((t) => t.toLowerCase().includes(q)));
+    if (cat === TOP) return data.items.filter((i) => i.isTop);
+    if (cat === ALL) return data.items;
+    return data.items.filter((i) => i.categoryId === cat);
+  }, [data, cat, query]);
+
+  const columns = gridWidth ? Math.max(1, Math.floor((gridWidth + GAP) / (TILE_MIN + GAP))) : 0;
+  const close = () => useVisit.getState().close();
+
+  if (sent) return <SentView onDone={close} />;
+
+  return (
+    <View style={styles.screen}>
+      <Background />
+      <View style={styles.header}>
+        <Button title="Счёт" icon={ArrowLeft} onPress={close} />
+        <T variant="title" style={{ fontSize: 30 }}>Меню</T>
+        <View style={[styles.search, glassStyle('control', radius.pill)]}>
+          <Icon as={Search} size={20} tone={color.textTertiary} stroke={2} />
+          <TextInput
+            value={query}
+            onChangeText={setQuery}
+            placeholder="Найти блюдо или напиток"
+            placeholderTextColor={color.textTertiary}
+            style={styles.searchInput}
+            returnKeyType="search"
+            accessibilityLabel="Поиск по меню"
+          />
+          {query ? <IconButton icon={X} label="Очистить поиск" size={36} variant="quiet" onPress={() => setQuery('')} /> : null}
+        </View>
+        <RoomButton compact />
+      </View>
+
+      <View style={styles.body}>
+        <Glass kind="panel" radius={32} style={styles.rail}>
+          <ScrollView contentContainerStyle={{ gap: 6 }} showsVerticalScrollIndicator={false}>
+            <Category id={ALL} name="Все" count={data?.items.length ?? 0} active={!query && cat === ALL} onPress={() => { setCat(ALL); setQuery(''); }} />
+            {hasTop ? <Category id={TOP} name="Популярное" count={data?.items.filter((i) => i.isTop).length ?? 0} active={!query && cat === TOP} onPress={() => { setCat(TOP); setQuery(''); }} /> : null}
+            {(data?.categories ?? []).map((c) => (
+              <Category
+                key={c.id}
+                id={c.id}
+                name={c.name}
+                count={data?.items.filter((i) => i.categoryId === c.id).length ?? 0}
+                active={!query && cat === c.id}
+                onPress={() => { setCat(c.id); setQuery(''); }}
+              />
+            ))}
+          </ScrollView>
+        </Glass>
+
+        <View style={{ flex: 1 }} onLayout={(e: LayoutChangeEvent) => setGridWidth(e.nativeEvent.layout.width)}>
+          {!data && menu.isLoading ? (
+            <Loader label="Загружаем меню…" />
+          ) : !data ? (
+            <View style={styles.empty}>
+              <T variant="body" tone="secondary">Не удалось загрузить меню</T>
+              <Button title="Повторить" onPress={() => void menu.refetch()} />
+            </View>
+          ) : columns ? (
+            <FlatList
+              key={columns}
+              data={items}
+              numColumns={columns}
+              keyExtractor={(i) => i.id}
+              columnWrapperStyle={columns > 1 ? { gap: GAP } : undefined}
+              contentContainerStyle={styles.grid}
+              keyboardShouldPersistTaps="handled"
+              initialNumToRender={16}
+              windowSize={5}
+              renderItem={({ item }) => <ItemTile item={item} canOrder={canOrder} />}
+              ListEmptyComponent={<T variant="body" tone="secondary" style={{ textAlign: 'center', paddingTop: 48 }}>Ничего не нашлось</T>}
+            />
+          ) : null}
+        </View>
+      </View>
+
+      {canOrder ? (
+        count > 0 ? <CartBar onOrder={() => setReview(true)} /> : null
+      ) : (
+        <View style={styles.bottomCenter} pointerEvents="none">
+          <Glass kind="overlay" radius={radius.pill} style={styles.notice}>
+            <Icon as={Info} size={20} tone={color.accentSoft} />
+            <T variant="label" tone="secondary">Заказать можно, когда администратор откроет счёт</T>
+          </Glass>
+        </View>
+      )}
+
+      <Layer visible={review} onClose={() => setReview(false)} variant="dialog" style={styles.reviewDialog}>
+        <OrderReview onClose={() => setReview(false)} onSent={() => { setReview(false); setSent(true); }} />
+      </Layer>
+    </View>
+  );
+}
+
+function Category({ name, count, active, onPress }: { id: string; name: string; count: number; active: boolean; onPress: () => void }) {
+  return (
+    <Press
+      onPress={onPress}
+      scaleTo={0.97}
+      accessibilityRole="tab"
+      accessibilityLabel={name}
+      accessibilityState={{ selected: active }}
+      style={[styles.category, active && styles.categoryActive]}
+    >
+      <T variant="label" numberOfLines={2} style={{ flex: 1, fontSize: 17, color: active ? color.ground : 'rgba(236,232,245,0.88)' }}>{name}</T>
+      <T variant="small" numeric style={{ color: active ? 'rgba(12,10,17,0.6)' : color.textTertiary }}>{count}</T>
+    </Press>
+  );
+}
+
+function ItemTile({ item, canOrder }: { item: MenuItem; canOrder: boolean }) {
+  const qty = useCart((s) => qtyOf(s.lines, item.id));
+  const add = () => useCart.getState().add(item);
+  return (
+    <Press
+      onPress={canOrder ? add : undefined}
+      scaleTo={canOrder ? 0.96 : 1}
+      accessibilityLabel={`${item.name}, ${money(item.price)}`}
+      style={[styles.tile, glassStyle(qty > 0 ? 'accent' : 'control', radius.card), qty > 0 && styles.tileInCart]}
+    >
+      <T variant="subheading" numberOfLines={2} style={{ lineHeight: 23 }}>{item.name}</T>
+      <View style={styles.tileFoot}>
+        <T variant="subheading" numeric>{money(item.price)}</T>
+        {canOrder ? (
+          qty > 0 ? (
+            <Stepper value={qty} onMinus={() => useCart.getState().remove(item.id)} onPlus={add} />
+          ) : (
+            <View style={[styles.addDot, glassStyle('raised', radius.pill)]}>
+              <Icon as={Plus} size={22} stroke={2.2} />
+            </View>
+          )
+        ) : null}
+      </View>
+    </Press>
+  );
+}
+
+function CartBar({ onOrder }: { onOrder: () => void }) {
+  const { count, total } = useCart((s) => cartSummary(s.lines));
+  return (
+    <View style={styles.bottomCenter} pointerEvents="box-none">
+      <Animated.View entering={FadeInDown.duration(200)} exiting={FadeOutDown.duration(160)} style={[styles.cartBar, glassStyle('overlay', radius.pill)]}>
+        <Icon as={ShoppingBag} size={26} tone={color.accentSoft} />
+        <View style={{ flex: 1 }}>
+          <T variant="subheading" numeric>{count} {plural(count, 'позиция', 'позиции', 'позиций')} · {money(total)}</T>
+          <T variant="small" tone="secondary">Администратор подтвердит заказ</T>
+        </View>
+        <Button title="Заказать" iconRight={ArrowRight} variant="primary" size="lg" onPress={onOrder} />
+      </Animated.View>
+    </View>
+  );
+}
+
+function OrderReview({ onClose, onSent }: { onClose: () => void; onSent: () => void }) {
+  const lines = useCart((s) => s.lines);
+  const { total } = cartSummary(lines);
+  const [busy, setBusy] = useState(false);
+  const send = async () => {
+    const checkId = sessionCheckId();
+    if (!checkId || !lines.length || busy) return;
+    setBusy(true);
+    const ok = await sendOrder(checkId, lines.map((l) => ({ itemId: l.item.id, quantity: l.quantity })));
+    setBusy(false);
+    if (ok) {
+      useCart.getState().clear();
+      onSent();
+    }
+  };
+  // Гость убрал всё степпером — окну больше нечего показывать.
+  const closeEmpty = useEffectEvent(() => onClose());
+  useEffect(() => {
+    if (!lines.length) closeEmpty();
+  }, [lines.length]);
+  if (!lines.length) return null;
+  return (
+    <>
+      <View style={styles.reviewHead}>
+        <T variant="title" style={{ flex: 1 }}>Ваш заказ</T>
+        <IconButton icon={X} label="Закрыть" onPress={onClose} />
+      </View>
+      <ScrollView style={{ flexGrow: 0, maxHeight: 360 }} contentContainerStyle={{ gap: 4 }}>
+        {lines.map((l) => (
+          <View key={l.item.id} style={styles.reviewLine}>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <T variant="subheading" numberOfLines={2}>{l.item.name}</T>
+              <T variant="caption" tone="secondary" numeric>{money(l.item.price * l.quantity)}</T>
+            </View>
+            <Stepper value={l.quantity} onMinus={() => useCart.getState().remove(l.item.id)} onPlus={() => useCart.getState().add(l.item)} />
+          </View>
+        ))}
+      </ScrollView>
+      <View style={styles.reviewTotal}>
+        <T variant="label" tone="secondary">Итого</T>
+        <T variant="title" numeric>{money(total)}</T>
+      </View>
+      <Button title="Отправить администратору" iconRight={ArrowRight} variant="primary" size="lg" loading={busy} onPress={() => void send()} />
+    </>
+  );
+}
+
+function SentView({ onDone }: { onDone: () => void }) {
+  return (
+    <View style={styles.sent}>
+      <Background />
+      <Animated.View entering={FadeIn.duration(220)} style={{ alignItems: 'center', gap: 16 }}>
+        <View style={[styles.sentIcon, { backgroundColor: color.greenTint, borderColor: 'rgba(52,211,153,0.5)' }]}>
+          <Icon as={Check} size={60} tone={color.green} stroke={2.4} />
+        </View>
+        <T variant="title" style={{ fontSize: 40, lineHeight: 46 }}>Заказ отправлен</T>
+        <T variant="body" tone="secondary" style={{ textAlign: 'center', maxWidth: 480 }}>Администратор подтвердит его в течение пары минут — статус видно на экране счёта.</T>
+        <Button title="К счёту" icon={ArrowLeft} onPress={onDone} style={{ marginTop: 8 }} />
+      </Animated.View>
+      <AutoClose ms={3500} onDone={onDone} />
+    </View>
+  );
+}
+
+function AutoClose({ ms, onDone }: { ms: number; onDone: () => void }) {
+  const done = useEffectEvent(onDone);
+  useEffect(() => {
+    const t = setTimeout(done, ms);
+    return () => clearTimeout(t);
+  }, [ms]);
+  return null;
+}
+
+const styles = StyleSheet.create({
+  screen: { flex: 1, paddingHorizontal: GUTTER, paddingTop: 20 },
+  header: { flexDirection: 'row', alignItems: 'center', gap: 16, height: 56 },
+  search: { flex: 1, maxWidth: 460, marginLeft: 'auto', height: 52, paddingLeft: 18, paddingRight: 8, flexDirection: 'row', alignItems: 'center', gap: 10 },
+  searchInput: { flex: 1, minWidth: 0, fontSize: 16, fontFamily: font.regular, color: color.text, paddingVertical: 0 },
+  body: { flex: 1, flexDirection: 'row', gap: 16, paddingTop: 16 },
+  rail: { width: 212, padding: 10, marginBottom: 22 },
+  category: { minHeight: 56, paddingHorizontal: 16, borderRadius: 22, flexDirection: 'row', alignItems: 'center', gap: 8, borderWidth: 1, borderColor: 'transparent' },
+  categoryActive: { backgroundColor: color.text, borderColor: color.text },
+  grid: { gap: GAP, paddingBottom: 120 },
+  tile: { flex: 1, height: 136, paddingTop: 16, paddingBottom: 14, paddingLeft: 18, paddingRight: 14, justifyContent: 'space-between' },
+  tileInCart: { backgroundColor: 'rgba(139,92,246,0.22)' },
+  tileFoot: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  addDot: { width: 52, height: 52, alignItems: 'center', justifyContent: 'center' },
+  bottomCenter: { position: 'absolute', left: GUTTER + 228, right: GUTTER, bottom: 20, alignItems: 'center' },
+  cartBar: { width: '100%', maxWidth: 640, height: 82, flexDirection: 'row', alignItems: 'center', gap: 14, paddingLeft: 24, paddingRight: 10 },
+  notice: { flexDirection: 'row', alignItems: 'center', gap: 10, height: 56, paddingHorizontal: 22 },
+  empty: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12 },
+  reviewDialog: { width: 620 },
+  reviewHead: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  reviewLine: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: 'rgba(255,255,255,0.10)' },
+  reviewTotal: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', paddingTop: 6 },
+  sent: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: GUTTER },
+  sentIcon: { width: 120, height: 120, borderRadius: 60, alignItems: 'center', justifyContent: 'center', borderWidth: 2 },
+});
