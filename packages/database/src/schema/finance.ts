@@ -103,7 +103,7 @@ export const supplies = pgTable('supplies', {
   status: text('status').notNull().default('posted'),
   draftData: jsonb('draft_data').$type<{
     note?: string; supplier?: string; paymentMethod?: 'cash' | 'card' | 'transfer'; fromRegister?: boolean
-    items: { itemId?: string | null; name?: string; unit?: string; quantity: number; costPerUnit: number }[]
+    items: { itemId?: string | null; name?: string; unit?: string; quantity: number; costPerUnit: number; packs?: number | null }[]
   }>(),
   note: text('note'),
   supplier: text('supplier'),
@@ -129,6 +129,8 @@ export const supplyItems = pgTable('supply_items', {
   unit: text('unit').notNull().default('шт'),
   quantity: numeric('quantity', { precision: 10, scale: 2 }).notNull(),
   costPerUnit: numeric('cost_per_unit', { precision: 12, scale: 4 }).notNull(),
+  // Сколько упаковок пришло (фасовка ингредиента, миграция 071).
+  packs: numeric('packs', { precision: 10, scale: 2 }),
 })
 
 // Корректировки проведённых закупок — аудит с обязательной причиной. Каждая правка

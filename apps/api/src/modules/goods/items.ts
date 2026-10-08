@@ -9,6 +9,9 @@ import { refreshRecipeCosts, round4 } from '../inventory/ledger.js'
 
 type Tx = Parameters<Parameters<Database['transaction']>[0]>[0]
 
+/** Имена штуки и упаковки — со склонениями на клиенте («пачка, пачки, пачек»). */
+const PIECE_NAMES = ['pcs', 'pack', 'bottle', 'can', 'box', 'bag', 'portion'] as const
+
 const RecipeLine = z.object({
   componentId: z.string().uuid(),
   quantity: z.number().int().positive().max(1_000_000),
@@ -17,6 +20,9 @@ const RecipeLine = z.object({
 const Fields = {
   name: z.string().trim().min(1, 'Укажите название').max(120),
   unit: z.enum(['pcs', 'g', 'ml']),
+  unitLabel: z.enum(PIECE_NAMES).nullable(),
+  packName: z.enum(PIECE_NAMES).nullable(),
+  packSize: z.number().int().positive().max(1_000_000).nullable(),
   category: z.string().uuid().nullable(),
   price: z.number().min(0).max(10_000_000),
   isActive: z.boolean(),
@@ -33,7 +39,7 @@ const Fields = {
 }
 
 export const ItemCreateSchema = z.object({ kind: z.enum(['goods', 'ingredient']).default('goods'), ...Fields })
-  .partial({ unit: true, category: true, price: true, isActive: true, isTop: true, isTabletVisible: true, isScreenVisible: true, searchTags: true, linkedSpaceId: true, stockMode: true, recipe: true, costPrice: true, reorderPoint: true, parLevel: true })
+  .partial({ unit: true, unitLabel: true, packName: true, packSize: true, category: true, price: true, isActive: true, isTop: true, isTabletVisible: true, isScreenVisible: true, searchTags: true, linkedSpaceId: true, stockMode: true, recipe: true, costPrice: true, reorderPoint: true, parLevel: true })
 export const ItemPatchSchema = z.object(Fields).partial()
 
 export type ItemCreate = z.infer<typeof ItemCreateSchema>
@@ -77,7 +83,7 @@ async function validateRecipe(tx: Tx, productId: string | null, recipe: { compon
   const components = await tx.select().from(inventory).where(and(inArray(inventory.id, ids), isNull(inventory.deletedAt)))
   if (components.length !== ids.length) throw new GoodsError('Ингредиент не найден — обновите список', 404)
   for (const c of components) {
-    if (c.kind !== 'ingredient' && !c.trackStock) throw new GoodsError(`«${c.name}» не учитывается на складе — включите учёт или выберите сырьё`)
+    if (c.kind !== 'ingredient' && !c.trackStock) throw new GoodsError(`«${c.name}» не учитывается на складе — включите учёт или выберите ингредиент`)
   }
   const nested = await tx.select({ productId: recipeItems.productId }).from(recipeItems).where(inArray(recipeItems.productId, ids)).limit(1)
   if (nested.length) throw new GoodsError('В составе есть позиция со своей техкартой — укажите её ингредиенты напрямую')
@@ -144,6 +150,11 @@ export async function saveGoodsItem(tx: Tx, existing: Row | null, body: ItemCrea
     updatedAt: new Date(),
   }
   if (body.costPrice !== undefined) values.costPrice = String(round4(body.costPrice))
+  // Фасовка — у всего, что закупают (сырьё и штучный товар); имя штуки — только у штук.
+  if (body.packName !== undefined) values.packName = body.packName
+  if (body.packSize !== undefined) values.packSize = body.packSize
+  if (body.unitLabel !== undefined) values.unitLabel = unit === 'pcs' ? body.unitLabel : null
+  else if (unit !== 'pcs') values.unitLabel = null
   if (isIngredient) {
     // Сырьё нигде не показывается гостям и не продаётся.
     Object.assign(values, { category: null, price: '0', isActive: true, isTop: false, isTabletVisible: false, isScreenVisible: false, isService: false, linkedSpaceId: null })
