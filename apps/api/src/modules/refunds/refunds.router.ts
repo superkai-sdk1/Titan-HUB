@@ -182,8 +182,12 @@ refundsRouter.post('/', requireRole('owner', 'staff'), zValidator('json', Refund
             .where(inArray(appSettings.key, ['bonus_accrual_rate']))
           const settings = Object.fromEntries(settingsRows.map(r => [r.key, r.value]))
           const accrualRate = parseFloat(settings['bonus_accrual_rate'] ?? '5') / 100
-          // Полная сумма начисления за чек (зеркало pos.router.ts /pay).
-          const accruedTotal = Math.floor(checkTotal * accrualRate)
+          // Полная сумма начисления за чек: фактически начисленное при закрытии
+          // (checks.bonus_awarded, 0 — не начисляли). Старые чеки (до 075, NULL) —
+          // прежняя оценка по текущей ставке (зеркало pos.router.ts /pay).
+          const accruedTotal = check.bonusAwarded != null
+            ? Math.floor(Number(check.bonusAwarded))
+            : Math.floor(checkTotal * accrualRate)
           if (accruedTotal > 0) {
             // Кумулятивно возвращено по чеку (включая текущий возврат).
             const refundedSoFar = prevRefunds.reduce((s, r) => s + (parseFloat(r.totalAmount) || 0), 0) + refundTotal

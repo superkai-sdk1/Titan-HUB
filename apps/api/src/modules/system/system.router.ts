@@ -736,9 +736,16 @@ systemRouter.put(
     const { configs } = c.req.valid('json')
     const existing = await readPollConfigs(db)
     const lastById = new Map(existing.map((e) => [e.id, e.lastPostedAt]))
+    // Берём более позднюю отметку: фронт мог прислать устаревший lastPostedAt из кэша —
+    // тогда опрос, уже отправленный сегодня, ушёл бы повторно.
+    const later = (a: string | null | undefined, b: string | null | undefined): string | null => {
+      if (!a) return b ?? null
+      if (!b) return a
+      return new Date(a).getTime() >= new Date(b).getTime() ? a : b
+    }
     const merged: PollConfig[] = configs.map((cfg) => ({
       ...cfg,
-      lastPostedAt: cfg.lastPostedAt ?? lastById.get(cfg.id) ?? null,
+      lastPostedAt: later(cfg.lastPostedAt, lastById.get(cfg.id)),
     }))
     await writePollConfigs(db, merged)
     return c.json({ ok: true, configs: merged })

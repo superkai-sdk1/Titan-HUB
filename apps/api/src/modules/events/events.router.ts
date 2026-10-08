@@ -155,6 +155,24 @@ eventsRouter.use('*', requireAuth)
 // онлайн-брони в bookings.router).
 export const bookingLockKey = (spaceId: string, date: string) => `event-booking:${spaceId}:${date}`
 
+// Ключи advisory-lock брони: дата события, а у ночного (конец на следующие сутки) —
+// и следующая дата. Пересекающиеся по времени брони занимают хотя бы одни общие
+// сутки → у них есть общий ключ. Порядок по возрастанию — у всех транзакций один,
+// поэтому захват двух ключей не даёт дедлока.
+export function bookingLockKeys(b: { spaceId: string; date: string; startTime: string; endTime?: string | null; plannedHours?: number | null }): string[] {
+  const keys = [bookingLockKey(b.spaceId, b.date)]
+  const next = crossesMidnight(b.startTime, b.endTime, b.plannedHours) ? shiftDate(b.date, 1) : null
+  if (next) keys.push(bookingLockKey(b.spaceId, next))
+  return keys.sort()
+}
+
+/** Взять advisory-lock'и брони зоны (см. bookingLockKeys) до конца транзакции. */
+export async function lockEventBooking(tx: DbOrTx, b: Parameters<typeof bookingLockKeys>[0]) {
+  for (const key of bookingLockKeys(b)) {
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${key}, 0))`)
+  }
+}
+
 // Пересечение брони, обнаруженное ВНУТРИ транзакции PATCH (под advisory-lock).
 // Бросаем как ошибку, чтобы откатить транзакцию и вернуть 409 в catch.
 class EventOverlapError extends Error {
@@ -173,16 +191,33 @@ class EventOverlapError extends Error {
 // Длительность по умолчанию (если endTime не задан) берём из остального кода:
 // hourly-аренда → plannedHours; иначе — 2 часа (типовая бронь зоны). Ночные
 // события (end < start) считаем переходящими на следующие сутки (+1 день).
+const defaultEventHours = (plannedHours?: number | null) => (plannedHours && plannedHours > 0 ? plannedHours : 2)
+
+// Заканчивается ли событие на следующие сутки — по правилам eventEndExpr.
+function crossesMidnight(start: string, end: string | null | undefined, plannedHours?: number | null): boolean {
+  if (end) return end < start
+  const [hh, mm] = start.split(':').map(Number)
+  return (hh || 0) * 60 + (mm || 0) + defaultEventHours(plannedHours) * 60 > 24 * 60
+}
+
+// 'YYYY-MM-DD' ± дни по календарю. null — дата не в этом формате.
+function shiftDate(date: string, days: number): string | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null
+  const d = new Date(`${date}T00:00:00Z`)
+  if (Number.isNaN(d.getTime())) return null
+  d.setUTCDate(d.getUTCDate() + days)
+  return d.toISOString().slice(0, 10)
+}
+
+// Начало и конец нового события как SQL-выражения timestamp (те же правила, что
+// eventEndExpr). Сдвиг на сутки — интервалом: литерал '… +1 day' Postgres не разбирает.
 function eventInterval(date: string, start: string, end: string | null | undefined, plannedHours?: number | null) {
   const startTs = `${date} ${start}`
-  if (end) {
-    // end < start → событие через полночь: конец на следующий день.
-    const endTs = end < start ? `${date} ${end} +1 day` : `${date} ${end}`
-    return { startTs, endTs, endRaw: end as string }
-  }
-  // Нет endTime: длительность по умолчанию (часы) → конец = старт + N часов.
-  const defaultHours = plannedHours && plannedHours > 0 ? plannedHours : 2
-  return { startTs, endTs: null, defaultHours, endRaw: null as string | null }
+  const aStart = sql`${startTs}::timestamp`
+  const aEnd = end
+    ? (end < start ? sql`${`${date} ${end}`}::timestamp + INTERVAL '1 day'` : sql`${`${date} ${end}`}::timestamp`)
+    : sql`${startTs}::timestamp + (${defaultEventHours(plannedHours)} * INTERVAL '1 hour')`
+  return { aStart, aEnd }
 }
 
 // SQL-выражение конца интервала строки events с теми же правилами по умолчанию.
@@ -203,15 +238,14 @@ export async function findOverlappingEvent(
 ) {
   if (body.type !== 'titan' || !body.spaceId || !body.date || !body.startTime) return null
 
-  const iv = eventInterval(body.date, body.startTime, body.endTime, body.plannedHours)
-  // Конец нового события как timestamp-выражение (то же правило по умолчанию).
-  const aEnd = iv.endTs != null
-    ? sql`${iv.endTs}::timestamp`
-    : sql`${iv.startTs}::timestamp + (${iv.defaultHours} * INTERVAL '1 hour')`
-  const aStart = sql`${iv.startTs}::timestamp`
+  const { aStart, aEnd } = eventInterval(body.date, body.startTime, body.endTime, body.plannedHours)
+  // Кандидаты — события зоны за соседние сутки: вчерашнее ночное (22:00→02:00)
+  // заходит в эту дату, а ночное новое — в завтрашнюю. Длительность ≤ 24 ч, дальше
+  // соседних суток пересечений нет; само пересечение решают timestamp'ы ниже.
+  const dates = [shiftDate(body.date, -1), body.date, shiftDate(body.date, 1)].filter((d): d is string => !!d)
 
   const conditions = [
-    eq(events.date, body.date),
+    inArray(events.date, dates),
     eq(events.spaceId, body.spaceId),
     ne(events.status, 'cancelled' as const),
     ne(events.status, 'completed' as const),
@@ -280,7 +314,7 @@ eventsRouter.post('/', requireRole('owner', 'staff'), zValidator('json', EventSc
   let conflict: typeof events.$inferSelect | null = null
   await db.transaction(async (tx) => {
     if (body.type === 'titan' && body.spaceId && body.date) {
-      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${bookingLockKey(body.spaceId, body.date)}, 0))`)
+      await lockEventBooking(tx, { ...body, spaceId: body.spaceId })
       const overlap = await findOverlappingEvent(tx, body)
       if (overlap) { conflict = overlap; return }
     }
@@ -424,7 +458,7 @@ eventsRouter.patch('/:id', requireRole('owner', 'staff'), zValidator('json', Eve
         plannedHours: (body.plannedHours ?? prev.plannedHours ?? undefined) as number | undefined,
       }
       if (overlapBody.type === 'titan' && overlapBody.spaceId && overlapBody.date) {
-        await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${bookingLockKey(overlapBody.spaceId, overlapBody.date)}, 0))`)
+        await lockEventBooking(tx, { ...overlapBody, spaceId: overlapBody.spaceId })
         const overlap = await findOverlappingEvent(tx, overlapBody, eventId)
         if (overlap) throw new EventOverlapError(overlap)
       }

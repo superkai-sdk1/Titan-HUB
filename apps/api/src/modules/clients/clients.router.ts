@@ -3,7 +3,7 @@ import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import {
-  profiles, transactions, bonusHistory, clientTiers, clientDiscountRules, tariffs,
+  profiles, transactions, bonusHistory, clientTiers, clientDiscountRules, tariffs, cashOperations, shifts,
   eq, and, isNull, isNotNull, ilike, or, desc, asc, sql, count, inArray,
 } from '@titan/database'
 import { ensureSystemStatuses } from '../../lib/statusTariffs.js'
@@ -12,7 +12,7 @@ import { profileNameCondition, profileTagCondition } from '../../lib/searchVaria
 // Роли, видимые в разделе «Клиенты». Сотрудники/владельцы — тоже клиенты (имеют
 // депозит/бонусы/тариф в том же профиле). Исключаем только планшеты.
 const CLIENT_ROLES = ['client', 'staff', 'owner'] as const
-import { requireAuth, requireRole } from '../../middleware/auth.js'
+import { requireAuth, requireRole, requirePermission } from '../../middleware/auth.js'
 import { accrueBonusLot, getBonusExpiryDays, spendBonusLots } from '../../lib/bonusLots.js'
 import { hashPassword } from '@titan/auth'
 import { notify, notifyClient } from '../notifications/push.js'
@@ -20,6 +20,7 @@ import { visitProgress, maybePromoteToResident } from '../../lib/loyalty.js'
 import { listRoster } from '../../lib/roster.js'
 import { readAliases, aliasesForProfile, addAlias, removeAlias, resolveProfileIdByAlias } from '../../lib/tgAliases.js'
 import { playerDetail as gomafiaPlayer } from '../../lib/gomafia.js'
+import { getShiftCashBalance } from '../shifts/shifts.service.js'
 import { createHmac } from 'node:crypto'
 
 const GM_TAG_RE = /^gomafia:\d+$/
@@ -715,15 +716,24 @@ clientsRouter.get('/:id/transactions', async (c) => {
   return c.json({ transactions: rows })
 })
 
+/** Наличных в кассе не хватает на выдачу депозита — откатывает ВСЮ операцию с балансом. */
+class CashShortageError extends Error {
+  constructor(readonly available: number, readonly requested: number) { super('cash_shortage') }
+}
+
 clientsRouter.post('/:id/balance', requireRole('owner', 'staff'), zValidator('json', z.object({
   amount: z.number(),
   description: z.string().min(3, 'Причина обязательна (минимум 3 символа)').optional(),
   reason: z.string().min(3, 'Причина обязательна (минимум 3 символа)').optional(),
   // Ключ идемпотентности (опционально): повтор с тем же ключом не задваивает баланс.
   idempotencyKey: z.string().min(1).max(80).optional(),
+  // Чем прошли деньги (опционально). 'cash' → операция с кассой открытой смены, иначе
+  // наличные мимо сверки дают ложный излишек/недостачу при закрытии. Без method —
+  // прежнее поведение (старые версии приложения): касса не трогается.
+  method: z.enum(['cash', 'card', 'transfer']).optional(),
 })), async (c) => {
   const db = c.var.db
-  const { amount, description, reason, idempotencyKey } = c.req.valid('json')
+  const { amount, description, reason, idempotencyKey, method } = c.req.valid('json')
   const note = description ?? reason
   if (!note) {
     return c.json({ error: 'Необходимо указать причину изменения баланса (description или reason)' }, 400)
@@ -738,12 +748,13 @@ clientsRouter.post('/:id/balance', requireRole('owner', 'staff'), zValidator('js
     | { kind: 'not_found' }
     | { kind: 'limit'; maxDebt: number; newBalance: number }
     | { kind: 'duplicate'; newBalance: number }
-    | { kind: 'ok'; newBalance: number; prevBalance: number }
+    | { kind: 'insufficient'; available: number; requested: number }
+    | { kind: 'ok'; newBalance: number; prevBalance: number; cashOperation: { id: string; type: 'deposit' | 'withdrawal'; amount: number } | null }
 
   const result = await db.transaction<Result>(async (tx) => {
     // Блокируем строку клиента до конца транзакции.
     const lockRes = await tx.execute(sql`
-      SELECT balance FROM profiles WHERE id = ${clientId} FOR UPDATE
+      SELECT balance, nickname FROM profiles WHERE id = ${clientId} FOR UPDATE
     `)
     const lockRows = (lockRes as any).rows ?? lockRes
     if (!lockRows || lockRows.length === 0) return { kind: 'not_found' }
@@ -779,11 +790,66 @@ clientsRouter.post('/:id/balance', requireRole('owner', 'staff'), zValidator('js
       UPDATE profiles SET balance = ${String(newBalance)} WHERE id = ${clientId}
     `)
 
-    return { kind: 'ok', newBalance, prevBalance: currentBalance }
+    // Наличные через кассу (method='cash'). Знак amount и операции приложений:
+    //   amount > 0 — «Пополнить» (deposit_add) и «Погасить» (debt_repay): клиент ВНОСИТ
+    //     деньги → внесение (deposit) в кассу на всю сумму;
+    //   amount < 0 — «Снять» (deposit_sub): клиенту ВЫДАЮТ его депозит → изъятие
+    //     (withdrawal), но только в пределах депозита до операции (max(баланс, 0));
+    //     «В долг» (debt_lend) уводит баланс ниже нуля БЕЗ денег — эта часть кассу не
+    //     трогает (приложения для «В долг» method и не шлют).
+    // Карта/перевод в наличную кассу не попадают — операции нет.
+    const cashIn = method === 'cash' && amount > 0 ? amount : 0
+    const cashOut = method === 'cash' && amount < 0 ? Math.min(-amount, Math.max(currentBalance, 0)) : 0
+    let cashOperation: { id: string; type: 'deposit' | 'withdrawal'; amount: number } | null = null
+    if (cashIn > 0 || cashOut > 0) {
+      const [current] = await tx.select({ id: shifts.id }).from(shifts)
+        .where(eq(shifts.status, 'open')).orderBy(desc(shifts.openedAt)).limit(1)
+      if (current) {
+        // Тот же порядок блокировок, что у POST /cashops: advisory-lock по смене (выдачи
+        // с проверкой остатка идут по очереди), затем строка смены FOR SHARE — закрытие
+        // держит FOR UPDATE, так что операция ляжет в смену ДО закрытия и войдёт в сверку.
+        await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${'cashops:' + current.id}, 0))`)
+        const [locked] = await tx.select({ status: shifts.status }).from(shifts).where(eq(shifts.id, current.id)).for('share')
+        // Смена закрылась, пока ждали блокировку, — как «смена не открыта»: баланс
+        // меняем, кассовую операцию не создаём (cashOperation: null в ответе).
+        if (locked?.status === 'open') {
+          if (cashOut > 0) {
+            const { expected } = await getShiftCashBalance(current.id, tx)
+            // Допуск в полкопейки — сумма float-ов остатка может дать 999.9999999.
+            if (cashOut - expected > 0.005) throw new CashShortageError(Math.round(expected * 100) / 100, cashOut)
+          }
+          const who = String(lockRows[0].nickname ?? 'Клиент')
+          const label = cashOut > 0 ? 'Выдача депозита' : currentBalance < 0 ? 'Погашение долга' : 'Пополнение депозита'
+          const type = cashOut > 0 ? 'withdrawal' as const : 'deposit' as const
+          const opAmount = cashOut > 0 ? cashOut : cashIn
+          const [op] = await tx.insert(cashOperations).values({
+            type,
+            amount: String(opAmount),
+            description: `${label} · ${who}${note !== label ? ` · ${note}` : ''}`,
+            shiftId: current.id,
+            createdBy: user.sub,
+            // Производный ключ от ключа запроса — ретрай не задвоит и кассу.
+            idempotencyKey: idempotencyKey ? `balance:${idempotencyKey}` : undefined,
+          }).onConflictDoNothing({ target: cashOperations.idempotencyKey }).returning({ id: cashOperations.id })
+          if (op) cashOperation = { id: op.id, type, amount: opAmount }
+        }
+      }
+    }
+
+    return { kind: 'ok', newBalance, prevBalance: currentBalance, cashOperation }
+  }).catch((e: unknown): Result => {
+    if (e instanceof CashShortageError) return { kind: 'insufficient', available: e.available, requested: e.requested }
+    throw e
   })
 
   if (result.kind === 'not_found') return c.json({ error: 'Not found' }, 404)
   if (result.kind === 'duplicate') return c.json({ balance: result.newBalance, duplicate: true })
+  if (result.kind === 'insufficient') {
+    return c.json({
+      error: `Недостаточно наличных в кассе: доступно ${result.available} ₽, запрошено ${result.requested} ₽. Выдайте переводом или пополните кассу.`,
+      available: result.available,
+    }, 400)
+  }
   if (result.kind === 'limit') {
     return c.json({ error: `Превышен лимит долга (${result.maxDebt}₽). Запрошенный баланс: ${result.newBalance.toFixed(2)}₽` }, 400)
   }
@@ -836,10 +902,12 @@ clientsRouter.post('/:id/balance', requireRole('owner', 'staff'), zValidator('js
     }, db)
   }
 
-  return c.json({ balance: result.newBalance })
+  // cashOperation: null при method='cash' — смена не открыта, наличные в кассу не записаны.
+  return c.json({ balance: result.newBalance, cashOperation: result.cashOperation })
 })
 
-clientsRouter.post('/:id/bonus', requireRole('owner', 'staff'), zValidator('json', z.object({
+// Ручная корректировка бонусов — только с правом «Бонусы».
+clientsRouter.post('/:id/bonus', requireRole('owner', 'staff'), requirePermission('bonus'), zValidator('json', z.object({
   amount: z.number().min(-1_000_000).max(1_000_000),
   reason: z.string().min(3, 'Причина обязательна (минимум 3 символа)'),
 })), async (c) => {

@@ -1498,7 +1498,9 @@ posRouter.post('/checks/:id/discount/:discountId/restore', requireRole('owner', 
 // Списание на персонал/владельца (100%): закрываем чек бесплатно (итог 0₽).
 // Остаток уже списан при добавлении позиций. Товар «продан за 0₽», а в аналитике
 // «Персонал» учитывается товарная сумма и себестоимость по staffCompId.
-posRouter.post('/checks/:id/comp', requireRole('owner', 'staff'), zValidator('json', z.object({ staffId: z.string().uuid().optional() })), async (c) => {
+// Только владелец: эндпоинт не учитывает настройку скидки персоналу и обнуляет
+// любой (в т.ч. гостевой) чек — сотруднику это давало бы бесплатное закрытие.
+posRouter.post('/checks/:id/comp', requireRole('owner'), zValidator('json', z.object({ staffId: z.string().uuid().optional() })), async (c) => {
   const db = c.var.db
   const checkId = c.req.param('id')
   const user = c.get('user')
@@ -1523,6 +1525,8 @@ posRouter.post('/checks/:id/comp', requireRole('owner', 'staff'), zValidator('js
         totalAmount: '0',
         discountTotal: String(round2(base)),
         paymentMethod: null,
+        // Как /pay: аренда зоны заканчивается при закрытии, иначе счётчик «тикает» дальше.
+        spaceEndAt: check.spaceEndAt ?? (check.spaceId ? new Date() : undefined),
       }).where(eq(checks.id, checkId))
     })
   } catch (err: any) {
@@ -1544,6 +1548,11 @@ posRouter.post('/checks/:id/qr', requireRole('owner', 'staff', 'tablet'), async 
 
   const [check] = await db.select().from(checks).where(eq(checks.id, checkId))
   if (!check || check.status !== 'open') return c.json({ error: 'Check not open' }, 400)
+  // Предоплаченный взнос (миникап): QR выставился бы на полную сумму, а вебхук закрыл
+  // бы чек без учёта предоплаты — гость заплатил бы взнос дважды. Остаток — в кассе.
+  if ((parseFloat(check.prepaidAmount ?? '0') || 0) > 0.005) {
+    return c.json({ error: 'Взнос оплачен заранее — остаток примите в кассе' }, 400)
+  }
 
   // Планшет может оплачивать ТОЛЬКО чек своего пространства (как и просмотр/заказ).
   if (user.role === 'tablet') {
@@ -1807,8 +1816,8 @@ posRouter.post('/checks/:id/pay', requireRole('owner', 'staff'), zValidator('jso
       // Списание на персонал — итог 0₽ (закрывается бесплатно, остаток уже списан).
       const total = check.staffCompId ? 0 : round2(itemsTotal + rental + eventBase)
       // Предоплаченная часть (напр. взнос участия миникапа): пробивается ПОЛНЫЙ total,
-      // но в этой сессии кассир собирает только остаток `due`. Предоплата затем войдёт
-      // в записанные платежи как наличные (cashRequired = total − безнал), т.е. выручка
+      // но в этой сессии кассир собирает только остаток `due`. Предоплата пишется
+      // отдельным платежом «перевод» (внесена до вечера, не в кассу смены), т.е. выручка
       // считается один раз по полному total, а на экране оплаты виден лишь остаток.
       const prepaid = check.staffCompId ? 0 : Math.min(parseFloat(check.prepaidAmount ?? '0') || 0, total)
       const due = round2(total - prepaid)
@@ -1917,10 +1926,14 @@ posRouter.post('/checks/:id/pay', requireRole('owner', 'staff'), zValidator('jso
         player = { ...player, bonusPoints: String(newBonus) }
       }
 
-      // Нормализуем платежи: записанная сумма == total (наличные = total − безнал),
+      // Нормализуем платежи: записанная сумма == total (наличные = total − предоплата − безнал),
       // чтобы переплата/сдача не попадала в выручку и кассу.
-      const cashRequired = round2(Math.max(0, total - nonCashSum))
+      const cashRequired = round2(Math.max(0, total - prepaid - nonCashSum))
       const normalizedPayments: { method: string; amount: number }[] = nonCash.map(p => ({ method: p.method, amount: round2(p.amount) }))
+      // Предоплата (взнос миникапа «оплатил заранее») — отдельным безналом «перевод»:
+      // в ящик смены эти деньги не поступали, иначе ожидаемая наличность завышена →
+      // ложная недостача при закрытии смены.
+      if (prepaid > 0.005) normalizedPayments.push({ method: 'transfer', amount: round2(prepaid) })
       if (cashRequired > 0.005) normalizedPayments.push({ method: 'cash', amount: cashRequired })
       if (normalizedPayments.length === 0) normalizedPayments.push({ method: 'cash', amount: total })
 
@@ -2031,6 +2044,9 @@ posRouter.post('/checks/:id/pay', requireRole('owner', 'staff'), zValidator('jso
           }
         }
       }
+      // Фиксируем фактически начисленное (0 — не начисляли): по нему возврат
+      // откатывает бонусы, а не по текущей ставке (refunds.router.ts).
+      await tx.update(checks).set({ bonusAwarded: String(bonusAwarded) }).where(eq(checks.id, checkId))
 
       return { closedCheck, certSent, debtAmount, playerId: body.playerId ?? null, completedEvent, bonusAwarded }
     })

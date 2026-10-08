@@ -6,11 +6,18 @@ import { profiles, eq } from '@titan/database'
 import type { Database } from '@titan/database'
 import type { ClubContext } from '../types.js'
 import { getSharedRedis } from '../lib/redis.js'
+import { permissionOn, PERMISSION_LABELS } from '../lib/permissions.js'
 
 // requireAuth читает не только user, но и club/db (их кладёт tenantContext ПЕРЕД
 // этим middleware) — чтобы сверить привязку токена/тикета к клубу поддомена и
-// актуальность профиля в БД клуба.
-type Variables = { user: JwtPayload; club: ClubContext | null; db: Database }
+// актуальность профиля в БД клуба. permissions — права сотрудника из БД
+// (undefined — профиль не удалось проверить → requirePermission пропускает).
+type Variables = {
+  user: JwtPayload
+  club: ClubContext | null
+  db: Database
+  permissions: Record<string, boolean> | undefined
+}
 
 export function tokenHash(token: string): string {
   return createHash('sha256').update(token).digest('hex')
@@ -24,7 +31,9 @@ const PROFILE_STATE_TTL_SEC = 30
 // Роли персонала: им роль берём из БД (повышение/понижение действует сразу).
 // У tablet-staff sub — профиль планшета, его роль в БД другая — не трогаем.
 const STAFF_ROLES = new Set(['owner', 'staff'])
-type ProfileState = { deleted: boolean; role: string | null }
+// permissions — права сотрудника (profiles.permissions); в старых записях кэша
+// поля нет → умолчания (запись живёт ≤ 30 с).
+type ProfileState = { deleted: boolean; role: string | null; permissions?: Record<string, boolean> | null }
 
 const profileStateKey = (clubId: string | null, sub: string): string => `${clubId ?? 'main'}:auth:profile:${sub}`
 
@@ -35,9 +44,13 @@ async function loadProfileState(db: Database, clubId: string | null, sub: string
     if (cached) return JSON.parse(cached) as ProfileState
   } catch { /* Redis недоступен — идём в БД */ }
   try {
-    const [row] = await db.select({ role: profiles.role, deletedAt: profiles.deletedAt })
+    const [row] = await db.select({ role: profiles.role, deletedAt: profiles.deletedAt, permissions: profiles.permissions })
       .from(profiles).where(eq(profiles.id, sub)).limit(1)
-    const state: ProfileState = { deleted: !row || row.deletedAt != null, role: row?.role ?? null }
+    const state: ProfileState = {
+      deleted: !row || row.deletedAt != null,
+      role: row?.role ?? null,
+      permissions: row?.permissions ?? null,
+    }
     try { await getSharedRedis().set(key, JSON.stringify(state), 'EX', PROFILE_STATE_TTL_SEC) } catch { /* без кэша */ }
     return state
   } catch (err) {
@@ -47,7 +60,7 @@ async function loadProfileState(db: Database, clubId: string | null, sub: string
   }
 }
 
-/** Сбросить кэш профиля (после увольнения/смены роли) — изменение действует сразу. */
+/** Сбросить кэш профиля (после увольнения/смены роли/прав) — изменение действует сразу. */
 export async function invalidateProfileAuthCache(clubId: string | null, sub: string): Promise<void> {
   try { await getSharedRedis().del(profileStateKey(clubId, sub)) } catch { /* истечёт по TTL */ }
 }
@@ -144,6 +157,7 @@ export const requireAuth = createMiddleware<{ Variables: Variables }>(async (c, 
   }
 
   c.set('user', user)
+  c.set('permissions', state ? (state.permissions ?? {}) : undefined)
   await next()
 })
 
@@ -154,4 +168,20 @@ export const requireRole = (...roles: string[]) =>
       return c.json({ error: 'Forbidden' }, 403)
     }
     await next()
+  })
+
+/**
+ * Право сотрудника на управленческое действие (profiles.permissions, умолчания —
+ * lib/permissions.ts). Владелец проходит всегда; сотрудник — если право включено.
+ * Права не загрузились (БД недоступна, SSE-тикет) — пропускаем (fail-open, как
+ * проверка профиля в requireAuth). Ставить ПОСЛЕ requireAuth/requireRole.
+ */
+export const requirePermission = (key: string) =>
+  createMiddleware<{ Variables: Variables }>(async (c, next) => {
+    const user = c.get('user')
+    if (user.role === 'owner') return next()
+    const permissions = c.get('permissions')
+    if (user.role === 'staff' && (permissions === undefined || permissionOn(permissions, key))) return next()
+    const label = PERMISSION_LABELS[key] ?? key
+    return c.json({ error: `Нет доступа — попросите владельца включить право «${label}»` }, 403)
   })

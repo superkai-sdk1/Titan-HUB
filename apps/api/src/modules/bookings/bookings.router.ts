@@ -20,7 +20,7 @@ import { requireAuth, requireRole } from '../../middleware/auth.js'
 import { notify } from '../notifications/push.js'
 import { getSharedRedis } from '../../lib/redis.js'
 import { clientIp } from '../../lib/clientIp.js'
-import { bookingLockKey, findOverlappingEvent } from '../events/events.router.js'
+import { findOverlappingEvent, lockEventBooking } from '../events/events.router.js'
 
 function rows<T = Record<string, unknown>>(res: unknown): T[] {
   return ((res as { rows?: unknown[] }).rows ?? (res as unknown[])) as T[]
@@ -318,7 +318,8 @@ bookingsRouter.patch('/:id', requireRole('owner', 'staff'), zValidator('json', P
       const isExit = bk['location'] === 'exit'
       const spaceId = (bk['space_id'] as string | null) ?? null
       if (!isExit && spaceId) {
-        await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${bookingLockKey(spaceId, date)}, 0))`)
+        // Те же блокировки, что у POST /events: дата брони и, если она за полночь, следующая.
+        await lockEventBooking(tx, { spaceId, date, startTime: time, endTime, plannedHours: hours > 0 ? hours : null })
         const overlap = await findOverlappingEvent(tx, {
           type: 'titan', spaceId, date, startTime: time, endTime, plannedHours: hours > 0 ? hours : null,
         })

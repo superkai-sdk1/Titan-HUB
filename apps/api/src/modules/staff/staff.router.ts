@@ -3,6 +3,7 @@ import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import { profiles, eq, and, isNull, desc, sql } from '@titan/database'
+import type { Database } from '@titan/database'
 // @ts-ignore
 import { passkeys } from '@titan/database'
 import { requireAuth, requireRole, invalidateProfileAuthCache } from '../../middleware/auth.js'
@@ -40,6 +41,18 @@ const UpdateStaffSchema = z.object({
   password: z.string().min(4).optional(),
   permissions: z.record(z.boolean()).optional(),
 })
+
+// Последнего активного владельца нельзя понизить или уволить — иначе клуб
+// остаётся без управления (назначить владельца из приложения уже некому).
+const LAST_OWNER_ERROR = 'Нельзя убрать последнего владельца клуба'
+async function isLastActiveOwner(db: Database, id: string): Promise<boolean> {
+  const [target] = await db.select({ role: profiles.role, deletedAt: profiles.deletedAt })
+    .from(profiles).where(eq(profiles.id, id))
+  if (!target || target.role !== 'owner' || target.deletedAt) return false
+  const [row] = await db.select({ n: sql<number>`count(*)::int` })
+    .from(profiles).where(and(eq(profiles.role, 'owner'), isNull(profiles.deletedAt)))
+  return (row?.n ?? 0) <= 1
+}
 
 export const staffRouter = new Hono<AppEnv>()
 staffRouter.use('*', requireAuth, requireRole('owner'))
@@ -149,6 +162,9 @@ staffRouter.patch('/:id', zValidator('json', UpdateStaffSchema), async (c) => {
   if (password) {
     setData.passwordHash = await hashPassword(password)
   }
+  if (rest.role && rest.role !== 'owner' && await isLastActiveOwner(db, c.req.param('id'))) {
+    return c.json({ error: LAST_OWNER_ERROR }, 409)
+  }
 
   try {
     const [updated] = await db
@@ -165,8 +181,9 @@ staffRouter.patch('/:id', zValidator('json', UpdateStaffSchema), async (c) => {
       })
 
     if (!updated) return c.json({ error: 'Not found' }, 404)
-    // Новая роль действует сразу, а не после перелогина (requireAuth берёт её из БД).
-    if (rest.role) await invalidateProfileAuthCache(c.var.club?.id ?? null, updated.id)
+    // Новая роль и права действуют сразу, а не после перелогина/истечения кэша
+    // (requireAuth берёт их из БД).
+    if (rest.role || rest.permissions) await invalidateProfileAuthCache(c.var.club?.id ?? null, updated.id)
     return c.json({ staff: updated })
   } catch (err: any) {
     if (err?.code === '23505') {
@@ -181,6 +198,9 @@ staffRouter.delete('/:id', async (c) => {
   const user = c.get('user')
   if (user.sub === c.req.param('id')) {
     return c.json({ error: 'Cannot delete yourself' }, 400)
+  }
+  if (await isLastActiveOwner(db, c.req.param('id'))) {
+    return c.json({ error: LAST_OWNER_ERROR }, 409)
   }
 
   await db

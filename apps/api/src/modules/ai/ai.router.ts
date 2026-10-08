@@ -297,7 +297,6 @@ async function answerFromDb(db: Database, query: string): Promise<string | null>
 // allowSql=false — без text-to-SQL по всей базе (персонал: только общий снимок).
 async function buildContext(db: Database, action: string, payload?: Record<string, unknown>, question?: string, allowSql = true): Promise<string> {
   const thirtyDays = new Date(Date.now() - 30 * 86400000)
-  const fourteenDays = new Date(Date.now() - 14 * 86400000)
   // Границы — по БИЗНЕС-ДНЮ/БИЗНЕС-МЕСЯЦУ в МСК (по настройке business_day_start_hour,
   // по умолч. 09:00), а не по локальной полуночи сервера.
   const h = await getBusinessDayStartHour(db)
@@ -498,16 +497,21 @@ async function buildContext(db: Database, action: string, payload?: Record<strin
 
     case 'avg_check_trend': {
       try {
+        // День — БИЗНЕС-ДЕНЬ клуба в МСК (как в analytics.router): сдвиг −h ч, иначе
+        // date_trunc в часовом поясе сессии БД (UTC) резал вечер по 03:00 МСК.
+        // h ∈ [0..23] — число из настройки, безопасно для sql.raw.
+        const bizDay = sql`((${checks.createdAt} AT TIME ZONE 'Europe/Moscow') - interval '${sql.raw(String(h))} hours')::date`
         const rows = await db
           .select({
-            day: sql<string>`date_trunc('day', ${checks.createdAt})::date::text`,
+            day: sql<string>`${bizDay}::text`,
             avgCheck: avg(checks.totalAmount),
             cnt: count(),
           })
           .from(checks)
-          .where(and(eq(checks.status, 'closed'), gte(checks.createdAt, fourteenDays)))
-          .groupBy(sql`date_trunc('day', ${checks.createdAt})`)
-          .orderBy(sql`date_trunc('day', ${checks.createdAt})`)
+          // 14 полных бизнес-дней (включая сегодняшний), без обрезанного первого дня.
+          .where(and(eq(checks.status, 'closed'), gte(checks.createdAt, bizDayStart(bizDayStr(13, h), h))))
+          .groupBy(bizDay)
+          .orderBy(bizDay)
         if (!rows.length) return 'Нет данных за последние 14 дней.'
         const lines = rows.map(r => `- ${r.day}: ${Number(r.avgCheck ?? 0).toFixed(0)} руб (${r.cnt} чеков)`).join('\n')
         return `Средний чек по дням за последние 14 дней:\n${lines}`

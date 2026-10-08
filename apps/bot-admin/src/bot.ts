@@ -116,6 +116,11 @@ export interface AdminBotCtx {
   db: Database
   /** База API клуба, напр. https://titanpos.ru/api (дефолт) / https://kbr.titanpos.ru/api. */
   apiBase: string
+  /**
+   * Клуб, к которому привязан JWT для вызовов API (как у токенов входа): null — основной
+   * домен, undefined — неизвестен (старый API) → токен без привязки (легаси-грейс API).
+   */
+  clubId?: string | null
   /** Доп. allowlist Telegram-id (env ADMIN_TG_IDS — только для дефолтного клуба; иначе []). */
   allowedTgIds: string[]
   /** Метка для логов (slug / 'default'). */
@@ -158,7 +163,7 @@ export function createAdminBot(ctx: AdminBotCtx): Bot {
 
   // Короткий JWT для профиля → вызовы нашего API (переиспользуем всю бизнес-логику).
   async function tokenFor(p: Profile): Promise<string> {
-    return signToken({ sub: p.id, role: p.role, nickname: p.nickname }, '10m')
+    return signToken({ sub: p.id, role: p.role, nickname: p.nickname, ...(ctx.clubId !== undefined ? { clubId: ctx.clubId } : {}) }, '10m')
   }
   async function apiGet<T = any>(p: Profile, path: string): Promise<T> {
     const res = await fetch(`${API_URL}${path}`, { headers: { Authorization: `Bearer ${await tokenFor(p)}` } })

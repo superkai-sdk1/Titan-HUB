@@ -402,6 +402,7 @@ plategaRouter.post('/webhook', async (c) => {
 
       // Начисление бонусов за QR/СБП-оплату (зеркально POS /pay; раньше его делал
       // фронтовый /pay, теперь чек закрывает webhook — иначе бонусы терялись).
+      let bonusAwarded = 0
       if (check.playerId) {
         const settingsRows = await tx.select().from(appSettings)
           .where(inArray(appSettings.key, ['bonus_enabled', 'bonus_accrual_rate', 'bonus_min_purchase']))
@@ -426,10 +427,13 @@ plategaRouter.post('/webhook', async (c) => {
               // Зеркало pos.router.ts /pay — иначе СБП-бонусы никогда не сгорают.
               const expiryDays = await getBonusExpiryDays(tx)
               await accrueBonusLot(tx, check.playerId, earned, expiryDays)
+              bonusAwarded = earned
             }
           }
         }
       }
+      // Фактически начисленное (0 — не начисляли) — база отката бонусов при возврате.
+      await tx.update(checks).set({ bonusAwarded: String(bonusAwarded) }).where(eq(checks.id, checkId))
 
       didClose = true
     })

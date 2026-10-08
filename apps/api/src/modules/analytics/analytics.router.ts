@@ -229,6 +229,9 @@ async function netBreakdown(database: Database, start: Date, end: Date, expFrom:
     .where(and(
       eq(checks.status, 'closed'), eq(checkPayments.method, 'transfer'),
       sql`coalesce(${checks.acquiringSurcharge}, 0) = 0`,
+      // Предоплата взноса миникапа пишется отдельной строкой «перевод» на сумму
+      // prepaid_amount — она получена заранее, не через эквайринг клуба.
+      sql`NOT (coalesce(${checks.prepaidAmount}, 0) > 0 AND ${checkPayments.amount} = ${checks.prepaidAmount})`,
       gte(checks.createdAt, start), lt(checks.createdAt, end),
     ))
 
@@ -1148,16 +1151,17 @@ analyticsRouter.get('/tariffs', zValidator('query', dateRangeQuerySchema), async
   total.revenue = Math.round(total.revenue * 100) / 100
 
   // Игровые вечера за период по типам. Вечер засчитывается, ТОЛЬКО если в смене
-  // ≥3 закрытых чеков с тарифом-местом игрока (Резидент/Гость/Студент) — считаем
-  // по факту игры, а не по типу вечера, выставленному при открытии смены. Тариф
-  // узнаём по стабильному tariffs.key (миграция 052), а не по редактируемому имени.
+  // ≥3 закрытых чеков с тарифом-местом игрока (Резидент/Студент/Новичок/Гость — все
+  // 4 базовых статуса миграции 052) — считаем по факту игры, а не по типу вечера,
+  // выставленному при открытии смены. Тариф узнаём по стабильному tariffs.key, а не
+  // по редактируемому имени.
   const geRes: any = await db.execute(sql`
     SELECT sc.evening_type AS evening_key, count(*)::int AS evenings
     FROM (
       SELECT s.id, s.evening_type,
         count(DISTINCT c.id) FILTER (WHERE EXISTS (
           SELECT 1 FROM check_items ci JOIN tariffs t ON t.item_id = ci.item_id
-          WHERE ci.check_id = c.id AND t.key IN ('resident', 'guest', 'student')
+          WHERE ci.check_id = c.id AND t.key IN ('resident', 'student', 'newbie', 'guest')
         )) AS qcount
       FROM shifts s
       LEFT JOIN checks c ON c.shift_id = s.id AND c.status = 'closed'

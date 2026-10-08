@@ -46,14 +46,18 @@ type Tx = any
  */
 export async function isSecondPayment(
   tx: Tx,
-  check: { id: string; plategaTxId: string | null; sbpQrTxId: string | null },
+  check: { id: string; plategaTxId: string | null; sbpQrTxId: string | null; prepaidAmount?: string | null },
   transactionId: string | undefined,
 ): Promise<boolean> {
   if (!transactionId || transactionId === check.plategaTxId) return false
   if (!check.plategaTxId && transactionId === check.sbpQrTxId) {
-    const [viaTransfer] = await tx.select({ id: checkPayments.id }).from(checkPayments)
-      .where(and(eq(checkPayments.checkId, check.id), eq(checkPayments.method, 'transfer'))).limit(1)
-    if (viaTransfer) return false
+    // Предоплата миникапа пишется в /pay платежом «перевод» — это не тендер кассы:
+    // фолбэком считаем только переводы СВЕРХ неё.
+    const prepaid = parseFloat(check.prepaidAmount ?? '0') || 0
+    const transferRows: { amount: string }[] = await tx.select({ amount: checkPayments.amount }).from(checkPayments)
+      .where(and(eq(checkPayments.checkId, check.id), eq(checkPayments.method, 'transfer')))
+    const transferSum = transferRows.reduce((s, r) => s + (parseFloat(r.amount) || 0), 0)
+    if (transferSum > prepaid + 0.005) return false
   }
   return true
 }
@@ -166,6 +170,7 @@ export async function settleCheckPayment(tx: Tx, args: SettleArgs): Promise<Sett
   }).where(eq(checks.id, checkId))
 
   // Начисление бонусов (зеркало pos.router.ts /pay и Platega-вебхука).
+  let bonusAwarded = 0
   if (check.playerId) {
     const settingsRows = await tx.select().from(appSettings)
       .where(inArray(appSettings.key, ['bonus_enabled', 'bonus_accrual_rate', 'bonus_min_purchase']))
@@ -188,10 +193,13 @@ export async function settleCheckPayment(tx: Tx, args: SettleArgs): Promise<Sett
           })
           const expiryDays = await getBonusExpiryDays(tx)
           await accrueBonusLot(tx, check.playerId, earned, expiryDays)
+          bonusAwarded = earned
         }
       }
     }
   }
+  // Фактически начисленное (0 — не начисляли) — база отката бонусов при возврате.
+  await tx.update(checks).set({ bonusAwarded: String(bonusAwarded) }).where(eq(checks.id, checkId))
 
   return 'closed'
 }
