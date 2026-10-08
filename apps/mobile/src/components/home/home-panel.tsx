@@ -1,86 +1,106 @@
 import { BlurView } from 'expo-blur';
 import { SymbolView } from 'expo-symbols';
-import { useState, type ReactNode } from 'react';
-import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, useWindowDimensions, View, type ColorValue } from 'react-native';
+import type { ReactNode } from 'react';
+import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, View, type ColorValue } from 'react-native';
 import { GestureDetector, GestureHandlerRootView, type ComposedGesture, type GestureType } from 'react-native-gesture-handler';
-import Animated, { useAnimatedProps, useAnimatedStyle, type DerivedValue, type SharedValue } from 'react-native-reanimated';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Animated, { useAnimatedStyle, type SharedValue } from 'react-native-reanimated';
+import { initialWindowMetrics, SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { FullWindowOverlay } from 'react-native-screens';
 import type { SFSymbol } from 'sf-symbols-typescript';
 
 import { Text } from '@/components/text';
 import { reconnectHa, useHa } from '@/lib/home-assistant';
-import { homeSummary, turnOffZones } from '@/lib/home-control';
+import { turnOffZones } from '@/lib/home-control';
 import { haptic } from '@/lib/haptics';
 import type { Zone } from '@/lib/smart-home-api';
 import { colors, space, type } from '@/lib/theme';
 
-import { HEM_RADIUS } from './home-hem';
+import { HEM_RADIUS, HEM_SPACE, HEM_TOUCH_EXTRA, HemEdge, useHemState } from './home-hem';
 import { IS_IOS } from './home-surface';
 import { ZoneSection } from './home-tiles';
 
 /**
- * Раскрытая шторка «Свет и климат». Живёт вне вкладки — поверх всего окна, в том числе
- * таб-бара и плашки смены: iOS — FullWindowOverlay (вид прямо в окне, без презентации
- * контроллера, поэтому начатое на краю шторки движение пальца не прерывается), Android —
- * прозрачный Modal поверх своей панели вкладок. У обоих свой корень жестов.
+ * Шторка «Свет и климат» — одна панель во всю высоту окна, как настоящая штора. Свёрнутая
+ * поднята вверх: на экране остаётся только её подол под строкой состояния. Потянули подол —
+ * вся панель едет вниз за пальцем; раскрытая закрывает окно целиком, вместе с таб-баром и
+ * плашкой смены. Содержимое (заголовок, помещения) лежит выше подола: у свёрнутой шторки оно
+ * за верхним краем рамки и не выглядывает из-под строки состояния.
  *
- * iOS — как Пункт управления: экран размывается, плитки Liquid Glass. Android — как
- * шторка быстрых настроек: затемнение и плотная панель с тональными плитками.
+ * iOS — материал (systemThickMaterial) со скруглённым низом, плитки Liquid Glass поверх.
+ * Android — плотная поверхность с тенью и тональные плитки, как шторка быстрых настроек.
  */
+
+/** Прямоугольник, в котором ходит шторка, в координатах её слоя. */
+export type ShadeFrame = { x: number; y: number; width: number; height: number };
+
+const MAX_COLUMN = 680;
+/** Зона ручки у раскрытой шторки — над полоской «Домой» и жестовой навигацией Android. */
+const GRABBER_ZONE = 36;
+const SCRIM = IS_IOS ? 'rgba(0,0,0,0.3)' : 'rgba(0,0,0,0.45)';
+
+/** Путь низа шторки от подола под строкой состояния до низа рамки. */
+export function shadeTravel(frame: ShadeFrame, hemTop: number): number {
+  return Math.max(1, frame.height - hemTop - HEM_SPACE);
+}
 
 /**
- * Размытие iOS меняет силу, а не прозрачность: UIVisualEffectView под полупрозрачным
- * родителем рисуется без размытия, пока прозрачность не вернётся к 1.
+ * Слой шторки. iOS — FullWindowOverlay: вид прямо в окне над таб-баром, без презентации
+ * контроллера. Слой пропускает касания везде, кроме своих видов (корни — box-none), а
+ * «модальным» для VoiceOver становится, только пока шторка раскрыта. Свой SafeAreaProvider —
+ * чтобы внутри были отступы окна (полоска «Домой»), а не экрана кассы с таб-баром.
+ *
+ * Android: слой уже лежит над панелью вкладок (HomeShadeHost в app/(app)/_layout.tsx).
  */
-const AnimatedBlurView = Animated.createAnimatedComponent(BlurView);
-const BLUR_INTENSITY = 70;
-const MAX_COLUMN = 680;
-const GRABBER_HEIGHT = 36;
-
-/** Слой поверх всего окна. */
-export function ShadeLayer({ onRequestClose, children }: { onRequestClose: () => void; children: ReactNode }) {
-  if (IS_IOS) {
-    return (
-      <FullWindowOverlay>
-        <GestureHandlerRootView style={StyleSheet.absoluteFill}>{children}</GestureHandlerRootView>
-      </FullWindowOverlay>
-    );
-  }
+export function ShadeLayer({ modal, children }: { modal: boolean; children: ReactNode }) {
+  if (!IS_IOS) return children;
   return (
-    <Modal visible transparent animationType="none" statusBarTranslucent navigationBarTranslucent hardwareAccelerated onRequestClose={onRequestClose}>
-      <GestureHandlerRootView style={styles.fill}>{children}</GestureHandlerRootView>
-    </Modal>
+    <FullWindowOverlay unstable_accessibilityContainerViewIsModal={modal}>
+      <GestureHandlerRootView pointerEvents="box-none" style={StyleSheet.absoluteFill}>
+        <SafeAreaProvider initialMetrics={initialWindowMetrics} pointerEvents="box-none" style={StyleSheet.absoluteFill}>
+          {children}
+        </SafeAreaProvider>
+      </GestureHandlerRootView>
+    </FullWindowOverlay>
   );
 }
 
 type ShadePanelProps = {
   zones: Zone[];
+  frame: ShadeFrame;
+  /** От верха рамки до подола свёрнутой шторки — там, где начинается касса. */
+  hemTop: number;
   /** 0 — свёрнута, 1 — раскрыта. */
   progress: SharedValue<number>;
-  /** Путь панели от свёрнутой до раскрытой, pt. */
-  travel: DerivedValue<number>;
+  /** 1 — шторка на месте, 0 — подол спрятан за верх (появление, баннер уведомления). */
+  presence: SharedValue<number>;
+  /** Шторку тянут или она открыта: подложка, касания содержимого, VoiceOver. */
+  engaged: boolean;
+  hemGesture: GestureType | ComposedGesture;
   headerGesture: GestureType | ComposedGesture;
-  grabberGesture: GestureType | ComposedGesture;
+  onOpen: () => void;
   onClose: () => void;
-  onPanelLayout: (height: number) => void;
 };
 
-export function ShadePanel({ zones, progress, travel, headerGesture, grabberGesture, onClose, onPanelLayout }: ShadePanelProps) {
+export function ShadePanel({ zones, frame, hemTop, progress, presence, engaged, hemGesture, headerGesture, onOpen, onClose }: ShadePanelProps) {
+  // Отступы окна: iOS — свой провайдер в ShadeLayer, Android — корневой.
   const insets = useSafeAreaInsets();
-  const window = useWindowDimensions();
-  const entities = useHa((s) => s.entities);
-  const anyOn = homeSummary(zones, entities).anyOn;
-  // Высота заголовка со строкой статуса (строка появляется, только когда что-то не так).
-  const [chromeHeight, setChromeHeight] = useState(52);
+  const hem = useHemState(zones);
 
-  const columnWidth = Math.min(MAX_COLUMN, window.width - insets.left - insets.right - space.lg * 2);
-  // Шторка над таб-баром и плашкой смены — ей доступна вся высота окна до safe area.
-  const scrollMax = Math.max(160, window.height - insets.bottom - space.md - (insets.top + space.sm) - chromeHeight - GRABBER_HEIGHT - space.sm * 2);
+  const hemBottom = hemTop + HEM_SPACE;
+  const travel = shadeTravel(frame, hemTop);
+  const bottomGap = Math.max(insets.bottom, space.sm);
+  // Низ раскрытой шторки под подол: не меньше видимой части свёрнутой, иначе содержимое
+  // выглянуло бы из-под строки состояния.
+  const footer = Math.max(hemBottom, GRABBER_ZONE + bottomGap);
+  const lift = bottomGap + (GRABBER_ZONE - HEM_SPACE) / 2;
+  const tuck = hemBottom + HEM_TOUCH_EXTRA + HEM_RADIUS;
+  const columnWidth = Math.max(0, Math.min(MAX_COLUMN, frame.width - insets.left - insets.right - space.lg * 2));
 
-  const panelStyle = useAnimatedStyle(() => ({ transform: [{ translateY: (progress.get() - 1) * travel.get() }] }));
+  // Один сдвиг на панель и её подол: низ шторки идёт за пальцем 1:1.
+  const moveStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: (progress.get() - 1) * travel - (1 - presence.get()) * tuck }],
+  }));
   const scrimStyle = useAnimatedStyle(() => ({ opacity: progress.get() }));
-  const blurProps = useAnimatedProps(() => ({ intensity: progress.get() * BLUR_INTENSITY }));
 
   const offAll = () => {
     haptic.warning();
@@ -91,58 +111,75 @@ export function ShadePanel({ zones, progress, travel, headerGesture, grabberGest
   };
 
   return (
-    <>
-      <View style={StyleSheet.absoluteFill}>
-        {IS_IOS ? (
-          <AnimatedBlurView tint="systemThinMaterial" animatedProps={blurProps} style={StyleSheet.absoluteFill} />
-        ) : (
-          <Animated.View style={[StyleSheet.absoluteFill, styles.scrim, scrimStyle]} />
-        )}
-        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityRole="button" accessibilityLabel="Свернуть свет и климат" />
-      </View>
+    <View pointerEvents="box-none" style={[styles.area, { left: frame.x, top: frame.y, width: frame.width, height: frame.height }]}>
+      {engaged && (
+        <Animated.View style={[StyleSheet.absoluteFill, styles.scrim, scrimStyle]} importantForAccessibility="no-hide-descendants" accessibilityElementsHidden>
+          <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+        </Animated.View>
+      )}
 
+      {/* Сама шторка. Верхние углы — выше рамки, видно только скруглённый низ. */}
       <Animated.View
-        style={[styles.panel, !IS_IOS && styles.panelAndroid, { paddingTop: insets.top + space.sm }, panelStyle]}
-        // iOS: панели как таковой нет — пустое место между плитками сворачивает шторку, как
-        // Пункт управления. Android: плотная панель сама держит касания.
-        pointerEvents={IS_IOS ? 'box-none' : 'auto'}
-        onLayout={(e) => onPanelLayout(e.nativeEvent.layout.height)}>
-        <View style={[styles.column, { width: columnWidth }]}>
-          <View style={styles.chrome} onLayout={(e) => setChromeHeight(e.nativeEvent.layout.height)}>
-            <GestureDetector gesture={headerGesture}>
-              <View style={styles.header}>
-                <Text style={[type.title2, styles.title]} accessibilityRole="header" numberOfLines={1}>
-                  Свет и климат
-                </Text>
-                {anyOn && (
-                  <Pressable
-                    onPress={offAll}
-                    hitSlop={6}
-                    accessibilityRole="button"
-                    accessibilityLabel="Выключить всё"
-                    android_ripple={{ color: 'rgba(127,127,127,0.2)' }}
-                    style={({ pressed }) => [styles.offAll, IS_IOS && pressed && styles.pressed]}>
-                    <SymbolView name="power" size={13} weight="bold" tintColor={colors.red} />
-                    <Text style={[type.footnote, styles.offAllText]}>Выключить всё</Text>
-                  </Pressable>
-                )}
-              </View>
-            </GestureDetector>
-            <StatusLine />
-          </View>
-          <ScrollView style={[styles.scroll, { maxHeight: scrollMax }]} contentContainerStyle={styles.zones} showsVerticalScrollIndicator={false}>
+        pointerEvents={engaged ? 'auto' : 'none'}
+        style={[
+          styles.panel,
+          IS_IOS ? styles.panelIos : styles.panelAndroid,
+          { height: frame.height + HEM_RADIUS, paddingTop: HEM_RADIUS + hemTop + space.sm, paddingBottom: footer },
+          moveStyle,
+        ]}>
+        {IS_IOS && <BlurView tint="systemThickMaterial" intensity={100} style={styles.material} />}
+        <View
+          style={[styles.column, { width: columnWidth }]}
+          accessibilityElementsHidden={!engaged}
+          importantForAccessibility={engaged ? 'auto' : 'no-hide-descendants'}>
+          <GestureDetector gesture={headerGesture}>
+            <View style={styles.header}>
+              <Text style={[type.title2, styles.title]} accessibilityRole="header" numberOfLines={1}>
+                Свет и климат
+              </Text>
+              {hem.summary.anyOn && (
+                <Pressable
+                  onPress={offAll}
+                  hitSlop={6}
+                  accessibilityRole="button"
+                  accessibilityLabel="Выключить всё"
+                  android_ripple={{ color: 'rgba(127,127,127,0.2)' }}
+                  style={({ pressed }) => [styles.offAll, IS_IOS && pressed && styles.pressed]}>
+                  <SymbolView name="power" size={13} weight="bold" tintColor={colors.red} />
+                  <Text style={[type.footnote, styles.offAllText]}>Выключить всё</Text>
+                </Pressable>
+              )}
+            </View>
+          </GestureDetector>
+          <StatusLine />
+          {/* Касание строки состояния прокручивает наверх кассу, пока шторка свёрнута (iOS: при двух таких списках — никакой). */}
+          <ScrollView
+            style={styles.scroll}
+            contentContainerStyle={styles.zones}
+            contentInsetAdjustmentBehavior="never"
+            scrollsToTop={engaged}
+            showsVerticalScrollIndicator={false}>
             {zones.map((zone) => (
               <ZoneSection key={zone.id} zone={zone} width={columnWidth} />
             ))}
           </ScrollView>
-          <GestureDetector gesture={grabberGesture}>
-            <View style={styles.grabberArea} accessible accessibilityRole="button" accessibilityLabel="Свернуть" onAccessibilityTap={onClose}>
-              <View style={styles.grabber} />
-            </View>
-          </GestureDetector>
         </View>
+        <HemEdge state={hem} progress={progress} lift={lift} />
       </Animated.View>
-    </>
+
+      {/* Подол как место касания: низ шторки и полоса чуть ниже края. Едет вместе с панелью. */}
+      <GestureDetector gesture={hemGesture}>
+        <Animated.View
+          style={[styles.hemHit, { top: frame.height - footer, height: footer + HEM_TOUCH_EXTRA }, moveStyle]}
+          accessible
+          accessibilityRole="button"
+          accessibilityLabel={engaged ? 'Свернуть свет и климат' : 'Свет и климат'}
+          accessibilityValue={engaged ? undefined : { text: hem.description }}
+          accessibilityHint={engaged ? undefined : 'Открывает управление светом и кондиционерами'}
+          onAccessibilityTap={engaged ? onClose : onOpen}
+        />
+      </GestureDetector>
+    </View>
   );
 }
 
@@ -178,17 +215,15 @@ function StatusLine() {
 }
 
 const styles = StyleSheet.create({
-  fill: { flex: 1 },
-  scrim: { backgroundColor: 'rgba(0,0,0,0.45)' },
-  panel: { position: 'absolute', top: 0, left: 0, right: 0, alignItems: 'center' },
-  // Тот же цвет и скругление, что у края шторки на кассе: свёрнутая панель и есть этот край.
-  panelAndroid: {
-    backgroundColor: colors.floating,
-    borderBottomLeftRadius: HEM_RADIUS,
-    borderBottomRightRadius: HEM_RADIUS,
-    elevation: 12,
-  },
-  column: { gap: space.sm },
+  // Рамка режет всё, что выше неё: на iPad шторка выходит из-под верхнего таб-бара.
+  area: { position: 'absolute', overflow: 'hidden' },
+  scrim: { backgroundColor: SCRIM },
+  panel: { position: 'absolute', top: -HEM_RADIUS, left: 0, right: 0, alignItems: 'center', borderRadius: HEM_RADIUS, borderCurve: 'continuous' },
+  // Тень — на внешнем виде, материал — внутри со скруглением (обрезка гасит тень iOS).
+  panelIos: { boxShadow: '0 6px 20px rgba(0,0,0,0.14)' },
+  panelAndroid: { backgroundColor: colors.floating, elevation: 6 },
+  material: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, borderRadius: HEM_RADIUS, borderCurve: 'continuous', overflow: 'hidden' },
+  column: { flex: 1, gap: space.sm },
   header: { flexDirection: 'row', alignItems: 'center', gap: space.sm, minHeight: 44, paddingHorizontal: 4 },
   title: { flex: 1, color: colors.label },
   offAll: {
@@ -205,10 +240,8 @@ const styles = StyleSheet.create({
   notice: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 4 },
   noticeText: { flex: 1, color: colors.secondaryLabel },
   retry: { color: colors.accent, fontWeight: '600' },
-  scroll: { flexGrow: 0, flexShrink: 0 },
-  zones: { gap: space.xl, paddingTop: space.xs, paddingBottom: space.sm },
-  chrome: { gap: space.sm },
-  grabberArea: { height: GRABBER_HEIGHT, alignItems: 'center', justifyContent: 'center' },
-  grabber: { width: 40, height: 5, borderRadius: 2.5, backgroundColor: colors.tertiaryLabel },
+  scroll: { flex: 1 },
+  zones: { gap: space.xl, paddingTop: space.xs, paddingBottom: space.md },
+  hemHit: { position: 'absolute', left: 0, right: 0 },
   pressed: { opacity: 0.55 },
 });

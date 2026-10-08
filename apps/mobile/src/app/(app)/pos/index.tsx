@@ -146,8 +146,8 @@ export default function PosScreen() {
   // Android: сетка прокручивается под плавающей панелью с плашкой смены.
   const tabBarClearance = useTabBarClearance(true);
   const topBlur = useSharedValue(0);
-  // Свет и климат (Home Assistant): край шторки лежит поверх кассы под строкой состояния,
-  // шапка опускается только на видимую часть края.
+  // Свет и климат (Home Assistant): подол свёрнутой шторки лежит поверх кассы под строкой
+  // состояния, шапка (и панель чека на iPad) опускается только на его видимую часть.
   const home = useHomeShade();
   const topSpace = insets.top + (home.ready ? HEM_SPACE : 0);
 
@@ -509,7 +509,7 @@ export default function PosScreen() {
     return (
       <AmbientBackdrop style={styles.screen} onLayout={(e) => setScreenWidth(e.nativeEvent.layout.width)}>
         {list}
-        {home.ready && <HomeShade home={home} bandWidth={listWidth || wide} glassKey={glassKey} />}
+        {home.ready && <HomeShade home={home} />}
       </AmbientBackdrop>
     );
   }
@@ -522,13 +522,13 @@ export default function PosScreen() {
   return (
     <AmbientBackdrop style={[styles.screen, styles.splitRow]} onLayout={(e) => setScreenWidth(e.nativeEvent.layout.width)}>
       {list}
-      {/* Край шторки — над сеткой чеков, а сама шторка открывается на всё окно. Место в ряду —
-          то же, что без сплита: при повороте iPad шторка и связь с домом не пересоздаются. */}
-      {home.ready && <HomeShade home={home} bandWidth={listWidth || wide} glassKey={glassKey} />}
+      {/* Шторка — во всю ширину кассы, поверх окна (слой окна на iOS). Место в ряду — то же,
+          что без сплита: при повороте iPad шторка и связь с домом не пересоздаются. */}
+      {home.ready && <HomeShade home={home} />}
       <View
         style={[
           styles.panelWrap,
-          { paddingTop: insets.top + space.sm, paddingRight: space.md + insets.right, paddingBottom: panelBottom, width: Math.min(480, wide * 0.42) },
+          { paddingTop: topSpace + space.sm, paddingRight: space.md + insets.right, paddingBottom: panelBottom, width: Math.min(480, wide * 0.42) },
         ]}>
         <CheckPanel checkId={selectedExists ? selectedId : null} />
       </View>

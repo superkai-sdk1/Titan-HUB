@@ -6,6 +6,7 @@ import { Platform, useWindowDimensions } from 'react-native';
 
 import { CheckAccessory } from '@/components/check-accessory';
 import { FloatingTabBar } from '@/components/floating-tab-bar';
+import { HomeShadeHost } from '@/components/home/home-shade';
 import { ShiftAccessory } from '@/components/shift-accessory';
 import { useChrome } from '@/lib/chrome';
 import { haptic } from '@/lib/haptics';
@@ -63,7 +64,7 @@ export default function AppLayout() {
   if (pathname === '/pos' && (IS_PAD || !hiddenByScroll)) accessory = <ShiftAccessory />;
   else if (openCheckId) accessory = <CheckAccessory checkId={openCheckId} />;
 
-  if (Platform.OS === 'android') return <AndroidTabs accessory={accessory} />;
+  if (Platform.OS === 'android') return <AndroidTabs accessory={accessory} homeShade={pathname === '/pos'} />;
 
   return (
     <NativeTabs
@@ -115,15 +116,22 @@ export default function AppLayout() {
  * iPhone (components/floating-tab-bar.tsx). Плашка смены или чека едет в той же стопке
  * над капсулой: раньше её клали отдельным слоем на расчётную высоту, и она наезжала на
  * панель. Экраны занимают всю высоту и прокручиваются под капсулой, как на iOS.
+ *
+ * Шторка «Свет и климат» на кассе — последним слоем поверх вкладок: так она и свёрнутая, и
+ * раскрытая лежит над капсулой, а касания мимо неё проходят к экрану (Modal бы их забрал).
  */
-function AndroidTabs({ accessory }: { accessory: ReactNode }) {
+function AndroidTabs({ accessory, homeShade }: { accessory: ReactNode; homeShade: boolean }) {
   return (
-    <Tabs screenOptions={{ headerShown: false }} tabBar={(props) => <FloatingTabBar {...props} accessory={accessory} />}>
-      <Tabs.Screen name="pos" />
-      <Tabs.Screen name="events" />
-      <Tabs.Screen name="new/index" />
-      <Tabs.Screen name="analytics" />
-      <Tabs.Screen name="manage" />
-    </Tabs>
+    <>
+      <Tabs screenOptions={{ headerShown: false }} tabBar={(props) => <FloatingTabBar {...props} accessory={accessory} />}>
+        <Tabs.Screen name="pos" />
+        <Tabs.Screen name="events" />
+        <Tabs.Screen name="new/index" />
+        <Tabs.Screen name="analytics" />
+        <Tabs.Screen name="manage" />
+      </Tabs>
+      {/* Шторка «Свет и климат» — над капсулой вкладок, пока на экране касса (components/home/home-shade.tsx). */}
+      {homeShade && <HomeShadeHost />}
+    </>
   );
 }

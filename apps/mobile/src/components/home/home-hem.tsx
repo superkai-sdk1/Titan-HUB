@@ -1,10 +1,7 @@
 import { SymbolView } from 'expo-symbols';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
-import { GestureDetector, type ComposedGesture, type GestureType } from 'react-native-gesture-handler';
 import Animated, { useAnimatedStyle, type SharedValue } from 'react-native-reanimated';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { GlassView } from '@/components/glass';
 import { Text } from '@/components/text';
 import { plural } from '@/lib/format';
 import { useHa, type HaStatus } from '@/lib/home-assistant';
@@ -12,83 +9,58 @@ import { homeSummary, type HomeSummary } from '@/lib/home-control';
 import type { Zone } from '@/lib/smart-home-api';
 import { colors, type } from '@/lib/theme';
 
-import { IS_IOS } from './home-surface';
-
 /**
- * Край шторки «Свет и климат» — то, что видно от поднятой шторки: тонкая полоса под строкой
- * состояния во всю ширину, низ скруглён, как подол. Посередине ручка, рядом — что горит.
- * Полоса лежит поверх кассы и места в раскладке не занимает: касса сдвигает шапку только на
- * видимую часть подола (HEM_SPACE).
- *
- * iOS — Liquid Glass, Android — плотная поверхность с тенью (как панель самой шторки).
+ * Подол шторки «Свет и климат» — нижний край самой панели (home-panel.tsx), а не отдельная
+ * полоса. Свёрнутая шторка поднята так, что под строкой состояния виден только он: ручка
+ * посередине, рядом — что горит. У раскрытой шторки ручка стоит над полоской «Домой».
  */
 
-/** Сколько подола видно под строкой состояния. */
+/** Сколько подола видно под строкой состояния: касса опускает шапку ровно на столько. */
 export const HEM_SPACE = 16;
-/** Скругление низа подола — у раскрытой шторки на Android такое же, она продолжает край. */
+/** Скругление низа шторки (и формы размытия под строкой состояния на кассе). */
 export const HEM_RADIUS = 28;
 /** Касание чуть ниже подола тоже берёт шторку: полоса тонкая. */
-const HEM_TOUCH_EXTRA = 8;
-/** Насколько край уезжает вниз за пальцем, пока гаснет. */
-const HEM_FOLLOW = 16;
+export const HEM_TOUCH_EXTRA = 8;
 /** Потолок роста цифр: им некуда расти в полосе высотой 16 pt. */
 const COUNT_MAX_SCALE = 1.2;
+/** Значки гаснут за первую четверть пути: у раскрытой шторки остаётся одна ручка. */
+const STATUS_FADE = 4;
 
-type HemProps = {
-  zones: Zone[];
-  /** Ширина полосы: экран или колонка сетки на iPad. */
-  width: number;
-  progress: SharedValue<number>;
-  gesture: GestureType | ComposedGesture;
-  /** Ключ повторного применения стекла (после зум-перехода и после закрытия шторки). */
-  glassKey: string;
-  onOpen: () => void;
-};
+export type HemState = { status: HaStatus; connecting: boolean; summary: HomeSummary; description: string };
 
-export function Hem({ zones, width, progress, gesture, glassKey, onOpen }: HemProps) {
-  const insets = useSafeAreaInsets();
+/** Что горит и есть ли связь — для значков на подоле и для VoiceOver. */
+export function useHemState(zones: Zone[]): HemState {
   const status = useHa((s) => s.status);
   const entities = useHa((s) => s.entities);
   const summary = homeSummary(zones, entities);
   const connecting = status === 'connecting' && Object.keys(entities).length === 0;
+  return { status, connecting, summary, description: describe(status, connecting, summary) };
+}
 
-  // Потянули — край уходит за пальцем и гаснет: дальше его продолжает сама шторка.
-  const hemStyle = useAnimatedStyle(() => ({
-    opacity: 1 - Math.min(1, progress.get() * 3),
-    transform: [{ translateY: progress.get() * HEM_FOLLOW }],
-  }));
+type HemEdgeProps = {
+  state: HemState;
+  progress: SharedValue<number>;
+  /** На сколько ручка поднимается от края к раскрытию (над полоской «Домой»). */
+  lift: number;
+};
 
-  // Полоса уходит под строку состояния и выше экрана на радиус: верхние углы не видны.
-  const stripHeight = insets.top + HEM_SPACE + HEM_RADIUS;
+/** Ручка и значки у нижнего края панели. Касаний не берёт — их ловит подол в home-panel.tsx. */
+export function HemEdge({ state, progress, lift }: HemEdgeProps) {
+  const edgeStyle = useAnimatedStyle(() => ({ transform: [{ translateY: -progress.get() * lift }] }));
+  const statusStyle = useAnimatedStyle(() => ({ opacity: 1 - Math.min(1, progress.get() * STATUS_FADE) }));
 
   return (
-    <GestureDetector gesture={gesture}>
-      <Animated.View
-        style={[styles.hit, { width, height: insets.top + HEM_SPACE + HEM_TOUCH_EXTRA }, hemStyle]}
-        accessible
-        accessibilityRole="button"
-        accessibilityLabel="Свет и климат"
-        accessibilityValue={{ text: describe(status, connecting, summary) }}
-        accessibilityHint="Открывает управление светом и кондиционерами"
-        onAccessibilityTap={onOpen}>
-        {IS_IOS ? (
-          <GlassView glassEffectStyle="regular" refreshKey={glassKey} style={[styles.strip, { height: stripHeight }]} />
-        ) : (
-          <View style={[styles.strip, styles.stripAndroid, { height: stripHeight }]} />
-        )}
-        <View style={[styles.edge, { top: insets.top }]}>
-          <View style={styles.grabber} />
-          <View style={styles.status}>
-            <HemStatus status={status} connecting={connecting} summary={summary} />
-          </View>
-        </View>
+    <Animated.View pointerEvents="none" style={[styles.edge, edgeStyle]}>
+      <View style={styles.grabber} />
+      <Animated.View style={[styles.status, statusStyle]}>
+        <HemStatus state={state} />
       </Animated.View>
-    </GestureDetector>
+    </Animated.View>
   );
 }
 
 /** Значки рядом с ручкой: горящий свет и кондиционеры с числом, нет связи, подключение. */
-function HemStatus({ status, connecting, summary }: { status: HaStatus; connecting: boolean; summary: HomeSummary }) {
+function HemStatus({ state: { status, connecting, summary } }: { state: HemState }) {
   if (connecting) return <ActivityIndicator size="small" color={colors.secondaryLabel} style={styles.spinner} />;
   if (status === 'offline' || status === 'auth_failed') return <SymbolView name="wifi.slash" size={11} weight="semibold" tintColor={colors.orange} />;
   if (!summary.anyOn) return null;
@@ -127,10 +99,7 @@ function describe(status: HaStatus, connecting: boolean, summary: HomeSummary): 
 }
 
 const styles = StyleSheet.create({
-  hit: { position: 'absolute', top: 0, left: 0, zIndex: 20 },
-  strip: { position: 'absolute', top: -HEM_RADIUS, left: 0, right: 0, borderRadius: HEM_RADIUS, borderCurve: 'continuous', overflow: 'hidden' },
-  stripAndroid: { backgroundColor: colors.floating, elevation: 4 },
-  edge: { position: 'absolute', left: 0, right: 0, height: HEM_SPACE, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
+  edge: { position: 'absolute', left: 0, right: 0, bottom: 0, height: HEM_SPACE, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
   grabber: { width: 36, height: 5, borderRadius: 2.5, backgroundColor: colors.tertiaryLabel },
   // Значки — справа от ручки, а сама ручка остаётся строго по центру.
   status: { position: 'absolute', left: '50%', marginLeft: 18 + 8, top: 0, bottom: 0, flexDirection: 'row', alignItems: 'center', gap: 8 },
