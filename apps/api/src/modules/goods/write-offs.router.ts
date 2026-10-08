@@ -91,8 +91,14 @@ writeOffsRouter.get('/:id', async (c) => {
     .leftJoin(profiles, eq(profiles.id, writeOffs.createdBy))
     .where(eq(writeOffs.id, id))
   if (!doc) return c.json({ error: 'Списание не найдено' }, 404)
-  const items = await db.select().from(writeOffItems).where(eq(writeOffItems.writeOffId, id)).orderBy(asc(writeOffItems.sortOrder))
-  return c.json({ writeOff: { ...doc.writeOff, author: doc.author }, items })
+  // Единица — из карточки: позиция могла быть удалена, а «120» без «мл» ничего не значит.
+  const rows = await db
+    .select({ line: writeOffItems, unit: inventory.unit })
+    .from(writeOffItems)
+    .leftJoin(inventory, eq(inventory.id, writeOffItems.itemId))
+    .where(eq(writeOffItems.writeOffId, id))
+    .orderBy(asc(writeOffItems.sortOrder))
+  return c.json({ writeOff: { ...doc.writeOff, author: doc.author }, items: rows.map((r) => ({ ...r.line, unit: r.unit ?? 'pcs' })) })
 })
 
 writeOffsRouter.post('/', zValidator('json', PostSchema), async (c) => {

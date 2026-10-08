@@ -29,11 +29,18 @@ export default function ManageLayout() {
       {/* Корень — нативная форма, как «Настройки» iOS: крупный заголовок в шапке Liquid Glass. */}
       <Stack.Screen name="index" options={formHeader({ title: 'Управление', headerLargeTitle: true })} />
 
-      <Stack.Screen name="menu/index" options={formHeader({ title: 'Меню' })} />
-      <Stack.Screen name="menu/[categoryId]" options={formHeader()} />
-      <Stack.Screen name="menu/item" options={editorModal} />
-      <Stack.Screen name="menu/category" options={editorModal} />
-      <Stack.Screen name="menu/reorder" options={editorModal} />
+      {/* «Товары»: меню, остатки и операции склада (2026-10-08 вместо «Меню» и «Склада»). */}
+      <Stack.Screen name="goods/index" options={formHeader({ title: 'Товары' })} />
+      <Stack.Screen name="goods/[itemId]" options={formHeader()} />
+      <Stack.Screen name="goods/edit" options={editorModal} />
+      <Stack.Screen name="goods/pick" options={editorModal} />
+      <Stack.Screen name="goods/categories" options={formHeader({ title: 'Категории' })} />
+      <Stack.Screen name="goods/category" options={editorModal} />
+      <Stack.Screen name="goods/reorder" options={editorModal} />
+      <Stack.Screen name="goods/supply" options={formHeader()} />
+      <Stack.Screen name="goods/write-off" options={formHeader()} />
+      <Stack.Screen name="goods/revision" options={formHeader()} />
+      <Stack.Screen name="goods/doc" options={formHeader()} />
 
       <Stack.Screen name="pricing/index" options={formHeader({ title: 'Тарифы и аренда' })} />
       <Stack.Screen name="pricing/tariff" options={editorModal} />
@@ -41,16 +48,9 @@ export default function ManageLayout() {
       <Stack.Screen name="pricing/space" options={editorModal} />
       <Stack.Screen name="pricing/rate" options={editorModal} />
 
-      <Stack.Screen name="inventory/index" options={formHeader({ title: 'Склад' })} />
-      <Stack.Screen name="inventory/[itemId]" options={formHeader()} />
-      <Stack.Screen name="inventory/stock-action" options={compactSheet} />
-      <Stack.Screen name="inventory/supply/[supplyId]" options={formHeader()} />
-      <Stack.Screen name="inventory/supply-editor" options={formHeader()} />
-      <Stack.Screen name="inventory/revision/[revisionId]" options={formHeader()} />
-      <Stack.Screen name="inventory/revision-editor" options={formHeader()} />
-      <Stack.Screen name="inventory/expense-new" options={editorModal} />
-
       <Stack.Screen name="salary/index" options={formHeader({ title: 'Зарплата' })} />
+      <Stack.Screen name="expenses/index" options={formHeader({ title: 'Расходы' })} />
+      <Stack.Screen name="expenses/new" options={editorModal} />
 
       <Stack.Screen name="shifts/index" options={formHeader({ title: 'Смены' })} />
       <Stack.Screen name="shifts/[shiftId]" options={formHeader({ title: 'Отчёт смены' })} />

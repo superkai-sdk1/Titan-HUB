@@ -117,7 +117,14 @@ inventoryRouter.get('/revisions/:id', async (c) => {
   const id = c.req.param('id')
   const [rev] = await db.select().from(revisions).where(eq(revisions.id, id))
   if (!rev) return c.json({ error: 'Not found' }, 404)
-  const items = await db.select().from(revisionItems).where(eq(revisionItems.revisionId, id)).orderBy(asc(revisionItems.sortOrder))
+  const rows = await db
+    .select({ line: revisionItems, unit: inventory.unit })
+    .from(revisionItems)
+    .leftJoin(inventory, eq(inventory.id, revisionItems.itemId))
+    .where(eq(revisionItems.revisionId, id))
+    .orderBy(asc(revisionItems.sortOrder))
+  // Единица учёта строки (шт/г/мл) — для сырья (070); прежние клиенты поле не читают.
+  const items = rows.map((r) => ({ ...r.line, unit: r.unit ?? 'pcs' }))
   let author: string | null = null
   if (rev.createdBy) {
     const [a] = await db.select({ nickname: profiles.nickname }).from(profiles).where(eq(profiles.id, rev.createdBy))

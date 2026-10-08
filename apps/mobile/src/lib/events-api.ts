@@ -168,6 +168,16 @@ export function parsePgTimestamp(value: string): Date {
   return new Date(iso);
 }
 
+/**
+ * Дата из сырого SQL («2026-09-17 09:12:34.123456+00») или ISO. Hermes не разбирает
+ * больше трёх знаков долей секунды — микросекунды Postgres режем. Мусор → null.
+ */
+export function parseServerDate(value: string | null): Date | null {
+  if (!value) return null;
+  const date = value.includes('T') ? new Date(value) : parsePgTimestamp(value.replace(/(\.\d{3})\d+/, '$1'));
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
 const mskDateTime = new Intl.DateTimeFormat('ru-RU', { timeZone: MSK, day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
 export const formatMskDateTime = (date: Date) => mskDateTime.format(date);
 

@@ -98,12 +98,17 @@ function ReorderList({
           <ContentUnavailableView title="Переставлять нечего" systemImage="arrow.up.arrow.down" />
         ) : (
           <List modifiers={[environment('editMode', 'active'), listStyle('insetGrouped')]}>
-            <Section footer={<SwiftText>{`${Platform.OS === 'ios' ? 'Потяните за полоски справа.' : 'Двигайте строки стрелками справа.'} Так же порядок увидят касса и планшеты.`}</SwiftText>}>
+            <Section
+              footer={
+                <SwiftText>{`${Platform.OS === 'ios' ? 'Потяните за полоски справа.' : 'Двигайте строки стрелками справа.'} Так же порядок увидят касса и планшеты.`}</SwiftText>
+              }
+            >
               <List.ForEach
                 onMove={(sources, destination) => {
                   haptic.selection();
                   setOrder((current) => moveRows(current, sources, destination));
-                }}>
+                }}
+              >
                 {order.map((row) => (
                   <Label key={row.id} title={row.title} systemImage={row.icon} modifiers={[foregroundStyle(row.color)]} />
                 ))}

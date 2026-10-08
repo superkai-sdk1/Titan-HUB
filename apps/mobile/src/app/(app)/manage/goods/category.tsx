@@ -6,7 +6,8 @@ import { Alert } from 'react-native';
 
 import { EditorToolbar } from '@/components/editor-toolbar';
 import { ActionRow, FieldRow, FormHost, normalizeHex, primary, RowIcon } from '@/components/native-form';
-import { CATEGORY_PRESETS, categoryHex, categorySymbol, deleteCategory, saveCategory, useMenuAdmin } from '@/lib/catalog-api';
+import { CATEGORY_PRESETS, categoryHex, categorySymbol, deleteCategory, saveCategory } from '@/lib/catalog-api';
+import { useGoods } from '@/lib/goods-api';
 import { haptic } from '@/lib/haptics';
 import type { MenuCategory } from '@/lib/pos-api';
 import { useSession } from '@/lib/session';
@@ -16,16 +17,16 @@ const errorText = (error: unknown) => (error instanceof Error ? error.message : 
 /** Категория меню: название, значок из набора веб-кассы, цвет и видимость в Titan Home. */
 export default function MenuCategorySheet() {
   const { categoryId } = useLocalSearchParams<{ categoryId?: string }>();
-  const menu = useMenuAdmin();
+  const goods = useGoods();
 
-  if (categoryId && !menu.data) {
+  if (categoryId && !goods.data) {
     return (
       <FormHost>
         <ProgressView />
       </FormHost>
     );
   }
-  const original = categoryId ? (menu.data?.categories.find((c) => c.id === categoryId) ?? null) : null;
+  const original = categoryId ? (goods.data?.categories.find((c) => c.id === categoryId) ?? null) : null;
   return <CategoryForm key={original?.id ?? 'new'} original={original} />;
 }
 
@@ -66,7 +67,7 @@ function CategoryForm({ original }: { original: MenuCategory | null }) {
           deleteCategory(original.id)
             .then(() => {
               haptic.success();
-              router.dismissTo('/manage/menu');
+              router.back();
             })
             .catch((error: unknown) => Alert.alert('Категория не удалена', errorText(error))),
       },
@@ -98,7 +99,8 @@ function CategoryForm({ original }: { original: MenuCategory | null }) {
                 if (preset && !colorTouched) setColor(preset.color);
                 if (preset && !name.trim()) setName(preset.label);
               }}
-              modifiers={[pickerStyle('menu')]}>
+              modifiers={[pickerStyle('menu')]}
+            >
               {CATEGORY_PRESETS.map((preset) => (
                 <Label key={preset.id} title={preset.label} systemImage={categorySymbol(preset.id)} modifiers={[tag(preset.id)]} />
               ))}
@@ -117,6 +119,16 @@ function CategoryForm({ original }: { original: MenuCategory | null }) {
           <Section footer={<Text>Категория видна гостям в меню кабинки.</Text>}>
             <Toggle label="Показывать в Titan Home" isOn={tablet} onIsOnChange={setTablet} />
           </Section>
+
+          {original && (
+            <Section footer={<Text>Так позиции идут в кассе и у гостей.</Text>}>
+              <ActionRow
+                title="Порядок позиций"
+                icon="arrow.up.arrow.down"
+                onPress={() => router.push({ pathname: '/manage/goods/reorder', params: { scope: 'items', categoryId: original.id } })}
+              />
+            </Section>
+          )}
 
           {original && isOwner && (
             <Section>

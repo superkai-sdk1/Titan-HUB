@@ -333,6 +333,8 @@ suppliesRouter.get('/:id', async (c) => {
     itemId: r.supplyItem.itemId,
     name: r.supplyItem.name ?? r.item?.name ?? '—',
     unit: r.supplyItem.unit,
+    // Единица учёта карточки (шт/г/мл, миграция 070) — количество строки в ней.
+    stockUnit: r.item?.unit ?? null,
     quantity: Number(r.supplyItem.quantity),
     costPerUnit: Number(r.supplyItem.costPerUnit),
   }))

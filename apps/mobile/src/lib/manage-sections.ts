@@ -7,8 +7,7 @@ import type { SFSymbol } from 'sf-symbols-typescript';
  */
 
 export type ManageSectionKey =
-  | 'menu'
-  | 'inventory'
+  | 'goods'
   | 'pricing'
   | 'screens'
   | 'clients'
@@ -21,6 +20,7 @@ export type ManageSectionKey =
   | 'staff'
   | 'shifts'
   | 'salary'
+  | 'expenses'
   | 'settings'
   | 'about';
 
@@ -33,16 +33,16 @@ export type ManageSection = {
   /** Цвет плашки значка (системные цвета iOS). */
   color: string;
   roles: ('owner' | 'staff')[];
-  perm?: string;
+  /** Право сотрудника; несколько — раздел виден, если открыто хотя бы одно. */
+  perm?: string | string[];
 };
 
 export const MANAGE_GROUPS: { title: string; items: ManageSection[] }[] = [
   {
     title: 'Касса и меню',
     items: [
-      { key: 'menu', title: 'Меню', subtitle: 'Категории, позиции, цены', icon: 'menucard', color: '#FF9500', roles: ['owner', 'staff'], perm: 'menu' },
+      { key: 'goods', title: 'Товары', subtitle: 'Меню, остатки, приход и ревизия', icon: 'shippingbox', color: '#FF9500', roles: ['owner', 'staff'], perm: ['menu', 'inventory'] },
       { key: 'pricing', title: 'Тарифы и аренда', subtitle: 'Статусы, зоны, пакеты мероприятий', icon: 'tag', color: '#30B0C7', roles: ['owner', 'staff'] },
-      { key: 'inventory', title: 'Склад', subtitle: 'Остатки, поставки, ревизии, расходы', icon: 'shippingbox', color: '#A2845E', roles: ['owner', 'staff'], perm: 'inventory' },
       { key: 'screens', title: 'Экраны', subtitle: 'Телевизоры: меню и слайдшоу', icon: 'tv', color: '#8B5CF6', roles: ['owner', 'staff'] },
     ],
   },
@@ -64,6 +64,7 @@ export const MANAGE_GROUPS: { title: string; items: ManageSection[] }[] = [
       { key: 'staff', title: 'Сотрудники', subtitle: 'Доступы, роли, PIN', icon: 'person.badge.key', color: '#8E8E93', roles: ['owner'] },
       { key: 'shifts', title: 'Смены', subtitle: 'История смен и отчёты', icon: 'clock', color: '#AF52DE', roles: ['owner', 'staff'] },
       { key: 'salary', title: 'Зарплата', subtitle: 'Начисления и выплаты', icon: 'rublesign', color: '#32ADE6', roles: ['owner'], perm: 'salary' },
+      { key: 'expenses', title: 'Расходы', subtitle: 'Аренда, коммуналка, маркетинг', icon: 'banknote', color: '#A2845E', roles: ['owner', 'staff'], perm: 'inventory' },
     ],
   },
   {
@@ -81,6 +82,6 @@ export function visibleManageGroups(role: string, permissions: Record<string, bo
     title: group.title,
     items: group.items
       .filter((item) => item.roles.includes(isOwner ? 'owner' : 'staff'))
-      .filter((item) => isOwner || !item.perm || permissions?.[item.perm] !== false),
+      .filter((item) => isOwner || !item.perm || [item.perm].flat().some((perm) => permissions?.[perm] !== false)),
   })).filter((group) => group.items.length > 0);
 }

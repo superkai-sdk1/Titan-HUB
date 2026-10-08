@@ -10,7 +10,15 @@ import { useDebounced } from '@/components/player-picker';
 import { fromDateTime, toDateString, todayMsk } from '@/lib/events-api';
 import { formatMoney } from '@/lib/format';
 import { haptic } from '@/lib/haptics';
-import { createExpenses, EXPENSE_CATEGORIES, EXPENSE_CATEGORY_CHOICES, round2, useExpenseCatalog, type ExpenseCatalogItem, type ExpenseCategory } from '@/lib/inventory-api';
+import {
+  createExpenses,
+  EXPENSE_CATEGORIES,
+  EXPENSE_CATEGORY_CHOICES,
+  round2,
+  useExpenseCatalog,
+  type ExpenseCatalogItem,
+  type ExpenseCategory,
+} from '@/lib/expenses-api';
 import { newIdempotencyKey, parseAmount } from '@/lib/shift-api';
 
 /** `version` пересоздаёт поля, когда название и цена подставлены из подсказки. */
@@ -108,21 +116,43 @@ export default function ExpenseNewSheet() {
                     haptic.selection();
                     update(line.key, { category: value as ExpenseCategory });
                   }}
-                  modifiers={[pickerStyle('menu')]}>
+                  modifiers={[pickerStyle('menu')]}
+                >
                   {EXPENSE_CATEGORY_CHOICES.map((category) => (
                     <Text key={category} modifiers={[tag(category)]}>
                       {EXPENSE_CATEGORIES[category].label}
                     </Text>
                   ))}
                 </Picker>
-                <InputRow key={`${line.key}-price-${line.version}`} label="Цена, ₽" value={line.price} placeholder="0" keyboard="decimal-pad" onChange={(text) => update(line.key, { price: text })} />
-                <InputRow key={`${line.key}-qty-${line.version}`} label="Количество" value={line.qty} placeholder="1" keyboard="decimal-pad" onChange={(text) => update(line.key, { qty: text })} />
+                <InputRow
+                  key={`${line.key}-price-${line.version}`}
+                  label="Цена, ₽"
+                  value={line.price}
+                  placeholder="0"
+                  keyboard="decimal-pad"
+                  onChange={(text) => update(line.key, { price: text })}
+                />
+                <InputRow
+                  key={`${line.key}-qty-${line.version}`}
+                  label="Количество"
+                  value={line.qty}
+                  placeholder="1"
+                  keyboard="decimal-pad"
+                  onChange={(text) => update(line.key, { qty: text })}
+                />
                 <HStack>
                   <Text modifiers={[secondary]}>Сумма</Text>
                   <Spacer />
                   <Text modifiers={[primary, monospacedDigit(), font({ weight: 'semibold' })]}>{sums[index]! > 0 ? money(sums[index]!) : '—'}</Text>
                 </HStack>
-                {lines.length > 1 ? <ActionRow title="Убрать позицию" icon="minus.circle" destructive onPress={() => setLines((current) => current.filter((l) => l.key !== line.key))} /> : null}
+                {lines.length > 1 ? (
+                  <ActionRow
+                    title="Убрать позицию"
+                    icon="minus.circle"
+                    destructive
+                    onPress={() => setLines((current) => current.filter((l) => l.key !== line.key))}
+                  />
+                ) : null}
               </Section>
             );
           })}
