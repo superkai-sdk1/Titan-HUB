@@ -140,7 +140,7 @@ export default function SettingsScreen() {
           </Section>
 
 
-          <Section footer={<Text>Ключи интеграций вводятся в веб-панели — там их безопаснее хранить и проверять.</Text>}>
+          <Section footer={<Text>Home Assistant (свет и климат на кассе) настраивается здесь; остальные ключи — в веб-панели.</Text>}>
             <LinkRow
               icon="puzzlepiece.extension"
               color="#5856D6"

@@ -18,7 +18,7 @@
           "ru"
         ],
         "ITSAppUsesNonExemptEncryption": false,
-        "NSLocalNetworkUsageDescription": "Titan HUB ищет в локальной сети ТВ-приставки с Titan Menu, чтобы подключить их к экранам клуба.",
+        "NSLocalNetworkUsageDescription": "Titan HUB подключается в локальной сети клуба к Home Assistant (свет и кондиционеры) и к ТВ-приставкам с Titan Menu.",
         "NSAppTransportSecurity": {
           "NSAllowsLocalNetworking": true
         },
@@ -72,7 +72,8 @@
           },
           "android": {
             "compileSdkVersion": 36,
-            "targetSdkVersion": 36
+            "targetSdkVersion": 36,
+            "usesCleartextTraffic": true
           }
         }
       ],

@@ -24,6 +24,7 @@ import { BirthdaysBanner } from '@/components/birthdays-banner';
 import { CheckCard, type CheckCardModel } from '@/components/check-card';
 import { CheckPanel } from '@/components/check-panel';
 import { Dissolve, type DissolveFrame } from '@/components/dissolve';
+import { HANDLE_SPACE, HomeShade, useHomeShade } from '@/components/home/home-shade';
 import { PrecheckCard } from '@/components/precheck-card';
 import { Unavailable } from '@/components/unavailable';
 import { cardLines, checkTitle, checkTotals, openedLabel } from '@/lib/checks';
@@ -137,6 +138,9 @@ export default function PosScreen() {
   // Android: сетка прокручивается под плавающей панелью с плашкой смены.
   const tabBarClearance = useTabBarClearance(true);
   const topBlur = useSharedValue(0);
+  // Свет и климат (Home Assistant): язычок шторки под строкой состояния сдвигает шапку кассы.
+  const home = useHomeShade();
+  const topSpace = insets.top + (home.ready ? HANDLE_SPACE : 0);
 
   const wide = screenWidth === 0 ? window.width : screenWidth;
   const split = useSplitLayout() && wide >= SPLIT_MIN_WIDTH;
@@ -363,7 +367,7 @@ export default function PosScreen() {
         contentInsetAdjustmentBehavior="never"
         contentContainerStyle={[
           styles.content,
-          { paddingTop: insets.top, paddingLeft: GRID_PADDING + insets.left, paddingRight: GRID_PADDING + insets.right },
+          { paddingTop: topSpace, paddingLeft: GRID_PADDING + insets.left, paddingRight: GRID_PADDING + insets.right },
           tabBarClearance > 0 && { paddingBottom: tabBarClearance + space.lg },
         ]}
         scrollEventThrottle={32}
@@ -378,7 +382,7 @@ export default function PosScreen() {
           }
         }}
         refreshControl={
-          <RefreshControl tintColor={colors.accent} progressViewOffset={insets.top} refreshing={pulling} onRefresh={refresh} />
+          <RefreshControl tintColor={colors.accent} progressViewOffset={topSpace} refreshing={pulling} onRefresh={refresh} />
         }>
         {header}
 
@@ -457,8 +461,8 @@ export default function PosScreen() {
         )}
       </Animated.ScrollView>
 
-      {/* Размытие под статус-баром, когда карточки уезжают под него. */}
-      <Animated.View pointerEvents="none" style={[styles.topBlur, { height: insets.top }, topBlurStyle]}>
+      {/* Размытие под статус-баром (и язычком шторки), когда карточки уезжают под него. */}
+      <Animated.View pointerEvents="none" style={[styles.topBlur, { height: topSpace }, topBlurStyle]}>
         <BlurView intensity={80} tint={BLUR_TINT} style={styles.blurFill} />
       </Animated.View>
     </View>
@@ -468,6 +472,7 @@ export default function PosScreen() {
     return (
       <AmbientBackdrop style={styles.screen} onLayout={(e) => setScreenWidth(e.nativeEvent.layout.width)}>
         {list}
+        {home.ready && <HomeShade home={home} bandWidth={listWidth || wide} />}
       </AmbientBackdrop>
     );
   }
@@ -488,6 +493,8 @@ export default function PosScreen() {
         ]}>
         <CheckPanel checkId={selectedExists ? selectedId : null} />
       </View>
+      {/* Язычок — над сеткой чеков, а сама шторка открывается на весь экран. */}
+      {home.ready && <HomeShade home={home} bandWidth={listWidth || wide} />}
     </AmbientBackdrop>
   );
 }

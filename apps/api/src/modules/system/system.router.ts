@@ -281,6 +281,10 @@ const INTEGRATION_KEYS: Record<string, string> = {
   // Умный дом — Home Assistant в локальной сети клуба (свет и кондиционеры кабинок в Titan Home).
   ha_url: 'Home Assistant: адрес в локальной сети',
   ha_token: 'Home Assistant: долгосрочный токен',
+  // Тот же Home Assistant для приложения Titan HUB (шторка «Свет и климат» на кассе): свой
+  // токен, чтобы отзывать его отдельно от планшетов; адрес пустой — берётся ha_url.
+  hub_ha_url: 'Home Assistant для HUB: адрес',
+  hub_ha_token: 'Home Assistant для HUB: долгосрочный токен',
 }
 
 const isAllowedKey = (key: string): boolean =>

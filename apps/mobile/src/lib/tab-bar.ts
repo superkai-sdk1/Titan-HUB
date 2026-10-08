@@ -54,6 +54,8 @@ export const SHEET_ROUTES: Record<string, ReadonlySet<string>> = {
     'loyalty/discount',
     'loyalty/tier-rule',
     'staff/new',
+    'settings/home/devices',
+    'settings/home/reorder',
     'polls/edit',
   ]),
 };
