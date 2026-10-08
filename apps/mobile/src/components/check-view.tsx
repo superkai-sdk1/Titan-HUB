@@ -55,9 +55,13 @@ export function CheckView({ check, totals, actions, player, now, contentInsetAdj
   const itemRows = check.items.filter((row) => row.checkItem.quantity > 0);
   const discountsTotal = check.discounts.reduce((sum, d) => sum + toNumber(d.amount), 0);
   const guests = check.guestNames ?? [];
+  // Списание на персонал: сервер закрывает чек за 0 ₽ (аренда, база и предоплата не берутся,
+  // как payTotals) — иначе сверху «тикала» бы живая аренда как долг гостя.
+  const due = check.staffCompId ? 0 : totals.due;
+  const prepaid = check.staffCompId ? 0 : totals.prepaid;
   // Сумма позиций нужна отдельно, только когда к оплате добавляются аренда или мероприятие
   // (их суммы — в своих карточках) или вычитается предоплата; иначе она равна сумме сверху.
-  const hasExtras = totals.rental > 0 || totals.eventBase > 0 || totals.prepaid > 0;
+  const hasExtras = totals.rental > 0 || totals.eventBase > 0 || prepaid > 0;
   const itemsDetail = [
     itemRows.length > 0 ? `${itemRows.length} ${plural(itemRows.length, ['позиция', 'позиции', 'позиций'])}` : null,
     hasExtras && itemRows.length > 0 ? formatMoney(totals.items) : null,
@@ -75,9 +79,9 @@ export function CheckView({ check, totals, actions, player, now, contentInsetAdj
       <LayoutAnimationConfig skipEntering skipExiting>
         <View style={styles.hero}>
           <Text style={[type.footnote, styles.heroCaption]}>{isOpen ? 'К ОПЛАТЕ' : check.status === 'closed' ? 'ОПЛАЧЕН' : 'ОТМЕНЁН'}</Text>
-          <RollingText text={formatMoney(totals.due)} style={[styles.heroAmount, type.amount]} maxFontSizeMultiplier={FONT_SCALE_MAX.display} />
+          <RollingText text={formatMoney(due)} style={[styles.heroAmount, type.amount]} maxFontSizeMultiplier={FONT_SCALE_MAX.display} />
           <Text style={[type.subhead, styles.secondary]}>
-            {totals.prepaid > 0 ? `${opened} · предоплата ${formatMoney(-totals.prepaid)}` : opened}
+            {prepaid > 0 ? `${opened} · предоплата ${formatMoney(-prepaid)}` : opened}
           </Text>
           {check.staffCompId && <Pill icon="person.badge.shield.checkmark" text="Списание на персонал — гостю бесплатно" color={colors.indigo} />}
         </View>

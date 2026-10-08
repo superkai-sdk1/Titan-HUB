@@ -55,7 +55,7 @@ export const MANAGE_GROUPS: { title: string; items: ManageSection[] }[] = [
       { key: 'clients', title: 'Клиенты', subtitle: 'Профили, статусы, Telegram', icon: 'person.2', color: '#007AFF', roles: ['owner', 'staff'], perm: 'clients' },
       { key: 'balances', title: 'Депозиты и долги', subtitle: 'Кто должен и у кого депозит', icon: 'wallet.bifold', color: '#34C759', roles: ['owner', 'staff'], perm: 'debtors' },
       { key: 'collections', title: 'Сбор средств', subtitle: 'Фонд клуба и разовые сборы', icon: 'banknote', color: '#00C7BE', roles: ['owner', 'staff'], perm: 'debtors' },
-      { key: 'loyalty', title: 'Лояльность', subtitle: 'Бонусы, скидки, статусы', icon: 'gift', color: '#FF2D55', roles: ['owner', 'staff'] },
+      { key: 'loyalty', title: 'Лояльность', subtitle: 'Бонусы, скидки, статусы', icon: 'gift', color: '#FF2D55', roles: ['owner', 'staff'], perm: ['discounts', 'bonus'] },
       { key: 'customers', title: 'Заказчики', subtitle: 'Компании и организаторы событий', icon: 'briefcase', color: '#5856D6', roles: ['owner', 'staff'] },
       { key: 'broadcasts', title: 'Рассылки', subtitle: 'Push и сообщения клиентам', icon: 'megaphone', color: '#AF52DE', roles: ['owner'] },
       { key: 'polls', title: 'Опросы', subtitle: 'Опросы в чатах клуба', icon: 'checklist', color: '#FF3B30', roles: ['owner'] },
