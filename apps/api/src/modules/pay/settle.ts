@@ -20,6 +20,22 @@ import type { Database } from '@titan/database'
 import { accrueBonusLot, getBonusExpiryDays } from '../../lib/bonusLots.js'
 import { round2, computeRental, computeTotals } from '../../lib/money.js'
 import { notify } from '../notifications/push.js'
+import { completeLinkedEvent, type CompletedEvent } from '../events/eventLifecycle.js'
+
+/** Уведомление «Мероприятие завершено» после коммита закрытия чека (вебхуки СБП). */
+export function notifyEventCompleted(
+  db: Database,
+  clubId: string | null | undefined,
+  event: CompletedEvent,
+  checkId: string,
+): void {
+  void notify({
+    type: 'event_completed',
+    title: 'Мероприятие завершено',
+    body: event.title ?? 'Мероприятие завершено',
+    meta: { eventId: event.id, checkId },
+  }, db, clubId ?? null).catch(() => {})
+}
 
 // 'second_payment' — чек уже не открыт, а пришла ДРУГАЯ транзакция: деньги получены
 // сверх оплаты (гость оплатил старый QR после закрытия чека другим способом).
@@ -32,6 +48,11 @@ export interface SettleArgs {
   transactionId?: string
   /** Префикс описания транзакции, например 'Т-Банк СБП'. */
   descriptionPrefix: string
+  /**
+   * Закрытие чека завершило мероприятие (основной чек события или последний чек
+   * участника миникапа). Вызывается внутри транзакции — уведомлять после коммита.
+   */
+  onEventCompleted?: (event: CompletedEvent) => void
 }
 
 // Минимальный тип транзакции drizzle, чтобы не тянуть весь Database generic.
@@ -168,6 +189,11 @@ export async function settleCheckPayment(tx: Tx, args: SettleArgs): Promise<Sett
     spaceEndAt: check.spaceEndAt ?? (check.spaceId ? ((fromQr ? check.sbpQrAt : null) ?? new Date()) : undefined),
     closedAt: new Date(),
   }).where(eq(checks.id, checkId))
+
+  // Как pos.router.ts /pay: оплаченный чек мероприятия завершает событие (миникап —
+  // последний открытый чек участника). Без этого оплаченное по QR «Идёт» навсегда.
+  const completedEvent = await completeLinkedEvent(tx, { id: checkId, linkedEventId: check.linkedEventId })
+  if (completedEvent) args.onEventCompleted?.(completedEvent)
 
   // Начисление бонусов (зеркало pos.router.ts /pay и Platega-вебхука).
   let bonusAwarded = 0

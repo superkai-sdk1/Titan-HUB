@@ -4,7 +4,7 @@ import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import type { Database } from '@titan/database'
 import {
-  events, eventHourlyRates, eventParticipants, checks, checkItems, checkPayments, inventory, customers, expenses, profiles,
+  events, eventHourlyRates, eventParticipants, checks, checkItems, checkPayments, inventory, customers, expenses, profiles, spaces,
   eq, and, gte, lte, asc, desc, sql, or, ne, isNull, inArray,
 } from '@titan/database'
 
@@ -17,6 +17,8 @@ import { reverseCheckMovements } from '../inventory/ledger.js'
 import { bizDayStr } from '../../lib/dateFmt.js'
 import { getBusinessDayStartHour } from '../../lib/appSettings.js'
 import { notify } from '../notifications/push.js'
+import { publishEvent } from '../../lib/realtime.js'
+import { cancelEventChecksTx, cancelEventTx, completeMinicapIfDone } from './eventLifecycle.js'
 
 const num = (v: unknown) => { const n = parseFloat(String(v ?? '0')); return Number.isFinite(n) ? n : 0 }
 
@@ -61,14 +63,31 @@ async function openParticipantCheck(exec: any, ev: any, p: any, shiftId: string,
   return chk!.id
 }
 
-// Привязанный чек годится при (повторном) старте, только если он есть и не отменён.
+// Привязанный чек годится при (повторном) старте, только если он ОТКРЫТ.
 // Отмена мероприятия отменяет чеки, но ссылки events.checkId/participants.checkId
 // остаются — при новом старте такой чек считаем отсутствующим и открываем новый.
+// Закрытый (оплаченный) чек тоже не «живой»: иначе старт переиспользовал бы его и
+// событие шло бы без открытого счёта.
 async function hasLiveCheck(exec: DbOrTx, checkId: string | null | undefined): Promise<boolean> {
   if (!checkId) return false
   const [chk] = await exec.select({ status: checks.status }).from(checks).where(eq(checks.id, checkId)).limit(1)
-  return !!chk && chk.status !== 'cancelled'
+  return !!chk && chk.status === 'open'
 }
+
+// Открытый чек на зоне (аренда идёт). Одна аренда на зону — как POST /pos/checks;
+// иначе старт «По ставке зоны» падал бы на uniq_one_open_rental_per_space (500)
+// или двоил тарификацию. exceptCheckId — собственный чек события.
+async function openCheckOnSpace(exec: DbOrTx, spaceId: string, exceptCheckId?: string | null): Promise<boolean> {
+  const conds = [eq(checks.spaceId, spaceId), eq(checks.status, 'open')]
+  if (exceptCheckId) conds.push(ne(checks.id, exceptCheckId))
+  const [row] = await exec.select({ id: checks.id }).from(checks).where(and(...conds)).limit(1)
+  return !!row
+}
+
+const SPACE_OCCUPIED_ERROR = 'Зона уже занята другим открытым чеком — закройте его в кассе или выберите другую зону'
+
+// Неуспех уникального индекса «одна открытая аренда на зону» (гонка двух стартов).
+const isSpaceRentalConflict = (err: any) => err?.code === '23505' && err?.constraint === 'uniq_one_open_rental_per_space'
 
 const EventSchema = z.object({
   type: z.enum(['titan', 'exit']).default('titan'),
@@ -276,7 +295,18 @@ eventsRouter.get('/', async (c) => {
     .where(conditions.length ? and(...(conditions as [any, ...any[]])) : undefined)
     .orderBy(desc(events.date), desc(events.startTime))
 
-  return c.json({ events: rows })
+  // Число игроков миникапа — для карточки списка («8/10 игроков»). attendeesCount для
+  // этого не годится: пишется только при старте и считает судью.
+  const minicapIds = rows.filter((r) => r.format === 'minicap').map((r) => r.id)
+  const counts = minicapIds.length
+    ? await db.select({ eventId: eventParticipants.eventId, cnt: sql<number>`count(*)::int` })
+        .from(eventParticipants)
+        .where(and(inArray(eventParticipants.eventId, minicapIds), eq(eventParticipants.role, 'player')))
+        .groupBy(eventParticipants.eventId)
+    : []
+  const playersBy = new Map(counts.map((r) => [r.eventId, Number(r.cnt)]))
+
+  return c.json({ events: rows.map((r) => (r.format === 'minicap' ? { ...r, playersCount: playersBy.get(r.id) ?? 0 } : r)) })
 })
 
 // ── GET /events/active-for-space/:spaceId — для планшета ─────────────────
@@ -305,6 +335,12 @@ eventsRouter.post('/', requireRole('owner', 'staff'), zValidator('json', EventSc
   const db = c.var.db
   const user = c.get('user')
   const body = c.req.valid('json')
+
+  // Новое мероприятие — только «Запланировано»/«Уточнить»: «Идёт» наступает стартом
+  // (PATCH открывает чек), «Завершено»/«Отменено» — итог, а не начальное состояние.
+  if (body.status !== 'planned' && body.status !== 'needs_clarification') {
+    return c.json({ error: 'Новое мероприятие создаётся запланированным — начать его можно после создания' }, 400)
+  }
 
   const isMinicap = body.format === 'minicap'
   // Проверка пересечения и вставка — в ОДНОЙ транзакции под advisory-lock по
@@ -388,6 +424,51 @@ eventsRouter.post('/', requireRole('owner', 'staff'), zValidator('json', EventSc
   return c.json({ event }, 201)
 })
 
+// ── GET /events/availability — занятость зон на время мероприятия ────────────
+// Форма мероприятия показывает, какие зоны свободны на выбранные дату, начало и
+// длительность, а какие заняты и чем. Проверка — та же findOverlappingEvent, что
+// у POST/PATCH (ночные события, длительность по умолчанию), так что «свободна» здесь
+// означает, что сохранение не получит 409. Зарегистрирован ДО '/:id', иначе тот
+// перехватил бы «availability» как id.
+const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/
+const isCalendarDate = (value: string) =>
+  /^\d{4}-\d{2}-\d{2}$/.test(value) && new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) === value
+const AvailabilityQuery = z.object({
+  date: z.string().refine(isCalendarDate, 'date: ожидается YYYY-MM-DD'),
+  startTime: z.string().regex(HHMM, 'startTime: ожидается HH:MM'),
+  endTime: z.string().regex(HHMM, 'endTime: ожидается HH:MM').optional(),
+  plannedHours: z.coerce.number().int().min(1).max(24).optional(),
+  excludeEventId: z.string().uuid().optional(),
+})
+
+eventsRouter.get('/availability', requireRole('owner', 'staff'), zValidator('query', AvailabilityQuery), async (c) => {
+  const db = c.var.db
+  const q = c.req.valid('query')
+  // Те же зоны и тот же порядок, что в кассе (GET /pos/spaces).
+  const rows = await db
+    .select({ id: spaces.id, name: spaces.name, hourlyRate: spaces.hourlyRate })
+    .from(spaces)
+    .where(eq(spaces.isActive, true))
+  const result = await Promise.all(rows.map(async (space) => {
+    const overlap = await findOverlappingEvent(db, {
+      type: 'titan',
+      spaceId: space.id,
+      date: q.date,
+      startTime: q.startTime,
+      endTime: q.endTime ?? null,
+      plannedHours: q.plannedHours ?? null,
+    }, q.excludeEventId)
+    return {
+      ...space,
+      free: !overlap,
+      conflict: overlap
+        ? { id: overlap.id, title: overlap.title, date: overlap.date, startTime: overlap.startTime, endTime: overlap.endTime }
+        : null,
+    }
+  }))
+  return c.json({ spaces: result })
+})
+
 eventsRouter.get('/:id', async (c) => {
   const db = c.var.db
   const [event] = await db.select().from(events).where(eq(events.id, c.req.param('id')))
@@ -401,16 +482,27 @@ eventsRouter.patch('/:id', requireRole('owner', 'staff'), zValidator('json', Eve
   const eventId = c.req.param('id')
   const body = c.req.valid('json')
 
-  // Меняется ли время/пространство? Сравниваем с undefined (а не truthiness):
-  // очистка endTime в null — это тоже изменение времени и должна перезапускать
-  // проверку пересечений. Саму проверку выполняем ВНУТРИ транзакции под advisory-lock
-  // (см. ниже), чтобы она была атомарна со вставкой/апдейтом чека и сериализовалась
-  // против конкурентных броней той же зоны/даты.
-  const timeChanged = body.spaceId !== undefined || body.startTime !== undefined
-    || body.endTime !== undefined || body.date !== undefined
-
   const [prev] = await db.select().from(events).where(eq(events.id, eventId))
   if (!prev) return c.json({ error: 'Not found' }, 404)
+
+  // Завершённое мероприятие обратно в работу не возвращается: его чек оплачен и
+  // закрыт, итог посчитан. Допустима только отмена.
+  if (prev.status === 'completed' && body.status !== undefined && body.status !== 'completed' && body.status !== 'cancelled') {
+    return c.json({ error: 'Мероприятие уже завершено — вернуть его в работу нельзя' }, 409)
+  }
+
+  // Меняется ли время/пространство/длительность? Сравниваем с undefined (а не
+  // truthiness): очистка endTime в null — это тоже изменение времени и должна
+  // перезапускать проверку пересечений. Длительность (plannedHours) задаёт конец
+  // события без endTime. Выход из отмены/завершения — тоже: пока событие не занимало
+  // зону, её могли забронировать. Саму проверку выполняем ВНУТРИ транзакции под
+  // advisory-lock (см. ниже), чтобы она была атомарна со вставкой/апдейтом чека и
+  // сериализовалась против конкурентных броней той же зоны/даты.
+  const reopening = body.status !== undefined && body.status !== 'cancelled' && body.status !== 'completed'
+    && (prev.status === 'cancelled' || prev.status === 'completed')
+  const timeChanged = body.spaceId !== undefined || body.startTime !== undefined
+    || body.endTime !== undefined || body.date !== undefined || body.plannedHours !== undefined
+    || body.type !== undefined || reopening
 
   const update: Record<string, any> = { ...body }
   // «Пакет по часам»: сдвинули начало/конец и часы явно не прислали — пересчитываем
@@ -437,6 +529,16 @@ eventsRouter.patch('/:id', requireRole('owner', 'staff'), zValidator('json', Eve
     update.attendeesCount = cnt
   }
 
+  // Поле РЕАЛЬНО меняется, а не пришло тем же значением: формы шлют весь набор полей
+  // при любой правке. Суммы сравниваем числом — numeric из БД приходит как '5000.00'.
+  const changed = (key: keyof typeof prev) => key in update && (update[key] ?? null) !== (prev[key] ?? null)
+  const amountChanged = (key: 'fixedAmount' | 'manualAmount' | 'participationFee') => key in update
+    && ((update[key] == null) !== (prev[key] == null) || num(update[key]) !== num(prev[key]))
+
+  // Чеки, которых коснулись в транзакции, — для realtime-событий кассы после коммита
+  // (иначе другие кассы ждали бы опроса).
+  const touched = { created: [] as string[], updated: [] as string[], deleted: [] as string[] }
+
   let event
   try {
     event = await db.transaction(async (tx) => {
@@ -447,15 +549,17 @@ eventsRouter.patch('/:id', requireRole('owner', 'staff'), zValidator('json', Eve
 
     // 0) ПЕРЕСЕЧЕНИЕ БРОНИ: при изменении времени/пространства — под advisory-lock
     //    по (spaceId, date) внутри транзакции, чтобы конкурентные брони сериализовались
-    //    и не создали двойную бронь зоны.
-    if (timeChanged) {
+    //    и не создали двойную бронь зоны. Вход — СЛИТАЯ запись: явный null (сняли
+    //    конец/длительность/зону) не должен подменяться старым значением, как было при
+    //    `body.x ?? prev.x`. Отменяемое/завершаемое событие зону не занимает.
+    if (timeChanged && merged.status !== 'cancelled' && merged.status !== 'completed') {
       const overlapBody = {
-        type: (body.type ?? prev.type) as any,
-        spaceId: (body.spaceId ?? prev.spaceId ?? undefined) as string | undefined,
-        date: (body.date ?? prev.date) as string,
-        startTime: (body.startTime ?? prev.startTime) as string,
-        endTime: (body.endTime ?? prev.endTime ?? undefined) as string | undefined,
-        plannedHours: (body.plannedHours ?? prev.plannedHours ?? undefined) as number | undefined,
+        type: merged.type as any,
+        spaceId: (merged.spaceId ?? undefined) as string | undefined,
+        date: merged.date as string,
+        startTime: merged.startTime as string,
+        endTime: (merged.endTime ?? null) as string | null,
+        plannedHours: (merged.plannedHours ?? null) as number | null,
       }
       if (overlapBody.type === 'titan' && overlapBody.spaceId && overlapBody.date) {
         await lockEventBooking(tx, { ...overlapBody, spaceId: overlapBody.spaceId })
@@ -472,7 +576,9 @@ eventsRouter.patch('/:id', requireRole('owner', 'staff'), zValidator('json', Eve
       const shift = await getCurrentShift(db)
       if (!shift) throw new Error('NO_SHIFT')
       const parts = await tx.select().from(eventParticipants).where(eq(eventParticipants.eventId, eventId))
-      for (const p of parts) { if (!(await hasLiveCheck(tx, p.checkId))) await openParticipantCheck(tx, merged, p, shift.id, user.sub) }
+      for (const p of parts) {
+        if (!(await hasLiveCheck(tx, p.checkId))) touched.created.push(await openParticipantCheck(tx, merged, p, shift.id, user.sub))
+      }
       update.attendeesCount = parts.filter((p: any) => p.role === 'player').length
     } else if (becomingActive && !(await hasLiveCheck(tx, prev.checkId))) {
       const shift = await getCurrentShift(db)
@@ -482,6 +588,8 @@ eventsRouter.patch('/:id', requireRole('owner', 'staff'), zValidator('json', Eve
       // аренду живым счётчиком с момента старта (как аренда-чек кассы), база = 0.
       const base = await computeEventBase(tx, merged as any)
       const rentalSpaceId = merged.billingMode === 'rental' ? ((merged.spaceId as string | null) ?? null) : null
+      // Зону уже арендует открытый чек кассы — второй аренды на ней быть не может.
+      if (rentalSpaceId && await openCheckOnSpace(tx, rentalSpaceId)) throw new Error('SPACE_OCCUPIED')
       const [chk] = await tx.insert(checks).values({
         staffId: (merged.responsibleStaffId as string) ?? user.sub,
         shiftId: shift.id,
@@ -496,32 +604,43 @@ eventsRouter.patch('/:id', requireRole('owner', 'staff'), zValidator('json', Eve
       }).returning()
       update.checkId = chk!.id
       update.attendeesCount = 1
+      touched.created.push(chk!.id)
     }
 
     // 2) СИНК с чеком активного события: база (сумма/режим/часы/время) и аренда зоны.
     const checkId = (update.checkId as string) ?? prev.checkId
     if (checkId && !becomingActive && !isMinicap) {
-      const amountTouched = body.manualAmount !== undefined || body.fixedAmount !== undefined
-        || body.billingMode !== undefined || body.paymentType !== undefined
-        || update.plannedHours !== undefined || body.startTime !== undefined || body.endTime !== undefined
+      // База пересчитывается, только если РЕАЛЬНО изменились влияющие на неё поля
+      // (режим, сумма, часы): формы шлют их при любой правке, и раньше правка
+      // комментария переоценивала чек идущего мероприятия по текущим тарифам.
+      const amountTouched = changed('billingMode') || amountChanged('fixedAmount')
+        || amountChanged('manualAmount') || changed('plannedHours')
       if (amountTouched) {
-        await tx.update(checks)
+        const res = await tx.update(checks)
           .set({ eventBaseAmount: String(await computeEventBase(tx, merged as any)) })
           .where(and(eq(checks.id, checkId), eq(checks.status, 'open')))
+          .returning({ id: checks.id })
+        if (res.length) touched.updated.push(checkId)
       }
       // «По ставке зоны»: у чека та же зона, что у события; включили режим — аренда
       // стартует сейчас (если ещё не шла); выключили — аренда с чека снимается.
-      const spaceTouched = body.spaceId !== undefined || body.billingMode !== undefined
+      const spaceTouched = changed('spaceId') || changed('billingMode')
       if (spaceTouched) {
         const [chk] = await tx.select().from(checks).where(eq(checks.id, checkId)).limit(1)
         if (chk && chk.status === 'open') {
           if (merged.billingMode === 'rental' && merged.spaceId) {
+            // Новую зону уже арендует другой открытый чек кассы — переносить некуда.
+            if (chk.spaceId !== merged.spaceId && await openCheckOnSpace(tx, merged.spaceId as string, checkId)) {
+              throw new Error('SPACE_OCCUPIED')
+            }
             await tx.update(checks).set({
               spaceId: merged.spaceId as string,
               spaceStartAt: chk.spaceStartAt ?? new Date(),
             }).where(eq(checks.id, checkId))
+            touched.updated.push(checkId)
           } else if (prev.billingMode === 'rental' || merged.billingMode === 'rental') {
             await tx.update(checks).set({ spaceId: null, spaceStartAt: null, spaceEndAt: null }).where(eq(checks.id, checkId))
+            touched.updated.push(checkId)
           }
         }
       }
@@ -529,15 +648,17 @@ eventsRouter.patch('/:id', requireRole('owner', 'staff'), zValidator('json', Eve
 
     // 2b) МИНИКАП: синк взноса на открытых чеках игроков + апсерт расходов события.
     if (isMinicap) {
-      if (!becomingActive && body.participationFee !== undefined) {
+      if (!becomingActive && amountChanged('participationFee')) {
         const players = await tx.select().from(eventParticipants)
           .where(and(eq(eventParticipants.eventId, eventId), eq(eventParticipants.role, 'player')))
         const fee = num(merged.participationFee)
         for (const p of players) {
           if (!p.checkId) continue
-          await tx.update(checks)
+          const res = await tx.update(checks)
             .set({ eventBaseAmount: String(fee), prepaidAmount: String(p.prepaid ? fee : 0) })
             .where(and(eq(checks.id, p.checkId), eq(checks.status, 'open')))
+            .returning({ id: checks.id })
+          if (res.length) touched.updated.push(p.checkId)
         }
       }
       const costsTouched = body.prizeFund !== undefined || body.lunchCost !== undefined
@@ -550,24 +671,14 @@ eventsRouter.patch('/:id', requireRole('owner', 'staff'), zValidator('json', Eve
       }
     }
 
-    // 3) ОТМЕНА события → отменяем открытые чеки (миникап — все чеки участников) и
-    //    возвращаем на склад списанное по ним (как DELETE /pos/checks/:id).
-    let cancelledChecks: { id: string }[] = []
-    if (body.status === 'cancelled' && isMinicap) {
-      const parts = await tx.select().from(eventParticipants).where(eq(eventParticipants.eventId, eventId))
-      const ids = parts.map((p: any) => p.checkId).filter(Boolean) as string[]
-      if (ids.length) {
-        cancelledChecks = await tx.update(checks).set({ status: 'cancelled' })
-          .where(and(inArray(checks.id, ids), eq(checks.status, 'open'))).returning({ id: checks.id })
-      }
-    } else if (body.status === 'cancelled' && prev.checkId) {
-      cancelledChecks = await tx.update(checks).set({ status: 'cancelled' })
-        .where(and(eq(checks.id, prev.checkId), eq(checks.status, 'open'))).returning({ id: checks.id })
+    // 3) ОТМЕНА события → отменяем открытые чеки (миникап — все чеки участников),
+    //    возвращаем на склад списанное по ним (как DELETE /pos/checks/:id) и снимаем
+    //    расходы события (при восстановлении из отмены они создаются заново, шаг 2b).
+    //    Та же логика — у мягкого DELETE и отмены брони (eventLifecycle.ts).
+    if (body.status === 'cancelled') {
+      const ids = await cancelEventChecksTx(tx, { id: eventId, format: (merged.format as string) ?? null, checkId: prev.checkId }, user.sub)
+      touched.deleted.push(...ids)
     }
-    for (const ch of cancelledChecks) await reverseCheckMovements(tx, ch.id, 'Отмена мероприятия', user.sub)
-    // Расходы отменённого мероприятия (приз/обед/иные миникапа) не должны оставаться
-    // в опексе аналитики; при восстановлении из отмены они создаются заново (шаг 2b).
-    if (body.status === 'cancelled') await tx.delete(expenses).where(eq(expenses.eventId, eventId))
 
     const [ev] = await tx.update(events).set(update).where(eq(events.id, eventId)).returning()
     return ev
@@ -583,10 +694,19 @@ eventsRouter.patch('/:id', requireRole('owner', 'staff'), zValidator('json', Eve
     if (err?.message === 'NO_SHIFT') {
       return c.json({ error: 'Нет открытой смены — нельзя начать мероприятие (создать чек)' }, 400)
     }
+    if (err?.message === 'SPACE_OCCUPIED' || isSpaceRentalConflict(err)) {
+      return c.json({ error: SPACE_OCCUPIED_ERROR }, 409)
+    }
     throw err
   }
 
   if (!event) return c.json({ error: 'Not found' }, 404)
+
+  // Кассы видят открытые/изменённые/отменённые чеки мероприятия сразу, без опроса.
+  const clubId = c.var.club?.id
+  for (const id of touched.created) publishEvent(clubId, 'check:created', { checkId: id })
+  for (const id of new Set(touched.updated)) publishEvent(clubId, 'check:updated', { checkId: id })
+  for (const id of touched.deleted) publishEvent(clubId, 'check:deleted', { checkId: id })
 
   // Завершение мероприятия вручную (переход в 'completed') → уведомление.
   if (body.status === 'completed' && prev.status !== 'completed') {
@@ -618,10 +738,12 @@ eventsRouter.delete('/:id', requireRole('owner'), async (c) => {
     })
     return c.json({ ok: true, purged: true })
   }
-  await db.transaction(async (tx) => {
-    await tx.update(events).set({ status: 'cancelled' }).where(eq(events.id, id))
-    await tx.delete(expenses).where(eq(expenses.eventId, id))
-  })
+  // Мягкая отмена — та же логика, что PATCH status=cancelled: открытые чеки события
+  // отменяются с возвратом списанного на склад (раньше здесь только менялся статус и
+  // чек мероприятия оставался открытым в кассе), расходы снимаются.
+  const cancelled = await db.transaction(async (tx) => cancelEventTx(tx, id, c.get('user').sub))
+  if (!cancelled) return c.json({ error: 'Not found' }, 404)
+  for (const checkId of cancelled.cancelledCheckIds) publishEvent(c.var.club?.id, 'check:deleted', { checkId })
   return c.json({ ok: true })
 })
 
@@ -662,14 +784,23 @@ eventsRouter.post('/:id/participants', requireRole('owner', 'staff'), zValidator
   const existing = await db.select().from(eventParticipants).where(eq(eventParticipants.eventId, eventId))
   if (role === 'player' && existing.filter(p => p.role === 'player').length >= 10) return c.json({ error: 'Максимум 10 игроков' }, 400)
   if (role === 'judge' && existing.some(p => p.role === 'judge')) return c.json({ error: 'Судья уже назначен' }, 400)
-  const [p] = await db.insert(eventParticipants).values({ eventId, profileId, role }).onConflictDoNothing().returning()
-  if (!p) return c.json({ error: 'Этот игрок уже в составе' }, 409)
-  // Миникап уже идёт — сразу открываем чек новому участнику.
-  if (ev.status === 'active') {
-    const shift = await getCurrentShift(db)
-    if (shift) { try { await openParticipantCheck(db, ev, p, shift.id, user.sub) } catch { /* non-fatal */ } }
+  // Миникап уже идёт — новому участнику сразу нужен счёт, а счёт открывается в смене.
+  // Раньше без смены (или при ошибке открытия чека, которую глотали) участник
+  // сохранялся без чека и платить ему было не за что.
+  const shift = ev.status === 'active' ? await getCurrentShift(db) : null
+  if (ev.status === 'active' && !shift) {
+    return c.json({ error: 'Откройте смену — без неё участнику идущего миникапа не открыть счёт' }, 400)
   }
-  return c.json({ participant: p }, 201)
+  // Участник и его чек — одной транзакцией: либо оба, либо ничего.
+  const added = await db.transaction(async (tx) => {
+    const [p] = await tx.insert(eventParticipants).values({ eventId, profileId, role }).onConflictDoNothing().returning()
+    if (!p) return null
+    const checkId = shift ? await openParticipantCheck(tx, ev, p, shift.id, user.sub) : null
+    return { participant: checkId ? { ...p, checkId } : p, checkId }
+  })
+  if (!added) return c.json({ error: 'Этот игрок уже в составе' }, 409)
+  if (added.checkId) publishEvent(c.var.club?.id, 'check:created', { checkId: added.checkId })
+  return c.json({ participant: added.participant }, 201)
 })
 
 const PatchParticipantSchema = z.object({ prepaid: z.boolean() })
@@ -685,7 +816,9 @@ eventsRouter.patch('/:id/participants/:pid', requireRole('owner', 'staff'), zVal
   // Синк предоплаты на открытом чеке игрока (судья — без взноса).
   if (p.checkId && p.role === 'player') {
     const fee = num(ev?.participationFee)
-    await db.update(checks).set({ prepaidAmount: String(prepaid ? fee : 0) }).where(and(eq(checks.id, p.checkId), eq(checks.status, 'open')))
+    const res = await db.update(checks).set({ prepaidAmount: String(prepaid ? fee : 0) })
+      .where(and(eq(checks.id, p.checkId), eq(checks.status, 'open'))).returning({ id: checks.id })
+    if (res.length) publishEvent(c.var.club?.id, 'check:updated', { checkId: p.checkId })
   }
   return c.json({ ok: true })
 })
@@ -701,15 +834,29 @@ eventsRouter.delete('/:id/participants/:pid', requireRole('owner', 'staff'), asy
     const [{ cnt }] = await db.select({ cnt: sql<number>`count(*)::int` }).from(checkItems).where(eq(checkItems.checkId, checkId))
     if (cnt > 0) return c.json({ error: 'У участника есть позиции в чеке — сначала закройте чек' }, 400)
   }
-  await db.transaction(async (tx) => {
+  const result = await db.transaction(async (tx) => {
+    let cancelled: { id: string }[] = []
     if (checkId) {
       // Отмена чека участника — с возвратом на склад списанного по журналу (как DELETE /pos/checks/:id).
-      const cancelled = await tx.update(checks).set({ status: 'cancelled' })
+      cancelled = await tx.update(checks).set({ status: 'cancelled' })
         .where(and(eq(checks.id, checkId), eq(checks.status, 'open'))).returning({ id: checks.id })
       for (const ch of cancelled) await reverseCheckMovements(tx, ch.id, 'Участник снят с мероприятия', c.get('user').sub)
     }
     await tx.delete(eventParticipants).where(eq(eventParticipants.id, pid))
+    // Сняли последнего участника с открытым счётом, остальные уже оплатили → миникап
+    // завершается (иначе «Идёт» навсегда: завершение ждёт закрытия чека участника).
+    const completedEvent = cancelled.length ? await completeMinicapIfDone(tx, eventId) : null
+    return { cancelledIds: cancelled.map((ch) => ch.id), completedEvent }
   })
+  for (const id of result.cancelledIds) publishEvent(c.var.club?.id, 'check:deleted', { checkId: id })
+  if (result.completedEvent) {
+    void notify({
+      type: 'event_completed',
+      title: 'Мероприятие завершено',
+      body: result.completedEvent.title ?? 'Мероприятие завершено',
+      meta: { eventId: result.completedEvent.id },
+    }, db, c.var.club?.id ?? null).catch(() => {})
+  }
   return c.json({ ok: true })
 })
 

@@ -27,6 +27,7 @@ import { publishEvent, updatesChannel } from '../../lib/realtime.js'
 import { getClubIntegration } from '../../lib/secrets.js'
 import { getActiveSbpProvider, getProvider, resolveCreds, getPaymentTestMode } from '../pay/registry.js'
 import { buildCheckReceipt } from '../pay/fiscal/receipt.js'
+import { completeLinkedEvent, completeMinicapIfDone, type CompletedEvent } from '../events/eventLifecycle.js'
 import { Redis } from 'ioredis'
 import { streamSSE } from 'hono/streaming'
 
@@ -866,12 +867,25 @@ posRouter.delete('/checks/:id', requireRole('owner', 'staff'), async (c) => {
       await tx.update(events)
         .set({ checkId: null, status: 'planned' })
         .where(and(eq(events.id, ch.linkedEventId), eq(events.checkId, checkId), ne(events.status, 'cancelled')))
+
+      // Отменили последний открытый чек участника миникапа, а остальные уже оплачены →
+      // миникап завершается (иначе «Идёт» навсегда: завершение ждёт закрытия чека).
+      const completedEvent = await completeMinicapIfDone(tx, ch.linkedEventId)
+      return { ch, completedEvent }
     }
-    return ch
+    return { ch, completedEvent: null }
   })
   if (!check) return c.json({ error: 'Not found or already closed' }, 400)
 
-  publishEvent(c.var.club?.id, 'check:deleted', { checkId: check.id })
+  publishEvent(c.var.club?.id, 'check:deleted', { checkId: check.ch.id })
+  if (check.completedEvent) {
+    void notify({
+      type: 'event_completed',
+      title: 'Мероприятие завершено',
+      body: check.completedEvent.title ?? 'Мероприятие завершено',
+      meta: { eventId: check.completedEvent.id },
+    }, db, c.var.club?.id ?? null).catch(() => {})
+  }
   return c.json({ ok: true })
 })
 
@@ -1506,8 +1520,9 @@ posRouter.post('/checks/:id/comp', requireRole('owner'), zValidator('json', z.ob
   const user = c.get('user')
   const { staffId } = c.req.valid('json')
   const consumerId = staffId ?? user.sub
+  let completedEvent: CompletedEvent | null = null
   try {
-    await db.transaction(async (tx) => {
+    completedEvent = await db.transaction(async (tx) => {
       const [check] = await tx.select().from(checks).where(eq(checks.id, checkId)).for('update')
       if (!check || check.status !== 'open') throw new Error('CHECK_NOT_OPEN')
       const [consumer] = await tx.select({ id: profiles.id, role: profiles.role }).from(profiles).where(eq(profiles.id, consumerId))
@@ -1528,6 +1543,8 @@ posRouter.post('/checks/:id/comp', requireRole('owner'), zValidator('json', z.ob
         // Как /pay: аренда зоны заканчивается при закрытии, иначе счётчик «тикает» дальше.
         spaceEndAt: check.spaceEndAt ?? (check.spaceId ? new Date() : undefined),
       }).where(eq(checks.id, checkId))
+      // Как /pay: закрытый чек мероприятия завершает событие (миникап — последний чек участника).
+      return completeLinkedEvent(tx, { id: checkId, linkedEventId: check.linkedEventId })
     })
   } catch (err: any) {
     if (err.message === 'CHECK_NOT_OPEN') return c.json({ error: 'Check not open' }, 400)
@@ -1537,6 +1554,14 @@ posRouter.post('/checks/:id/comp', requireRole('owner'), zValidator('json', z.ob
   }
   publishEvent(c.var.club?.id, 'check:paid', { checkId })
   publishEvent(c.var.club?.id, 'check:closed', { checkId })
+  if (completedEvent) {
+    void notify({
+      type: 'event_completed',
+      title: 'Мероприятие завершено',
+      body: completedEvent.title ?? 'Мероприятие завершено',
+      meta: { eventId: completedEvent.id, checkId },
+    }, db, c.var.club?.id ?? null).catch(() => {})
+  }
   const data = await getCheckWithItems(checkId, db)
   return c.json({ check: data })
 })
@@ -1988,31 +2013,10 @@ posRouter.post('/checks/:id/pay', requireRole('owner', 'staff'), zValidator('jso
         closedAt: new Date(),
       }).where(eq(checks.id, checkId)).returning()
 
-      // Авто-завершение мероприятия: чек события оплачен и закрыт → событие
-      // переходит в «Завершено» (ручной кнопки «Завершить» нет — финал только здесь).
-      // Только ОСНОВНОЙ чек события (events.check_id): оплата чека участника миникапа
-      // или доп. чека с той же привязкой событие не завершает.
-      let completedEvent: { id: string; title: string | null } | null = null
-      if (check.linkedEventId) {
-        const [evRow] = await tx.update(events).set({ status: 'completed' })
-          .where(and(eq(events.id, check.linkedEventId), eq(events.checkId, checkId), ne(events.status, 'cancelled')))
-          .returning({ id: events.id, title: events.title })
-        if (evRow) completedEvent = evRow
-        // Миникап (своего чека у события нет — только чеки участников) завершается,
-        // когда закрыт ПОСЛЕДНИЙ открытый чек участника.
-        if (!evRow) {
-          const [mcRow] = await tx.update(events).set({ status: 'completed' })
-            .where(and(
-              eq(events.id, check.linkedEventId),
-              isNull(events.checkId),
-              eq(events.format, 'minicap'),
-              eq(events.status, 'active'),
-              sql`NOT EXISTS (SELECT 1 FROM checks oc WHERE oc.linked_event_id = ${check.linkedEventId} AND oc.status = 'open' AND oc.id <> ${checkId})`,
-            ))
-            .returning({ id: events.id, title: events.title })
-          if (mcRow) completedEvent = mcRow
-        }
-      }
+      // Авто-завершение мероприятия: основной чек события оплачен → «Завершено»;
+      // чек участника миникапа → миникап завершается с последним открытым чеком.
+      // Общий хелпер — тот же вызывают /comp и вебхуки СБП (eventLifecycle.ts).
+      const completedEvent = await completeLinkedEvent(tx, { id: checkId, linkedEventId: check.linkedEventId })
 
       // Начисление бонусов с учётом настроек app_settings (на полную сумму, включая аренду)
       let bonusAwarded = 0

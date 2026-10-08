@@ -968,10 +968,13 @@ analyticsRouter.get('/events', zValidator('query', dateRangeQuerySchema), async 
       participationFee: events.participationFee, prizeFund: events.prizeFund,
       lunchCost: events.lunchCost, otherCost: events.otherCost,
       spaceId: events.spaceId, customerName: events.customerName, customerPhone: events.customerPhone,
-      checkId: events.checkId, checkTotal: checks.totalAmount, spaceName: spaces.name,
+      checkId: events.checkId, spaceName: spaces.name,
+      // ФАКТ — сумма ЗАКРЫТЫХ чеков, привязанных к событию (linked_event_id): основной
+      // чек, чеки участников миникапа (у него нет events.check_id) и доп. чеки.
+      // Открытый чек — ещё не выручка. NULL — закрытых чеков нет.
+      checkTotal: sql<string | null>`(SELECT sum(ch.total_amount) FROM checks ch WHERE ch.linked_event_id = ${events.id} AND ch.status = 'closed')`,
     })
     .from(events)
-    .leftJoin(checks, eq(checks.id, events.checkId))
     .leftJoin(spaces, eq(spaces.id, events.spaceId))
     .where(and(gte(events.date, from), lte(events.date, to)))
     .orderBy(desc(events.date))
@@ -988,13 +991,13 @@ analyticsRouter.get('/events', zValidator('query', dateRangeQuerySchema), async 
     return planned ?? 0
   }
   // ВЫРУЧКА МЕРОПРИЯТИЯ — РАЗДЕЛЯЕМ ФАКТ И ПЛАН (P1):
-  // - есть привязанный чек → ФАКТ: берём checkTotal (полный total_amount чека, уже
-  //   включает eventBase+аренду). ВАЖНО: эта сумма УЖЕ входит в общий gross клуба
-  //   (/dashboard, /overview считают тот же чек). Значит «Выручка мероприятий» —
-  //   это ПОДМНОЖЕСТВО общей выручки, а НЕ добавка: складывать её с «Выручкой
-  //   клуба» нельзя (будет двойной счёт). См. поле revenueNote ниже.
-  // - чека нет → ПЛАН: manualAmount/fixedAmount. Это НЕ факт оплаты и в общий gross
-  //   НЕ входит — помечаем отдельно (plannedRevenue), не смешивая с фактом.
+  // - есть закрытые чеки события → ФАКТ: checkTotal (сумма total_amount всех закрытых
+  //   чеков с linked_event_id, уже включает eventBase+аренду). ВАЖНО: эта сумма УЖЕ
+  //   входит в общий gross клуба (/dashboard, /overview считают те же чеки). Значит
+  //   «Выручка мероприятий» — это ПОДМНОЖЕСТВО общей выручки, а НЕ добавка:
+  //   складывать её с «Выручкой клуба» нельзя (будет двойной счёт). См. revenueNote.
+  // - закрытых чеков нет → ПЛАН: manualAmount/fixedAmount. Это НЕ факт оплаты и в
+  //   общий gross НЕ входит — помечаем отдельно (plannedRevenue), не смешивая с фактом.
   const eventActual = (r: any) => r.checkTotal != null ? n(r.checkTotal) : 0
   const eventPlanned = (r: any) => r.checkTotal != null ? 0 : (n(r.manualAmount) || n(r.fixedAmount) || 0)
   // Совокупная «выручка» строки для разбивок (факт, если есть; иначе план) —

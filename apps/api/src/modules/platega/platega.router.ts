@@ -14,7 +14,8 @@ import { publishEvent } from '../../lib/realtime.js'
 import { getClubIntegration } from '../../lib/secrets.js'
 import { getClubDbById } from '../../lib/clubResolver.js'
 import { settleResidentPayment, notifyResidentPaid } from '../pay/residentSettle.js'
-import { isSecondPayment, notifySecondPayment } from '../pay/settle.js'
+import { isSecondPayment, notifySecondPayment, notifyEventCompleted } from '../pay/settle.js'
+import { completeLinkedEvent, type CompletedEvent } from '../events/eventLifecycle.js'
 // Control-БД (продление подписки клуба по платежу платформы) — относительный путь
 // к dist, как в clubResolver/superadmin (закрытый exports-map @titan/database).
 import {
@@ -298,6 +299,7 @@ plategaRouter.post('/webhook', async (c) => {
   }
   let didClose = false
   let secondPayment = false
+  let completedEvent: CompletedEvent | null = null
   try {
     await db.transaction(async (tx) => {
       const [check] = await tx.select().from(checks).where(eq(checks.id, checkId)).for('update')
@@ -400,6 +402,10 @@ plategaRouter.post('/webhook', async (c) => {
         closedAt: new Date(),
       }).where(eq(checks.id, checkId))
 
+      // Как pos.router.ts /pay: оплаченный чек мероприятия завершает событие (миникап —
+      // последний открытый чек участника). Без этого оплаченное по QR «Идёт» навсегда.
+      completedEvent = await completeLinkedEvent(tx, { id: checkId, linkedEventId: check.linkedEventId })
+
       // Начисление бонусов за QR/СБП-оплату (зеркально POS /pay; раньше его делал
       // фронтовый /pay, теперь чек закрывает webhook — иначе бонусы терялись).
       let bonusAwarded = 0
@@ -453,6 +459,7 @@ plategaRouter.post('/webhook', async (c) => {
   if (didClose) {
     publishEvent(eventClubId, 'platega:confirmed', { transactionId, checkId })
     publishEvent(eventClubId, 'check:closed', { checkId })
+    if (completedEvent) notifyEventCompleted(db, eventClubId, completedEvent, checkId)
   }
   // Деньги пришли за уже закрытый чек — Platega отвечаем 200, персоналу сигнал.
   if (secondPayment) {

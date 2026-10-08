@@ -15,7 +15,8 @@ import type { AppEnv } from '../../types.js'
 import { publishEvent } from '../../lib/realtime.js'
 import { residentPayments, eq } from '@titan/database'
 import { getProvider, resolveCreds } from './registry.js'
-import { settleCheckPayment, notifySecondPayment } from './settle.js'
+import { settleCheckPayment, notifySecondPayment, notifyEventCompleted } from './settle.js'
+import type { CompletedEvent } from '../events/eventLifecycle.js'
 import { settleResidentPayment, notifyResidentPaid } from './residentSettle.js'
 
 export const payRouter = new Hono<AppEnv>()
@@ -78,6 +79,7 @@ const handleWebhook = async (c: Context<AppEnv>) => {
   let didClose = false
   let secondPayment = false
   let residentApplied = false
+  let completedEvent: CompletedEvent | null = null
   try {
     await db.transaction(async (tx) => {
       if (residentRow) {
@@ -89,6 +91,7 @@ const handleWebhook = async (c: Context<AppEnv>) => {
           verifiedAmount,
           transactionId,
           descriptionPrefix: provider.label,
+          onEventCompleted: (ev) => { completedEvent = ev },
         })
         if (r === 'closed') didClose = true
         if (r === 'second_payment') secondPayment = true
@@ -108,6 +111,7 @@ const handleWebhook = async (c: Context<AppEnv>) => {
   if (didClose) {
     publishEvent(c.var.club?.id, 'check:paid', { checkId })
     publishEvent(c.var.club?.id, 'check:closed', { checkId })
+    if (completedEvent) notifyEventCompleted(db, c.var.club?.id, completedEvent, checkId)
   }
   // Деньги пришли за уже закрытый чек — банку 200 (платёж принят), персоналу сигнал.
   if (secondPayment) {
