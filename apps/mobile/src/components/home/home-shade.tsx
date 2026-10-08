@@ -14,6 +14,7 @@ import { connectHa, disconnectHa, reconnectHa, useHa } from '@/lib/home-assistan
 import { homeSummary, turnOffZones } from '@/lib/home-control';
 import { haptic } from '@/lib/haptics';
 import { useSession } from '@/lib/session';
+import { useTabBarClearance } from '@/lib/tab-bar';
 import { useSmartHome, useSmartHomeToken, zoneDevices, zoneEntityIds, type Zone } from '@/lib/smart-home-api';
 import { colors, space, type } from '@/lib/theme';
 
@@ -41,6 +42,12 @@ const BLUR_INTENSITY = 70;
 export const HANDLE_SPACE = 40;
 const HANDLE_HEIGHT = 30;
 const MAX_COLUMN = 680;
+const GRABBER_HEIGHT = 36;
+/**
+ * Плашка смены над таб-баром iOS 26 (bottom accessory): если система не учла её в safe area,
+ * шторка оставляет место сама — так же считает панель чека на кассе (pos/index.tsx).
+ */
+const IOS_ACCESSORY_HEIGHT = 72;
 const SPRING = { damping: 28, stiffness: 280, mass: 1 } as const;
 /** Скорость пальца (pt/с), при которой шторка доезжает сама, даже если вытянута чуть-чуть. */
 const FLING = 450;
@@ -153,7 +160,9 @@ export function HomeShade({ home, bandWidth }: { home: HomeShadeModel; bandWidth
   const window = useWindowDimensions();
   const [shown, setShown] = useState(false);
   const progress = useSharedValue(0);
-  const panelHeight = useSharedValue(window.height * 0.6);
+  // До замера считаем шторку высотой в экран: так она гарантированно спрятана (меньшая
+  // оценка оставляла низ шторки видимым над кассой, пока не пришёл onLayout).
+  const panelHeight = useSharedValue(window.height);
   const dragStart = useSharedValue(0);
   const entities = useHa((s) => s.entities);
   const anyOn = homeSummary(home.zones, entities).anyOn;
@@ -263,9 +272,12 @@ export function HomeShade({ home, bandWidth }: { home: HomeShadeModel; bandWidth
   }));
 
   const columnWidth = Math.min(MAX_COLUMN, window.width - insets.left - insets.right - space.lg * 2);
-  // Заголовок, строка статуса и ручка — остальное место под помещения, дальше прокрутка.
-  const chrome = insets.top + space.sm + 64 + 40;
-  const scrollMax = Math.max(220, window.height * 0.88 - chrome);
+  // Низ шторки с ручкой — над таб-баром и плашкой смены, а не под ними.
+  const floatingBar = useTabBarClearance(true);
+  const bottomReserved = floatingBar > 0 ? floatingBar : insets.bottom >= 60 ? insets.bottom : insets.bottom + IOS_ACCESSORY_HEIGHT;
+  // Высота заголовка со строкой статуса (строка появляется, только когда что-то не так).
+  const [chromeHeight, setChromeHeight] = useState(52);
+  const scrollMax = Math.max(160, window.height - bottomReserved - space.md - (insets.top + space.sm) - chromeHeight - GRABBER_HEIGHT - space.sm * 2);
 
   const offAll = () => {
     haptic.warning();
@@ -315,6 +327,7 @@ export function HomeShade({ home, bandWidth }: { home: HomeShadeModel; bandWidth
         pointerEvents={shown ? 'box-none' : 'none'}
         onLayout={(e) => panelHeight.set(e.nativeEvent.layout.height)}>
         <View style={[styles.column, { width: columnWidth }]}>
+          <View style={styles.chrome} onLayout={(e) => setChromeHeight(e.nativeEvent.layout.height)}>
           <GestureDetector gesture={headerGesture}>
             <View style={styles.header}>
               <Text style={[type.title2, styles.title]} accessibilityRole="header" numberOfLines={1}>
@@ -335,6 +348,7 @@ export function HomeShade({ home, bandWidth }: { home: HomeShadeModel; bandWidth
             </View>
           </GestureDetector>
           <StatusLine />
+          </View>
           <ScrollView style={[styles.scroll, { maxHeight: scrollMax }]} contentContainerStyle={styles.zones} showsVerticalScrollIndicator={false}>
             {home.zones.map((zone) => (
               <ZoneSection key={zone.id} zone={zone} width={columnWidth} />
@@ -378,7 +392,8 @@ const styles = StyleSheet.create({
   retry: { color: colors.accent, fontWeight: '600' },
   scroll: { flexGrow: 0, flexShrink: 0 },
   zones: { gap: space.xl, paddingTop: space.xs, paddingBottom: space.sm },
-  grabberArea: { height: 36, alignItems: 'center', justifyContent: 'center' },
+  chrome: { gap: space.sm },
+  grabberArea: { height: GRABBER_HEIGHT, alignItems: 'center', justifyContent: 'center' },
   grabber: { width: 40, height: 5, borderRadius: 2.5, backgroundColor: colors.tertiaryLabel },
   pressed: { opacity: 0.55 },
 });

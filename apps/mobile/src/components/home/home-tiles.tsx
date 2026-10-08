@@ -185,8 +185,8 @@ function ClimateCard({ device }: { device: ZoneDevice }) {
                   IS_IOS ? styles.modeIos : styles.modeAndroid,
                   selected && (IS_IOS ? { backgroundColor: `${chipTone}38` } : { backgroundColor: ANDROID_ON, borderColor: ANDROID_ON }),
                 ]}>
-                <SymbolView name={HVAC_SYMBOL[mode] ?? 'circle'} size={13} weight="semibold" tintColor={selected ? (IS_IOS ? chipTone : ANDROID_ON_LABEL) : colors.secondaryLabel} />
-                <Text style={[type.caption1, styles.modeText, { color: selected ? (IS_IOS ? colors.label : ANDROID_ON_LABEL) : colors.secondaryLabel }]} numberOfLines={1}>
+                <SymbolView name={HVAC_SYMBOL[mode] ?? 'circle'} size={15} weight="semibold" tintColor={selected ? (IS_IOS ? chipTone : ANDROID_ON_LABEL) : colors.secondaryLabel} />
+                <Text style={[styles.modeText, { color: selected ? (IS_IOS ? colors.label : ANDROID_ON_LABEL) : colors.secondaryLabel }]} numberOfLines={1}>
                   {HVAC_SHORT[mode] ?? mode}
                 </Text>
               </Pressable>
@@ -270,9 +270,10 @@ const styles = StyleSheet.create({
   tempRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: space.lg },
   tempValue: { flexDirection: 'row', alignItems: 'flex-start' },
   temp: { fontSize: 44, lineHeight: 50 },
-  modes: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  mode: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, minHeight: 32, borderRadius: 16, overflow: 'hidden' },
+  // Режимы — один ряд сегментов (значок над подписью): пять-шесть режимов не переносятся.
+  modes: { flexDirection: 'row', gap: 6 },
+  mode: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 3, minHeight: 52, paddingHorizontal: 2, borderRadius: IS_IOS ? 14 : 18, overflow: 'hidden' },
   modeIos: { backgroundColor: colors.fill },
   modeAndroid: { borderWidth: 1, borderColor: colors.separator },
-  modeText: { fontWeight: '600' },
+  modeText: { fontWeight: '600', fontSize: 11, lineHeight: 13 },
 });

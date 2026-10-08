@@ -47,10 +47,12 @@ export default function SmartHomeDevicesScreen() {
     ? available.filter((d) => d.name.toLowerCase().includes(q) || d.entityId.includes(q) || (d.area ?? '').toLowerCase().includes(q))
     : available;
 
-  // По помещениям Home Assistant, «без помещения» — в конце.
+  // По помещениям Home Assistant: одноимённое помещение — первым, «без помещения» — в конце.
   const groups = new Map<string, HaDevice[]>();
   for (const device of filtered) groups.set(device.area ?? NO_AREA, [...(groups.get(device.area ?? NO_AREA) ?? []), device]);
-  const sections = [...groups.entries()].sort(([a], [b]) => (a === NO_AREA ? 1 : b === NO_AREA ? -1 : a.localeCompare(b, 'ru')));
+  const own = zone?.name.trim().toLowerCase();
+  const rank = (area: string) => (area.toLowerCase() === own ? 0 : area === NO_AREA ? 2 : 1);
+  const sections = [...groups.entries()].sort(([a], [b]) => rank(a) - rank(b) || a.localeCompare(b, 'ru'));
 
   const usedIn = new Map<string, string>();
   for (const other of zones) if (other.id !== zoneId) for (const d of other[key]) usedIn.set(d.entityId, other.name);
