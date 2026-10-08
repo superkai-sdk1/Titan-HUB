@@ -283,7 +283,7 @@ export default function ClientsPage() {
       qc.invalidateQueries({ queryKey: ['clients'] })
       show('Фото загружено', 'success')
     } catch (e: any) {
-      show(e?.message === 'Файл больше 2 МБ' ? 'Файл больше 2 МБ' : 'Не удалось загрузить фото', 'error')
+      show(e?.message === 'Файл больше 8 МБ' ? 'Файл больше 8 МБ' : 'Не удалось загрузить фото', 'error')
     } finally { setPhotoUploading(false) }
   }
   async function removeClientPhoto() {
