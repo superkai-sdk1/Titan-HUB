@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { Alert } from 'react-native';
 
 import { api, ApiError } from './api';
 import { toNumber } from './format';
@@ -437,12 +438,23 @@ export function cancelCheck(checkId: string) {
   });
 }
 
+/**
+ * Тариф входа — позиция меню в только что открытом чеке. Его ошибка не отменяет чек
+ * (как в вебе), но молча её не глотаем: кассир должен знать, что тариф не добавлен.
+ */
+export async function addEntryTariff(checkId: string, itemId: string): Promise<void> {
+  try {
+    await api.post(`/pos/checks/${checkId}/items`, { itemId, quantity: 1 });
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    Alert.alert('Тариф не добавлен', `Чек открыт, но тариф добавить не удалось: ${reason}. Добавьте его в чеке вручную.`);
+  }
+}
+
 /** Предчек → настоящий чек: чек на игрока и тариф его статуса позицией. */
 export async function openPrecheck(precheck: Precheck): Promise<CheckRow> {
   const check = await createCheck({ playerId: precheck.playerId });
-  if (precheck.tariffItemId) {
-    await api.post(`/pos/checks/${check.id}/items`, { itemId: precheck.tariffItemId, quantity: 1 }).catch(() => {});
-  }
+  if (precheck.tariffItemId) await addEntryTariff(check.id, precheck.tariffItemId);
   const host = useSession.getState().club?.host ?? 'none';
   for (const key of [['pos', 'checks'], ['pos', 'prechecks'], ['pos', 'shift-summary']]) {
     void queryClient.invalidateQueries({ queryKey: [host, ...key] });

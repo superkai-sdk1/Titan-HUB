@@ -1,9 +1,12 @@
 import type { SFSymbol } from 'sf-symbols-typescript';
 
+import { permissionOn } from './admin-api';
+
 /**
  * Разделы «Управления» — список в духе «Настроек» iOS: сверху профиль, дальше группы
- * по смыслу работы клуба. Раздел виден, если роль входит в `roles`; сотруднику он
- * скрывается, только если у него явно `permissions[perm] === false`. Владелец видит всё.
+ * по смыслу работы клуба. Раздел виден, если роль входит в `roles`; сотруднику — если
+ * право включено (`permissionOn`: явное значение, иначе умолчание права, как на
+ * карточке сотрудника). Владелец видит всё.
  */
 
 export type ManageSectionKey =
@@ -64,7 +67,7 @@ export const MANAGE_GROUPS: { title: string; items: ManageSection[] }[] = [
       { key: 'staff', title: 'Сотрудники', subtitle: 'Доступы, роли, PIN', icon: 'person.badge.key', color: '#8E8E93', roles: ['owner'] },
       { key: 'shifts', title: 'Смены', subtitle: 'История смен и отчёты', icon: 'clock', color: '#AF52DE', roles: ['owner', 'staff'] },
       { key: 'salary', title: 'Зарплата', subtitle: 'Начисления и выплаты', icon: 'rublesign', color: '#32ADE6', roles: ['owner'], perm: 'salary' },
-      { key: 'expenses', title: 'Расходы', subtitle: 'Аренда, коммуналка, маркетинг', icon: 'banknote', color: '#A2845E', roles: ['owner', 'staff'], perm: 'inventory' },
+      { key: 'expenses', title: 'Расходы', subtitle: 'Аренда, коммуналка, маркетинг', icon: 'banknote', color: '#A2845E', roles: ['owner', 'staff'], perm: 'expenses' },
     ],
   },
   {
@@ -82,6 +85,6 @@ export function visibleManageGroups(role: string, permissions: Record<string, bo
     title: group.title,
     items: group.items
       .filter((item) => item.roles.includes(isOwner ? 'owner' : 'staff'))
-      .filter((item) => isOwner || !item.perm || [item.perm].flat().some((perm) => permissions?.[perm] !== false)),
+      .filter((item) => isOwner || !item.perm || [item.perm].flat().some((perm) => permissionOn({ permissions }, perm))),
   })).filter((group) => group.items.length > 0);
 }

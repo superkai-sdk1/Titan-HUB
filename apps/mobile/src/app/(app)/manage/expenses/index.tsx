@@ -7,10 +7,11 @@ import { Alert } from 'react-native';
 import { LegendRow, RankRow, share, Tile } from '@/components/analytics/native';
 import { footnote, primary, RowIcon, secondary } from '@/components/native-form';
 import { ToolbarButton } from '@/components/toolbar';
-import { todayMsk } from '@/lib/events-api';
+import { addDays } from '@/lib/analytics-api';
 import { formatMoney, toNumber } from '@/lib/format';
 import { haptic } from '@/lib/haptics';
 import { deleteExpense, EXPENSE_CATEGORIES, useExpensesSummary, type ExpenseRow } from '@/lib/expenses-api';
+import { currentBusinessDay, useBusinessDayStartHour } from '@/lib/salary-api';
 import { useSession } from '@/lib/session';
 
 type Period = 'today' | 'week' | 'month' | 'days30';
@@ -25,18 +26,18 @@ const PERIODS: { key: Period; label: string }[] = [
 const money = (n: number) => formatMoney(n, { kopecks: 'auto' });
 const shortDate = new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'short', timeZone: 'UTC' });
 
-/** Календарные даты по Москве, как в веб-кассе. */
-function rangeOf(period: Period): { from: string; to: string } {
-  const to = todayMsk();
+/** Бизнес-дни клуба (как окна на сервере): ночью «Сегодня» — это ещё вчерашняя смена. */
+function rangeOf(period: Period, today: string): { from: string; to: string } {
+  const to = today;
   switch (period) {
     case 'today':
       return { from: to, to };
     case 'week':
-      return { from: todayMsk(-6), to };
+      return { from: addDays(to, -6), to };
     case 'month':
       return { from: `${to.slice(0, 8)}01`, to };
     default:
-      return { from: todayMsk(-29), to };
+      return { from: addDays(to, -29), to };
   }
 }
 
@@ -49,7 +50,7 @@ export default function ExpensesScreen() {
   const router = useRouter();
   const isOwner = useSession((s) => s.user?.role === 'owner');
   const [period, setPeriod] = useState<Period>('days30');
-  const range = rangeOf(period);
+  const range = rangeOf(period, currentBusinessDay(useBusinessDayStartHour()));
   const summary = useExpensesSummary(range.from, range.to);
   const data = summary.data;
 

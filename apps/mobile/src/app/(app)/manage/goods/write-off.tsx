@@ -1,7 +1,7 @@
 import { Button, ContentUnavailableView, Form, HStack, Host, ProgressView, Section, Spacer, SwipeActions, Text } from '@expo/ui/swift-ui';
 import { font, monospacedDigit } from '@expo/ui/swift-ui/modifiers';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Alert, ScrollView, StyleSheet } from 'react-native';
 
 import { useAutosave } from '@/components/goods/autosave';
@@ -31,7 +31,9 @@ export default function WriteOffScreen() {
   const goods = useGoods();
   const source = useWriteOff(draftId);
 
-  if (!goods.data || (draftId && !source.data)) {
+  // Черновик из кэша на диске мог устареть: редактор берёт состав один раз, поэтому ждём
+  // ответа сервера — иначе автосохранение затёрло бы более новую версию.
+  if (!goods.data || (draftId && (!source.data || !source.isFetchedAfterMount))) {
     const error = goods.error ?? source.error;
     return (
       <>
@@ -64,6 +66,9 @@ function WriteOffEditor({
 
   const draft = source?.writeOff.draftData;
   const [draftId, setDraftId] = useState<string | null>(sourceId);
+  // id черновика для сохранений и проведения: окно «Списать?» держит замыкание старого
+  // рендера, а черновик мог родиться, пока оно открыто.
+  const draftRef = useRef(draftId);
   const [reason, setReason] = useState(draft?.reason ?? '');
   const [note, setNote] = useState(draft?.note ?? '');
   const [showErrors, setShowErrors] = useState(false);
@@ -91,7 +96,8 @@ function WriteOffEditor({
   const payload = rows.filter((r) => r.line.itemId).map((r) => ({ itemId: r.line.itemId!, quantity: r.qty }));
 
   const autosave = useAutosave(`${revision}|${reason}|${note}`, ready && !done && !busy && (lines.length > 0 || !!draftId), async () => {
-    const id = await saveWriteOffDraft(draftId, reason, note, payload);
+    const id = await saveWriteOffDraft(draftRef.current, reason, note, payload);
+    draftRef.current = id;
     setDraftId(id);
   });
 
@@ -100,7 +106,7 @@ function WriteOffEditor({
     setBusy(true);
     try {
       await autosave.flush();
-      await postWriteOff(draftId, reason.trim(), note, payload, idempotencyKey);
+      await postWriteOff(draftRef.current, reason.trim(), note, payload, idempotencyKey);
       setDone(true);
       haptic.success();
       router.back();

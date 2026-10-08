@@ -7,7 +7,7 @@ import { Alert } from 'react-native';
 import { EditorToolbar } from '@/components/editor-toolbar';
 import { ActionRow, FieldRow, FormHost, InputRow, LinkRow, primary, secondary } from '@/components/native-form';
 import { useDebounced } from '@/components/player-picker';
-import { fromDateTime, toDateString, todayMsk } from '@/lib/events-api';
+import { fromDateTime, toDateString } from '@/lib/events-api';
 import { formatMoney } from '@/lib/format';
 import { haptic } from '@/lib/haptics';
 import {
@@ -19,6 +19,7 @@ import {
   type ExpenseCatalogItem,
   type ExpenseCategory,
 } from '@/lib/expenses-api';
+import { currentBusinessDay, useBusinessDayStartHour } from '@/lib/salary-api';
 import { newIdempotencyKey, parseAmount } from '@/lib/shift-api';
 
 /** `version` пересоздаёт поля, когда название и цена подставлены из подсказки. */
@@ -31,7 +32,9 @@ const newLine = (): Line => ({ key: `expense-${++seq}`, description: '', categor
 /** Новый расход клуба: дата и позиции — название с подсказками из прошлых расходов, категория, цена × количество. */
 export default function ExpenseNewSheet() {
   const router = useRouter();
-  const [date, setDate] = useState<Date>(() => fromDateTime(todayMsk(), '12:00'));
+  // Дата по умолчанию — бизнес-день (ночной расход относится к текущей смене), как «Сегодня» в сводке.
+  const startHour = useBusinessDayStartHour();
+  const [date, setDate] = useState<Date>(() => fromDateTime(currentBusinessDay(startHour), '12:00'));
   const [lines, setLines] = useState<Line[]>(() => [newLine()]);
   const [activeKey, setActiveKey] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);

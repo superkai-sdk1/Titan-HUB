@@ -29,6 +29,14 @@ import { useNow } from '@/lib/use-now';
 const aliases = new Map<string, string>();
 
 /**
+ * Id неотправленного пузыря — уникален на всё время работы приложения: неотправленные
+ * («failed») живут в кэше и после повторного открытия чата, и счётчик экрана с нуля
+ * совпадал бы с ними (дубли ключей, замена чужого пузыря).
+ */
+let localSeq = 0;
+const nextLocalId = () => `local-${Date.now().toString(36)}-${++localSeq}`;
+
+/**
  * Чат с гостем в кабинке — полный экран, как мессенджер. Гость пишет с планшета
  * Titan Home, ответ появляется у него на экране.
  *
@@ -136,13 +144,11 @@ export default function ChatScreen() {
     },
   });
 
-  const counter = useRef(0);
   const submit = (value: string) => {
     const message = value.trim();
     if (!message) return;
     setText('');
-    counter.current += 1;
-    send.mutate({ message, localId: `local-${counter.current}-${message.length}` });
+    send.mutate({ message, localId: nextLocalId() });
   };
 
   const retry = (message: ChatMessage) => {

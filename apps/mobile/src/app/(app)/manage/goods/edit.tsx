@@ -400,6 +400,9 @@ function IngredientForm({ original }: { original: GoodsItem | null }) {
   const canSave = name.trim().length > 0 && !packMissing && (!costEditable || cost.trim() === '' || costValue !== null);
 
   const save = async () => {
+    // Сменили единицу — цена в поле теперь за новую единицу: отправляем её, даже если поле
+    // не трогали, иначе на сервере останется цена за прежнюю (89 ₽/шт стали бы 89 ₽/мл).
+    const unitChanged = !!original && unit !== original.unit;
     const input: ItemInput = {
       name: name.trim(),
       ...(unitLocked ? {} : { unit }),
@@ -408,7 +411,7 @@ function IngredientForm({ original }: { original: GoodsItem | null }) {
       packSize: packName && packValue ? packValue : null,
       reorderPoint: toBase(reorder, factor),
       parLevel: toBase(par, factor),
-      ...(costEditable && costTouched && costValue !== null ? { costPrice: Math.round((costValue / factor) * 10000) / 10000 } : {}),
+      ...(costEditable && (costTouched || unitChanged) && costValue !== null ? { costPrice: Math.round((costValue / factor) * 10000) / 10000 } : {}),
     };
     haptic.medium();
     setBusy(true);

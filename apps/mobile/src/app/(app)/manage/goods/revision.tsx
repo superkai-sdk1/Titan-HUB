@@ -1,6 +1,6 @@
 import { ContentUnavailableView, Form, HStack, Host, ProgressView, Section, Text } from '@expo/ui/swift-ui';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Alert, ScrollView, StyleSheet, View } from 'react-native';
 
 import { Tile } from '@/components/analytics/native';
@@ -32,7 +32,9 @@ export default function RevisionScreen() {
   const goods = useGoods();
   const source = useRevision(draftId);
 
-  if (!goods.data || (draftId && !source.data)) {
+  // Черновик из кэша на диске мог устареть: редактор берёт факты один раз, поэтому ждём
+  // ответа сервера — иначе автосохранение затёрло бы более новую версию.
+  if (!goods.data || (draftId && (!source.data || !source.isFetchedAfterMount))) {
     const error = goods.error ?? source.error;
     return (
       <>
@@ -67,6 +69,9 @@ function RevisionEditor({
   const [scope, setScope] = useState<string>(presetItem && !sourceId ? `item:${presetItem}` : 'all');
   const [reviewing, setReviewing] = useState(false);
   const [draftId, setDraftId] = useState<string | null>(sourceId);
+  // id черновика для сохранений и проведения: окно «Провести?» держит замыкание старого
+  // рендера, а черновик мог родиться, пока оно открыто.
+  const draftRef = useRef(draftId);
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
 
@@ -91,7 +96,8 @@ function RevisionEditor({
   const payload = counted.map((r) => ({ itemId: r.item.id, actual: r.actual }));
 
   const autosave = useAutosave(JSON.stringify(payload), !done && !busy && (counted.length > 0 || !!draftId), async () => {
-    const id = await saveRevisionDraft(draftId, payload);
+    const id = await saveRevisionDraft(draftRef.current, payload);
+    draftRef.current = id;
     setDraftId(id);
   });
 
@@ -101,7 +107,7 @@ function RevisionEditor({
     try {
       await autosave.flush();
       const id = await postRevision(
-        draftId,
+        draftRef.current,
         counted.map((r) => ({ itemId: r.item.id, actual: r.actual! })),
       );
       setDone(true);

@@ -1,7 +1,7 @@
 import { Button, ContentUnavailableView, Form, HStack, Host, Picker, ProgressView, Section, Spacer, SwipeActions, Text } from '@expo/ui/swift-ui';
 import { font, monospacedDigit, pickerStyle, tag } from '@expo/ui/swift-ui/modifiers';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Alert, ScrollView, StyleSheet } from 'react-native';
 
 import { useAutosave } from '@/components/goods/autosave';
@@ -12,7 +12,7 @@ import { ToolbarButton } from '@/components/toolbar';
 import { formatMoney } from '@/lib/format';
 import { BIG_UNIT, PIECE_NAMES, itemQty, packText, unitWord, useGoods, useSuppliers, type Catalog } from '@/lib/goods-api';
 import { correctSupply, deleteSupply, postSupply, saveSupplyDraft, useSupply, type SupplyDetail, type SupplyLine } from '@/lib/goods-docs';
-import { draftLineOf, supplyValues, useDocDraft, withPreset, type DraftLine } from '@/lib/goods-draft';
+import { draftLineOf, supplyTotal, supplyValues, useDocDraft, withPreset, type DraftLine } from '@/lib/goods-draft';
 import { haptic } from '@/lib/haptics';
 import { newIdempotencyKey } from '@/lib/shift-api';
 import { colors, space } from '@/lib/theme';
@@ -35,7 +35,9 @@ export default function SupplyScreen() {
   const source = useSupply(supplyId ?? draftId);
   const mode: Mode = supplyId ? 'correct' : draftId ? 'draft' : 'new';
 
-  if (!goods.data || (mode !== 'new' && !source.data)) {
+  // Документ из кэша на диске мог устареть: редактор берёт состав один раз, поэтому ждём
+  // ответа сервера — иначе автосохранение затёрло бы более новую версию черновика.
+  if (!goods.data || (mode !== 'new' && (!source.data || !source.isFetchedAfterMount))) {
     const error = goods.error ?? source.error;
     return (
       <>
@@ -77,6 +79,9 @@ function SupplyEditor({
   const { setText, remove } = useDocDraft.getState();
 
   const [draftId, setDraftId] = useState<string | null>(mode === 'draft' ? sourceId : null);
+  // id черновика для сохранений и проведения: окно «Провести?» держит замыкание старого
+  // рендера, а черновик мог родиться, пока оно открыто.
+  const draftRef = useRef(draftId);
   const [supplier, setSupplier] = useState(source?.supply.draftData?.supplier ?? source?.supply.supplier ?? '');
   const [supplierVersion, setSupplierVersion] = useState(0);
   const [fromRegister, setFromRegister] = useState(mode === 'correct' ? !!source?.supply.cashOperationId : !!source?.supply.draftData?.fromRegister);
@@ -96,7 +101,8 @@ function SupplyEditor({
   }, []);
 
   const parsed = lines.map((line) => ({ line, ...supplyValues(line) }));
-  const total = Math.round(parsed.reduce((sum, p) => sum + p.sum, 0) * 100) / 100;
+  // Итог — как у сервера (Σ количество × цена единицы): столько и уйдёт из кассы.
+  const total = supplyTotal(parsed);
   const valid = lines.length > 0 && parsed.every((p) => !p.error) && (mode !== 'correct' || reason.trim().length >= 3);
   const payload: SupplyLine[] = parsed.map((p) => ({
     itemId: p.line.itemId,
@@ -111,7 +117,8 @@ function SupplyEditor({
     `${revision}|${supplier}|${fromRegister}`,
     mode !== 'correct' && ready && !done && !busy && (lines.length > 0 || !!draftId),
     async () => {
-      const id = await saveSupplyDraft(draftId, header, payload);
+      const id = await saveSupplyDraft(draftRef.current, header, payload);
+      draftRef.current = id;
       setDraftId(id);
     },
   );
@@ -132,7 +139,7 @@ function SupplyEditor({
       await autosave.flush();
       if (mode === 'correct' && sourceId) await correctSupply(sourceId, payload, reason.trim());
       else {
-        const result = await postSupply(draftId, header, payload, idempotencyKey);
+        const result = await postSupply(draftRef.current, header, payload, idempotencyKey);
         if (result.duplicate) Alert.alert('Приход уже проведён', 'Повторная отправка не задвоила остатки.');
       }
       setDone(true);

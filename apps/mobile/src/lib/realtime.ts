@@ -1,6 +1,7 @@
+import { onlineManager } from '@tanstack/react-query';
 import { useEffect } from 'react';
 import { AppState } from 'react-native';
-import EventSource from 'react-native-sse';
+import EventSource, { type EventSourceEvent } from 'react-native-sse';
 
 import { useBanner } from './banner';
 import { isChatOnScreen } from './chat';
@@ -35,6 +36,14 @@ type UpdateEvent =
 
 const ATTENTION = new Set(['staff_call', 'request_bill', 'client_order', 'chat_message']);
 
+/**
+ * Переподключение после ошибки: react-native-sse сам не переподключается после
+ * сетевого сбоя (статус 0 — так на iOS при первом же неудачном подключении), и
+ * поток умирал до перезапуска. Пауза растёт 1 → 2 → 4 … 30 с.
+ */
+const RECONNECT_MIN_MS = 1_000;
+const RECONNECT_MAX_MS = 30_000;
+
 function parse<T>(data: string | null): T | null {
   if (!data) return null;
   try {
@@ -60,9 +69,16 @@ export function useRealtime() {
 
     let updates: EventSource<UpdateEvent> | null = null;
     let notifications: EventSource | null = null;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let attempt = 0;
 
     const invalidate = (...keys: string[][]) => {
       for (const key of keys) void queryClient.invalidateQueries({ queryKey: [host, ...key] });
+    };
+
+    const clearReconnect = () => {
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      reconnectTimer = null;
     };
 
     const close = () => {
@@ -74,15 +90,45 @@ export function useRealtime() {
       notifications = null;
     };
 
+    const scheduleReconnect = () => {
+      if (reconnectTimer) return; // оба потока упали разом — переподключаемся один раз
+      const delay = Math.min(RECONNECT_MAX_MS, RECONNECT_MIN_MS * 2 ** attempt);
+      attempt += 1;
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = null;
+        connect();
+      }, delay);
+    };
+
+    /** Ошибка потока: закрыть его и переподключиться с паузой (кроме отказа во входе). */
+    const onStreamError = (source: { removeAllEventListeners: () => void; close: () => void }, event: EventSourceEvent<'error'>) => {
+      // Закрываем на следующем тике: сразу после 'error' библиотека сама ставит таймер
+      // повторного open() — close() его снимет, иначе остался бы поток-«зомби» без слушателей.
+      setTimeout(() => {
+        source.removeAllEventListeners();
+        source.close();
+      }, 0);
+      // 401/403 — вход недействителен: не долбим сервер (запросы API разлогинят сами).
+      const status = event.type === 'error' ? event.xhrStatus : 0;
+      if (status === 401 || status === 403) return;
+      scheduleReconnect();
+    };
+
     const connect = () => {
       close();
+      clearReconnect();
       const options = {
         headers: { Authorization: `Bearer ${token}`, Accept: 'text/event-stream' },
         pollingInterval: 4000,
         timeoutBeforeConnection: 0,
       };
 
-      updates = new EventSource<UpdateEvent>(`${hostOrigin(host)}/api/system/update`, options);
+      const updatesSource = new EventSource<UpdateEvent>(`${hostOrigin(host)}/api/system/update`, options);
+      updates = updatesSource;
+      updates.addEventListener('open', () => {
+        attempt = 0;
+      });
+      updates.addEventListener('error', (e) => onStreamError(updatesSource, e));
 
       const onCheckChanged = (data: string | null) => {
         const payload = parse<{ checkId?: string }>(data);
@@ -134,7 +180,12 @@ export function useRealtime() {
         });
       });
 
-      notifications = new EventSource(`${hostOrigin(host)}/api/notifications/stream`, options);
+      const notificationsSource = new EventSource(`${hostOrigin(host)}/api/notifications/stream`, options);
+      notifications = notificationsSource;
+      notifications.addEventListener('open', () => {
+        attempt = 0;
+      });
+      notifications.addEventListener('error', (e) => onStreamError(notificationsSource, e));
       notifications.addEventListener('message', (e) => {
         const incoming = parse<Omit<AppNotification, 'isRead'>>(e.data);
         if (!incoming?.id) return;
@@ -165,15 +216,26 @@ export function useRealtime() {
 
     const sub = AppState.addEventListener('change', (state) => {
       if (state === 'active') {
+        attempt = 0;
         connect();
         invalidate(['pos'], ['notifications']);
       } else if (state === 'background') {
+        clearReconnect();
         close();
       }
     });
 
+    // Вернулась сеть — переподключаемся сразу, не дожидаясь паузы (в фоне потоки закрыты).
+    const unsubscribeOnline = onlineManager.subscribe((online) => {
+      if (!online || AppState.currentState === 'background') return;
+      attempt = 0;
+      connect();
+    });
+
     return () => {
       sub.remove();
+      unsubscribeOnline();
+      clearReconnect();
       close();
     };
   }, [host, token]);

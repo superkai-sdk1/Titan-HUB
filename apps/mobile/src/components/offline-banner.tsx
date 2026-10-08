@@ -1,7 +1,7 @@
 import { onlineManager } from '@tanstack/react-query';
 import { BlurView } from 'expo-blur';
 import { SymbolView } from 'expo-symbols';
-import { useEffect, useState } from 'react';
+import { useSyncExternalStore } from 'react';
 import { StyleSheet, Platform } from 'react-native';
 import Animated, { FadeInUp, FadeOutUp } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -12,15 +12,17 @@ import { colors, space, type } from '@/lib/theme';
 /** systemChromeMaterial — тинт UIKit: на Android expo-blur его не знает и подложка выходит пустой. */
 const BLUR_TINT = Platform.OS === 'ios' ? 'systemChromeMaterial' : 'dark';
 
+const subscribeOnline = (onChange: () => void) => onlineManager.subscribe(onChange);
+
 /**
  * Полоска «нет сети» под статус-баром. Касса продолжает работать на сохранённых данных,
  * но деньги офлайн не проводятся — об этом честно предупреждаем, а не молчим.
  */
 export function OfflineBanner() {
-  const [online, setOnline] = useState(true);
+  // Читаем текущее состояние, а не только изменения: подписка сообщает лишь о переходах,
+  // и офлайн, наступивший до монтирования, раньше оставался незамеченным.
+  const online = useSyncExternalStore(subscribeOnline, () => onlineManager.isOnline());
   const insets = useSafeAreaInsets();
-
-  useEffect(() => onlineManager.subscribe(setOnline), []);
 
   if (online) return null;
   return (

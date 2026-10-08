@@ -10,12 +10,11 @@ import Animated, { FadeInLeft, FadeInRight, FadeOut, LayoutAnimationConfig } fro
 import { Text, TextInput } from '@/components/text';
 import { GlassCard, PrimaryButton, QuickTile, SheetHeader, sheetStyles } from '@/components/new-check-parts';
 import { PlayerCard, PlayerSearch, TariffGrid, useTariffChoice } from '@/components/player-picker';
-import { api } from '@/lib/api';
 import { useAutoFocus } from '@/lib/auto-focus';
 import { formatMoney } from '@/lib/format';
 import { haptic } from '@/lib/haptics';
 import { createCheckErrorMessage, openCreatedCheck } from '@/lib/new-check';
-import { createCheck, createClient, SPACE_TYPE_LABEL, useSpaces, type ClientTier, type PlayerSearchItem, type Tariff } from '@/lib/pos-api';
+import { addEntryTariff, createCheck, createClient, SPACE_TYPE_LABEL, useSpaces, type ClientTier, type PlayerSearchItem, type Tariff } from '@/lib/pos-api';
 import { useChecks } from '@/lib/queries';
 import { colors, space, type } from '@/lib/theme';
 
@@ -46,10 +45,9 @@ export default function NewCheckSheet() {
   const create = useMutation({
     mutationFn: async (input: CreateInput) => {
       const check = await createCheck({ playerId: input.playerId, spaceId: input.spaceId });
-      if (input.tariffItemId) {
-        // Как веб: тариф — это позиция меню; её ошибка не отменяет уже открытый чек.
-        await api.post(`/pos/checks/${check.id}/items`, { itemId: input.tariffItemId, quantity: 1 }).catch(() => {});
-      }
+      // Как веб: тариф — это позиция меню; её ошибка не отменяет уже открытый чек,
+      // но о ней показываем предупреждение (см. addEntryTariff).
+      if (input.tariffItemId) await addEntryTariff(check.id, input.tariffItemId);
       return check;
     },
     onSuccess: (check) => openCreatedCheck(router, check),

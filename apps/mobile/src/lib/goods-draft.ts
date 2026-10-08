@@ -168,9 +168,19 @@ export function supplyValues(line: DraftLine) {
   const error = !line.name.trim() ? 'Укажите название' : quantity <= 0 ? 'Укажите количество' : null;
   // С фасовкой цена — за упаковку: сумма = упаковки × цена (упаковки не внесли — по
   // количеству: доля упаковки × цена), цена единицы = сумма / количество.
-  const sum = !line.packSize ? round2(qty * price) : packs > 0 ? round2(packs * price) : round2((quantity / line.packSize) * price);
-  const costPerUnit = !line.packSize ? round4(price / factor) : quantity > 0 ? round4(sum / quantity) : 0;
+  const entered = !line.packSize ? round2(qty * price) : packs > 0 ? round2(packs * price) : round2((quantity / line.packSize) * price);
+  const costPerUnit = !line.packSize ? round4(price / factor) : quantity > 0 ? round4(entered / quantity) : 0;
+  // Сумма строки — как её считает сервер: количество × округлённая цена единицы.
+  const sum = round2(quantity * costPerUnit);
   return { quantity, costPerUnit, sum, packs: packs > 0 ? packs : null, error };
+}
+
+/**
+ * Итог прихода по формуле сервера: round2(Σ количество × цена единицы). Ровно эта сумма
+ * уходит выдачей из кассы — диалог «Провести?» показывает её же.
+ */
+export function supplyTotal(lines: { quantity: number; costPerUnit: number }[]): number {
+  return round2(lines.reduce((sum, l) => sum + l.quantity * l.costPerUnit, 0));
 }
 
 /** Количество строки списания или состава — целое в базовой единице. */

@@ -1,5 +1,6 @@
 import { BlurView } from 'expo-blur';
 import * as LocalAuthentication from 'expo-local-authentication';
+import { router, useNavigationContainerRef } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import { useEffect, useRef, useState } from 'react';
 import { Alert, AppState, Pressable, ScrollView, StyleSheet, View, Platform } from 'react-native';
@@ -8,6 +9,8 @@ import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
 import { Text } from '@/components/text';
 import { PinDots, PinPad, type PinKey } from '@/components/pin-pad';
 import { api, ApiError } from '@/lib/api';
+import { useBanner } from '@/lib/banner';
+import { useDialogStore } from '@/lib/dialog';
 import { haptic } from '@/lib/haptics';
 import { useSession } from '@/lib/session';
 import { unregisterStaffDevice } from '@/lib/staff-push';
@@ -18,6 +21,36 @@ const PIN_LENGTH = 4;
 
 /** Через сколько в фоне касса снова просит Face ID или PIN — как 30 минут простоя в вебе. */
 const LOCK_AFTER_MS = 30 * 60 * 1000;
+
+/**
+ * Шторки и модальные экраны iOS/Android показываются нативно поверх корневого вида —
+ * заслонка блокировки их не накрывает (оплата, новый чек, смена оставались видны).
+ * При блокировке снимаем их по одной (вложенная шторка над чеком — без потери чека).
+ */
+const MODAL_PRESENTATIONS = new Set(['modal', 'formSheet', 'pageSheet', 'transparentModal', 'containedModal', 'containedTransparentModal', 'fullScreenModal']);
+const DISMISS_STEPS = 6;
+const DISMISS_STEP_MS = 150;
+
+function useDismissPresentedWhenLocked(locked: boolean) {
+  const navigation = useNavigationContainerRef();
+  useEffect(() => {
+    if (!locked) return;
+    // Диалоги Android (lib/dialog) и баннеры с никами и суммами — тоже не для экрана блокировки.
+    useDialogStore.setState({ queue: [] });
+    useBanner.getState().hide();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let steps = DISMISS_STEPS;
+    const dismissTop = () => {
+      const options = navigation.isReady() ? (navigation.getCurrentOptions() as { presentation?: string } | undefined) : undefined;
+      if (!options?.presentation || !MODAL_PRESENTATIONS.has(options.presentation) || !router.canDismiss()) return;
+      router.dismiss();
+      steps -= 1;
+      if (steps > 0) timer = setTimeout(dismissTop, DISMISS_STEP_MS);
+    };
+    dismissTop();
+    return () => clearTimeout(timer);
+  }, [locked, navigation]);
+}
 
 /**
  * Защита сессии:
@@ -31,6 +64,7 @@ export function SessionLock() {
   const backgroundAt = useRef<number | null>(null);
   const prompting = useRef(false);
   const autoPrompted = useRef(false);
+  useDismissPresentedWhenLocked(locked && !!token);
 
   useEffect(() => {
     const sub = AppState.addEventListener('change', (state) => {
@@ -92,7 +126,7 @@ export function SessionLock() {
   if (!token || (!locked && !obscured)) return null;
 
   return (
-    <Animated.View entering={FadeIn.duration(180)} exiting={FadeOut.duration(220)} style={StyleSheet.absoluteFill}>
+    <Animated.View entering={FadeIn.duration(180)} exiting={FadeOut.duration(220)} style={[StyleSheet.absoluteFill, styles.overlay]}>
       {/* На Android размытие слабее и тинт systemMaterial не применяется — сквозь него
           читаются ники и суммы открытых чеков. Блокировка обязана скрывать кассу, поэтому
           там сплошная подложка вместо стекла. */}
@@ -172,6 +206,8 @@ function LockedContent({ biometrics, onBiometrics }: { biometrics: boolean; onBi
 }
 
 const styles = StyleSheet.create({
+  // Выше баннера уведомлений (components/notification-banner.tsx, zIndex 1000).
+  overlay: { zIndex: 2000 },
   scrim: { backgroundColor: colors.background },
   content: { flexGrow: 1, alignItems: 'center', justifyContent: 'center', gap: space.md, padding: space.xl },
   links: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', alignItems: 'center', columnGap: space.xl, rowGap: space.sm, marginTop: space.sm },

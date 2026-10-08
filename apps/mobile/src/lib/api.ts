@@ -85,6 +85,9 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
   if (!host) throw new ApiError(0, 'Клуб не выбран');
 
   const useAuth = options.auth !== false;
+  // Токен, с которым ушёл запрос: поздний 401 по старому токену не должен выкинуть
+  // сотрудника, который уже вошёл заново.
+  const sentToken = useAuth ? session.token : null;
   const headers: Record<string, string> = {
     Accept: 'application/json',
     'X-App-Platform': Platform.OS,
@@ -93,7 +96,7 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
   // FormData (загрузка фото) сериализует и размечает сам fetch — свой Content-Type сломал бы boundary.
   const isForm = options.body instanceof FormData;
   if (options.body !== undefined && !isForm) headers['Content-Type'] = 'application/json';
-  if (useAuth && session.token) headers.Authorization = `Bearer ${session.token}`;
+  if (sentToken) headers.Authorization = `Bearer ${sentToken}`;
 
   let res: Response;
   try {
@@ -113,14 +116,16 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
     try {
       body = JSON.parse(text);
     } catch {
-      body = { error: res.ok ? undefined : text.slice(0, 200) };
+      // HTML-страницу ошибки nginx (502/503) не показываем человеку — сработает текст по статусу.
+      const html = text.trimStart().startsWith('<');
+      body = { error: res.ok || html ? undefined : text.slice(0, 200) };
     }
   }
 
   if (!res.ok) {
-    if (res.status === 401 && useAuth && session.token) {
+    if (res.status === 401 && sentToken && useSession.getState().token === sentToken) {
       // Токен истёк или отозван — возвращаемся ко входу в тот же клуб.
-      void session.signOut();
+      void useSession.getState().signOut();
     }
     throw new ApiError(res.status, errorMessage(res.status, body), body);
   }

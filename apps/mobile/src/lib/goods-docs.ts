@@ -66,6 +66,8 @@ export function useSupply(supplyId: string | undefined) {
     queryKey: [club, 'goods', 'supply', supplyId],
     queryFn: () => api.get<SupplyDetail>(`/supplies/${supplyId}`),
     enabled: !!supplyId,
+    // Редактор черновика ждёт свежего ответа (isFetchedAfterMount): кэш с диска мог устареть.
+    refetchOnMount: 'always',
   });
 }
 
@@ -138,6 +140,8 @@ export function useWriteOff(writeOffId: string | undefined) {
     queryKey: [club, 'goods', 'write-off', writeOffId],
     queryFn: () => api.get<WriteOffDetail>(`/goods/write-offs/${writeOffId}`),
     enabled: !!writeOffId,
+    // Редактор черновика ждёт свежего ответа (isFetchedAfterMount): кэш с диска мог устареть.
+    refetchOnMount: 'always',
   });
 }
 
@@ -194,6 +198,8 @@ export function useRevision(revisionId: string | undefined) {
     queryKey: [club, 'goods', 'revision', revisionId],
     queryFn: () => api.get<RevisionDetail>(`/inventory/revisions/${revisionId}`),
     enabled: !!revisionId,
+    // Редактор черновика ждёт свежего ответа (isFetchedAfterMount): кэш с диска мог устареть.
+    refetchOnMount: 'always',
   });
 }
 
