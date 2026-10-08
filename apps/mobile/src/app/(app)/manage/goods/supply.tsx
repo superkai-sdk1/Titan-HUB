@@ -10,7 +10,7 @@ import { ActionRow, FieldRow, primary } from '@/components/native-form';
 import { GlassChip } from '@/components/new-check-parts';
 import { ToolbarButton } from '@/components/toolbar';
 import { formatMoney } from '@/lib/format';
-import { BIG_UNIT, PIECE_NAMES, itemQty, packText, useGoods, useSuppliers, type Catalog } from '@/lib/goods-api';
+import { BIG_UNIT, PIECE_NAMES, itemQty, packText, unitWord, useGoods, useSuppliers, type Catalog } from '@/lib/goods-api';
 import { correctSupply, deleteSupply, postSupply, saveSupplyDraft, useSupply, type SupplyDetail, type SupplyLine } from '@/lib/goods-docs';
 import { draftLineOf, supplyValues, useDocDraft, withPreset, type DraftLine } from '@/lib/goods-draft';
 import { haptic } from '@/lib/haptics';
@@ -270,7 +270,7 @@ function SupplyEditor({
                             key={`${line.key}-k-${line.version}`}
                             label={`${line.name}, упаковок`}
                             value={line.packs}
-                            suffix={PIECE_NAMES[line.packName ?? 'pack'].forms[2]}
+                            suffix={unitWord('pcs', line.packName ?? 'pack', line.packs)}
                             onChange={(t) => setText(line.key, 'packs', t)}
                           />
                         ) : null}
