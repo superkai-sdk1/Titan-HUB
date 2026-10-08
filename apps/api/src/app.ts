@@ -109,7 +109,9 @@ app.use(
   })
 )
 app.use('*', prettyJSON())
-app.use('/api/*', bodyLimit({ maxSize: 1 * 1024 * 1024 }))
+// Общий предел тела 1 МБ. У загрузки картинок (/api/upload) свой — в роутере: файл до 8 МБ.
+const defaultBodyLimit = bodyLimit({ maxSize: 1 * 1024 * 1024 })
+app.use('/api/*', (c, next) => (c.req.path.startsWith('/api/upload/') ? next() : defaultBodyLimit(c, next)))
 app.use('/api/*', rateLimit)
 // Инжект БД клуба в контекст (Фаза 1). Wave 0: дефолтная БД = синглтон.
 app.use('/api/*', tenantContext)

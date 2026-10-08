@@ -61,6 +61,8 @@ function codeMessage(body: unknown): string | null {
 function errorMessage(status: number, body: unknown): string {
   const code = codeMessage(body);
   if (code) return code;
+  // API отвечает «Payload Too Large», nginx — HTML: в Alert ни то, ни другое.
+  if (status === 413) return 'Файл слишком большой';
   if (body && typeof body === 'object') {
     const b = body as { error?: unknown; message?: unknown };
     if (typeof b.error === 'string') return b.error;

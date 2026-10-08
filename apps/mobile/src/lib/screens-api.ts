@@ -1,10 +1,10 @@
 import { useQuery } from '@tanstack/react-query';
-import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
 import * as Network from 'expo-network';
 import { Alert, Linking } from 'react-native';
 
 import { api } from './api';
+import { type ImageFit, uploadImage } from './photo';
 import { queryClient } from './query';
 import { useClubKey } from './queries';
 import { useSession } from './session';
@@ -303,23 +303,10 @@ async function mediaAllowed(): Promise<boolean> {
 }
 
 /**
- * Уменьшение до 1920 px по длинной стороне и 1080 по короткой, JPEG: снимок с камеры
- * весит 2–3 МБ (API принимает до 1 МБ), а слабой ТВ-приставке тяжело декодировать
- * 12 Мп. Вертикальная картинка для вертикального ТВ остаётся 1080×1920.
+ * До 1920 px по длинной стороне и 1080 по короткой: слабой ТВ-приставке тяжело
+ * декодировать 12 Мп. Вертикальная картинка для вертикального ТВ остаётся 1080×1920.
  */
-async function uploadAsset(asset: ImagePicker.ImagePickerAsset): Promise<string> {
-  const w = asset.width ?? 0;
-  const h = asset.height ?? 0;
-  const scale = w && h ? Math.min(1, 1920 / Math.max(w, h), 1080 / Math.min(w, h)) : 1;
-  const context = ImageManipulator.manipulate(asset.uri);
-  if (scale < 1) context.resize({ width: Math.round(w * scale) });
-  const image = await context.renderAsync();
-  const saved = await image.saveAsync({ compress: 0.82, format: SaveFormat.JPEG });
-  const form = new FormData();
-  form.append('file', { uri: saved.uri, name: 'slide.jpg', type: 'image/jpeg' } as unknown as Blob);
-  const { url } = await api.post<{ url: string }>('/upload/image', form);
-  return url;
-}
+const SLIDE_FIT: ImageFit = { long: 1920, short: 1080, quality: 0.82 };
 
 /**
  * Картинки из галереи без обрезки (системная обрезка на iOS только квадратная).
@@ -338,7 +325,7 @@ export async function pickScreenImages(multiple: boolean, onProgress?: (done: nu
   const urls: string[] = [];
   for (const asset of result.assets) {
     onProgress?.(urls.length, result.assets.length);
-    urls.push(await uploadAsset(asset));
+    urls.push(await uploadImage(asset, SLIDE_FIT));
   }
   return urls;
 }

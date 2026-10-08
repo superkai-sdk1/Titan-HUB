@@ -1,5 +1,6 @@
 import type { AppEnv } from '../../types.js'
 import { Hono } from 'hono'
+import { bodyLimit } from 'hono/body-limit'
 import { requireAuth } from '../../middleware/auth.js'
 import * as Minio from 'minio'
 
@@ -8,7 +9,9 @@ import * as Minio from 'minio'
 // 'titan-uploads', а ссылка строилась как /media/titan-uploads/<файл> — nginx
 // искал её в titan-hub и отдавал 404.
 const BUCKET = 'titan-hub'
-const MAX_UPLOAD_BYTES = 2 * 1024 * 1024
+const MAX_UPLOAD_BYTES = 8 * 1024 * 1024
+// Тело запроса = файл + заголовки multipart. Общий предел /api/* (1 МБ) сюда не применяется.
+const MAX_BODY_BYTES = MAX_UPLOAD_BYTES + 64 * 1024
 // Только изображения. Расширение берём из MIME, не из имени файла (анти-подмена).
 // SVG не допускаем — может содержать активный скрипт.
 const ALLOWED_TYPES: Record<string, string> = {
@@ -63,8 +66,9 @@ function getMinioClient() {
 
 export const uploadRouter = new Hono<AppEnv>()
 // Любой авторизованный пользователь (в т.ч. клиент в My Titan — загрузка
-// аватара). Жёстко ограничено: только изображения ≤2 МБ, тип сверяется по байтам.
+// аватара). Жёстко ограничено: только изображения ≤8 МБ, тип сверяется по байтам.
 uploadRouter.use('*', requireAuth)
+uploadRouter.use('*', bodyLimit({ maxSize: MAX_BODY_BYTES }))
 
 uploadRouter.post('/image', async (c) => {
   const formData = await c.req.formData()
@@ -72,7 +76,7 @@ uploadRouter.post('/image', async (c) => {
   if (!file) return c.json({ error: 'No file provided' }, 400)
 
   if (!ALLOWED_TYPES[file.type]) return c.json({ error: 'Допустимы только изображения: JPEG, PNG, WebP, GIF' }, 400)
-  if (file.size > MAX_UPLOAD_BYTES) return c.json({ error: 'Файл больше 2 МБ' }, 400)
+  if (file.size > MAX_UPLOAD_BYTES) return c.json({ error: 'Файл больше 8 МБ' }, 400)
 
   // Читаем буфер заранее и сверяем magic-bytes: даже если заголовок MIME прошёл
   // проверку выше, реальное содержимое должно совпадать с разрешённой сигнатурой.
