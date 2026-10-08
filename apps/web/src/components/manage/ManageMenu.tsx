@@ -61,7 +61,7 @@ const NAV: NavGroup[] = [
       // Единый экран «Депозиты и долги»: депозит и долг — один баланс, вкладки внутри.
       { href: '/manage/balances',  label: 'Депозиты и долги', icon: 'account_balance', color: '#06B6D4', bg: 'rgba(6,182,212,0.15)', roles: ['owner','staff'], perm: 'debtors' },
       // Единый экран «Лояльность»: Скидки · Бонусы · Сертификаты — вкладки внутри.
-      { href: '/manage/loyalty',   label: 'Лояльность', icon: 'loyalty', color: '#F59E0B', bg: 'rgba(245,158,11,0.15)', roles: ['owner','staff'] },
+      { href: '/manage/loyalty',   label: 'Лояльность', icon: 'loyalty', color: '#F59E0B', bg: 'rgba(245,158,11,0.15)', roles: ['owner','staff'], perm: ['discounts', 'bonus'] },
       // Сбор средств (Фонд клуба и разовые сборы) — взносы резидентов, мимо кассы.
       { href: '/manage/collections', label: 'Сбор средств', icon: 'savings', color: '#22C55E', bg: 'rgba(34,197,94,0.15)', roles: ['owner','staff'], perm: 'debtors' },
       // Рассылки клиентам: лента и push в приложении My Titan (+ бот My Titan).

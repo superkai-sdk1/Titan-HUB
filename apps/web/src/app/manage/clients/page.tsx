@@ -308,7 +308,8 @@ export default function ClientsPage() {
       setSelected(merged)
       setMode('view')
     },
-    onError: () => show('Не удалось сохранить изменения', 'error'),
+    // 409 — архивация клиента с ненулевым балансом: показываем текст сервера (что закрыть).
+    onError: (e: any) => { setConfirmBlock(false); show(e?.status === 409 && e?.message ? e.message : 'Не удалось сохранить изменения', 'error') },
   })
   // Полное удаление из архива (НАВСЕГДА).
   const purge = useMutation({
