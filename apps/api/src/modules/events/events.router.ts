@@ -13,6 +13,9 @@ import {
 type DbOrTx = Database | Parameters<Parameters<Database['transaction']>[0]>[0]
 import { requireAuth, requireRole } from '../../middleware/auth.js'
 import { getCurrentShift } from '../shifts/shifts.service.js'
+import { reverseCheckMovements } from '../inventory/ledger.js'
+import { bizDayStr } from '../../lib/dateFmt.js'
+import { getBusinessDayStartHour } from '../../lib/appSettings.js'
 import { notify } from '../notifications/push.js'
 
 const num = (v: unknown) => { const n = parseFloat(String(v ?? '0')); return Number.isFinite(n) ? n : 0 }
@@ -56,6 +59,15 @@ async function openParticipantCheck(exec: any, ev: any, p: any, shiftId: string,
   }).returning()
   await exec.update(eventParticipants).set({ checkId: chk!.id }).where(eq(eventParticipants.id, p.id))
   return chk!.id
+}
+
+// Привязанный чек годится при (повторном) старте, только если он есть и не отменён.
+// Отмена мероприятия отменяет чеки, но ссылки events.checkId/participants.checkId
+// остаются — при новом старте такой чек считаем отсутствующим и открываем новый.
+async function hasLiveCheck(exec: DbOrTx, checkId: string | null | undefined): Promise<boolean> {
+  if (!checkId) return false
+  const [chk] = await exec.select({ status: checks.status }).from(checks).where(eq(checks.id, checkId)).limit(1)
+  return !!chk && chk.status !== 'cancelled'
 }
 
 const EventSchema = z.object({
@@ -139,8 +151,9 @@ export const eventsRouter = new Hono<AppEnv>()
 eventsRouter.use('*', requireAuth)
 
 // Стабильный ключ для advisory-lock брони: одна зона на одну календарную дату.
-// Конкурентные брони этой пары сериализуются (см. POST/PATCH ниже).
-const bookingLockKey = (spaceId: string, date: string) => `event-booking:${spaceId}:${date}`
+// Конкурентные брони этой пары сериализуются (см. POST/PATCH ниже и подтверждение
+// онлайн-брони в bookings.router).
+export const bookingLockKey = (spaceId: string, date: string) => `event-booking:${spaceId}:${date}`
 
 // Пересечение брони, обнаруженное ВНУТРИ транзакции PATCH (под advisory-lock).
 // Бросаем как ошибку, чтобы откатить транзакцию и вернуть 409 в catch.
@@ -183,7 +196,7 @@ const eventEndExpr = sql`
       + (COALESCE(NULLIF(${events.plannedHours}, 0), 2) * INTERVAL '1 hour')
   END`
 
-async function findOverlappingEvent(
+export async function findOverlappingEvent(
   database: DbOrTx,
   body: Partial<z.infer<typeof EventSchema>>,
   excludeEventId?: string,
@@ -236,15 +249,20 @@ eventsRouter.get('/', async (c) => {
 eventsRouter.get('/active-for-space/:spaceId', async (c) => {
   const db = c.var.db
   const spaceId = c.req.param('spaceId')
-  const today = new Date().toISOString().split('T')[0]
+  // «Сегодня» — по МСК, а не по UTC (с 00:00 до 03:00 МСК UTC-дата — ещё вчерашняя).
+  // Плюс текущий бизнес-день: ночное мероприятие, начатое вечером, после полуночи
+  // датировано вчерашним числом. Приоритет — у более поздней даты.
+  const startHour = await getBusinessDayStartHour(db)
+  const dates = [...new Set([bizDayStr(0, 0), bizDayStr(0, startHour)])]
   const [event] = await db
     .select()
     .from(events)
     .where(and(
       eq(events.spaceId, spaceId),
       eq(events.status, 'active'),
-      eq(events.date, today!),
+      inArray(events.date, dates),
     ))
+    .orderBy(desc(events.date), desc(events.startTime))
     .limit(1)
   return c.json({ event: event ?? null })
 })
@@ -331,7 +349,7 @@ eventsRouter.post('/', requireRole('owner', 'staff'), zValidator('json', EventSc
     title: 'Мероприятие',
     body: event!.title ?? `${event!.date} ${event!.startTime}`.trim(),
     meta: { eventId: event!.id },
-  }, db).catch(() => {})
+  }, db, c.var.club?.id ?? null).catch(() => {})
 
   return c.json({ event }, 201)
 })
@@ -412,16 +430,17 @@ eventsRouter.patch('/:id', requireRole('owner', 'staff'), zValidator('json', Eve
       }
     }
 
-    // 1) СТАРТ события: переход planned→active создаёт чек(и).
+    // 1) СТАРТ события: переход planned→active создаёт чек(и). Чек, отменённый
+    //    прошлой отменой мероприятия, не в счёт — открываем новый и перепривязываем.
     const becomingActive = body.status === 'active' && prev.status !== 'active'
     if (becomingActive && isMinicap) {
       // Миникап: открываем по индивидуальному чеку каждому участнику (игроки + судья).
       const shift = await getCurrentShift(db)
       if (!shift) throw new Error('NO_SHIFT')
       const parts = await tx.select().from(eventParticipants).where(eq(eventParticipants.eventId, eventId))
-      for (const p of parts) { if (!p.checkId) await openParticipantCheck(tx, merged, p, shift.id, user.sub) }
+      for (const p of parts) { if (!(await hasLiveCheck(tx, p.checkId))) await openParticipantCheck(tx, merged, p, shift.id, user.sub) }
       update.attendeesCount = parts.filter((p: any) => p.role === 'player').length
-    } else if (becomingActive && !prev.checkId) {
+    } else if (becomingActive && !(await hasLiveCheck(tx, prev.checkId))) {
       const shift = await getCurrentShift(db)
       if (!shift) throw new Error('NO_SHIFT')
       // «Фикс» и «Пакет по часам»: база события кладётся в eventBaseAmount чека,
@@ -489,20 +508,32 @@ eventsRouter.patch('/:id', requireRole('owner', 'staff'), zValidator('json', Eve
       }
       const costsTouched = body.prizeFund !== undefined || body.lunchCost !== undefined
         || body.otherCost !== undefined || body.date !== undefined || body.title !== undefined
-      if (costsTouched) {
+      // Отменённый миникап расходов не несёт (сняты при отмене, см. шаг 3); при
+      // восстановлении из отмены — материализуем их заново.
+      const restoring = prev.status === 'cancelled' && body.status !== undefined && body.status !== 'cancelled'
+      if ((costsTouched || restoring) && merged.status !== 'cancelled') {
         await upsertEventCosts(tx, { id: eventId, title: (merged.title as string) ?? null, date: merged.date as string, prizeFund: merged.prizeFund, lunchCost: merged.lunchCost, otherCost: merged.otherCost, createdBy: user.sub })
       }
     }
 
-    // 3) ОТМЕНА события → отменяем открытые чеки (миникап — все чеки участников).
+    // 3) ОТМЕНА события → отменяем открытые чеки (миникап — все чеки участников) и
+    //    возвращаем на склад списанное по ним (как DELETE /pos/checks/:id).
+    let cancelledChecks: { id: string }[] = []
     if (body.status === 'cancelled' && isMinicap) {
       const parts = await tx.select().from(eventParticipants).where(eq(eventParticipants.eventId, eventId))
       const ids = parts.map((p: any) => p.checkId).filter(Boolean) as string[]
-      if (ids.length) await tx.update(checks).set({ status: 'cancelled' }).where(and(inArray(checks.id, ids), eq(checks.status, 'open')))
+      if (ids.length) {
+        cancelledChecks = await tx.update(checks).set({ status: 'cancelled' })
+          .where(and(inArray(checks.id, ids), eq(checks.status, 'open'))).returning({ id: checks.id })
+      }
     } else if (body.status === 'cancelled' && prev.checkId) {
-      await tx.update(checks).set({ status: 'cancelled' })
-        .where(and(eq(checks.id, prev.checkId), eq(checks.status, 'open')))
+      cancelledChecks = await tx.update(checks).set({ status: 'cancelled' })
+        .where(and(eq(checks.id, prev.checkId), eq(checks.status, 'open'))).returning({ id: checks.id })
     }
+    for (const ch of cancelledChecks) await reverseCheckMovements(tx, ch.id, 'Отмена мероприятия', user.sub)
+    // Расходы отменённого мероприятия (приз/обед/иные миникапа) не должны оставаться
+    // в опексе аналитики; при восстановлении из отмены они создаются заново (шаг 2b).
+    if (body.status === 'cancelled') await tx.delete(expenses).where(eq(expenses.eventId, eventId))
 
     const [ev] = await tx.update(events).set(update).where(eq(events.id, eventId)).returning()
     return ev
@@ -530,7 +561,7 @@ eventsRouter.patch('/:id', requireRole('owner', 'staff'), zValidator('json', Eve
       title: 'Мероприятие завершено',
       body: event.title ?? `${event.date} ${event.startTime}`.trim(),
       meta: { eventId: event.id },
-    }, db).catch(() => {})
+    }, db, c.var.club?.id ?? null).catch(() => {})
   }
 
   return c.json({ event })
@@ -541,13 +572,22 @@ eventsRouter.delete('/:id', requireRole('owner'), async (c) => {
   const id = c.req.param('id')
   // ?purge=true — ЖЁСТКОЕ удаление навсегда (участники + связанная бронь + событие).
   // Без флага — мягкая отмена (status=cancelled, событие остаётся в истории).
+  // Расходы события (приз/обед/иные миникапа) уходят и при удалении, и при отмене —
+  // иначе остаются в опексе аналитики (а FK expenses.event_id без ON DELETE не дал бы
+  // удалить само событие).
   if (c.req.query('purge') === 'true') {
-    await db.delete(eventParticipants).where(eq(eventParticipants.eventId, id))
-    await db.execute(sql`DELETE FROM bookings WHERE event_id = ${id}`)
-    await db.delete(events).where(eq(events.id, id))
+    await db.transaction(async (tx) => {
+      await tx.delete(eventParticipants).where(eq(eventParticipants.eventId, id))
+      await tx.execute(sql`DELETE FROM bookings WHERE event_id = ${id}`)
+      await tx.delete(expenses).where(eq(expenses.eventId, id))
+      await tx.delete(events).where(eq(events.id, id))
+    })
     return c.json({ ok: true, purged: true })
   }
-  await db.update(events).set({ status: 'cancelled' }).where(eq(events.id, id))
+  await db.transaction(async (tx) => {
+    await tx.update(events).set({ status: 'cancelled' }).where(eq(events.id, id))
+    await tx.delete(expenses).where(eq(expenses.eventId, id))
+  })
   return c.json({ ok: true })
 })
 
@@ -622,12 +662,20 @@ eventsRouter.delete('/:id/participants/:pid', requireRole('owner', 'staff'), asy
   const pid = c.req.param('pid')
   const [p] = await db.select().from(eventParticipants).where(and(eq(eventParticipants.id, pid), eq(eventParticipants.eventId, eventId)))
   if (!p) return c.json({ error: 'Not found' }, 404)
-  if (p.checkId) {
-    const [{ cnt }] = await db.select({ cnt: sql<number>`count(*)::int` }).from(checkItems).where(eq(checkItems.checkId, p.checkId))
+  const checkId = p.checkId
+  if (checkId) {
+    const [{ cnt }] = await db.select({ cnt: sql<number>`count(*)::int` }).from(checkItems).where(eq(checkItems.checkId, checkId))
     if (cnt > 0) return c.json({ error: 'У участника есть позиции в чеке — сначала закройте чек' }, 400)
-    await db.update(checks).set({ status: 'cancelled' }).where(and(eq(checks.id, p.checkId), eq(checks.status, 'open')))
   }
-  await db.delete(eventParticipants).where(eq(eventParticipants.id, pid))
+  await db.transaction(async (tx) => {
+    if (checkId) {
+      // Отмена чека участника — с возвратом на склад списанного по журналу (как DELETE /pos/checks/:id).
+      const cancelled = await tx.update(checks).set({ status: 'cancelled' })
+        .where(and(eq(checks.id, checkId), eq(checks.status, 'open'))).returning({ id: checks.id })
+      for (const ch of cancelled) await reverseCheckMovements(tx, ch.id, 'Участник снят с мероприятия', c.get('user').sub)
+    }
+    await tx.delete(eventParticipants).where(eq(eventParticipants.id, pid))
+  })
   return c.json({ ok: true })
 })
 

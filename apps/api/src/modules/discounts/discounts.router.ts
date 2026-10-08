@@ -209,6 +209,12 @@ discountsRouter.patch(
       if (effectiveType === 'percent' && body.value > 100) {
         return c.json({ error: 'Процентная скидка не может превышать 100%' }, 400)
       }
+    } else if (body.type === 'percent') {
+      // Меняется только тип: фиксированная 500 ₽ не должна стать скидкой 500%.
+      const [cur] = await db.select({ value: discounts.value }).from(discounts).where(eq(discounts.id, id))
+      if (cur && parseFloat(cur.value) > 100) {
+        return c.json({ error: 'Процентная скидка не может превышать 100% — укажите новое значение' }, 400)
+      }
     }
 
     const update: Record<string, unknown> = {}

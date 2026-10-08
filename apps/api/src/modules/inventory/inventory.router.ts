@@ -106,10 +106,15 @@ inventoryRouter.post(
 /**
  * Условие «ревизия новее данной». Сравниваем в SQL: created_at хранится с микросекундами,
  * а Date из драйвера — с миллисекундами, и ревизия выходила «новее самой себя» — последнюю
- * нельзя было поправить ни в приложении, ни в вебе.
+ * нельзя было поправить ни в приложении, ни в вебе. Считаются только проведённые:
+ * незаконченный черновик не мешает поправить последнюю ревизию.
  */
 const newerThan = (revisionId: string) =>
-  and(ne(revisions.id, revisionId), sql`${revisions.createdAt} > (select r.created_at from revisions r where r.id = ${revisionId})`)
+  and(
+    ne(revisions.id, revisionId),
+    eq(revisions.status, 'applied'),
+    sql`${revisions.createdAt} > (select r.created_at from revisions r where r.id = ${revisionId})`,
+  )
 
 // GET /api/inventory/revisions/:id — детали ревизии с позициями (в порядке добавления).
 inventoryRouter.get('/revisions/:id', async (c) => {
@@ -202,7 +207,9 @@ inventoryRouter.post('/revisions/:id/apply', requireRole('owner', 'staff'),
       if (!rev) return 'not_found' as const
       if (rev.status !== 'draft') return 'not_draft' as const
       await applyRevisionItems(tx, revId, items, user.sub)
-      await tx.update(revisions).set({ status: 'applied', draftData: null, updatedAt: new Date() }).where(eq(revisions.id, revId))
+      // Дата ревизии — момент проведения, а не создания черновика (как у прихода и
+      // списания): иначе поздно проведённый черновик не считался бы последней ревизией.
+      await tx.update(revisions).set({ status: 'applied', draftData: null, createdAt: new Date(), updatedAt: new Date() }).where(eq(revisions.id, revId))
       return 'ok' as const
     })
     if (res === 'not_found') return c.json({ error: 'Not found' }, 404)

@@ -325,7 +325,7 @@ suppliesRouter.get('/items/:itemId/last-price', requireRole('owner', 'staff'), a
   return c.json({ lastPrice: row ? parseFloat(String(row.costPerUnit)) : null })
 })
 
-suppliesRouter.get('/:id', async (c) => {
+suppliesRouter.get('/:id', requireRole('owner', 'staff'), async (c) => {
   const db = c.var.db
   const [supply] = await db.select().from(supplies).where(eq(supplies.id, c.req.param('id')))
   if (!supply) return c.json({ error: 'Not found' }, 404)
@@ -395,6 +395,9 @@ suppliesRouter.patch('/:id', requireRole('owner', 'staff'), zValidator('json', S
   const result = await db.transaction(async (tx) => {
     const [supply] = await tx.select().from(supplies).where(eq(supplies.id, id)).for('update')
     if (!supply) return null
+    // Корректируется только проведённый приход: у черновика остатки не тронуты — запись
+    // строк и движений здесь задвоилась бы при его проведении.
+    if (supply.status !== 'posted') return 'not_posted' as const
 
     // Старые количества по карточкам (целые) — для расчёта дельты.
     const oldLines = await tx.select().from(supplyItems).where(eq(supplyItems.supplyId, id))
@@ -451,6 +454,7 @@ suppliesRouter.patch('/:id', requireRole('owner', 'staff'), zValidator('json', S
   })
 
   if (!result) return c.json({ error: 'Not found' }, 404)
+  if (result === 'not_posted') return c.json({ error: 'Черновик не корректируют — правьте его и проведите' }, 409)
   return c.json({ supply: result })
 })
 

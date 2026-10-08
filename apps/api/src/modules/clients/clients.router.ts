@@ -13,7 +13,7 @@ import { profileNameCondition, profileTagCondition } from '../../lib/searchVaria
 // депозит/бонусы/тариф в том же профиле). Исключаем только планшеты.
 const CLIENT_ROLES = ['client', 'staff', 'owner'] as const
 import { requireAuth, requireRole } from '../../middleware/auth.js'
-import { accrueBonusLot, getBonusExpiryDays } from '../../lib/bonusLots.js'
+import { accrueBonusLot, getBonusExpiryDays, spendBonusLots } from '../../lib/bonusLots.js'
 import { hashPassword } from '@titan/auth'
 import { notify, notifyClient } from '../notifications/push.js'
 import { visitProgress, maybePromoteToResident } from '../../lib/loyalty.js'
@@ -256,7 +256,7 @@ clientsRouter.post('/', requireRole('owner', 'staff'), zValidator('json', Create
     title: 'Новый клиент',
     body: newClientTier ? `${client.nickname} · ${newClientTier}` : client.nickname,
     meta: { clientId: client.id },
-  }, db).catch(() => {})
+  }, db, c.var.club?.id ?? null).catch(() => {})
 
   return c.json({ client: safe }, 201)
 })
@@ -308,10 +308,44 @@ clientsRouter.get('/:id', async (c) => {
 clientsRouter.patch('/:id', requireRole('owner', 'staff'), zValidator('json', UpdateClientSchema), async (c) => {
   const db = c.var.db
   const body = c.req.valid('json')
+  const id = c.req.param('id')
   const update: Record<string, any> = { ...body }
   if (body.deletedAt !== undefined) update.deletedAt = body.deletedAt ? new Date(body.deletedAt) : null
 
-  const [client] = await db.update(profiles).set(update).where(eq(profiles.id, c.req.param('id'))).returning()
+  // Архивация через PATCH (так архивирует сотрудник) — тот же финансовый инвариант,
+  // что у DELETE /:id: клиента с ненулевым балансом не прячем, иначе долг/депозит
+  // выпадет из «Депозитов и долгов», должников и поиска кассы. Проверка и апдейт —
+  // в одной транзакции под FOR UPDATE строки клиента (без TOCTOU).
+  if (update.deletedAt) {
+    type Res =
+      | { kind: 'not_found' }
+      | { kind: 'has_balance'; balance: number }
+      | { kind: 'ok'; client: typeof profiles.$inferSelect | undefined }
+    const result = await db.transaction<Res>(async (tx) => {
+      const lockRes = await tx.execute(sql`SELECT balance FROM profiles WHERE id = ${id} FOR UPDATE`)
+      const lockRows = (lockRes as any).rows ?? lockRes
+      if (!lockRows || lockRows.length === 0) return { kind: 'not_found' }
+      const balance = parseFloat(String(lockRows[0].balance))
+      if (Math.abs(balance) >= 0.005) return { kind: 'has_balance', balance }
+      const [row] = await tx.update(profiles).set(update).where(eq(profiles.id, id)).returning()
+      return { kind: 'ok', client: row }
+    })
+    if (result.kind === 'has_balance') {
+      const b = result.balance
+      const what = b > 0
+        ? `депозит ${b.toLocaleString('ru', { maximumFractionDigits: 2 })} ₽`
+        : `долг ${Math.abs(b).toLocaleString('ru', { maximumFractionDigits: 2 })} ₽`
+      return c.json({
+        error: `Нельзя архивировать клиента с ненулевым балансом (${what}). Сначала закройте баланс.`,
+        balance: b,
+      }, 409)
+    }
+    if (result.kind === 'not_found' || !result.client) return c.json({ error: 'Not found' }, 404)
+    const { pin, passwordHash, ...safe } = result.client
+    return c.json({ client: safe })
+  }
+
+  const [client] = await db.update(profiles).set(update).where(eq(profiles.id, id)).returning()
   if (!client) return c.json({ error: 'Not found' }, 404)
   const { pin, passwordHash, ...safe } = client
   return c.json({ client: safe })
@@ -774,7 +808,7 @@ clientsRouter.post('/:id/balance', requireRole('owner', 'staff'), zValidator('js
         depBody = `${who} · внёс ${fmtAmt} ₽ · остаток долга ${Math.abs(result.newBalance).toLocaleString('ru', { maximumFractionDigits: 0 })} ₽`
       }
     }
-    void notify({ type: 'deposit_topup', title: depTitle, body: depBody, meta: { clientId } }, db).catch(() => {})
+    void notify({ type: 'deposit_topup', title: depTitle, body: depBody, meta: { clientId } }, db, c.var.club?.id ?? null).catch(() => {})
     void notifyClient(clientId, result.prevBalance < 0
       ? {
           kind: 'deposit',
@@ -793,7 +827,7 @@ clientsRouter.post('/:id/balance', requireRole('owner', 'staff'), zValidator('js
       title: 'Новый долг клиента',
       body: `${who} · долг ${Math.abs(result.newBalance).toLocaleString('ru', { maximumFractionDigits: 0 })} ₽`,
       meta: { clientId },
-    }, db).catch(() => {})
+    }, db, c.var.club?.id ?? null).catch(() => {})
     void notifyClient(clientId, {
       kind: 'debt',
       title: 'Образовался долг',
@@ -815,9 +849,10 @@ clientsRouter.post('/:id/bonus', requireRole('owner', 'staff'), zValidator('json
   const [client] = await db.select().from(profiles).where(eq(profiles.id, c.req.param('id')))
   if (!client) return c.json({ error: 'Not found' }, 404)
 
-  // Апдейт баланса + лот в одной транзакции: положительное ручное начисление
-  // должно создавать лот, чтобы сгорать как любое начисление. Отрицательное
-  // списание лоты НЕ трогает — за это отвечает clamp в expireBonuses.
+  // Апдейт баланса + лоты в одной транзакции: положительное ручное начисление
+  // создаёт лот (сгорает как любое начисление), списание тратит лоты, как оплата
+  // бонусами. Иначе списанное оставалось в лотах и при их сгорании «сгорали»
+  // более поздние начисления — раньше своего срока.
   let newBonus = 0
   let insufficient = false
   await db.transaction(async (tx) => {
@@ -852,10 +887,11 @@ clientsRouter.post('/:id/bonus', requireRole('owner', 'staff'), zValidator('json
       reason: `[${user.nickname ?? user.sub}] ${reason}`,
     })
 
-    // Лот только для положительного начисления (списание клампится в cron).
     if (amount > 0) {
       const expiryDays = await getBonusExpiryDays(tx)
       await accrueBonusLot(tx, client.id, amount, expiryDays)
+    } else {
+      await spendBonusLots(tx, client.id, -amount)
     }
   })
 

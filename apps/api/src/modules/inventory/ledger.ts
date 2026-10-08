@@ -1,4 +1,4 @@
-import { db, inventory, recipeItems, stockMovements, eq, and, asc, sql } from '@titan/database'
+import { db, inventory, recipeItems, stockMovements, checkItems, eq, and, or, isNull, asc, sql } from '@titan/database'
 
 // Единая воронка записи движений склада. ЛЮБОЕ изменение остатка (продажа,
 // приёмка, ревизия, списание, корректировка, возврат) проходит через неё, поэтому
@@ -25,7 +25,7 @@ export interface RecordMovementInput {
   delta: number
   /** Цена единицы прихода (receipt). Включает пересчёт WAC, когда delta > 0. */
   unitCost?: number
-  /** Не уходить ниже нуля: qty_after = max(0, before+delta). По умолчанию true. */
+  /** Списание не уводит ниже нуля (или ниже уже отрицательного остатка); приход не режется. По умолчанию true. */
   clamp?: boolean
   /** Менять остаток только у учётных (trackStock) товаров. Для POS — true. */
   requireTracked?: boolean
@@ -99,7 +99,11 @@ export async function recordMovement(tx: Tx, input: RecordMovementInput): Promis
     return { qtyAfter: before, applied: 0, avgCost: oldCost, ok: true, lowStock: null }
   }
   const rawAfter = before + input.delta
-  const qtyAfter = clamp ? Math.max(0, rawAfter) : rawAfter
+  // clamp режет только уменьшение и не выше текущего уровня: приход на минусовой
+  // остаток проходит как есть, а списание с уже отрицательного остатка — в ноль
+  // (а не «вверх» до нуля, как было при Math.max(0, rawAfter)).
+  const floor = Math.min(0, before)
+  const qtyAfter = clamp && input.delta < 0 ? Math.max(floor, rawAfter) : rawAfter
   const applied = qtyAfter - before
 
   let avgCost = oldCost
@@ -215,6 +219,74 @@ export async function recordSale(tx: Tx, input: RecordSaleInput): Promise<{ lowS
     if (res.lowStock) lowStock.push(res.lowStock)
   }
   return { lowStock }
+}
+
+/**
+ * Вернуть на склад часть порций позиции меню, проданной по чеку, — по журналу чека
+ * (source_type='check', source_id=checkId), а не по текущей техкарте/флагу учёта:
+ * состав или trackStock могли измениться после продажи. На каждый (товар, позиция
+ * меню) берётся net списания по чеку, и возвращается его доля quantity/portions, где
+ * portions — порций позиции в чеке сейчас (сумма строк check_items: вызывать ДО
+ * правки/удаления строки позиции). Доля считается кумулятивно (округлённое «вернуть
+ * всего после» минус «до»), поэтому возврат всех порций гасит списание ровно в ноль
+ * и никогда не больше него.
+ */
+export async function returnCheckPortions(tx: Tx, input: {
+  /** Чек, по журналу которого считаем фактически списанное. */
+  checkId: string
+  /** Позиция меню (inventory.id), порции которой возвращаются. */
+  itemId: string
+  /** Сколько порций вернуть, > 0. */
+  quantity: number
+  /**
+   * Сколько порций уже вернули ВНЕ журнала чека (прошлые возвраты закрытого чека
+   * пишутся с source_type='refund' и net чека не уменьшают). Для открытого чека — 0:
+   * снятия с чека пишутся в его же журнал.
+   */
+  alreadyReturned?: number
+  sourceType: string
+  sourceId: string
+  reason: string
+  userId?: string | null
+}) {
+  const [{ portions }] = await tx
+    .select({ portions: sql<number>`coalesce(sum(${checkItems.quantity}), 0)::int` })
+    .from(checkItems)
+    .where(and(eq(checkItems.checkId, input.checkId), eq(checkItems.itemId, input.itemId)))
+  const already = Math.max(0, input.alreadyReturned ?? 0)
+  if (input.quantity <= 0 || !(portions > 0)) return
+  const upTo = Math.min(portions, already + input.quantity)
+  if (upTo <= already) return
+
+  const rows = await tx
+    .select({
+      itemId: stockMovements.itemId,
+      soldItemId: stockMovements.soldItemId,
+      net: sql<string>`sum(${stockMovements.delta})`,
+    })
+    .from(stockMovements)
+    .where(and(
+      eq(stockMovements.sourceType, 'check'),
+      eq(stockMovements.sourceId, input.checkId),
+      // Состав техкарты (sold_item_id = позиция) или сама учётная позиция без техкарты.
+      or(
+        eq(stockMovements.soldItemId, input.itemId),
+        and(eq(stockMovements.itemId, input.itemId), isNull(stockMovements.soldItemId)),
+      ),
+    ))
+    .groupBy(stockMovements.itemId, stockMovements.soldItemId)
+    .orderBy(asc(stockMovements.itemId))
+  for (const row of rows) {
+    const deducted = -(Number(row.net) || 0)
+    if (deducted <= 0) continue
+    const qty = Math.round((deducted * upTo) / portions) - Math.round((deducted * already) / portions)
+    if (qty <= 0) continue
+    await recordMovement(tx, {
+      itemId: row.itemId, type: 'return', delta: qty, clamp: false,
+      soldItemId: row.soldItemId, sourceType: input.sourceType, sourceId: input.sourceId,
+      reason: input.reason, userId: input.userId,
+    })
+  }
 }
 
 /**

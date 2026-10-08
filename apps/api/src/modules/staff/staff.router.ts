@@ -5,8 +5,9 @@ import { z } from 'zod'
 import { profiles, eq, and, isNull, desc, sql } from '@titan/database'
 // @ts-ignore
 import { passkeys } from '@titan/database'
-import { requireAuth, requireRole } from '../../middleware/auth.js'
+import { requireAuth, requireRole, invalidateProfileAuthCache } from '../../middleware/auth.js'
 import { hashPassword, hashPin } from '@titan/auth'
+import { isPinTaken, PIN_TAKEN_ERROR } from '../auth/staff-pin.js'
 import { createHmac } from 'node:crypto'
 
 // Username админ-бота для диплинка привязки. Если не задан в env — берём через
@@ -110,6 +111,8 @@ staffRouter.post('/:id/telegram-link', async (c) => {
 staffRouter.post('/', zValidator('json', CreateStaffSchema), async (c) => {
   const db = c.var.db
   const data = c.req.valid('json')
+  // PIN уникален среди активного персонала (вход по PIN ищет профиль перебором).
+  if (data.pin && await isPinTaken(db, data.pin)) return c.json({ error: PIN_TAKEN_ERROR }, 409)
   const hashedPassword = await hashPassword(data.password)
 
   try {
@@ -162,6 +165,8 @@ staffRouter.patch('/:id', zValidator('json', UpdateStaffSchema), async (c) => {
       })
 
     if (!updated) return c.json({ error: 'Not found' }, 404)
+    // Новая роль действует сразу, а не после перелогина (requireAuth берёт её из БД).
+    if (rest.role) await invalidateProfileAuthCache(c.var.club?.id ?? null, updated.id)
     return c.json({ staff: updated })
   } catch (err: any) {
     if (err?.code === '23505') {
@@ -186,6 +191,8 @@ staffRouter.delete('/:id', async (c) => {
   // Уволенный сотрудник не должен входить по passkey — удаляем его ключи.
   // (Дополнительно auth-verify проверяет deletedAt, см. auth.router.ts.)
   await db.delete(passkeys).where(eq(passkeys.userId, c.req.param('id')))
+  // Его ещё живые JWT отбиваются requireAuth (deletedAt) — сразу, без ожидания кэша.
+  await invalidateProfileAuthCache(c.var.club?.id ?? null, c.req.param('id'))
 
   return c.json({ ok: true })
 })
@@ -193,6 +200,7 @@ staffRouter.delete('/:id', async (c) => {
 staffRouter.post('/:id/reset-pin', zValidator('json', z.object({ pin: z.string().length(4).regex(/^\d{4}$/) })), async (c) => {
   const db = c.var.db
   const { pin } = c.req.valid('json')
+  if (await isPinTaken(db, pin, c.req.param('id'))) return c.json({ error: PIN_TAKEN_ERROR }, 409)
   const hashedPin = await hashPin(pin)
   await db
     .update(profiles)

@@ -14,12 +14,16 @@
 import {
   checks, checkItems, checkItemModifiers, checkDiscounts, spaces,
   checkPayments, transactions, profiles, bonusHistory, appSettings,
-  eq, inArray,
+  eq, and, inArray,
 } from '@titan/database'
+import type { Database } from '@titan/database'
 import { accrueBonusLot, getBonusExpiryDays } from '../../lib/bonusLots.js'
 import { round2, computeRental, computeTotals } from '../../lib/money.js'
+import { notify } from '../notifications/push.js'
 
-export type SettleResult = 'closed' | 'noop'
+// 'second_payment' — чек уже не открыт, а пришла ДРУГАЯ транзакция: деньги получены
+// сверх оплаты (гость оплатил старый QR после закрытия чека другим способом).
+export type SettleResult = 'closed' | 'noop' | 'second_payment'
 
 export interface SettleArgs {
   checkId: string
@@ -35,8 +39,47 @@ export interface SettleArgs {
 type Tx = any
 
 /**
+ * Оплата пришла по чеку, который уже не открыт: это повтор вебхука или ВТОРОЙ платёж?
+ * Повтор — та же транзакция, что закрыла чек (platega_tx_id), либо транзакция
+ * последнего QR, если чек закрыли из кассы тендером «перевод» (фолбэк, когда банк
+ * подтвердил раньше вебхука). Всё остальное — деньги за закрытый/отменённый чек.
+ */
+export async function isSecondPayment(
+  tx: Tx,
+  check: { id: string; plategaTxId: string | null; sbpQrTxId: string | null },
+  transactionId: string | undefined,
+): Promise<boolean> {
+  if (!transactionId || transactionId === check.plategaTxId) return false
+  if (!check.plategaTxId && transactionId === check.sbpQrTxId) {
+    const [viaTransfer] = await tx.select({ id: checkPayments.id }).from(checkPayments)
+      .where(and(eq(checkPayments.checkId, check.id), eq(checkPayments.method, 'transfer'))).limit(1)
+    if (viaTransfer) return false
+  }
+  return true
+}
+
+/** Сообщить персоналу о втором платеже по СБП: банку отвечаем 200, деньги вернуть вручную. */
+export function notifySecondPayment(
+  db: Database,
+  clubId: string | null | undefined,
+  args: { checkId: string; amount?: number; transactionId: string; provider: string },
+): void {
+  const sum = args.amount != null && !Number.isNaN(args.amount)
+    ? `${args.amount.toLocaleString('ru')} ₽`
+    : 'Сумма неизвестна'
+  console.warn(`[${args.provider}] оплата по уже закрытому чеку ${args.checkId}: ${sum} (tx ${args.transactionId})`)
+  void notify({
+    type: 'sbp_second_payment',
+    title: 'Оплата по закрытому чеку',
+    body: `${sum} по СБП (${args.provider}) за чек ${args.checkId.slice(0, 8)}, который уже закрыт или отменён. Транзакция ${args.transactionId} — оформите возврат гостю.`,
+    meta: { checkId: args.checkId, transactionId: args.transactionId, amount: args.amount ?? null },
+  }, db, clubId).catch(() => {})
+}
+
+/**
  * Закрывает открытый чек как оплаченный СБП. Возвращает 'closed' при закрытии,
- * 'noop' если чек уже закрыт/отменён (идемпотентность повторного вебхука).
+ * 'noop' если чек уже закрыт/отменён (идемпотентность повторного вебхука),
+ * 'second_payment' — чек не открыт, а транзакция другая (см. isSecondPayment).
  */
 export async function settleCheckPayment(tx: Tx, args: SettleArgs): Promise<SettleResult> {
   const { checkId, verifiedAmount, transactionId, descriptionPrefix } = args
@@ -44,7 +87,10 @@ export async function settleCheckPayment(tx: Tx, args: SettleArgs): Promise<Sett
   const [check] = await tx.select().from(checks).where(eq(checks.id, checkId)).for('update')
   if (!check) throw new Error('CHECK_NOT_FOUND')
   // Идемпотентность: чек уже не открыт — вебхук уже обработан (или чек отменён).
-  if (check.status !== 'open') return 'noop'
+  // Другая транзакция по такому чеку — второй платёж (вызывающий уведомит персонал).
+  if (check.status !== 'open') {
+    return (await isSecondPayment(tx, check, transactionId)) ? 'second_payment' : 'noop'
+  }
 
   // Авторитетная сумма — то же правило, что и pos.router.ts /pay:
   // позиции + модификаторы − скидки + аренда зоны + база события.
@@ -62,7 +108,14 @@ export async function settleCheckPayment(tx: Tx, args: SettleArgs): Promise<Sett
     rental = computeRental(check.spaceStartAt, check.spaceEndAt, space?.hourlyRate, Date.now())
   }
   const eventBase = parseFloat(check.eventBaseAmount ?? '0') || 0
-  const total = round2(itemsTotal + rental + eventBase)
+  // Оплата по последнему QR: его сумма зафиксирована при выставлении (sbp_qr_*).
+  // Живая аренда к вебхуку могла «тикнуть» на новый час → пересчёт дал бы ложный
+  // AMOUNT_MISMATCH. Для ЭТОЙ транзакции итог = сумма QR, аренда — до момента QR.
+  const qrBase = transactionId && check.sbpQrTxId === transactionId && check.sbpQrAmount != null
+    ? parseFloat(check.sbpQrAmount)
+    : NaN
+  const fromQr = Number.isFinite(qrBase)
+  const total = fromQr ? round2(qrBase) : round2(itemsTotal + rental + eventBase)
 
   // Чаевые, запрошенные при генерации QR. Гость платит total + tip (опц. ×1.08).
   const requestedTip = parseFloat(check.tipAmount ?? '0') || 0
@@ -105,7 +158,10 @@ export async function settleCheckPayment(tx: Tx, args: SettleArgs): Promise<Sett
     totalAmount: String(total),
     tipAmount: String(tipPaid),
     acquiringSurcharge: String(acquiringSurcharge),
-    spaceEndAt: check.spaceEndAt ?? (check.spaceId ? new Date() : undefined),
+    // id закрывшей транзакции — по нему повтор вебхука отличаем от второго платежа.
+    plategaTxId: transactionId ?? null,
+    // Чек закрыт на сумму QR → аренда заканчивается в момент выставления QR.
+    spaceEndAt: check.spaceEndAt ?? (check.spaceId ? ((fromQr ? check.sbpQrAt : null) ?? new Date()) : undefined),
     closedAt: new Date(),
   }).where(eq(checks.id, checkId))
 

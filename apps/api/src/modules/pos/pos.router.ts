@@ -5,11 +5,11 @@ import { z } from 'zod'
 import {
   checks, checkItems, checkItemModifiers, checkPayments, checkDiscounts, pendingOrders, chatMessages, guestFeedback,
   inventory, profiles, spaces, certificates, bonusHistory, transactions, modifiers as modifiersTable,
-  appSettings, events, discounts, clientDiscountRules,
+  appSettings, events, discounts, clientDiscountRules, shifts,
   eq, and, ne, inArray, desc, asc, sql, isNull,
 } from '@titan/database'
 import type { Database } from '@titan/database'
-import { recordSale, reverseCheckMovements, lowStockText, type LowStock } from '../inventory/ledger.js'
+import { recordSale, returnCheckPortions, reverseCheckMovements, lowStockText, type LowStock } from '../inventory/ledger.js'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
 import { getCurrentShift, getShiftCashBalance } from '../shifts/shifts.service.js'
 import { computeShiftForecast } from '../../lib/shiftForecast.js'
@@ -643,20 +643,38 @@ posRouter.post('/checks', requireRole('owner', 'staff'), zValidator('json', Open
     }
   }
 
-  const [check] = await db.insert(checks).values({
-    staffId: user.sub,
-    shiftId: shift.id,
-    status: 'open',
-    ...body,
-    // Устанавливаем время начала аренды если передан spaceId
-    spaceStartAt: body.spaceId ? new Date() : undefined,
-  }).returning()
+  let check: typeof checks.$inferSelect | undefined
+  try {
+    check = await db.transaction(async (tx) => {
+      // Смена могла начать закрываться после getCurrentShift: перечитываем её под
+      // FOR SHARE (закрытие держит FOR UPDATE и считает открытые чеки под ним) —
+      // открытый чек не попадёт в уже закрытую смену.
+      const [locked] = await tx.select({ status: shifts.status }).from(shifts)
+        .where(eq(shifts.id, shift.id)).for('share')
+      if (!locked || locked.status !== 'open') throw new Error('SHIFT_NOT_OPEN')
 
-  // Инкрементим attendeesCount события если чек привязан
-  if (body.linkedEventId) {
-    await db.update(events)
-      .set({ attendeesCount: sql`${events.attendeesCount} + 1` })
-      .where(eq(events.id, body.linkedEventId))
+      const [row] = await tx.insert(checks).values({
+        staffId: user.sub,
+        shiftId: shift.id,
+        status: 'open',
+        ...body,
+        // Устанавливаем время начала аренды если передан spaceId
+        spaceStartAt: body.spaceId ? new Date() : undefined,
+      }).returning()
+
+      // Инкрементим attendeesCount события если чек привязан
+      if (body.linkedEventId) {
+        await tx.update(events)
+          .set({ attendeesCount: sql`${events.attendeesCount} + 1` })
+          .where(eq(events.id, body.linkedEventId))
+      }
+      return row
+    })
+  } catch (err: any) {
+    if (err.message === 'SHIFT_NOT_OPEN') {
+      return c.json({ error: 'Смена закрыта — откройте новую смену и повторите' }, 409)
+    }
+    throw err
   }
 
   publishEvent(c.var.club?.id, 'check:created', { checkId: check!.id, shiftId: shift.id })
@@ -675,7 +693,7 @@ posRouter.post('/checks', requireRole('owner', 'staff'), zValidator('json', Open
       title: 'Новый чек',
       body: guestInfo ? `Гость: ${guestInfo}` : 'Открыт новый чек',
       meta: { checkId: check!.id },
-    }, db).catch(() => {})
+    }, db, c.var.club?.id ?? null).catch(() => {})
 
     if (check!.spaceId) {
       const [sp] = await db.select({ name: spaces.name }).from(spaces).where(eq(spaces.id, check!.spaceId))
@@ -684,7 +702,7 @@ posRouter.post('/checks', requireRole('owner', 'staff'), zValidator('json', Open
         title: 'Аренда зоны',
         body: sp?.name ? `Зона: ${sp.name}` : 'Начата аренда зоны',
         meta: { checkId: check!.id, spaceId: check!.spaceId },
-      }, db).catch(() => {})
+      }, db, c.var.club?.id ?? null).catch(() => {})
     }
   }
 
@@ -842,10 +860,12 @@ posRouter.delete('/checks/:id', requireRole('owner', 'staff'), async (c) => {
         .where(eq(events.id, ch.linkedEventId))
 
       // Удаление чека мероприятия → возвращаем событие в «Запланировано»
-      // (если оно не отменено), сбрасывая привязку к чеку.
+      // (если оно не отменено), сбрасывая привязку к чеку. Только для ОСНОВНОГО
+      // чека события (events.check_id): чеки участников миникапа и доп. чеки
+      // с той же привязкой событие не трогают.
       await tx.update(events)
         .set({ checkId: null, status: 'planned' })
-        .where(and(eq(events.id, ch.linkedEventId), ne(events.status, 'cancelled')))
+        .where(and(eq(events.id, ch.linkedEventId), eq(events.checkId, checkId), ne(events.status, 'cancelled')))
     }
     return ch
   })
@@ -1264,12 +1284,17 @@ posRouter.patch('/checks/:id/items/:itemId', requireRole('owner', 'staff', 'tabl
       if (!ci) throw new Error('ITEM_NOT_FOUND')
       // delta > 0 → возвращаем на склад; delta < 0 → дополнительно списываем. Как и
       // при добавлении, нехватка не блокирует (оверселл); техкарта списывает состав.
+      // Возврат — по журналу чека (что реально списано), а не по текущей техкарте.
       const delta = ci.quantity - quantity
-      if (delta !== 0) {
+      if (delta > 0) {
+        await returnCheckPortions(tx, {
+          checkId, itemId: ci.itemId, quantity: delta,
+          sourceType: 'check', sourceId: checkId, reason: 'Снята с чека', userId: user.sub,
+        })
+      } else if (delta < 0) {
         await recordSale(tx, {
-          itemId: ci.itemId, quantity: Math.abs(delta), direction: delta > 0 ? 'return' : 'sale',
-          sourceType: 'check', sourceId: checkId,
-          reason: delta > 0 ? 'Снята с чека' : 'Продажа', userId: user.sub,
+          itemId: ci.itemId, quantity: -delta, direction: 'sale',
+          sourceType: 'check', sourceId: checkId, reason: 'Продажа', userId: user.sub,
         })
       }
       if (quantity === 0) {
@@ -1310,9 +1335,10 @@ posRouter.delete('/checks/:id/items/:itemId', requireRole('owner', 'staff', 'tab
 
       const [ci] = await tx.select().from(checkItems).where(and(eq(checkItems.id, itemId), eq(checkItems.checkId, checkId)))
       if (!ci) return
-      // Возвращаем списанное по позиции на склад (с техкартой — её состав).
-      await recordSale(tx, {
-        itemId: ci.itemId, quantity: ci.quantity, direction: 'return',
+      // Возвращаем списанное по позиции на склад — по журналу чека (с техкартой — её
+      // состав на момент продажи, а не текущий).
+      await returnCheckPortions(tx, {
+        checkId, itemId: ci.itemId, quantity: ci.quantity,
         sourceType: 'check', sourceId: checkId, reason: 'Снята с чека', userId: user.sub,
       })
       await tx.delete(checkItems).where(and(eq(checkItems.id, itemId), eq(checkItems.checkId, checkId)))
@@ -1343,65 +1369,80 @@ posRouter.post('/checks/:id/discount', requireRole('owner', 'staff'), zValidator
   const db = c.var.db
   const checkId = c.req.param('id')
   const body = c.req.valid('json')
-
-  const [check] = await db.select().from(checks).where(eq(checks.id, checkId))
-  if (!check || check.status !== 'open') return c.json({ error: 'Check not open' }, 400)
-
-  // Считаем сумму позиций (без скидок) как базу — иначе процентные скидки
-  // применённые последовательно дают каскадный эффект (10% + 10% != 19%).
-  // Для check-скидок база = позиции + платные модификаторы (та же база, что у
-  // computeTotals), чтобы сохранённый amount совпадал со списываемым.
-  const items = await db.select().from(checkItems).where(eq(checkItems.checkId, checkId))
-  const itemIds = items.map(i => i.id)
-  const mods = itemIds.length
-    ? await db.select().from(checkItemModifiers).where(inArray(checkItemModifiers.checkItemId, itemIds))
-    : []
-  const qtyByItem = new Map(items.map(i => [i.id, i.quantity]))
-  const modsSum = mods.reduce((s, m) => s + parseFloat(m.priceAtTime) * (qtyByItem.get(m.checkItemId) ?? 1), 0)
-  const itemsSum = items.reduce((s, i) => s + parseFloat(i.priceAtTime) * i.quantity, 0) + modsSum
-
-  // Для itemDiscount базой служит цена позиции, для check — позиции + модификаторы
-  let baseAmount = itemsSum
-  if (body.target === 'item' && body.itemId) {
-    const [targetItem] = items.filter(i => i.id === body.itemId)
-    if (targetItem) {
-      baseAmount = parseFloat(targetItem.priceAtTime) * targetItem.quantity
-    }
-  }
-
-  const discountAmount = body.type === 'percent'
-    ? baseAmount * (body.value / 100)
-    : Math.min(body.value, baseAmount)  // fixed скидка не может быть больше базы
-
-  // Анти-злоупотребление: сотрудник (staff) не может суммарно «обнулить» чек,
-  // навесив несколько скидок подряд. Owner — без лимита. Порог настраивается
-  // (staff_max_discount_percent, по умолчанию 50% от суммы позиций). Считаем в
-  // деньгах: сумма всех уже применённых скидок + новая ≤ cap% × itemsSum.
   const user = c.get('user')
-  if (user.role !== 'owner' && itemsSum > 0) {
-    const capPct = await getNumericSetting(STAFF_MAX_DISCOUNT_KEY, DEFAULT_STAFF_MAX_DISCOUNT, db)
-    const existingRows = await db.select({ amount: checkDiscounts.amount })
-      .from(checkDiscounts).where(eq(checkDiscounts.checkId, checkId))
-    const existingSum = existingRows.reduce((s, r) => s + (parseFloat(r.amount) || 0), 0)
-    const maxAllowed = itemsSum * (capPct / 100)
-    if (existingSum + discountAmount > maxAllowed + 0.01) {
+  // Лимит скидок сотрудника (настройка) — до транзакции; owner — без лимита.
+  const capPct = user.role !== 'owner'
+    ? await getNumericSetting(STAFF_MAX_DISCOUNT_KEY, DEFAULT_STAFF_MAX_DISCOUNT, db)
+    : null
+
+  try {
+    await db.transaction(async (tx) => {
+      // Чек лочим FOR UPDATE: две параллельные скидки сотрудника не проскочат лимит вдвоём.
+      const [check] = await tx.select().from(checks).where(eq(checks.id, checkId)).for('update')
+      if (!check || check.status !== 'open') throw new Error('CHECK_NOT_OPEN')
+
+      // Считаем сумму позиций (без скидок) как базу — иначе процентные скидки
+      // применённые последовательно дают каскадный эффект (10% + 10% != 19%).
+      // Для check-скидок база = позиции + платные модификаторы (та же база, что у
+      // computeTotals), чтобы сохранённый amount совпадал со списываемым.
+      const items = await tx.select().from(checkItems).where(eq(checkItems.checkId, checkId))
+      const itemIds = items.map(i => i.id)
+      const mods = itemIds.length
+        ? await tx.select().from(checkItemModifiers).where(inArray(checkItemModifiers.checkItemId, itemIds))
+        : []
+      const qtyByItem = new Map(items.map(i => [i.id, i.quantity]))
+      const modsSum = mods.reduce((s, m) => s + parseFloat(m.priceAtTime) * (qtyByItem.get(m.checkItemId) ?? 1), 0)
+      const itemsSum = items.reduce((s, i) => s + parseFloat(i.priceAtTime) * i.quantity, 0) + modsSum
+
+      // Для itemDiscount базой служит цена позиции, для check — позиции + модификаторы
+      let baseAmount = itemsSum
+      if (body.target === 'item' && body.itemId) {
+        const [targetItem] = items.filter(i => i.id === body.itemId)
+        if (targetItem) {
+          baseAmount = parseFloat(targetItem.priceAtTime) * targetItem.quantity
+        }
+      }
+
+      const discountAmount = body.type === 'percent'
+        ? baseAmount * (body.value / 100)
+        : Math.min(body.value, baseAmount)  // fixed скидка не может быть больше базы
+
+      // Анти-злоупотребление: сотрудник (staff) не может суммарно «обнулить» чек,
+      // навесив несколько скидок подряд. Owner — без лимита. Порог настраивается
+      // (staff_max_discount_percent, по умолчанию 50% от суммы позиций). Считаем в
+      // деньгах тем же computeTotals, что и итог чека: сохранённый amount прежних
+      // процентных скидок не пересчитывается при добавлении позиций, поэтому сумма
+      // amount занижала реальную скидку. Все скидки чека + новая ≤ cap% × itemsSum.
+      if (capPct !== null && itemsSum > 0) {
+        const existingRows = await tx.select().from(checkDiscounts).where(eq(checkDiscounts.checkId, checkId))
+        const newRow = { type: body.type, value: String(body.value), target: body.target, itemId: body.itemId ?? null }
+        const { discountTotal: wouldBe } = computeTotals(items, mods, [...existingRows, newRow])
+        const maxAllowed = itemsSum * (capPct / 100)
+        if (wouldBe > maxAllowed + 0.01) throw new Error('STAFF_DISCOUNT_LIMIT')
+      }
+
+      await tx.insert(checkDiscounts).values({
+        checkId,
+        name: body.name,
+        type: body.type,
+        value: String(body.value),
+        amount: String(discountAmount),
+        target: body.target,
+        itemId: body.itemId,
+      })
+    })
+  } catch (err: any) {
+    if (err.message === 'CHECK_NOT_OPEN') return c.json({ error: 'Check not open' }, 400)
+    if (err.message === 'STAFF_DISCOUNT_LIMIT') {
       return c.json({
-        error: capPct <= 0
+        error: (capPct ?? 0) <= 0
           ? 'Скидки доступны только владельцу'
           : `Суммарная скидка сотрудника не может превышать ${capPct}% от суммы позиций — обратитесь к владельцу`,
       }, 403)
     }
+    console.error('POST /checks/:id/discount error:', err)
+    return c.json({ error: 'Internal error' }, 500)
   }
-
-  await db.insert(checkDiscounts).values({
-    checkId,
-    name: body.name,
-    type: body.type,
-    value: String(body.value),
-    amount: String(discountAmount),
-    target: body.target,
-    itemId: body.itemId,
-  })
 
   await recalcCheckTotal(checkId, db)
   publishEvent(c.var.club?.id, 'check:updated', { checkId })
@@ -1523,6 +1564,8 @@ posRouter.post('/checks/:id/qr', requireRole('owner', 'staff', 'tablet'), async 
   // а НЕ берётся с клиента — иначе можно выставить QR на произвольную сумму.
   // Сначала пересчитываем авто/тир-скидки, затем берём авторитетный итог.
   await recalcCheckTotal(checkId, db)
+  // Момент выставления QR: на него посчитана живая аренда в baseAmount.
+  const qrAt = new Date()
   const baseAmount = await computeCheckGrandTotal(db, check)
   if (baseAmount < 0.01) return c.json({ error: 'Сумма чека равна нулю' }, 400)
 
@@ -1555,6 +1598,15 @@ posRouter.post('/checks/:id/qr', requireRole('owner', 'staff', 'tablet'), async 
     acquiringSurcharge: surcharge8 ? String(round2(beforeSurcharge * 0.08)) : '0',
   }).where(eq(checks.id, checkId))
 
+  // Фиксируем выставленный QR (сумма/момент/транзакция): вебхук по ЭТОЙ транзакции
+  // закроет чек на baseAmount и завершит аренду в qrAt — даже если к оплате живая
+  // аренда «тикнула» на новый час (иначе ложный AMOUNT_MISMATCH при полученных деньгах).
+  const rememberQr = (txId: string | undefined) => db.update(checks).set({
+    sbpQrAmount: String(baseAmount),
+    sbpQrAt: qrAt,
+    sbpQrTxId: txId ?? null,
+  }).where(eq(checks.id, checkId))
+
   // ── Диспатч по активному СБП-эквайеру. 'platega' (дефолт) — существующий путь
   // ниже без изменений; иначе создаём платёж через адаптер провайдера. ──
   const activeProvider = await getActiveSbpProvider(db)
@@ -1565,7 +1617,16 @@ posRouter.post('/checks/:id/qr', requireRole('owner', 'staff', 'tablet'), async 
     if (provider.credKeys.some((k) => !creds[k])) {
       return c.json({ error: `${provider.label}: не заданы ключи` }, 503)
     }
-    const origin = new URL(c.req.url).origin
+    // Публичный адрес для вебхука/возврата. nginx проксирует в API по http, поэтому
+    // c.req.url = http://<host>, а порт 80 отвечает 301 — уведомления банка терялись.
+    // Хост — только из Host (его выставляет nginx), схема — из X-Forwarded-Proto
+    // (тоже nginx), иначе https в проде. X-Forwarded-Host не доверяем: nginx его не
+    // перезаписывает, клиент подменил бы адрес вебхука.
+    const fwdProto = c.req.header('x-forwarded-proto')
+    const proto = fwdProto === 'http' || fwdProto === 'https'
+      ? fwdProto
+      : process.env['NODE_ENV'] === 'production' ? 'https' : new URL(c.req.url).protocol.replace(':', '')
+    const origin = `${proto}://${c.req.header('host') ?? new URL(c.req.url).host}`
     // Фискальный чек 54-ФЗ: только если провайдер умеет слать его сам (ЮKassa) и
     // фискализация включена. Сумма чека = СПИСЫВАЕМАЯ (amount, с чаевыми/надбавкой) —
     // у ЮKassa итог чека обязан совпадать с суммой платежа, иначе платёж отклонят.
@@ -1586,6 +1647,7 @@ posRouter.post('/checks/:id/qr', requireRole('owner', 'staff', 'tablet'), async 
       console.error(`[pay:${provider.id}] create error:`, err)
       return c.json({ error: 'Ошибка создания платежа' }, 502)
     }
+    await rememberQr(result.transactionId)
     // Рендерим СБП-payload (или ссылку на платёжную страницу) как QR-картинку.
     let qrDataUrl: string | undefined
     const payload = result.qrString ?? result.redirectUrl
@@ -1637,6 +1699,8 @@ posRouter.post('/checks/:id/qr', requireRole('owner', 'staff', 'tablet'), async 
   const createData = await createRes.json() as Record<string, unknown>
   const transactionId = createData['transactionId'] as string
   const redirectUrl = createData['redirect'] as string | undefined
+  // До показа QR гостю: вебхук по этой транзакции не может прийти раньше записи.
+  await rememberQr(transactionId)
 
   // GET /h2h/{id} — специальный endpoint Platega для получения СБП QR
   let qrString: string | undefined
@@ -1898,6 +1962,10 @@ posRouter.post('/checks/:id/pay', requireRole('owner', 'staff'), zValidator('jso
         // Закрытие из кассы (нал/карта/бонусы) — QR-чаевые не оплачивались;
         // сбрасываем возможный «запрошенный» хвост от генерации QR.
         tipAmount: '0',
+        // Надбавку 8% от брошенного QR оставляем, только если среди тендеров есть
+        // СБП/перевод (фолбэк после подтверждения банка); иначе фискальный крон добавил
+        // бы строку «Комиссия за эквайринг» → чек ≠ принятым деньгам.
+        ...(body.payments.some(p => p.method === 'transfer') ? {} : { acquiringSurcharge: '0' }),
         bonusUsed: String(body.bonusAmount ?? 0),
         certificateId: cert?.id ?? null,
         certificateUsed: cert ? String(certSent) : '0',
@@ -1909,12 +1977,28 @@ posRouter.post('/checks/:id/pay', requireRole('owner', 'staff'), zValidator('jso
 
       // Авто-завершение мероприятия: чек события оплачен и закрыт → событие
       // переходит в «Завершено» (ручной кнопки «Завершить» нет — финал только здесь).
+      // Только ОСНОВНОЙ чек события (events.check_id): оплата чека участника миникапа
+      // или доп. чека с той же привязкой событие не завершает.
       let completedEvent: { id: string; title: string | null } | null = null
       if (check.linkedEventId) {
         const [evRow] = await tx.update(events).set({ status: 'completed' })
-          .where(and(eq(events.id, check.linkedEventId), ne(events.status, 'cancelled')))
+          .where(and(eq(events.id, check.linkedEventId), eq(events.checkId, checkId), ne(events.status, 'cancelled')))
           .returning({ id: events.id, title: events.title })
         if (evRow) completedEvent = evRow
+        // Миникап (своего чека у события нет — только чеки участников) завершается,
+        // когда закрыт ПОСЛЕДНИЙ открытый чек участника.
+        if (!evRow) {
+          const [mcRow] = await tx.update(events).set({ status: 'completed' })
+            .where(and(
+              eq(events.id, check.linkedEventId),
+              isNull(events.checkId),
+              eq(events.format, 'minicap'),
+              eq(events.status, 'active'),
+              sql`NOT EXISTS (SELECT 1 FROM checks oc WHERE oc.linked_event_id = ${check.linkedEventId} AND oc.status = 'open' AND oc.id <> ${checkId})`,
+            ))
+            .returning({ id: events.id, title: events.title })
+          if (mcRow) completedEvent = mcRow
+        }
       }
 
       // Начисление бонусов с учётом настроек app_settings (на полную сумму, включая аренду)
@@ -1974,7 +2058,7 @@ posRouter.post('/checks/:id/pay', requireRole('owner', 'staff'), zValidator('jso
       title: isLargeCheck ? 'Крупный чек оплачен' : 'Чек оплачен',
       body: `${paidTotal.toLocaleString('ru')} ₽${checkExtras.length ? ' · ' + checkExtras.join(' · ') : ''}`,
       meta: { checkId, playerId: closed?.playerId ?? undefined },
-    }, db).catch(() => {})
+    }, db, c.var.club?.id ?? null).catch(() => {})
     // Личные уведомления клиенту в Wallet-бот (о ЕГО событиях).
     if (closed?.playerId) {
       const pid = closed.playerId
@@ -2011,7 +2095,7 @@ posRouter.post('/checks/:id/pay', requireRole('owner', 'staff'), zValidator('jso
         title: 'Мероприятие завершено',
         body: closed.completedEvent.title ?? 'Мероприятие завершено',
         meta: { eventId: closed.completedEvent.id, checkId },
-      }, db).catch(() => {})
+      }, db, c.var.club?.id ?? null).catch(() => {})
     }
 
     return c.json({ check: closedCheck })

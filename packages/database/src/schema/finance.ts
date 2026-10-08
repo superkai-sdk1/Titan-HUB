@@ -236,6 +236,9 @@ export const refunds = pgTable('refunds', {
   // Нужно, чтобы повторные частичные возвраты не восстанавливали сток сверх
   // проданного (cap = sold − alreadyRestored по всем предыдущим возвратам чека).
   restoredItems: jsonb('restored_items').$type<{ itemId: string; quantity: number }[]>().default([]),
+  // Ключ идемпотентности клиента (миграция 074): повтор того же возврата после
+  // потерянного ответа возвращает уже записанный возврат, а не проводит второй.
+  idempotencyKey: text('idempotency_key'),
   createdBy: uuid('created_by')
     .notNull()
     .references(() => profiles.id),

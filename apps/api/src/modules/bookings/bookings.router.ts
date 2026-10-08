@@ -20,6 +20,7 @@ import { requireAuth, requireRole } from '../../middleware/auth.js'
 import { notify } from '../notifications/push.js'
 import { getSharedRedis } from '../../lib/redis.js'
 import { clientIp } from '../../lib/clientIp.js'
+import { bookingLockKey, findOverlappingEvent } from '../events/events.router.js'
 
 function rows<T = Record<string, unknown>>(res: unknown): T[] {
   return ((res as { rows?: unknown[] }).rows ?? (res as unknown[])) as T[]
@@ -296,39 +297,68 @@ bookingsRouter.patch('/:id', requireRole('owner', 'staff'), zValidator('json', P
   const { status } = c.req.valid('json')
   const user = c.get('user')
 
-  const res = await db.execute(sql`SELECT * FROM bookings WHERE id = ${id} LIMIT 1`)
-  const bk = rows<Record<string, unknown>>(res)[0]
-  if (!bk) return c.json({ error: 'not found' }, 404)
+  // Подтверждение — в ОДНОЙ транзакции: строка брони под FOR UPDATE (два параллельных
+  // подтверждения не создадут два мероприятия — второе увидит event_id первого), а
+  // проверка пересечения и вставка события — под тем же advisory-lock (зона, дата),
+  // что и POST /events, иначе бронь с сайта могла занять уже занятую зону.
+  type R =
+    | { kind: 'not_found' }
+    | { kind: 'conflict'; event: typeof events.$inferSelect }
+    | { kind: 'ok'; eventId: string | null }
+  const result = await db.transaction<R>(async (tx) => {
+    const res = await tx.execute(sql`SELECT * FROM bookings WHERE id = ${id} LIMIT 1 FOR UPDATE`)
+    const bk = rows<Record<string, unknown>>(res)[0]
+    if (!bk) return { kind: 'not_found' }
 
-  let eventId = (bk['event_id'] as string | null) ?? null
-  if (status === 'confirmed' && !eventId) {
-    const { date, time } = mskParts(bk['starts_at'] as string)
-    const hours = bk['tariff_hours'] != null ? Number(bk['tariff_hours']) : (bk['duration_hours'] != null ? Number(bk['duration_hours']) : 0)
-    const endTime = hours > 0 ? addHours(time, hours) : null
-    const isExit = bk['location'] === 'exit'
-    const [ev] = await db.insert(events).values({
-      type: isExit ? 'exit' : 'titan',
-      title: (bk['title'] as string | null) || `Бронь: ${String(bk['name'])}`,
-      location: isExit ? ((bk['address'] as string | null) ?? null) : 'TITAN',
-      spaceId: (bk['space_id'] as string | null) ?? null,
-      date,
-      startTime: time,
-      endTime,
-      paymentType: 'fixed',
-      // Кабинка в клубе: виджет обещает гостю «ставка зоны × часы, итог по факту» —
-      // значит, чек по ставке зоны живым счётчиком. Выезд — пакет мероприятия по часам.
-      billingMode: !isExit && bk['space_id'] ? 'rental' : 'hourly',
-      plannedHours: hours > 0 ? hours : null,
-      status: 'planned',
-      customerName: String(bk['name']),
-      customerPhone: String(bk['phone']),
-      comment: (bk['comment'] as string | null) ?? null,
-      format: 'regular',
-      createdBy: user.sub,
-    }).returning()
-    eventId = ev?.id ?? null
+    let eventId = (bk['event_id'] as string | null) ?? null
+    if (status === 'confirmed' && !eventId) {
+      const { date, time } = mskParts(bk['starts_at'] as string)
+      const hours = bk['tariff_hours'] != null ? Number(bk['tariff_hours']) : (bk['duration_hours'] != null ? Number(bk['duration_hours']) : 0)
+      const endTime = hours > 0 ? addHours(time, hours) : null
+      const isExit = bk['location'] === 'exit'
+      const spaceId = (bk['space_id'] as string | null) ?? null
+      if (!isExit && spaceId) {
+        await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${bookingLockKey(spaceId, date)}, 0))`)
+        const overlap = await findOverlappingEvent(tx, {
+          type: 'titan', spaceId, date, startTime: time, endTime, plannedHours: hours > 0 ? hours : null,
+        })
+        if (overlap) return { kind: 'conflict', event: overlap }
+      }
+      const [ev] = await tx.insert(events).values({
+        type: isExit ? 'exit' : 'titan',
+        title: (bk['title'] as string | null) || `Бронь: ${String(bk['name'])}`,
+        location: isExit ? ((bk['address'] as string | null) ?? null) : 'TITAN',
+        spaceId,
+        date,
+        startTime: time,
+        endTime,
+        paymentType: 'fixed',
+        // Кабинка в клубе: виджет обещает гостю «ставка зоны × часы, итог по факту» —
+        // значит, чек по ставке зоны живым счётчиком. Выезд — пакет мероприятия по часам.
+        billingMode: !isExit && spaceId ? 'rental' : 'hourly',
+        plannedHours: hours > 0 ? hours : null,
+        status: 'planned',
+        customerName: String(bk['name']),
+        customerPhone: String(bk['phone']),
+        comment: (bk['comment'] as string | null) ?? null,
+        format: 'regular',
+        createdBy: user.sub,
+      }).returning()
+      eventId = ev?.id ?? null
+    }
+
+    await tx.execute(sql`UPDATE bookings SET status = ${status}, event_id = ${eventId}, updated_at = now() WHERE id = ${id}`)
+    return { kind: 'ok', eventId }
+  })
+
+  if (result.kind === 'not_found') return c.json({ error: 'not found' }, 404)
+  if (result.kind === 'conflict') {
+    const cf = result.event
+    return c.json({
+      error: 'На это время зона уже занята другим мероприятием — измените время брони или зону',
+      conflict: { id: cf.id, title: cf.title, startTime: cf.startTime, endTime: cf.endTime },
+    }, 409)
   }
-
-  await db.execute(sql`UPDATE bookings SET status = ${status}, event_id = ${eventId}, updated_at = now() WHERE id = ${id}`)
+  const eventId = result.eventId
   return c.json({ ok: true, status, eventId })
 })

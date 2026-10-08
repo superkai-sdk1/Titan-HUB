@@ -8,6 +8,7 @@ import {
   eq, and, inArray, sql, desc, asc, count, sum,
 } from '@titan/database'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
+import { excusedMonthKeys, recurringOwed, type DuePeriod } from '../../lib/collectionDues.js'
 
 export const collectionsRouter = new Hono<AppEnv>()
 // Аутентификация для всех маршрутов раздела (как в clients): иначе requireRole
@@ -189,7 +190,7 @@ collectionsRouter.get('/:id', requireRole('owner', 'staff'), async (c) => {
   // Резиденты (клиенты resident/student/newbie) + фото по приоритету.
   const residents = await db.select({
     id: profiles.id, nickname: profiles.nickname, fullName: profiles.fullName,
-    clientTier: profiles.clientTier, balance: profiles.balance,
+    clientTier: profiles.clientTier, balance: profiles.balance, createdAt: profiles.createdAt,
     photoUrl: sql<string | null>`coalesce(${profiles.photoUrl}, ${profiles.tgPhotoUrl}, ${profiles.gomafiaPhotoUrl})`,
   }).from(profiles)
     .where(and(eq(profiles.role, 'client'), inArray(profiles.clientTier, RESIDENT_TIERS as unknown as string[])))
@@ -202,17 +203,18 @@ collectionsRouter.get('/:id', requireRole('owner', 'staff'), async (c) => {
 
   // Карри-форвард (предоплата) для ежемесячных сборов: взносы участника копятся в
   // «пул» и закрывают месяцы по порядку. Переплата → аванс на будущие месяцы;
-  // недобор → сколько доплатить, чтобы закрыть текущий месяц. Считаем пул как сумму
-  // всех взносов участника по периодам ≤ просматриваемого, а долженствование — как
-  // (число таких периодов × сумма взноса).
+  // недобор → сколько доплатить, чтобы закрыть текущий месяц. Пул — сумма всех
+  // взносов участника по периодам ≤ просматриваемого, долженствование — сумма
+  // взносов этих месяцев с его появления в базе, без месяцев исключения (lib/collectionDues).
   const r2 = (n: number) => Math.round(n * 100) / 100
   const isRecurring = coll.kind !== 'oneoff'
-  let periodsCount = 1
+  let duePeriods: DuePeriod[] = []
   const poolByPlayer = new Map<string, number>()
   if (isRecurring) {
-    const periodsUpTo = await db.select({ id: collectionPeriods.id }).from(collectionPeriods)
+    const periodsUpTo = await db.select({ id: collectionPeriods.id, periodKey: collectionPeriods.periodKey, amount: collectionPeriods.amount })
+      .from(collectionPeriods)
       .where(and(eq(collectionPeriods.collectionId, id), sql`${collectionPeriods.periodKey} <= ${periodKey}`))
-    periodsCount = Math.max(1, periodsUpTo.length)
+    duePeriods = periodsUpTo.map((p: any) => ({ periodKey: p.periodKey, amount: num(p.amount) }))
     const pids = periodsUpTo.map((p: any) => p.id)
     if (pids.length) {
       const poolRows = await db.select({
@@ -225,7 +227,7 @@ collectionsRouter.get('/:id', requireRole('owner', 'staff'), async (c) => {
     }
   }
 
-  const now = mskNow()
+  const now = new Date()
   const periodAmount = num(period.amount)
   const roster = residents.map((r: any) => {
     const m: any = memberByPlayer.get(r.id)
@@ -239,7 +241,8 @@ collectionsRouter.get('/:id', requireRole('owner', 'staff'), async (c) => {
     let topUp = 0, prepaid = 0, prepaidMonths = 0, coveredByPrepay = false
     if (isRecurring && !excluded) {
       const pool = poolByPlayer.get(r.id) ?? 0
-      const credit = r2(pool - periodsCount * due) // > 0 — аванс, < 0 — недобор
+      const owed = recurringOwed(duePeriods, { override, memberSince: r.createdAt, excused: excusedMonthKeys(m, now) })
+      const credit = r2(pool - owed) // > 0 — аванс, < 0 — недобор
       paid = credit >= -0.005
       if (credit < -0.005) topUp = r2(-credit)
       else if (credit > 0.005) { prepaid = r2(credit); prepaidMonths = due > 0 ? Math.floor((credit + 0.001) / due) : 0 }
@@ -360,7 +363,9 @@ collectionsRouter.delete('/:id/contributions/:contribId', requireRole('owner', '
   const db = c.var.db
   const contribId = c.req.param('contribId')
   const ok = await db.transaction<boolean>(async (tx: any) => {
-    const [con] = await tx.select().from(collectionContributions).where(eq(collectionContributions.id, contribId)).limit(1)
+    // Сначала удаляем взнос (DELETE … RETURNING берёт блокировку строки): из двух
+    // параллельных снятий строку получит только одно — второе не вернёт деньги повторно.
+    const [con] = await tx.delete(collectionContributions).where(eq(collectionContributions.id, contribId)).returning()
     if (!con) return false
     if (con.balanceTxId) {
       // Вернуть деньги на баланс и удалить связанную транзакцию.
@@ -368,7 +373,6 @@ collectionsRouter.delete('/:id/contributions/:contribId', requireRole('owner', '
       await tx.execute(sql`UPDATE profiles SET balance = balance + ${String(num(con.amount))} WHERE id = ${con.playerId}`)
       await tx.delete(transactions).where(eq(transactions.id, con.balanceTxId))
     }
-    await tx.delete(collectionContributions).where(eq(collectionContributions.id, contribId))
     return true
   })
   if (!ok) return c.json({ error: 'not_found' }, 404)
@@ -385,11 +389,17 @@ collectionsRouter.post('/:id/exclude', requireRole('owner', 'staff'), zValidator
   const { playerId, duration } = c.req.valid('json')
   const until = duration === 'forever' ? null
     : new Date(Date.now() + (duration === '1m' ? 30 : 90) * 86400000)
+  // Продление идущего исключения сохраняет его начало (месяцы с него не в долге).
+  const stillExcluded = sql`(${collectionMembers.excludedForever} OR ${collectionMembers.excludedUntil} > now())`
   await db.insert(collectionMembers).values({
-    collectionId: id, playerId, excludedForever: duration === 'forever', excludedUntil: until, updatedAt: new Date(),
+    collectionId: id, playerId, excludedForever: duration === 'forever', excludedUntil: until,
+    excludedFrom: new Date(), updatedAt: new Date(),
   }).onConflictDoUpdate({
     target: [collectionMembers.collectionId, collectionMembers.playerId],
-    set: { excludedForever: duration === 'forever', excludedUntil: until, updatedAt: new Date() },
+    set: {
+      excludedForever: duration === 'forever', excludedUntil: until, updatedAt: new Date(),
+      excludedFrom: sql`CASE WHEN ${stillExcluded} THEN coalesce(${collectionMembers.excludedFrom}, now()) ELSE now() END`,
+    },
   })
   return c.json({ ok: true })
 })
@@ -401,11 +411,16 @@ collectionsRouter.post('/:id/include', requireRole('owner', 'staff'), zValidator
   const db = c.var.db
   const id = c.req.param('id')
   const { playerId } = c.req.valid('json')
+  // Окно исключения закрываем «сейчас», а не стираем: месяцы, когда участник был
+  // исключён, остаются вне долга и после возврата.
   await db.insert(collectionMembers).values({
     collectionId: id, playerId, excludedForever: false, excludedUntil: null, updatedAt: new Date(),
   }).onConflictDoUpdate({
     target: [collectionMembers.collectionId, collectionMembers.playerId],
-    set: { excludedForever: false, excludedUntil: null, updatedAt: new Date() },
+    set: {
+      excludedForever: false, updatedAt: new Date(),
+      excludedUntil: sql`CASE WHEN ${collectionMembers.excludedForever} OR ${collectionMembers.excludedUntil} > now() THEN now() ELSE ${collectionMembers.excludedUntil} END`,
+    },
   })
   return c.json({ ok: true })
 })

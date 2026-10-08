@@ -111,6 +111,12 @@ export async function saveGoodsItem(tx: Tx, existing: Row | null, body: ItemCrea
   if (existing && unit !== existing.unit && await hasMovements(tx, existing.id)) {
     throw new GoodsError('Единицу нельзя сменить: по товару уже были движения', 409)
   }
+  // Количество в составе блюд записано в прежней единице (18 г ≠ 18 мл) — смена единицы
+  // молча исказила бы списание и себестоимость техкарт.
+  if (existing && unit !== existing.unit) {
+    const owners = await usedIn(tx, existing.id)
+    if (owners.length) throw new GoodsError(`Единицу нельзя сменить: ингредиент входит в состав (${owners.slice(0, 3).join(', ')}) — сначала уберите его оттуда`, 409)
+  }
 
   const currentRecipe = existing ? await tx.select().from(recipeItems).where(eq(recipeItems.productId, existing.id)) : []
   const currentMode = currentRecipe.length ? 'recipe' : existing?.trackStock ? 'pieces' : 'none'
@@ -186,6 +192,11 @@ export async function saveGoodsItem(tx: Tx, existing: Row | null, body: ItemCrea
       await tx.insert(recipeItems).values(recipe.map((r, i) => ({ productId: id!, componentId: r.componentId, quantity: r.quantity, sortOrder: i })))
       await refreshRecipeCosts(tx, { productIds: [id!] })
     }
+  }
+  // Себестоимость или единица компонента сменилась — пересчитать закэшированную
+  // себестоимость блюд, в чьём составе он есть.
+  if (existing && (body.costPrice !== undefined || unit !== existing.unit)) {
+    await refreshRecipeCosts(tx, { componentIds: [id!] })
   }
   return id!
 }

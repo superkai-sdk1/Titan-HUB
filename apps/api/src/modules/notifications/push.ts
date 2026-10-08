@@ -214,6 +214,9 @@ async function sendWebPushToUser(
  *
  * notify НИКОГДА не бросает наверх — все ошибки логируются. Вызывать
  * fire-and-forget: `void notify(...).catch(() => {})`.
+ *
+ * clubId ОБЯЗАТЕЛЕН (c.var.club?.id ?? null; null — основной домен): без него
+ * событие клуба уходит в SSE-канал основного домена ('default'), а не клуба.
  */
 export async function notify(opts: {
   type: string
@@ -221,7 +224,7 @@ export async function notify(opts: {
   body: string
   meta?: Record<string, unknown>
   userId?: string | null
-}, database: DbLike, clubId?: string | null): Promise<string | null> {
+}, database: DbLike, clubId: string | null | undefined): Promise<string | null> {
   const targetUserId = opts.userId ?? null
   let notificationId: string | null = null
   try {
@@ -289,6 +292,9 @@ export async function notify(opts: {
             body: row.body,
             meta: row.meta,
             createdAt: row.createdAt,
+            // Адресат личного уведомления (null = всему персоналу) — SSE-стрим
+            // по нему отсеивает чужие личные уведомления.
+            userId: row.userId ?? null,
           }),
         )
       } catch (err) {
@@ -347,8 +353,9 @@ export async function notify(opts: {
     }
     await deliverStaffApns(database, enabledIds, { ...opts, notificationId })
 
-    // Telegram — по настройке telegram + наличию привязки.
-    const tgRecipients = recipientIds.filter(
+    // Telegram — только по включённым типам (как web push) + настройка telegram +
+    // наличие привязки.
+    const tgRecipients = enabledIds.filter(
       (uid) => isTelegramEnabledForUser(opts.type, settingsByUser.get(uid)) && tgByUser.get(uid),
     )
     await Promise.all(tgRecipients.map((uid) => sendTelegram(tgByUser.get(uid)!, tgText)))

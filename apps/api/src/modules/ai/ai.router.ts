@@ -3,7 +3,7 @@ import { fmtMsk, bizDayStr, bizDayStart, bizMonthStart } from '../../lib/dateFmt
 import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
-import { Redis } from 'ioredis'
+import { getSharedRedis } from '../../lib/redis.js'
 import {
   checks,
   checkItems,
@@ -75,9 +75,8 @@ async function callAI(db: Database, systemPrompt: string, userMessage: string): 
   return data.choices?.[0]?.message?.content ?? ''
 }
 
-function getRedis() {
-  return new Redis(process.env['REDIS_URL'] ?? 'redis://redis:6379')
-}
+// Действия Tai, доступные только владельцу (зарплаты, расходы).
+const OWNER_ONLY_ACTIONS = new Set<string>(['salary_report', 'expense_analysis'])
 
 const SYSTEM_PROMPT = [
   'Тебя зовут Tai — AI-ассистент игрового клуба Titan. Если уместно, представляйся как Tai.',
@@ -244,6 +243,21 @@ function sanitizeSql(raw: string): string {
   return s
 }
 
+// Вырезаем чувствительные поля из результата по имени ключа (в т.ч. во вложенных
+// json-объектах): sanitizeSql проверяет только текст запроса, а `SELECT *` или
+// row_to_json(...) всё равно вернут pin/password_hash — в ИИ они уйти не должны.
+function stripSensitive(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(stripSensitive)
+  if (value && typeof value === 'object' && !(value instanceof Date)) {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .filter(([k]) => !SENSITIVE_COL.test(k))
+        .map(([k, v]) => [k, stripSensitive(v)]),
+    )
+  }
+  return value
+}
+
 // Выполнение в READ ONLY транзакции с таймаутом и лимитом строк.
 async function runReadonly(db: Database, query: string): Promise<any[]> {
   const wrapped = `SELECT * FROM (${query}) AS _q LIMIT 200`
@@ -251,7 +265,7 @@ async function runReadonly(db: Database, query: string): Promise<any[]> {
     await tx.execute(sql`SET TRANSACTION READ ONLY`)
     await tx.execute(sql`SET LOCAL statement_timeout = '5000'`)
     const res: any = await tx.execute(sql.raw(wrapped))
-    return (res.rows ?? res ?? []) as any[]
+    return ((res.rows ?? res ?? []) as any[]).map((r) => stripSensitive(r))
   })
 }
 
@@ -280,7 +294,8 @@ async function answerFromDb(db: Database, query: string): Promise<string | null>
   }
 }
 
-async function buildContext(db: Database, action: string, payload?: Record<string, unknown>, question?: string): Promise<string> {
+// allowSql=false — без text-to-SQL по всей базе (персонал: только общий снимок).
+async function buildContext(db: Database, action: string, payload?: Record<string, unknown>, question?: string, allowSql = true): Promise<string> {
   const thirtyDays = new Date(Date.now() - 30 * 86400000)
   const fourteenDays = new Date(Date.now() - 14 * 86400000)
   // Границы — по БИЗНЕС-ДНЮ/БИЗНЕС-МЕСЯЦУ в МСК (по настройке business_day_start_hour,
@@ -615,7 +630,7 @@ async function buildContext(db: Database, action: string, payload?: Record<strin
       if (!query) return snapshot
       // Сначала пробуем точный ответ через SQL по всей базе; если не вышло —
       // подставляем общий снимок (покрывает частые вопросы).
-      const dbBlock = await answerFromDb(db, query)
+      const dbBlock = allowSql ? await answerFromDb(db, query) : null
       if (dbBlock) {
         return `ВОПРОС ПОЛЬЗОВАТЕЛЯ: ${query}\n\n${dbBlock}\n\nСправочно (общая сводка клуба):\n${snapshot}`
       }
@@ -634,9 +649,18 @@ aiRouter.use('*', requireAuth, requireRole('owner', 'staff'))
 async function handleChat(c: any) {
   const db = c.var.db
   const { action, payload, question } = c.req.valid('json') as z.infer<typeof ActionSchema>
-  const cacheKey = `ai:${action}:${JSON.stringify(payload ?? {})}:${question ?? ''}`
+  const role: string = c.get('user').role
+  const isOwner = role === 'owner'
+  // Зарплаты и расходы — только владельцу (как и в «Управлении»).
+  if (!isOwner && OWNER_ONLY_ACTIONS.has(action)) {
+    return c.json({ error: 'Этот отчёт доступен только владельцу' }, 403)
+  }
+  // Кэш пер-клубный и пер-ролевой: Redis общий для всех клубов, а ответ персонала
+  // собран без SQL по базе — владельцу его отдавать нельзя (и наоборот).
+  const clubKey = c.var.club?.id ?? 'default'
+  const cacheKey = `ai:${clubKey}:${role}:${action}:${JSON.stringify(payload ?? {})}:${question ?? ''}`
 
-  const redis = getRedis()
+  const redis = getSharedRedis()
   try {
     const cached = await redis.get(cacheKey)
     if (cached) return c.json({ result: cached, cached: true })
@@ -644,7 +668,8 @@ async function handleChat(c: any) {
 
   let context: string
   try {
-    context = await buildContext(db, action, payload, question)
+    // Text-to-SQL по всей базе (зарплаты, расходы, личные данные) — только владельцу.
+    context = await buildContext(db, action, payload, question, isOwner)
   } catch (e) {
     context = `Ошибка получения данных: ${String(e)}`
   }
@@ -664,9 +689,7 @@ async function handleChat(c: any) {
 
   try {
     await redis.set(cacheKey, result, 'EX', 60)
-  } catch { /* redis unavailable */ } finally {
-    redis.disconnect()
-  }
+  } catch { /* redis unavailable */ }
 
   return c.json({ result })
 }

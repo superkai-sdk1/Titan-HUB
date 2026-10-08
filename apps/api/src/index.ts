@@ -135,11 +135,12 @@ function setupGracefulShutdown(server: { close: (cb?: () => void) => void }) {
 // Пер-клубный прогон фоновой задачи: по ВСЕМ активным клубам + основной БД (см.
 // getCronTargets — дедуп по db_name, фолбэк на основную). Падение по одному клубу
 // не прерывает остальных. Для одно-клубного прода = один проход на синглтоне.
-async function runForAllClubs(label: string, fn: (database: Database) => Promise<unknown>) {
+async function runForAllClubs(label: string, fn: (database: Database, clubId: string | null) => Promise<unknown>) {
   const targets = await getCronTargets()
   for (const t of targets) {
     try {
-      await fn(t.db)
+      // clubId — для SSE-канала уведомлений клуба (notify).
+      await fn(t.db, t.clubId)
     } catch (e) {
       console.error(`[cron:${label}] клуб «${t.name}» упал`, e)
     }
