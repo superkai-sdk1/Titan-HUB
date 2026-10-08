@@ -7,7 +7,7 @@ import type { SFSymbol } from 'sf-symbols-typescript';
 import { IconPlate, LevelBar, MOVEMENT_LOOK } from '@/components/goods/parts';
 import { Text } from '@/components/text';
 import { formatMoney, plural } from '@/lib/format';
-import { LEVEL_LOOK, daysLeft, formatQty, margin, stockLevel, unitPrice, type DaySeries, type GoodsItem, type GoodsMovement } from '@/lib/goods-api';
+import { LEVEL_LOOK, daysLeft, formatQty, margin, stockLevel, unitPrice, type DaySeries, type GoodsItem, type GoodsMovement, itemQty } from '@/lib/goods-api';
 import { FONT_SCALE_MAX } from '@/lib/text-scale';
 import { colors, space, type, useAccentHex } from '@/lib/theme';
 
@@ -79,14 +79,14 @@ export function StockHero({ item }: { item: GoodsItem }) {
   const level = stockLevel(item);
   const look = LEVEL_LOOK[level];
   const days = daysLeft(item);
-  const price = unitPrice(item.costPrice, item.unit);
+  const price = unitPrice(item.costPrice, item.unit, item.unitLabel);
   return (
     <View style={styles.hero}>
       <View style={styles.heroTop}>
         <View style={styles.flex}>
           <Text style={[type.footnote, { color: look.color }]}>{look.label}</Text>
           <Text style={[type.title1, type.amount, { color: level === 'ok' ? colors.label : look.color }]} maxFontSizeMultiplier={FONT_SCALE_MAX.display}>
-            {formatQty(item.stockQuantity, item.unit)}
+            {itemQty(item, item.stockQuantity)}
           </Text>
         </View>
         {days !== null ? (
@@ -112,10 +112,7 @@ export function StockHero({ item }: { item: GoodsItem }) {
         <View style={styles.levelLine}>
           <LevelBar item={item} />
           <Text style={[type.footnote, styles.secondary]}>
-            {[
-              item.reorderPoint ? `заказ при ${formatQty(item.reorderPoint, item.unit)}` : null,
-              item.parLevel ? `до ${formatQty(item.parLevel, item.unit)}` : null,
-            ]
+            {[item.reorderPoint ? `заказ при ${itemQty(item, item.reorderPoint)}` : null, item.parLevel ? `до ${itemQty(item, item.parLevel)}` : null]
               .filter(Boolean)
               .join(' · ')}
           </Text>
@@ -140,7 +137,7 @@ function movementText(m: GoodsMovement): string {
   return reason.startsWith(look.label) ? reason : `${look.label} · ${reason}`;
 }
 
-export function MovementLine({ movement: m, unit }: { movement: GoodsMovement; unit: GoodsItem['unit'] }) {
+export function MovementLine({ movement: m, unit, label }: { movement: GoodsMovement; unit: GoodsItem['unit']; label?: GoodsItem['unitLabel'] }) {
   const look = MOVEMENT_LOOK[m.type];
   return (
     <View style={styles.movement}>
@@ -156,8 +153,8 @@ export function MovementLine({ movement: m, unit }: { movement: GoodsMovement; u
       <View style={styles.trailing}>
         <Text
           style={[type.body, type.amount, { color: m.delta > 0 ? colors.green : colors.red }]}
-        >{`${m.delta > 0 ? '+' : '−'}${formatQty(Math.abs(m.delta), unit)}`}</Text>
-        <Text style={[type.footnote, styles.secondary]}>{`→ ${formatQty(m.qtyAfter, unit)}`}</Text>
+        >{`${m.delta > 0 ? '+' : '−'}${formatQty(Math.abs(m.delta), unit, label)}`}</Text>
+        <Text style={[type.footnote, styles.secondary]}>{`→ ${formatQty(m.qtyAfter, unit, label)}`}</Text>
       </View>
     </View>
   );

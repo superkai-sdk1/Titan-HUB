@@ -9,7 +9,7 @@ import { DaysChart, ItemHero, MovementLine, StockHero } from '@/components/goods
 import { ToolbarButton } from '@/components/toolbar';
 import { chooseAction } from '@/lib/dialog';
 import { formatMoney, plural } from '@/lib/format';
-import { formatQty, servings, useGoods, useGoodsCard, type Catalog, type GoodsCard, type GoodsItem } from '@/lib/goods-api';
+import { PIECE_NAMES, itemQty, packText, servings, useGoods, useGoodsCard, type Catalog, type GoodsCard, type GoodsItem } from '@/lib/goods-api';
 
 const money = (n: number) => formatMoney(n, { kopecks: 'auto' });
 const longDate = new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long', timeZone: 'Europe/Moscow' });
@@ -71,7 +71,7 @@ export default function GoodsItemScreen() {
 function useStockActions(item: GoodsItem) {
   const router = useRouter();
   return () =>
-    chooseAction(item.name, `Сейчас ${formatQty(item.stockQuantity, item.unit)}`, [
+    chooseAction(item.name, `Сейчас ${itemQty(item, item.stockQuantity)}`, [
       { text: 'Приход', icon: 'shippingbox', onPress: () => router.push({ pathname: '/manage/goods/supply', params: { itemId: item.id } }) },
       { text: 'Списать', icon: 'trash', onPress: () => router.push({ pathname: '/manage/goods/write-off', params: { itemId: item.id } }) },
       { text: 'Пересчитать', icon: 'checklist', onPress: () => router.push({ pathname: '/manage/goods/revision', params: { itemId: item.id } }) },
@@ -113,8 +113,8 @@ function MenuItemBody({ item, catalog, card }: { item: GoodsItem; catalog: Catal
               <LinkRow
                 key={line.componentId}
                 title={component?.name ?? 'Удалённый ингредиент'}
-                subtitle={component ? `на складе ${formatQty(component.stockQuantity, component.unit)}` : undefined}
-                value={component ? `${formatQty(line.quantity, component.unit)} · ${money(line.quantity * component.costPrice)}` : undefined}
+                subtitle={component ? `на складе ${itemQty(component, component.stockQuantity)}` : undefined}
+                value={component ? `${itemQty(component, line.quantity)} · ${money(line.quantity * component.costPrice)}` : undefined}
                 onPress={
                   component ? () => router.push({ pathname: '/manage/goods/[itemId]', params: { itemId: component.id, name: component.name } }) : undefined
                 }
@@ -150,14 +150,21 @@ function IngredientBody({ item, catalog, card }: { item: GoodsItem; catalog: Cat
   const users = catalog.items.filter((i) => i.recipe.some((l) => l.componentId === item.id));
   return (
     <>
-      <Section>
+      <Section
+        footer={
+          item.packSize ? (
+            <Text>{`В приходе вносите ${PIECE_NAMES[item.packName ?? 'pack'].forms[2]} — количество подставится, его можно поправить на факт.`}</Text>
+          ) : undefined
+        }
+      >
         <StockHero item={item} />
+        <LinkRow icon="shippingbox" color="#10B981" title="Фасовка" value={packText(item) ?? 'не задана'} />
         <ActionRow title="Изменить остаток" icon="plusminus" onPress={stockActions} />
       </Section>
 
       <Section
         title="Используется в"
-        footer={users.length === 0 ? <Text>Добавьте это сырьё в состав позиции меню — продажи начнут списывать его сами.</Text> : undefined}
+        footer={users.length === 0 ? <Text>Добавьте ингредиент в состав блюда — продажи начнут списывать его сами.</Text> : undefined}
       >
         {users.length === 0 ? (
           <LinkRow icon="link" color="#8E8E93" title="Пока ни в одной позиции" />
@@ -168,7 +175,7 @@ function IngredientBody({ item, catalog, card }: { item: GoodsItem; catalog: Cat
               <LinkRow
                 key={product.id}
                 title={product.name}
-                value={line ? `${formatQty(line.quantity, item.unit)} на порцию` : undefined}
+                value={line ? `${itemQty(item, line.quantity)} на порцию` : undefined}
                 onPress={() => router.push({ pathname: '/manage/goods/[itemId]', params: { itemId: product.id, name: product.name } })}
               />
             );
@@ -179,8 +186,8 @@ function IngredientBody({ item, catalog, card }: { item: GoodsItem; catalog: Cat
       {card && card.usage.qty > 0 && (
         <Section title="Расход · 30 дней">
           <HStack spacing={12}>
-            <Tile label="Ушло" value={formatQty(card.usage.qty, item.unit)} />
-            <Tile label="В день" value={formatQty(Math.round(card.usage.qty / 30), item.unit)} />
+            <Tile label="Ушло" value={itemQty(item, card.usage.qty)} />
+            <Tile label="В день" value={itemQty(item, Math.round(card.usage.qty / 30))} />
           </HStack>
           <DaysChart series={card.usage.series} />
         </Section>
@@ -204,7 +211,7 @@ function Journal({ item, card, loading }: { item: GoodsItem; card: GoodsCard | u
             icon="shippingbox.fill"
             color="#10B981"
             title={[longDate.format(new Date(card.lastSupply.date)), card.lastSupply.supplier].filter(Boolean).join(' · ')}
-            subtitle={`${formatQty(card.lastSupply.quantity, item.unit)} на ${money(card.lastSupply.quantity * card.lastSupply.costPerUnit)}`}
+            subtitle={`${itemQty(item, card.lastSupply.quantity)} на ${money(card.lastSupply.quantity * card.lastSupply.costPerUnit)}`}
             onPress={() => router.push({ pathname: '/manage/goods/doc', params: { type: 'supply', id: card.lastSupply!.supplyId } })}
           />
         </Section>
@@ -215,7 +222,7 @@ function Journal({ item, card, loading }: { item: GoodsItem; card: GoodsCard | u
         ) : movements.length === 0 ? (
           <Text>Движений пока не было</Text>
         ) : (
-          shown.map((m) => <MovementLine key={m.id} movement={m} unit={item.unit} />)
+          shown.map((m) => <MovementLine key={m.id} movement={m} unit={item.unit} label={item.unitLabel} />)
         )}
         {!all && movements.length > MOVEMENTS_SHORT ? <ActionRow title={`Показать все · ${movements.length}`} onPress={() => setAll(true)} /> : null}
       </Section>

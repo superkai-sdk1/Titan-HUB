@@ -11,9 +11,9 @@ import { GlassChip } from '@/components/new-check-parts';
 import { ToolbarButton } from '@/components/toolbar';
 import { promptText } from '@/lib/dialog';
 import { formatMoney } from '@/lib/format';
-import { UNIT_LABEL, formatQty, useGoods, type Catalog } from '@/lib/goods-api';
+import { itemQty, unitWord, useGoods, type Catalog } from '@/lib/goods-api';
 import { WRITE_OFF_REASONS, deleteWriteOff, postWriteOff, saveWriteOffDraft, useWriteOff, type WriteOffDetail } from '@/lib/goods-docs';
-import { baseQuantity, draftLineOf, useDocDraft } from '@/lib/goods-draft';
+import { baseQuantity, draftLineOf, useDocDraft, withPreset } from '@/lib/goods-draft';
 import { haptic } from '@/lib/haptics';
 import { newIdempotencyKey } from '@/lib/shift-api';
 import { colors, space } from '@/lib/theme';
@@ -72,13 +72,11 @@ function WriteOffEditor({
   const [idempotencyKey] = useState(newIdempotencyKey);
 
   useEffect(() => {
-    const store = useDocDraft.getState();
-    store.start(
-      'write_off',
-      (draft?.items ?? []).map((l) => draftLineOf('write_off', catalog.byId.get(l.itemId) ?? null, l)),
-    );
+    // Позиция из карточки — часть начального состава, не правка: черновик не родится, пока его не тронули.
     const preset = presetItem ? catalog.byId.get(presetItem) : undefined;
-    if (preset) store.addItems([preset]);
+    const initial = (draft?.items ?? []).map((l) => draftLineOf('write_off', catalog.byId.get(l.itemId) ?? null, l));
+    const session = useDocDraft.getState().start('write_off', withPreset('write_off', initial, preset));
+    return () => useDocDraft.getState().reset(session);
     // Состав берём один раз, при открытии редактора.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -202,7 +200,7 @@ function WriteOffEditor({
                 : recipe
                   ? 'спишется состав порции'
                   : item
-                    ? `на складе ${formatQty(item.stockQuantity, item.unit)}${over ? ' — спишется только это' : ''}`
+                    ? `на складе ${itemQty(item, item.stockQuantity)}${over ? ' — спишется только это' : ''}`
                     : undefined;
               return (
                 <SwipeActions key={line.key}>
@@ -218,7 +216,7 @@ function WriteOffEditor({
                         value={line.qty}
                         integer
                         invalid={invalid}
-                        suffix={recipe ? 'порц.' : UNIT_LABEL[line.unit]}
+                        suffix={recipe ? 'порц.' : unitWord(line.unit, line.label, line.qty)}
                         onChange={(t) => setText(line.key, 'qty', t)}
                       />
                     }

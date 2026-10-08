@@ -41,7 +41,7 @@ export const MANAGE_GROUPS: { title: string; items: ManageSection[] }[] = [
   {
     title: 'Касса и меню',
     items: [
-      { key: 'goods', title: 'Товары', subtitle: 'Меню, остатки, приход и ревизия', icon: 'shippingbox', color: '#FF9500', roles: ['owner', 'staff'], perm: ['menu', 'inventory'] },
+      { key: 'goods', title: 'Товары', subtitle: 'Меню, ингредиенты и склад', icon: 'shippingbox', color: '#FF9500', roles: ['owner', 'staff'], perm: ['menu', 'inventory'] },
       { key: 'pricing', title: 'Тарифы и аренда', subtitle: 'Статусы, зоны, пакеты мероприятий', icon: 'tag', color: '#30B0C7', roles: ['owner', 'staff'] },
       { key: 'screens', title: 'Экраны', subtitle: 'Телевизоры: меню и слайдшоу', icon: 'tv', color: '#8B5CF6', roles: ['owner', 'staff'] },
     ],

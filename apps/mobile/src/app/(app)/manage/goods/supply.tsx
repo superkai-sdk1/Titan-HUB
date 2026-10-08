@@ -10,9 +10,9 @@ import { ActionRow, FieldRow, primary } from '@/components/native-form';
 import { GlassChip } from '@/components/new-check-parts';
 import { ToolbarButton } from '@/components/toolbar';
 import { formatMoney } from '@/lib/format';
-import { BIG_UNIT, formatQty, useGoods, useSuppliers, type Catalog } from '@/lib/goods-api';
+import { BIG_UNIT, PIECE_NAMES, itemQty, packText, useGoods, useSuppliers, type Catalog } from '@/lib/goods-api';
 import { correctSupply, deleteSupply, postSupply, saveSupplyDraft, useSupply, type SupplyDetail, type SupplyLine } from '@/lib/goods-docs';
-import { draftLineOf, supplyValues, useDocDraft, type DraftLine } from '@/lib/goods-draft';
+import { draftLineOf, supplyValues, useDocDraft, withPreset, type DraftLine } from '@/lib/goods-draft';
 import { haptic } from '@/lib/haptics';
 import { newIdempotencyKey } from '@/lib/shift-api';
 import { colors, space } from '@/lib/theme';
@@ -87,10 +87,10 @@ function SupplyEditor({
   const [idempotencyKey] = useState(newIdempotencyKey);
 
   useEffect(() => {
-    const draft = useDocDraft.getState();
-    draft.start('supply', initialLines(mode, source, catalog));
+    // Позиция из карточки — часть начального состава, не правка: черновик не родится, пока его не тронули.
     const preset = presetItem ? catalog.byId.get(presetItem) : undefined;
-    if (preset) draft.addItems([preset]);
+    const session = useDocDraft.getState().start('supply', withPreset('supply', initialLines(mode, source, catalog), preset));
+    return () => useDocDraft.getState().reset(session);
     // Состав берём один раз, при открытии редактора.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -98,7 +98,13 @@ function SupplyEditor({
   const parsed = lines.map((line) => ({ line, ...supplyValues(line) }));
   const total = Math.round(parsed.reduce((sum, p) => sum + p.sum, 0) * 100) / 100;
   const valid = lines.length > 0 && parsed.every((p) => !p.error) && (mode !== 'correct' || reason.trim().length >= 3);
-  const payload: SupplyLine[] = parsed.map((p) => ({ itemId: p.line.itemId, name: p.line.name, quantity: p.quantity, costPerUnit: p.costPerUnit }));
+  const payload: SupplyLine[] = parsed.map((p) => ({
+    itemId: p.line.itemId,
+    name: p.line.name,
+    quantity: p.quantity,
+    costPerUnit: p.costPerUnit,
+    packs: p.packs,
+  }));
   const header = { supplier, fromRegister };
 
   const autosave = useAutosave(
@@ -230,13 +236,16 @@ function SupplyEditor({
 
           <Section
             title={lines.length ? `Что пришло · ${positionsText(lines.length)}` : 'Что пришло'}
-            footer={lines.length ? <Text>Смахните строку влево, чтобы убрать её. Сырьё — в килограммах и литрах.</Text> : undefined}
+            footer={lines.length ? <Text>Смахните строку влево, чтобы убрать её. Граммы и миллилитры вносятся в килограммах и литрах.</Text> : undefined}
           >
             {parsed.map(({ line, sum, error }) => {
               const item = line.itemId ? catalog.byId.get(line.itemId) : undefined;
-              const big = line.itemId ? BIG_UNIT[line.unit].label : 'шт';
+              const big = !line.itemId ? 'шт' : line.unit === 'pcs' ? PIECE_NAMES[line.label ?? 'pcs'].forms[2] : BIG_UNIT[line.unit].label;
               const invalid = showErrors && !!error;
-              const lastPrice = item && item.costPrice > 0 ? item.costPrice * BIG_UNIT[item.unit].factor : null;
+              // С фасовкой цена — за упаковку («₽ за пачку»).
+              const byPack = !!line.packSize;
+              const priceUnit = byPack ? PIECE_NAMES[line.packName ?? 'pack'].per : line.unit === 'pcs' ? PIECE_NAMES[line.label ?? 'pcs'].per : big;
+              const lastPrice = item && item.costPrice > 0 ? item.costPrice * (byPack ? (item.packSize ?? 1) : BIG_UNIT[item.unit].factor) : null;
               const entered = Number(line.price.replace(',', '.')) || 0;
               const priceNote =
                 lastPrice && entered > 0 && Math.abs(entered - lastPrice) >= 0.01
@@ -244,7 +253,9 @@ function SupplyEditor({
                   : null;
               const caption = invalid
                 ? error!
-                : [item ? `на складе ${formatQty(item.stockQuantity, item.unit)}` : 'затрата без карточки', priceNote].filter(Boolean).join(' · ');
+                : [item ? packText(item) : null, item ? `на складе ${itemQty(item, item.stockQuantity)}` : 'затрата без карточки', priceNote]
+                    .filter(Boolean)
+                    .join(' · ');
               return (
                 <SwipeActions key={line.key}>
                   <DocLineRow
@@ -254,6 +265,15 @@ function SupplyEditor({
                     total={sum > 0 ? money(sum) : undefined}
                     fields={
                       <>
+                        {line.packSize ? (
+                          <NumberInput
+                            key={`${line.key}-k-${line.version}`}
+                            label={`${line.name}, упаковок`}
+                            value={line.packs}
+                            suffix={PIECE_NAMES[line.packName ?? 'pack'].forms[2]}
+                            onChange={(t) => setText(line.key, 'packs', t)}
+                          />
+                        ) : null}
                         <NumberInput
                           key={`${line.key}-q-${line.version}`}
                           label={`${line.name}, количество`}
@@ -266,7 +286,7 @@ function SupplyEditor({
                           key={`${line.key}-p-${line.version}`}
                           label={`${line.name}, цена`}
                           value={line.price}
-                          suffix={`₽ за ${big}`}
+                          suffix={`₽ за ${priceUnit}`}
                           onChange={(t) => setText(line.key, 'price', t)}
                         />
                       </>
