@@ -42,6 +42,7 @@ import { staffRouter } from './modules/staff/staff.router.js'
 import { cashopsRouter } from './modules/cashops/cashops.router.js'
 import { discountsRouter } from './modules/discounts/discounts.router.js'
 import { inventoryRouter } from './modules/inventory/inventory.router.js'
+import { goodsRouter } from './modules/goods/goods.router.js'
 import { plategaRouter } from './modules/platega/platega.router.js'
 import { pricingRouter } from './modules/pricing/pricing.router.js'
 import { gomafiaRouter } from './modules/gomafia/gomafia.router.js'
@@ -217,6 +218,8 @@ app.route('/api/staff', staffRouter)
 app.route('/api/cashops', cashopsRouter)
 app.route('/api/discounts', discountsRouter)
 app.route('/api/inventory', inventoryRouter)
+// «Товары»: меню, остатки и операции склада одним разделом; сырьё и техкарты (070).
+app.route('/api/goods', goodsRouter)
 app.route('/api/pricing', pricingRouter)
 app.route('/api/gomafia', gomafiaRouter)
 // Суперадмин-контур платформы (control-plane): bootstrap/login + управление клубами.

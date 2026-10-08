@@ -1848,16 +1848,18 @@ analyticsRouter.get('/checks/:id', async (c) => {
   // кроме отменённого чека, где return гасит всё и показывать было бы нечего.
   // На товар: sum((−delta)×unit_cost) с фолбэком на текущий
   // WAC для исторических NULL. Если по товару движений нет (не учётный/историч.) —
-  // fallback на costPrice×qty ниже.
+  // fallback на costPrice×qty ниже. Ингредиенты техкарты (миграция 070) относим к
+  // позиции меню, ради которой их списали (sold_item_id).
+  const soldItemExpr = sql<string>`coalesce(${stockMovements.soldItemId}, ${stockMovements.itemId})`
   const saleMoves = await db
     .select({
-      itemId: stockMovements.itemId,
+      itemId: soldItemExpr,
       cost: sql<number>`sum((0 - ${stockMovements.delta})::numeric * coalesce(${stockMovements.unitCost}, ${inventory.costPrice}, 0)::numeric)`,
     })
     .from(stockMovements)
     .leftJoin(inventory, eq(inventory.id, stockMovements.itemId))
     .where(and(eq(stockMovements.sourceType, 'check'), eq(stockMovements.sourceId, id), inArray(stockMovements.type, check.status === 'cancelled' ? ['sale'] : ['sale', 'return'])))
-    .groupBy(stockMovements.itemId)
+    .groupBy(soldItemExpr)
   const fixedCostByItem = new Map<string, number>(saleMoves.map((m: any) => [m.itemId, parseNum(m.cost)]))
   // Суммарное проданное кол-во товара по чеку — чтобы разнести фикс-себестоимость
   // товара по нескольким строкам пропорционально количеству строки.

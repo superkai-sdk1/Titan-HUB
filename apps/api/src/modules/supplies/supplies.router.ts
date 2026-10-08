@@ -2,11 +2,11 @@ import type { AppEnv } from '../../types.js'
 import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
-import { supplies, supplyItems, supplyCorrections, inventory, eq, and, asc, desc } from '@titan/database'
+import { supplies, supplyItems, supplyCorrections, inventory, cashOperations, shifts, eq, and, asc, desc } from '@titan/database'
 import type { Database } from '@titan/database'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
 import { round2 } from '../../lib/money.js'
-import { recordMovement } from '../inventory/ledger.js'
+import { recordMovement, refreshRecipeCosts } from '../inventory/ledger.js'
 import { notify } from '../notifications/push.js'
 
 // Источник БД — пер-запросный (c.var.db). Тип для хелперов, работающих как с
@@ -14,10 +14,55 @@ import { notify } from '../notifications/push.js'
 type Tx = Parameters<Parameters<Database['transaction']>[0]>[0]
 type DbOrTx = Database | Tx
 
+/** Смена закрыта, а приход просят оплатить из кассы. */
+class ShiftClosedError extends Error {}
+
+const SHIFT_CLOSED_TEXT = 'Смена закрыта — из кассы платить нельзя. Откройте смену или выберите другой способ оплаты.'
+
+/**
+ * Приход, оплаченный наличными из кассы, — выдача из кассы текущей смены (тот же
+ * учёт, что у «Выдачи» в кассе): ожидаемый остаток наличных уменьшается на сумму.
+ * Возвращает id операции или null, если платить нечего.
+ */
+async function payFromRegister(tx: Tx, amount: number, supplier: string | undefined | null, userId: string): Promise<string | null> {
+  if (amount <= 0) return null
+  const [shift] = await tx.select({ id: shifts.id }).from(shifts).where(eq(shifts.status, 'open')).orderBy(desc(shifts.openedAt)).limit(1)
+  if (!shift) throw new ShiftClosedError()
+  const [op] = await tx.insert(cashOperations).values({
+    type: 'withdrawal',
+    amount: String(amount),
+    description: `Приход на склад${supplier ? ' · ' + supplier : ''}`,
+    shiftId: shift.id,
+    createdBy: userId,
+  }).returning({ id: cashOperations.id })
+  return op!.id
+}
+
+/**
+ * Выдача по приходу живёт, пока открыта её смена: правка/удаление прихода меняет
+ * или убирает её. В закрытой смене деньги уже сверены — операцию не трогаем.
+ */
+async function syncRegisterPayment(tx: Tx, cashOperationId: string | null, amount: number | null) {
+  if (!cashOperationId) return
+  const [op] = await tx
+    .select({ id: cashOperations.id, status: shifts.status })
+    .from(cashOperations)
+    .innerJoin(shifts, eq(shifts.id, cashOperations.shiftId))
+    .where(eq(cashOperations.id, cashOperationId))
+  if (!op || op.status !== 'open') return
+  if (amount === null || amount <= 0) await tx.delete(cashOperations).where(eq(cashOperations.id, cashOperationId))
+  else await tx.update(cashOperations).set({ amount: String(amount) }).where(eq(cashOperations.id, cashOperationId))
+}
+
+/** Карточки товаров из строк прихода — их новая средняя меняет себестоимость техкарт. */
+const receivedIds = (items: { itemId?: string | null }[]) => [...new Set(items.map((i) => i.itemId).filter((x): x is string => !!x))]
+
 const SupplySchema = z.object({
   note: z.string().optional(),
   supplier: z.string().optional(),
   paymentMethod: z.enum(['cash', 'card', 'transfer']).default('cash'),
+  // Наличными из кассы смены: приход становится выдачей из кассы (миграция 070).
+  fromRegister: z.boolean().default(false),
   // Ключ идемпотентности обязателен: без него ретрай POST (двойной клик/сетевой
   // повтор) задвоит приёмку — остаток и COGS уедут. Фронт всегда его шлёт.
   idempotencyKey: z.string().min(1).max(80),
@@ -76,7 +121,9 @@ suppliesRouter.post('/', requireRole('owner', 'staff'), zValidator('json', Suppl
   const body = c.req.valid('json')
   const totalCost = round2(body.items.reduce((s, i) => s + i.quantity * i.costPerUnit, 0))
 
-  const supply = await db.transaction(async (tx) => {
+  let supply: typeof supplies.$inferSelect | null
+  try {
+  supply = await db.transaction(async (tx) => {
     const [sup] = await tx.insert(supplies).values({
       note: body.note,
       supplier: body.supplier,
@@ -91,6 +138,12 @@ suppliesRouter.post('/', requireRole('owner', 'staff'), zValidator('json', Suppl
     // Двойной клик/ретрай с тем же ключом — приёмка уже создана. Прерываем
     // транзакцию без побочных эффектов (без задвоения остатка/COGS).
     if (!sup) return null
+
+    let cashOperationId: string | null = null
+    if (body.fromRegister) {
+      cashOperationId = await payFromRegister(tx, totalCost, body.supplier, user.sub)
+      if (cashOperationId) await tx.update(supplies).set({ cashOperationId, paymentMethod: 'cash' }).where(eq(supplies.id, sup.id))
+    }
 
     await tx.insert(supplyItems).values(body.items.map(i => ({
       supplyId: sup.id,
@@ -112,8 +165,13 @@ suppliesRouter.post('/', requireRole('owner', 'staff'), zValidator('json', Suppl
       })
     }
 
-    return sup
+    return cashOperationId ? { ...sup, cashOperationId, paymentMethod: 'cash' as const } : sup
   })
+  } catch (err) {
+    if (err instanceof ShiftClosedError) return c.json({ error: SHIFT_CLOSED_TEXT }, 409)
+    throw err
+  }
+  void refreshRecipeCosts(db, { componentIds: receivedIds(body.items) }).catch(() => {})
 
   // Повторный POST с тем же ключом — отдаём существующую приёмку (как expenses).
   if (!supply) {
@@ -170,6 +228,8 @@ suppliesRouter.post('/draft', requireRole('owner', 'staff'), zValidator('json', 
   id: z.string().uuid().optional(),
   note: z.string().optional(),
   supplier: z.string().optional(),
+  paymentMethod: z.enum(['cash', 'card', 'transfer']).optional(),
+  fromRegister: z.boolean().optional(),
   items: z.array(z.object({
     itemId: z.string().uuid().optional(),
     name: z.string().optional(),
@@ -180,18 +240,18 @@ suppliesRouter.post('/draft', requireRole('owner', 'staff'), zValidator('json', 
 })), async (c) => {
   const db = c.var.db
   const user = c.get('user')
-  const { id, note, supplier, items } = c.req.valid('json')
-  const draftData = { note, supplier, items }
+  const { id, note, supplier, paymentMethod, fromRegister, items } = c.req.valid('json')
+  const draftData = { note, supplier, paymentMethod, fromRegister, items }
   if (id) {
     const [row] = await db.update(supplies)
-      .set({ draftData, note: note ?? null, supplier: supplier ?? null })
+      .set({ draftData, note: note ?? null, supplier: supplier ?? null, updatedAt: new Date() })
       .where(and(eq(supplies.id, id), eq(supplies.status, 'draft')))
       .returning({ id: supplies.id })
     if (!row) return c.json({ error: 'Черновик не найден' }, 404)
     return c.json({ id: row.id })
   }
   const [row] = await db.insert(supplies)
-    .values({ status: 'draft', draftData, note: note ?? null, supplier: supplier ?? null, totalCost: '0', createdBy: user.sub })
+    .values({ status: 'draft', draftData, note: note ?? null, supplier: supplier ?? null, totalCost: '0', createdBy: user.sub, updatedAt: new Date() })
     .returning({ id: supplies.id })
   return c.json({ id: row.id }, 201)
 })
@@ -201,6 +261,8 @@ suppliesRouter.post('/draft', requireRole('owner', 'staff'), zValidator('json', 
 const ApplySupplySchema = z.object({
   note: z.string().optional(),
   supplier: z.string().optional(),
+  paymentMethod: z.enum(['cash', 'card', 'transfer']).optional(),
+  fromRegister: z.boolean().default(false),
   items: z.array(z.object({
     itemId: z.string().uuid().optional(),
     name: z.string().optional(),
@@ -218,16 +280,28 @@ suppliesRouter.post('/:id/apply', requireRole('owner', 'staff'), zValidator('jso
   const id = c.req.param('id')
   const body = c.req.valid('json')
   const totalCost = round2(body.items.reduce((s, i) => s + i.quantity * i.costPerUnit, 0))
-  const res = await db.transaction(async (tx) => {
-    const [sup] = await tx.select().from(supplies).where(eq(supplies.id, id)).for('update')
-    if (!sup) return 'not_found' as const
-    if (sup.status !== 'draft') return 'not_draft' as const
-    await postSupplyLines(tx, id, body.items, body.supplier, user.sub)
-    await tx.update(supplies).set({ status: 'posted', draftData: null, totalCost: String(totalCost), note: body.note ?? sup.note, supplier: body.supplier ?? sup.supplier }).where(eq(supplies.id, id))
-    return 'ok' as const
-  })
+  let res: 'not_found' | 'not_draft' | 'ok'
+  try {
+    res = await db.transaction(async (tx) => {
+      const [sup] = await tx.select().from(supplies).where(eq(supplies.id, id)).for('update')
+      if (!sup) return 'not_found' as const
+      if (sup.status !== 'draft') return 'not_draft' as const
+      await postSupplyLines(tx, id, body.items, body.supplier, user.sub)
+      const cashOperationId = body.fromRegister ? await payFromRegister(tx, totalCost, body.supplier ?? sup.supplier, user.sub) : null
+      // Дата прихода — момент проведения, а не создания черновика.
+      await tx.update(supplies).set({
+        status: 'posted', draftData: null, totalCost: String(totalCost), note: body.note ?? sup.note, supplier: body.supplier ?? sup.supplier,
+        paymentMethod: cashOperationId ? 'cash' : body.paymentMethod ?? sup.paymentMethod, cashOperationId, createdAt: new Date(), updatedAt: new Date(),
+      }).where(eq(supplies.id, id))
+      return 'ok' as const
+    })
+  } catch (err) {
+    if (err instanceof ShiftClosedError) return c.json({ error: SHIFT_CLOSED_TEXT }, 409)
+    throw err
+  }
   if (res === 'not_found') return c.json({ error: 'Not found' }, 404)
   if (res === 'not_draft') return c.json({ error: 'Приёмка уже проведена' }, 409)
+  void refreshRecipeCosts(db, { componentIds: receivedIds(body.items) }).catch(() => {})
   void notify({ type: 'supply_received', title: 'Приход на склад', body: `${body.items.length} поз. · ${totalCost.toLocaleString('ru')} ₽`, meta: { supplyId: id } }, db, c.var.club?.id).catch(() => {})
   return c.json({ supply: { id }, posted: true })
 })
@@ -351,7 +425,8 @@ suppliesRouter.patch('/:id', requireRole('owner', 'staff'), zValidator('json', S
       })
     }
 
-    await tx.update(supplies).set({ totalCost: String(totalCost), note: body.note ?? supply.note }).where(eq(supplies.id, id))
+    await tx.update(supplies).set({ totalCost: String(totalCost), note: body.note ?? supply.note, updatedAt: new Date() }).where(eq(supplies.id, id))
+    await syncRegisterPayment(tx, supply.cashOperationId, totalCost)
 
     // Фиксируем корректировку с причиной и суммами до/после (аудит закупки).
     await tx.insert(supplyCorrections).values({
@@ -403,6 +478,7 @@ suppliesRouter.delete('/:id', requireRole('owner', 'staff'), async (c) => {
         sourceType: 'supply', sourceId: id, reason: `Откат закупки ${id}`, userId: user.sub,
       })
     }
+    await syncRegisterPayment(tx, supply.cashOperationId, null)
     await tx.delete(supplies).where(eq(supplies.id, id))
     return 'ok' as const
   })

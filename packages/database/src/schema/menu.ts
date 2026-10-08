@@ -23,9 +23,16 @@ export const menuCategories = pgTable('menu_categories', {
 export const inventory = pgTable('inventory', {
   id: uuid('id').primaryKey().defaultRandom(),
   name: text('name').notNull(),
+  // 'goods' — позиция меню (продаётся); 'ingredient' — сырьё: в меню не попадает,
+  // списывается по техкартам (recipe_items). Миграция 070.
+  kind: text('kind').$type<'goods' | 'ingredient'>().notNull().default('goods'),
+  // Единица учёта остатка: штуки, граммы или миллилитры (остаток — целое в этой единице).
+  unit: text('unit').$type<'pcs' | 'g' | 'ml'>().notNull().default('pcs'),
   category: uuid('category').references(() => menuCategories.id),
   price: numeric('price', { precision: 10, scale: 2 }).notNull().default('0'),
-  costPrice: numeric('cost_price', { precision: 10, scale: 2 }).default('0'),
+  // Себестоимость единицы (WAC по приходам; у позиции с техкартой — сумма состава).
+  // 4 знака: у сырья это цена грамма/миллилитра.
+  costPrice: numeric('cost_price', { precision: 12, scale: 4 }).default('0'),
   stockQuantity: integer('stock_quantity').notNull().default(0),
   minThreshold: integer('min_threshold').default(0),
   // Параметры пополнения (миграция 044): точка заказа и целевой уровень (par).
@@ -51,6 +58,21 @@ export const inventory = pgTable('inventory', {
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+})
+
+// Техкарта: из чего состоит одна порция позиции меню (миграция 070). quantity — целое
+// в единице компонента (18 г зёрен, 150 мл молока, 1 шт стакана). Продажа позиции с
+// техкартой списывает компоненты, а не саму позицию.
+export const recipeItems = pgTable('recipe_items', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  productId: uuid('product_id')
+    .notNull()
+    .references(() => inventory.id, { onDelete: 'cascade' }),
+  componentId: uuid('component_id')
+    .notNull()
+    .references(() => inventory.id),
+  quantity: integer('quantity').notNull(),
+  sortOrder: integer('sort_order').notNull().default(0),
 })
 
 export const modifiers = pgTable('modifiers', {
@@ -114,6 +136,7 @@ export type MenuCategory = typeof menuCategories.$inferSelect
 export type NewMenuCategory = typeof menuCategories.$inferInsert
 export type InventoryItem = typeof inventory.$inferSelect
 export type NewInventoryItem = typeof inventory.$inferInsert
+export type RecipeItem = typeof recipeItems.$inferSelect
 export type Modifier = typeof modifiers.$inferSelect
 export type NewModifier = typeof modifiers.$inferInsert
 export type Tariff = typeof tariffs.$inferSelect

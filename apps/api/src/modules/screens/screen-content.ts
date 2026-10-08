@@ -38,7 +38,7 @@ export async function menuSections(db: Database): Promise<MenuSection[]> {
       .from(menuCategories).where(eq(menuCategories.isActive, true)).orderBy(asc(menuCategories.sortOrder)),
     db.select({ name: inventory.name, category: inventory.category, price: inventory.price })
       .from(inventory)
-      .where(and(eq(inventory.isActive, true), eq(inventory.isScreenVisible, true), isNull(inventory.deletedAt))),
+      .where(and(eq(inventory.isActive, true), eq(inventory.isScreenVisible, true), isNull(inventory.deletedAt), eq(inventory.kind, 'goods'))),
     db.select({ name: spaces.name, type: spaces.type, hourlyRate: spaces.hourlyRate })
       .from(spaces).where(and(eq(spaces.isActive, true), eq(spaces.isScreenVisible, true))),
   ])

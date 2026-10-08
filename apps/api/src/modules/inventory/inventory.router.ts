@@ -16,13 +16,14 @@ inventoryRouter.use('*', requireAuth, requireRole('owner', 'staff'))
 // позиции (исключая только мягко удалённые deletedAt != null): скрытая из меню
 // позиция всё ещё нуждается в учёте остатков/ревизии. Порядок — как в меню
 // (sortOrder, затем имя). Эндпоинт за requireAuth (только персонал), поэтому
-// costPrice здесь допустим.
+// costPrice здесь допустим. Сырьё (070) прежние клиенты показали бы штуками —
+// оно живёт в разделе «Товары» (/api/goods), здесь только позиции меню.
 inventoryRouter.get('/', async (c) => {
   const db = c.var.db
   const rows = await db
     .select()
     .from(inventory)
-    .where(isNull(inventory.deletedAt))
+    .where(and(isNull(inventory.deletedAt), eq(inventory.kind, 'goods')))
     .orderBy(asc(inventory.sortOrder), asc(inventory.name))
   return c.json({ items: rows })
 })

@@ -171,7 +171,8 @@ menuRouter.get('/items', async (c) => {
   const db = c.var.db
   const categoryId = c.req.query('categoryId')
   const tabletVisible = c.req.query('tabletVisible') === 'true'
-  const baseFilter = and(eq(inventory.isActive, true), isNull(inventory.deletedAt))
+  // Сырьё (kind='ingredient') — не позиция меню: в кассе и у гостей его нет.
+  const baseFilter = and(eq(inventory.isActive, true), isNull(inventory.deletedAt), eq(inventory.kind, 'goods'))
   const catFilter = categoryId ? and(baseFilter, eq(inventory.category, categoryId)) : baseFilter
   const where = tabletVisible ? and(catFilter, eq(inventory.isTabletVisible, true)) : catFilter
   const rows = await db
@@ -189,7 +190,7 @@ menuRouter.get('/items/all', requireAuth, async (c) => {
   const items = await db
     .select()
     .from(inventory)
-    .where(isNull(inventory.deletedAt))
+    .where(and(isNull(inventory.deletedAt), eq(inventory.kind, 'goods')))
     .orderBy(asc(inventory.sortOrder), asc(inventory.name))
   return c.json({ items })
 })

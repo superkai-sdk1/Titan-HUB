@@ -9,7 +9,7 @@ import {
   eq, and, ne, inArray, desc, asc, sql, isNull,
 } from '@titan/database'
 import type { Database } from '@titan/database'
-import { recordMovement } from '../inventory/ledger.js'
+import { recordSale, reverseCheckMovements, lowStockText, type LowStock } from '../inventory/ledger.js'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
 import { getCurrentShift, getShiftCashBalance } from '../shifts/shifts.service.js'
 import { computeShiftForecast } from '../../lib/shiftForecast.js'
@@ -138,6 +138,14 @@ async function getCheckWithItems(checkId: string, exec: DbOrTx) {
   return { ...check, items: itemsWithMods, payments, discounts: discountRows, excludedDiscounts, spaceHourlyRate, guestName, pendingOrders: pending }
 }
 
+// Уведомление «заканчивается» по товарам, чей остаток продажа опустила до точки
+// заказа. Шлём после коммита, fire-and-forget.
+function notifyLowStock(lowStock: LowStock[], db: Database, clubId?: string | null) {
+  for (const ls of lowStock) {
+    void notify({ type: 'low_stock', title: 'Заканчивается', body: lowStockText(ls), meta: { itemId: ls.itemId } }, db, clubId).catch(() => {})
+  }
+}
+
 // Добавление одной позиции в открытый чек ВНУТРИ транзакции: блокировка строки
 // склада (FOR UPDATE), списание + журнал движения, мерж с существующей строкой
 // того же товара без модификаторов / иначе вставка, модификаторы. Возвращает
@@ -148,37 +156,28 @@ async function getCheckWithItems(checkId: string, exec: DbOrTx) {
 async function addCheckItemTx(
   tx: Tx,
   opts: { checkId: string; itemId: string; quantity: number; modifierIds?: string[]; userId: string },
-): Promise<{ checkItem: typeof checkItems.$inferSelect | undefined; lowStock: { name: string; newQty: number } | null }> {
+): Promise<{ checkItem: typeof checkItems.$inferSelect | undefined; lowStock: LowStock[] }> {
   const { checkId, itemId, quantity, userId } = opts
   const modifierIds = opts.modifierIds ?? []
-  let lowStock: { name: string; newQty: number } | null = null
 
   const [check] = await tx.select().from(checks).where(eq(checks.id, checkId)).for('update')
   if (!check || check.status !== 'open') throw new Error('CHECK_NOT_OPEN')
 
   const itemRows = await tx.execute(
-    sql`SELECT id, name, price, track_stock as "trackStock", stock_quantity as "stockQuantity", min_threshold as "minThreshold"
+    sql`SELECT id, name, price, kind, deleted_at as "deletedAt"
         FROM inventory WHERE id = ${itemId} FOR UPDATE`
   )
   const item: any = (itemRows as any).rows?.[0] ?? (itemRows as any)[0]
-  if (!item) throw new Error('ITEM_NOT_FOUND')
+  // Сырьё в чек не продаётся — только позиции меню (их техкарты списывают сырьё сами).
+  if (!item || item.kind === 'ingredient' || item.deletedAt) throw new Error('ITEM_NOT_FOUND')
 
   // Продажу НЕ блокируем при нехватке остатка: позицию «нет в наличии» можно
   // пробить (оверселл). Остаток уйдёт в минус — это честно отражает дефицит,
-  // владелец сводит его Ревизией. Журнал движения остаётся консистентным.
-  if (item.trackStock) {
-    // Продажу не блокируем при нехватке (оверселл) — clamp:false, остаток уходит в минус.
-    const res = await recordMovement(tx, {
-      itemId, type: 'sale', delta: -quantity, clamp: false,
-      sourceType: 'check', sourceId: checkId, reason: `Продажа: чек ${checkId}`, userId,
-    })
-    const oldQty = Number(item.stockQuantity ?? 0)
-    const newQty = res.qtyAfter
-    const minThreshold = Number(item.minThreshold ?? 0)
-    if (minThreshold > 0 && oldQty > minThreshold && newQty <= minThreshold) {
-      lowStock = { name: String(item.name), newQty }
-    }
-  }
+  // владелец сводит его Ревизией. Позиция с техкартой списывает свой состав.
+  const { lowStock } = await recordSale(tx, {
+    itemId, quantity, direction: 'sale',
+    sourceType: 'check', sourceId: checkId, reason: `Продажа: ${item.name}`, userId,
+  })
 
   // Мерж с существующей строкой того же товара БЕЗ модификаторов (иначе дубли и
   // ломаются авто-скидки с minQuantity). Позиции с модификаторами — всегда отдельно.
@@ -832,16 +831,9 @@ posRouter.delete('/checks/:id', requireRole('owner', 'staff'), async (c) => {
       .returning()
     if (!ch) return null
 
-    // Возвращаем списанный сток по всем учётным позициям отменённого чека
-    const lines = await tx.select({ itemId: checkItems.itemId, quantity: checkItems.quantity })
-      .from(checkItems).where(eq(checkItems.checkId, checkId))
-    for (const ln of lines) {
-      // Отмена чека возвращает сток (return). requireTracked — только учётные товары.
-      await recordMovement(tx, {
-        itemId: ln.itemId, type: 'return', delta: ln.quantity, requireTracked: true,
-        sourceType: 'check', sourceId: checkId, reason: `Отмена чека ${checkId}`, userId: user.sub,
-      })
-    }
+    // Возвращаем на склад всё, что списано по чеку, — по журналу движений (точно,
+    // даже если техкарта позиции поменялась, пока чек был открыт).
+    await reverseCheckMovements(tx, checkId, 'Отмена чека', user.sub)
 
     // Декрементим attendeesCount, если чек был привязан к событию
     if (ch.linkedEventId) {
@@ -873,27 +865,16 @@ posRouter.post('/checks/:id/items', requireRole('owner', 'staff', 'tablet'), zVa
   // Атомарная транзакция: проверка чека + блокировка stock + списание + insert позиции
   // Пересечение порога низкого остатка фиксируем внутри транзакции, а само
   // уведомление шлём после коммита (fire-and-forget).
-  let lowStock: { name: string; newQty: number } | null = null
   try {
-    const { checkItem, lowStock: ls } = await db.transaction(async (tx) =>
+    const { checkItem, lowStock } = await db.transaction(async (tx) =>
       addCheckItemTx(tx, { checkId, itemId, quantity, modifierIds, userId: user.sub })
     )
-    lowStock = ls
 
     if (!checkItem) return c.json({ error: 'Failed to add item' }, 500)
 
     await recalcCheckTotal(checkId, db)
     publishEvent(c.var.club?.id, 'check:updated', { checkId })
-
-    if (lowStock) {
-      const ls: { name: string; newQty: number } = lowStock
-      void notify({
-        type: 'low_stock',
-        title: 'Низкий остаток',
-        body: `${ls.name}: осталось ${ls.newQty}`,
-        meta: { itemId },
-      }, db).catch(() => {})
-    }
+    notifyLowStock(lowStock, db, c.var.club?.id)
 
     const data = await getCheckWithItems(checkId, db)
     return c.json({ check: data }, 201)
@@ -932,7 +913,7 @@ posRouter.post('/checks/:id/orders', requireRole('owner', 'staff', 'tablet'), zV
   // баннере на чеке). При подтверждении цена берётся актуальная из inventory.
   const ids = [...new Set(items.map((i) => i.itemId))]
   const invRows = await db.select({ id: inventory.id, name: inventory.name, price: inventory.price })
-    .from(inventory).where(inArray(inventory.id, ids))
+    .from(inventory).where(and(inArray(inventory.id, ids), eq(inventory.kind, 'goods'), isNull(inventory.deletedAt)))
   const invById = new Map(invRows.map((r) => [r.id, r]))
   const snapshot = items
     .map((i) => {
@@ -978,7 +959,7 @@ posRouter.post('/orders/:orderId/confirm', requireRole('owner', 'staff'), async 
   if (!order) return c.json({ error: 'Not found' }, 404)
   if (order.status !== 'pending') return c.json({ error: 'Already resolved' }, 409)
 
-  const lowStocks: { name: string; newQty: number }[] = []
+  const lowStocks: LowStock[] = []
   try {
     await db.transaction(async (tx) => {
       // Блокировка + идемпотентность: повторно читаем заказ FOR UPDATE.
@@ -986,7 +967,7 @@ posRouter.post('/orders/:orderId/confirm', requireRole('owner', 'staff'), async 
       if (!o || o.status !== 'pending') throw new Error('ALREADY_RESOLVED')
       for (const it of (o.items ?? [])) {
         const { lowStock } = await addCheckItemTx(tx, { checkId: o.checkId, itemId: it.itemId, quantity: it.quantity, userId: user.sub })
-        if (lowStock) lowStocks.push(lowStock)
+        lowStocks.push(...lowStock)
       }
       await tx.update(pendingOrders).set({ status: 'confirmed', resolvedBy: user.sub, resolvedAt: new Date() }).where(eq(pendingOrders.id, orderId))
     })
@@ -1002,9 +983,7 @@ posRouter.post('/orders/:orderId/confirm', requireRole('owner', 'staff'), async 
   await recalcCheckTotal(order.checkId, db)
   publishEvent(c.var.club?.id, 'check:updated', { checkId: order.checkId })
   publishEvent(c.var.club?.id, 'order:resolved', { checkId: order.checkId, orderId, status: 'confirmed' })
-  for (const ls of lowStocks) {
-    void notify({ type: 'low_stock', title: 'Низкий остаток', body: `${ls.name}: осталось ${ls.newQty}`, meta: {} }, db).catch(() => {})
-  }
+  notifyLowStock(lowStocks, db, c.var.club?.id)
 
   const data = await getCheckWithItems(order.checkId, db)
   return c.json({ check: data }, 200)
@@ -1283,23 +1262,15 @@ posRouter.patch('/checks/:id/items/:itemId', requireRole('owner', 'staff', 'tabl
 
       const [ci] = await tx.select().from(checkItems).where(and(eq(checkItems.id, itemId), eq(checkItems.checkId, checkId)))
       if (!ci) throw new Error('ITEM_NOT_FOUND')
-      // delta > 0 → возвращаем на склад; delta < 0 → дополнительно списываем
+      // delta > 0 → возвращаем на склад; delta < 0 → дополнительно списываем. Как и
+      // при добавлении, нехватка не блокирует (оверселл); техкарта списывает состав.
       const delta = ci.quantity - quantity
       if (delta !== 0) {
-        const rows: any = await tx.execute(
-          sql`SELECT track_stock as "trackStock", stock_quantity as "stockQuantity" FROM inventory WHERE id = ${ci.itemId} FOR UPDATE`
-        )
-        const inv: any = rows.rows?.[0] ?? rows[0]
-        if (inv?.trackStock) {
-          if (delta < 0 && (inv.stockQuantity ?? 0) + delta < 0) throw new Error('INSUFFICIENT_STOCK')
-          // delta > 0 → возврат позиции (return); delta < 0 → доп. списание (sale).
-          await recordMovement(tx, {
-            itemId: ci.itemId, type: delta > 0 ? 'return' : 'sale', delta, clamp: false,
-            sourceType: 'check', sourceId: checkId,
-            reason: delta > 0 ? `Возврат позиции: чек ${checkId}` : `Продажа: чек ${checkId}`,
-            userId: user.sub,
-          })
-        }
+        await recordSale(tx, {
+          itemId: ci.itemId, quantity: Math.abs(delta), direction: delta > 0 ? 'return' : 'sale',
+          sourceType: 'check', sourceId: checkId,
+          reason: delta > 0 ? 'Снята с чека' : 'Продажа', userId: user.sub,
+        })
       }
       if (quantity === 0) {
         await tx.delete(checkItems).where(and(eq(checkItems.id, itemId), eq(checkItems.checkId, checkId)))
@@ -1339,10 +1310,10 @@ posRouter.delete('/checks/:id/items/:itemId', requireRole('owner', 'staff', 'tab
 
       const [ci] = await tx.select().from(checkItems).where(and(eq(checkItems.id, itemId), eq(checkItems.checkId, checkId)))
       if (!ci) return
-      // Возвращаем списанный сток для учётных товаров (return).
-      await recordMovement(tx, {
-        itemId: ci.itemId, type: 'return', delta: ci.quantity, requireTracked: true,
-        sourceType: 'check', sourceId: checkId, reason: `Возврат позиции: чек ${checkId}`, userId: user.sub,
+      // Возвращаем списанное по позиции на склад (с техкартой — её состав).
+      await recordSale(tx, {
+        itemId: ci.itemId, quantity: ci.quantity, direction: 'return',
+        sourceType: 'check', sourceId: checkId, reason: 'Снята с чека', userId: user.sub,
       })
       await tx.delete(checkItems).where(and(eq(checkItems.id, itemId), eq(checkItems.checkId, checkId)))
     })

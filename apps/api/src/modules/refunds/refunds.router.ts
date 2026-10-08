@@ -3,7 +3,7 @@ import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import { refunds, checks, inventory, checkItems, checkPayments, transactions, profiles, bonusHistory, certificates, appSettings, eq, and, like, inArray, desc, sql } from '@titan/database'
-import { recordMovement } from '../inventory/ledger.js'
+import { recordSale } from '../inventory/ledger.js'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
 import { accrueBonusLot, spendBonusLots, getBonusExpiryDays } from '../../lib/bonusLots.js'
 import { round2 } from '../../lib/money.js'
@@ -235,10 +235,10 @@ refundsRouter.post('/', requireRole('owner', 'staff'), zValidator('json', Refund
         const alreadyRestored = restoredByItem.get(item.itemId) ?? 0
         const qty = Math.max(0, Math.min(item.quantity, sold - alreadyRestored))
         if (qty <= 0) continue
-        // Возврат чека возвращает сток (return); requireTracked — только учётные товары.
-        await recordMovement(tx, {
-          itemId: item.itemId, type: 'return', delta: qty, requireTracked: true,
-          sourceType: 'refund', sourceId: r!.id, reason: `Возврат чека ${body.checkId}`, userId: user.sub,
+        // Возврат чека возвращает на склад: учётный товар — сам, позиция с техкартой — состав.
+        await recordSale(tx, {
+          itemId: item.itemId, quantity: qty, direction: 'return',
+          sourceType: 'refund', sourceId: r!.id, reason: 'Возврат чека', userId: user.sub,
         })
         // Фиксируем фактически восстановленное количество (в т.ч. для не-учётных
         // товаров — чтобы лимит sold−alreadyRestored не сбрасывался повторными

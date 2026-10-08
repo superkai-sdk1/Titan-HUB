@@ -188,7 +188,7 @@ tabletRouter.get('/menu', async (c) => {
       isTop: inventory.isTop, tags: inventory.searchTags, trackStock: inventory.trackStock, stock: inventory.stockQuantity,
     })
     .from(inventory)
-    .where(and(eq(inventory.isActive, true), isNull(inventory.deletedAt), eq(inventory.isTabletVisible, true)))
+    .where(and(eq(inventory.isActive, true), isNull(inventory.deletedAt), eq(inventory.isTabletVisible, true), eq(inventory.kind, 'goods')))
     .orderBy(asc(inventory.sortOrder), asc(inventory.name))
   // Закончившееся (учёт остатков и ноль на складе) гостю не показываем.
   const items = rows

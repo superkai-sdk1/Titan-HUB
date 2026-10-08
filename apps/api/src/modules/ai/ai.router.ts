@@ -33,6 +33,7 @@ import {
 } from '@titan/database'
 import type { Database } from '@titan/database'
 import { requireAuth, requireRole } from '../../middleware/auth.js'
+import { quantityText } from '../inventory/ledger.js'
 import { getClubIntegration } from '../../lib/secrets.js'
 import { getBusinessDayStartHour } from '../../lib/appSettings.js'
 
@@ -165,13 +166,13 @@ async function buildBusinessSnapshot(db: DbOrTx): Promise<string> {
   // Заканчивается (остаток >0 и ниже/равен порогу).
   try {
     const low = await db
-      .select({ name: inventory.name, stock: inventory.stockQuantity, threshold: inventory.minThreshold })
+      .select({ name: inventory.name, stock: inventory.stockQuantity, unit: inventory.unit, threshold: sql<number>`coalesce(${inventory.reorderPoint}, ${inventory.minThreshold}, 0)` })
       .from(inventory)
       .where(and(eq(inventory.trackStock, true), isNull(inventory.deletedAt),
-        gt(inventory.stockQuantity, 0), sql`${inventory.stockQuantity} <= coalesce(${inventory.minThreshold}, 0)`))
+        gt(inventory.stockQuantity, 0), sql`${inventory.stockQuantity} <= coalesce(${inventory.reorderPoint}, ${inventory.minThreshold}, 0)`))
       .limit(100)
     parts.push(low.length
-      ? `ЗАКАНЧИВАЕТСЯ — ${low.length} позиций:\n${low.map(i => `- ${i.name}: ${i.stock} шт (порог ${i.threshold ?? 0})`).join('\n')}`
+      ? `ЗАКАНЧИВАЕТСЯ — ${low.length} позиций:\n${low.map(i => `- ${i.name}: ${quantityText(i.stock, i.unit)} (точка заказа ${quantityText(Number(i.threshold), i.unit)})`).join('\n')}`
       : 'ЗАКАНЧИВАЕТСЯ: нет позиций ниже порога.')
   } catch { /* skip */ }
 
@@ -443,11 +444,12 @@ async function buildContext(db: Database, action: string, payload?: Record<strin
     case 'low_stock_alert': {
       try {
         const items = await db
-          .select({ name: inventory.name, stock: inventory.stockQuantity, threshold: inventory.minThreshold })
+          .select({ name: inventory.name, stock: inventory.stockQuantity, threshold: sql<number>`coalesce(${inventory.reorderPoint}, ${inventory.minThreshold}, 0)` })
           .from(inventory)
           .where(and(
             eq(inventory.trackStock, true),
-            sql`${inventory.stockQuantity} <= ${inventory.minThreshold}`,
+            isNull(inventory.deletedAt),
+            sql`${inventory.stockQuantity} <= coalesce(${inventory.reorderPoint}, ${inventory.minThreshold}, 0)`,
           ))
         if (!items.length) return 'Все отслеживаемые товары в норме по остаткам.'
         const lines = items.map(i => `- ${i.name}: ${i.stock} шт (порог: ${i.threshold})`).join('\n')
