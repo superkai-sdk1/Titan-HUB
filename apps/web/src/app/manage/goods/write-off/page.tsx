@@ -3,7 +3,7 @@
  * Списание: бой, порча, угощение — одним документом на несколько позиций. Порция по
  * составу списывает свои ингредиенты. Больше, чем есть на складе, не спишется.
  */
-import React, { useState } from 'react'
+import React, { useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
@@ -22,8 +22,10 @@ type Detail = { writeOff: { reason: string; note: string | null; draftData: { re
 export default function WriteOffPage() {
   const goods = useGoods()
   const [params] = useState(() => ({ draft: queryParam('draft'), item: queryParam('item') }))
-  const source = useQuery({ queryKey: ['goods', 'write-off', params.draft], queryFn: () => api.get<Detail>(`/goods/write-offs/${params.draft}`), enabled: !!params.draft })
-  if (!goods.data || (params.draft && !source.data)) return <DocShell title="Списание"><StateView state={goods.isError || source.isError ? 'error' : 'loading'} /></DocShell>
+  // Состав редактор берёт один раз — только из свежего ответа: в кэше мог остаться
+  // черновик до последнего автосохранения, и следующее сохранение затёрло бы правки.
+  const source = useQuery({ queryKey: ['goods', 'write-off', params.draft], queryFn: () => api.get<Detail>(`/goods/write-offs/${params.draft}`), enabled: !!params.draft, refetchOnMount: 'always' })
+  if (!goods.data || (params.draft && (!source.data || !source.isFetchedAfterMount))) return <DocShell title="Списание"><StateView state={goods.isError || source.isError ? 'error' : 'loading'} /></DocShell>
   const d = source.data?.writeOff.draftData
   const lines: Line[] = (d?.items ?? []).map(l => ({ itemId: l.itemId, qty: String(l.quantity) }))
   const preset = params.item ? goods.data.byId.get(params.item) : undefined
@@ -40,6 +42,9 @@ function WriteOffEditor({ catalog, draft, initialLines, initialReason, initialNo
   const [custom, setCustom] = useState(initialReason && !REASONS.includes(initialReason) ? initialReason : '')
   const [note, setNote] = useState(initialNote)
   const [draftId, setDraftId] = useState(draft)
+  // id черновика для сохранений и проведения: state отстаёт на рендер, а черновик мог
+  // родиться, пока открыт диалог «Списать?».
+  const draftRef = useRef(draftId)
   const [picking, setPicking] = useState(false)
   const [confirm, setConfirm] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -57,7 +62,8 @@ function WriteOffEditor({ catalog, draft, initialLines, initialReason, initialNo
   const valid = rows.length > 0 && rows.every(r => r.qty > 0) && reason.trim().length > 0
 
   const autosave = useAutosave(JSON.stringify([lines, reason, note]), !done && !busy && (lines.length > 0 || !!draftId), async () => {
-    const r = await api.post<{ id: string }>('/goods/write-offs/draft', { ...(draftId ? { id: draftId } : {}), reason, ...(note.trim() ? { note: note.trim() } : {}), items })
+    const r = await api.post<{ id: string }>('/goods/write-offs/draft', { ...(draftRef.current ? { id: draftRef.current } : {}), reason, ...(note.trim() ? { note: note.trim() } : {}), items })
+    draftRef.current = r.id
     setDraftId(r.id)
     refreshGoods(qc)
   })
@@ -67,7 +73,7 @@ function WriteOffEditor({ catalog, draft, initialLines, initialReason, initialNo
     try {
       await autosave.flush()
       const body = { reason: reason.trim(), ...(note.trim() ? { note: note.trim() } : {}), items }
-      if (draftId) await api.post(`/goods/write-offs/${draftId}/apply`, body)
+      if (draftRef.current) await api.post(`/goods/write-offs/${draftRef.current}/apply`, body)
       else await api.post('/goods/write-offs', { ...body, idempotencyKey: key })
       setDone(true)
       refreshGoods(qc)

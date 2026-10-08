@@ -7,7 +7,7 @@
  * Черновик сохраняется сам; «Провести» добавляет остатки и пересчитывает себестоимость.
  * «Из кассы смены» — сумма уходит выдачей из кассы открытой смены.
  */
-import React, { useState } from 'react'
+import React, { useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
@@ -65,8 +65,10 @@ function values(l: Line) {
   const price = parseDecimal(l.price) ?? 0
   const packs = l.packSize ? (parseDecimal(l.packs) ?? 0) : 0
   const quantity = l.itemId ? Math.round(qty * factor) : qty
-  const sum = !l.packSize ? round2(qty * price) : packs > 0 ? round2(packs * price) : round2((quantity / l.packSize) * price)
-  const costPerUnit = !l.packSize ? round4(price / factor) : quantity > 0 ? round4(sum / quantity) : 0
+  const entered = !l.packSize ? round2(qty * price) : packs > 0 ? round2(packs * price) : round2((quantity / l.packSize) * price)
+  const costPerUnit = !l.packSize ? round4(price / factor) : quantity > 0 ? round4(entered / quantity) : 0
+  // Сумма строки — как её считает сервер: количество × округлённая цена единицы.
+  const sum = round2(quantity * costPerUnit)
   return { quantity, costPerUnit, sum, packs: packs > 0 ? packs : null, error: !l.name.trim() ? 'Укажите название' : quantity <= 0 ? 'Укажите количество' : null }
 }
 /** Упаковки подставляют количество, пока его не поправили руками. */
@@ -80,8 +82,10 @@ export default function SupplyPage() {
   const goods = useGoods()
   const [params] = useState(() => ({ draft: queryParam('draft'), supply: queryParam('supply'), item: queryParam('item') }))
   const sourceId = params.supply ?? params.draft
-  const source = useQuery({ queryKey: ['goods', 'supply', sourceId], queryFn: () => api.get<SupplyDetail>(`/supplies/${sourceId}`), enabled: !!sourceId })
-  if (!goods.data || (sourceId && !source.data)) {
+  // Состав редактор берёт один раз — только из свежего ответа: в кэше мог остаться
+  // черновик до последнего автосохранения, и следующее сохранение затёрло бы правки.
+  const source = useQuery({ queryKey: ['goods', 'supply', sourceId], queryFn: () => api.get<SupplyDetail>(`/supplies/${sourceId}`), enabled: !!sourceId, refetchOnMount: 'always' })
+  if (!goods.data || (sourceId && (!source.data || !source.isFetchedAfterMount))) {
     return <DocShell title="Приход"><StateView state={goods.isError || source.isError ? 'error' : 'loading'} /></DocShell>
   }
   const catalog = goods.data
@@ -104,6 +108,9 @@ function SupplyEditor({ mode, sourceId, catalog, initialLines, initialSupplier, 
   const [fromRegister, setFromRegister] = useState(initialFromRegister)
   const [reason, setReason] = useState('')
   const [draftId, setDraftId] = useState<string | null>(mode === 'draft' ? sourceId : null)
+  // id черновика для сохранений и проведения: state отстаёт на рендер, а черновик мог
+  // родиться, пока открыт диалог «Провести?».
+  const draftRef = useRef(draftId)
   const [picking, setPicking] = useState(false)
   const [confirm, setConfirm] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -112,13 +119,15 @@ function SupplyEditor({ mode, sourceId, catalog, initialLines, initialSupplier, 
   const [key] = useState(newIdempotencyKey)
 
   const parsed = lines.map(l => ({ l, ...values(l) }))
-  const total = round2(parsed.reduce((s, p) => s + p.sum, 0))
+  // Итог — как у сервера (Σ количество × цена единицы): столько и уйдёт из кассы.
+  const total = round2(parsed.reduce((s, p) => s + p.quantity * p.costPerUnit, 0))
   const valid = lines.length > 0 && parsed.every(p => !p.error) && (mode !== 'correct' || reason.trim().length >= 3)
   const payload = parsed.map(p => ({ ...(p.l.itemId ? { itemId: p.l.itemId } : {}), ...(p.l.name.trim() ? { name: p.l.name.trim() } : {}), quantity: p.quantity, costPerUnit: p.costPerUnit, ...(p.packs ? { packs: p.packs } : {}) }))
   const header = { ...(supplier.trim() ? { supplier: supplier.trim() } : {}), fromRegister, paymentMethod: fromRegister ? 'cash' : 'transfer' }
 
   const autosave = useAutosave(JSON.stringify([lines, supplier, fromRegister]), mode !== 'correct' && !done && !busy && (lines.length > 0 || !!draftId), async () => {
-    const r = await api.post<{ id: string }>('/supplies/draft', { ...(draftId ? { id: draftId } : {}), ...header, items: payload })
+    const r = await api.post<{ id: string }>('/supplies/draft', { ...(draftRef.current ? { id: draftRef.current } : {}), ...header, items: payload })
+    draftRef.current = r.id
     setDraftId(r.id)
     refreshGoods(qc)
   })
@@ -129,7 +138,7 @@ function SupplyEditor({ mode, sourceId, catalog, initialLines, initialSupplier, 
     try {
       await autosave.flush()
       if (mode === 'correct' && sourceId) await api.patch(`/supplies/${sourceId}`, { reason: reason.trim(), items: payload })
-      else if (draftId) await api.post(`/supplies/${draftId}/apply`, { ...header, items: payload })
+      else if (draftRef.current) await api.post(`/supplies/${draftRef.current}/apply`, { ...header, items: payload })
       else await api.post('/supplies', { ...header, items: payload, idempotencyKey: key })
       setDone(true)
       refreshGoods(qc)

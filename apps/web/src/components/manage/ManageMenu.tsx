@@ -10,6 +10,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import { useAuthStore } from '@/store/auth.store'
+import { permissionOn } from '@/lib/permissions'
 import { api } from '@/lib/api'
 import { Icon } from '@/components/Icon'
 
@@ -23,8 +24,8 @@ interface NavItem {
   bg: string
   roles: string[]
   /**
-   * Ключ права доступа (см. staff/page.tsx permissions). Если задан и у
-   * сотрудника (role 'staff') permissions[perm] === false — раздел скрыт.
+   * Ключ права доступа (см. lib/permissions.ts). Если у сотрудника (role 'staff')
+   * право выключено — явно или по умолчанию — раздел скрыт.
    * Владельца права не ограничивают. Пункты без perm гейтятся только ролью.
    */
   perm?: string | string[]
@@ -77,7 +78,7 @@ const NAV: NavGroup[] = [
       // Смена и касса в одном экране (инкассация встроена).
       { href: '/manage/shifts', label: 'Смены',     icon: 'schedule', color: '#8B5CF6', bg: 'rgba(139,92,246,0.15)',  roles: ['owner','staff'] },
       { href: '/manage/salary', label: 'Зарплата',  icon: 'payments', color: '#10B981', bg: 'rgba(16,185,129,0.15)', roles: ['owner'], perm: 'salary' },
-      { href: '/manage/expenses', label: 'Расходы', icon: 'receipt_long', color: '#F59E0B', bg: 'rgba(245,158,11,0.15)', roles: ['owner','staff'], perm: 'inventory' },
+      { href: '/manage/expenses', label: 'Расходы', icon: 'receipt_long', color: '#F59E0B', bg: 'rgba(245,158,11,0.15)', roles: ['owner','staff'], perm: 'expenses' },
     ],
   },
   {
@@ -151,11 +152,11 @@ export function ManageMenu() {
   const permissions = me?.permissions ?? {}
 
   // Раздел разрешён, если: роль подходит И (нет perm-ключа ИЛИ это владелец
-  // ИЛИ право не выставлено в явный false).
+  // ИЛИ право включено — явно или по умолчанию, как на карточке сотрудника).
   function isAllowed(item: NavItem): boolean {
     if (!item.roles.includes(role)) return false
     if (role === 'owner') return true
-    if (item.perm && [item.perm].flat().every(p => permissions[p] === false)) return false
+    if (item.perm && [item.perm].flat().every(p => !permissionOn(permissions, p))) return false
     return true
   }
 

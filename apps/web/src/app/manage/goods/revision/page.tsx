@@ -4,7 +4,7 @@
  * ожидаемый остаток не виден, чтобы не подгонять. «Сверить» показывает расхождения и
  * их цену; проводятся только посчитанные позиции, остальные не меняются.
  */
-import React, { useMemo, useState } from 'react'
+import React, { useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
@@ -20,8 +20,10 @@ type Detail = { revision: { draftData: { items: { itemId: string; actual: number
 export default function RevisionPage() {
   const goods = useGoods()
   const [params] = useState(() => ({ draft: queryParam('draft'), item: queryParam('item') }))
-  const source = useQuery({ queryKey: ['goods', 'revision', params.draft], queryFn: () => api.get<Detail>(`/inventory/revisions/${params.draft}`), enabled: !!params.draft })
-  if (!goods.data || (params.draft && !source.data)) return <DocShell title="Ревизия"><StateView state={goods.isError || source.isError ? 'error' : 'loading'} /></DocShell>
+  // Факты редактор берёт один раз — только из свежего ответа: в кэше мог остаться
+  // черновик до последнего автосохранения, и следующее сохранение затёрло бы правки.
+  const source = useQuery({ queryKey: ['goods', 'revision', params.draft], queryFn: () => api.get<Detail>(`/inventory/revisions/${params.draft}`), enabled: !!params.draft, refetchOnMount: 'always' })
+  if (!goods.data || (params.draft && (!source.data || !source.isFetchedAfterMount))) return <DocShell title="Ревизия"><StateView state={goods.isError || source.isError ? 'error' : 'loading'} /></DocShell>
   const facts = Object.fromEntries((source.data?.revision.draftData?.items ?? []).filter(l => l.actual !== null).map(l => [l.itemId, String(l.actual)]))
   return <RevisionEditor catalog={goods.data} draft={params.draft} preset={params.draft ? null : params.item} initialFacts={facts} />
 }
@@ -35,6 +37,9 @@ function RevisionEditor({ catalog, draft, preset, initialFacts }: { catalog: Cat
   const [scope, setScope] = useState(preset ? `item:${preset}` : 'all')
   const [reviewing, setReviewing] = useState(false)
   const [draftId, setDraftId] = useState(draft)
+  // id черновика для сохранений и проведения: state отстаёт на рендер, а черновик мог
+  // родиться, пока открыт диалог «Провести?».
+  const draftRef = useRef(draftId)
   const [confirm, setConfirm] = useState(false)
   const [busy, setBusy] = useState(false)
   const [done, setDone] = useState(false)
@@ -58,7 +63,8 @@ function RevisionEditor({ catalog, draft, preset, initialFacts }: { catalog: Cat
   const payload = counted.map(r => ({ itemId: r.item.id, actual: r.actual }))
 
   const autosave = useAutosave(JSON.stringify(payload), !done && !busy && (counted.length > 0 || !!draftId), async () => {
-    const r = await api.post<{ id: string }>('/inventory/revisions/draft', { ...(draftId ? { id: draftId } : {}), items: payload })
+    const r = await api.post<{ id: string }>('/inventory/revisions/draft', { ...(draftRef.current ? { id: draftRef.current } : {}), items: payload })
+    draftRef.current = r.id
     setDraftId(r.id)
     refreshGoods(qc)
   })
@@ -68,8 +74,8 @@ function RevisionEditor({ catalog, draft, preset, initialFacts }: { catalog: Cat
     try {
       await autosave.flush()
       const lines = counted.map(r => ({ itemId: r.item.id, actual: r.actual! }))
-      let id = draftId
-      if (draftId) await api.post(`/inventory/revisions/${draftId}/apply`, { items: lines })
+      let id = draftRef.current
+      if (id) await api.post(`/inventory/revisions/${id}/apply`, { items: lines })
       else id = (await api.post<{ revision: { id: string } }>('/inventory/revisions', { items: lines })).revision.id
       setDone(true)
       refreshGoods(qc)

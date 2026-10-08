@@ -22,25 +22,40 @@ export function queryParam(name: string): string | null {
 /**
  * Сохранить черновик через секунду после последней правки. `key` — отпечаток содержимого;
  * открытый черновик не пересохраняется, пока его не тронули. `flush` — дождаться начатого
- * сохранения перед проведением, чтобы не родился лишний черновик.
+ * сохранения перед проведением, чтобы не родился лишний черновик. Сохранения идут строго
+ * по очереди (два запроса, не знающие id черновика, создали бы два черновика); правка,
+ * не дождавшаяся таймера, сохраняется и при уходе со страницы.
  */
 export function useAutosave(key: string, enabled: boolean, save: () => Promise<void>) {
   const saveRef = useRef(save)
   const initial = useRef(key)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const inflight = useRef<Promise<void> | null>(null)
+  // Есть правка, которая ждёт таймера и ещё не ушла на сервер.
+  const pending = useRef(false)
   const [savedAt, setSavedAt] = useState<Date | null>(null)
   useEffect(() => { saveRef.current = save })
   useEffect(() => {
-    if (!enabled || key === initial.current) return
+    if (!enabled || key === initial.current) { pending.current = false; return }
+    pending.current = true
     timer.current = setTimeout(() => {
       timer.current = null
-      inflight.current = saveRef.current().then(() => setSavedAt(new Date())).catch(() => { /* сохраним при следующей правке */ })
+      pending.current = false
+      const latest = saveRef.current
+      inflight.current = (inflight.current ?? Promise.resolve()).then(() => latest()).then(() => setSavedAt(new Date())).catch(() => { /* сохраним при следующей правке */ })
     }, DELAY_MS)
     return () => { if (timer.current) clearTimeout(timer.current); timer.current = null }
   }, [key, enabled])
+  // Ушли со страницы раньше таймера — последняя правка всё равно уходит на сервер.
+  useEffect(() => () => {
+    if (!pending.current) return
+    pending.current = false
+    const latest = saveRef.current
+    inflight.current = (inflight.current ?? Promise.resolve()).then(() => latest()).catch(() => { /* на сервере останется прежняя версия */ })
+  }, [])
   const flush = async () => {
     if (timer.current) { clearTimeout(timer.current); timer.current = null }
+    pending.current = false
     if (inflight.current) await inflight.current
   }
   return { savedAt, flush }
