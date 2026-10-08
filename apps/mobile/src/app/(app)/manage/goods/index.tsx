@@ -3,9 +3,9 @@ import { pickerStyle, refreshable, tag } from '@expo/ui/swift-ui/modifiers';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
 
+import { IngredientsTab } from '@/components/goods/ingredients-tab';
 import { MenuTab } from '@/components/goods/menu-tab';
-import { OperationsTab } from '@/components/goods/operations-tab';
-import { StockTab, type StockFilter } from '@/components/goods/stock-tab';
+import { WarehouseTab, type StockFilter } from '@/components/goods/warehouse-tab';
 import { ToolbarButton, ToolbarMenu, ToolbarMenuAction } from '@/components/toolbar';
 import { useGoods } from '@/lib/goods-api';
 import { haptic } from '@/lib/haptics';
@@ -13,14 +13,17 @@ import { queryClient } from '@/lib/query';
 import { useClubKey, useMe } from '@/lib/queries';
 import { useSession } from '@/lib/session';
 
-type Tab = 'menu' | 'stock' | 'operations';
+type Tab = 'menu' | 'ingredients' | 'warehouse';
 
-const TAB_TITLES: Record<Tab, string> = { menu: 'Меню', stock: 'Остатки', operations: 'Операции' };
+const TAB_TITLES: Record<Tab, string> = { menu: 'Меню', ingredients: 'Ингредиенты', warehouse: 'Склад' };
+
+/** Старые ссылки (?tab=stock, ?tab=operations) ведут на «Склад». */
+const TAB_ALIASES: Record<string, Tab> = { menu: 'menu', ingredients: 'ingredients', warehouse: 'warehouse', stock: 'warehouse', operations: 'warehouse' };
 
 /**
- * «Товары» — меню, остатки и операции склада одним разделом. Меню — что продаём,
- * Остатки — сколько есть, Операции — что меняет остатки (приход, списание, ревизия).
- * Кнопки шапки зависят от вкладки: на каждое действие — одно место.
+ * «Товары» — меню, ингредиенты и склад одним разделом. Меню — что продаём, Ингредиенты —
+ * из чего собираем блюда, Склад — что меняет остатки (приход, списание, ревизия) и что
+ * заканчивается. Кнопки шапки зависят от вкладки: на каждое действие — одно место.
  */
 export default function GoodsScreen() {
   const router = useRouter();
@@ -31,9 +34,9 @@ export default function GoodsScreen() {
   const role = me.data?.role ?? sessionRole ?? 'staff';
   const permissions = me.data?.permissions ?? null;
   const allowed = (perm: string) => role === 'owner' || permissions?.[perm] !== false;
-  const tabs = ([] as Tab[]).concat(allowed('menu') ? ['menu'] : [], allowed('inventory') ? ['stock', 'operations'] : []);
+  const tabs = ([] as Tab[]).concat(allowed('menu') ? ['menu'] : [], allowed('inventory') ? ['ingredients', 'warehouse'] : []);
 
-  const [picked, setPicked] = useState<Tab | null>(() => (['menu', 'stock', 'operations'] as Tab[]).find((t) => t === params.tab) ?? null);
+  const [picked, setPicked] = useState<Tab | null>(() => (params.tab ? (TAB_ALIASES[params.tab] ?? null) : null));
   const tab: Tab | undefined = picked && tabs.includes(picked) ? picked : tabs[0];
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState<string | null>(null);
@@ -62,11 +65,11 @@ export default function GoodsScreen() {
           </ToolbarMenu>
         </Stack.Toolbar>
       )}
-      {tab === 'stock' && (
+      {tab === 'ingredients' && (
         <Stack.Toolbar placement="right">
           <ToolbarButton
             icon="plus"
-            accessibilityLabel="Новое сырьё"
+            accessibilityLabel="Новый ингредиент"
             onPress={() => router.push({ pathname: '/manage/goods/edit', params: { kind: 'ingredient' } })}
           />
         </Stack.Toolbar>
@@ -98,8 +101,6 @@ export default function GoodsScreen() {
             <Section>
               <ContentUnavailableView title="Нет доступа" systemImage="lock" description="Меню и склад закрыты для вашей роли — попросите владельца." />
             </Section>
-          ) : tab === 'operations' ? (
-            <OperationsTab />
           ) : !goods.data ? (
             <Section>
               {goods.isError ? (
@@ -110,8 +111,10 @@ export default function GoodsScreen() {
             </Section>
           ) : tab === 'menu' ? (
             <MenuTab catalog={goods.data} query={query} onQuery={setQuery} category={category} onCategory={setCategory} />
+          ) : tab === 'ingredients' ? (
+            <IngredientsTab catalog={goods.data} query={query} onQuery={setQuery} />
           ) : (
-            <StockTab catalog={goods.data} query={query} onQuery={setQuery} filter={filter} onFilter={setFilter} />
+            <WarehouseTab catalog={goods.data} filter={filter} onFilter={setFilter} />
           )}
         </Form>
       </Host>

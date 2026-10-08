@@ -13,6 +13,11 @@ export interface GoodsItem {
   name: string
   kind: 'goods' | 'ingredient'
   unit: 'pcs' | 'g' | 'ml'
+  /** Имя штуки (pack — «пачка»…) для unit = 'pcs'; null — «шт». */
+  unitLabel: string | null
+  /** Фасовка при закупке: «пачка ≈ 25 шт» (в базовых единицах). */
+  packName: string | null
+  packSize: number | null
   /** menu — обычная позиция; tariff — скрытая позиция тарифа (правится в «Тарифах»);
    *  rental — аренда зоны; ingredient — сырьё. */
   role: GoodsRole
@@ -81,6 +86,9 @@ export async function loadCatalog(db: Database) {
       name: r.name,
       kind: r.kind,
       unit: r.unit,
+      unitLabel: r.unitLabel,
+      packName: r.packName,
+      packSize: r.packSize,
       role,
       stockMode: r.kind === 'ingredient' ? 'pieces' : stockModeOf(r.trackStock, recipe.length),
       category: r.category,

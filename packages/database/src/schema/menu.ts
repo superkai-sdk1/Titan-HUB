@@ -28,6 +28,11 @@ export const inventory = pgTable('inventory', {
   kind: text('kind').$type<'goods' | 'ingredient'>().notNull().default('goods'),
   // Единица учёта остатка: штуки, граммы или миллилитры (остаток — целое в этой единице).
   unit: text('unit').$type<'pcs' | 'g' | 'ml'>().notNull().default('pcs'),
+  // Имя штуки для unit = 'pcs' (pack — «пачка», bottle — «бутылка»…), миграция 071.
+  unitLabel: text('unit_label'),
+  // Фасовка при закупке: «пачка ≈ 25 шт» — в приходе вносят упаковки (071).
+  packName: text('pack_name'),
+  packSize: integer('pack_size'),
   category: uuid('category').references(() => menuCategories.id),
   price: numeric('price', { precision: 10, scale: 2 }).notNull().default('0'),
   // Себестоимость единицы (WAC по приходам; у позиции с техкартой — сумма состава).

@@ -12,7 +12,7 @@ import { StateView } from '@/components/StateView'
 import { Chip } from '@/components/manage/DesignSystem'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-// ВНИМАНИЕ: 'expenses' здесь нет — вкладка «Расходы» переехала в /manage/inventory.
+// ВНИМАНИЕ: 'expenses' здесь нет — «Расходы» — отдельный раздел /manage/expenses.
 // Раньше тип содержал её ошибочно (рассинхрон с TABS/TAB_KEYS), что путало.
 type MainTab = 'overview' | 'finance' | 'events' | 'games' | 'bar' | 'players' | 'staff' | 'feedback'
 type ReportRange = '7d' | '30d' | 'month' | 'custom'

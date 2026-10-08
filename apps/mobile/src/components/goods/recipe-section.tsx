@@ -4,41 +4,43 @@ import { useRouter } from 'expo-router';
 import { DocLineRow, NumberInput } from '@/components/goods/parts';
 import { ActionRow } from '@/components/native-form';
 import { formatMoney } from '@/lib/format';
-import { UNIT_LABEL, formatQty, margin, type Catalog } from '@/lib/goods-api';
+import { itemQty, packText, unitWord, type Catalog } from '@/lib/goods-api';
 import { baseQuantity, useDocDraft } from '@/lib/goods-draft';
 
 const money = (n: number) => formatMoney(n, { kopecks: 'auto' });
 
 /**
- * Состав порции в редакторе позиции: ингредиент, сколько уходит на порцию (в граммах,
- * миллилитрах или штуках) и во что обходится. Строки — в общем черновике состава, чтобы
- * шторка «Добавить ингредиент» дописывала их сюда же.
+ * «Состав» в редакторе позиции: ингредиенты порции и сколько каждого уходит — 6 шт
+ * наггетсов, 1 пачка соуса, 18 г зёрен. Есть строки — позиция учитывается по составу:
+ * продажа спишет ингредиенты, себестоимость посчитается по ним. Строки — в общем
+ * черновике, чтобы экран «Добавить ингредиент» дописывал их сюда же.
  */
-export function RecipeSection({ catalog, price, showErrors }: { catalog: Catalog; price: number; showErrors: boolean }) {
+export function RecipeSection({ catalog, showErrors }: { catalog: Catalog; showErrors: boolean }) {
   const router = useRouter();
   const lines = useDocDraft((s) => s.lines);
   const setText = useDocDraft((s) => s.setText);
   const remove = useDocDraft((s) => s.remove);
 
-  const cost = lines.reduce((sum, line) => sum + baseQuantity(line) * (catalog.byId.get(line.itemId ?? '')?.costPrice ?? 0), 0);
-  const m = margin(price, cost);
   const footer = lines.length
-    ? `Порция ≈ ${money(cost)}${m !== null ? ` · маржа ${m}%` : ''}. Продажа позиции спишет этот состав со склада.`
-    : 'Например, капучино: 18 г зёрен, 150 мл молока, 1 стакан. Продажа спишет их со склада, а себестоимость посчитается сама.';
+    ? 'Продажа спишет этот состав со склада. Смахните строку влево, чтобы убрать ингредиент.'
+    : 'Из чего собрана порция: например, 6 шт наггетсов и 1 пачка соуса. Продажа спишет их со склада, а себестоимость посчитается сама. Без состава продажа склад не трогает.';
 
   return (
-    <Section title="Состав порции" footer={<Text>{footer}</Text>}>
+    <Section title="Состав" footer={<Text>{footer}</Text>}>
       {lines.map((line) => {
         const component = line.itemId ? catalog.byId.get(line.itemId) : undefined;
         const qty = baseQuantity(line);
         const invalid = showErrors && qty <= 0;
+        const caption = invalid
+          ? 'Укажите, сколько уходит на порцию'
+          : component
+            ? [`на складе ${itemQty(component, component.stockQuantity)}`, packText(component)].filter(Boolean).join(' · ')
+            : undefined;
         return (
           <SwipeActions key={line.key}>
             <DocLineRow
               title={line.name}
-              caption={
-                invalid ? 'Укажите, сколько уходит на порцию' : component ? `на складе ${formatQty(component.stockQuantity, component.unit)}` : undefined
-              }
+              caption={caption}
               captionColor={invalid ? '#F43F5E' : undefined}
               total={component && qty > 0 ? money(qty * component.costPrice) : undefined}
               fields={
@@ -48,7 +50,7 @@ export function RecipeSection({ catalog, price, showErrors }: { catalog: Catalog
                   value={line.qty}
                   integer
                   invalid={invalid}
-                  suffix={`${UNIT_LABEL[line.unit]} на порцию`}
+                  suffix={`${unitWord(line.unit, line.label, line.qty)} на порцию`}
                   onChange={(text) => setText(line.key, 'qty', text)}
                 />
               }
@@ -59,11 +61,7 @@ export function RecipeSection({ catalog, price, showErrors }: { catalog: Catalog
           </SwipeActions>
         );
       })}
-      <ActionRow
-        title="Добавить ингредиент"
-        icon="plus.circle.fill"
-        onPress={() => router.push({ pathname: '/manage/goods/pick', params: { mode: 'recipe' } })}
-      />
+      <ActionRow title="Ингредиент" icon="plus.circle.fill" onPress={() => router.push({ pathname: '/manage/goods/pick', params: { mode: 'recipe' } })} />
     </Section>
   );
 }

@@ -9,7 +9,7 @@ import { ActionRow, LinkRow } from '@/components/native-form';
 import { Text as RNText } from '@/components/text';
 import { ToolbarButton } from '@/components/toolbar';
 import { formatMoney, plural, toNumber } from '@/lib/format';
-import { BIG_UNIT, UNIT_LABEL, formatQty, numberText, type Catalog } from '@/lib/goods-api';
+import { PIECE_NAMES, formatQty, numberText, pieceText, unitPrice, unitWord, type Catalog } from '@/lib/goods-api';
 import { correctRevision, deleteSupply, deleteWriteOff, useRevision, useSupply, useWriteOff } from '@/lib/goods-docs';
 import { haptic } from '@/lib/haptics';
 import { useSession } from '@/lib/session';
@@ -112,14 +112,16 @@ export function SupplyView({ id, catalog }: { id: string; catalog: Catalog }) {
         {items.map((line, index) => {
           const item = line.itemId ? catalog.byId.get(line.itemId) : undefined;
           const unit = line.stockUnit ?? item?.unit ?? 'pcs';
-          const big = BIG_UNIT[unit];
+          const per = line.packs
+            ? { value: (line.costPerUnit * line.quantity) / line.packs, label: `за ${PIECE_NAMES[item?.packName ?? 'pack'].per}` }
+            : unitPrice(line.costPerUnit, unit, item?.unitLabel);
           return (
             <LinkRow
               key={`${line.itemId ?? line.name}-${index}`}
               title={item?.name ?? line.name}
               subtitle={
                 line.itemId
-                  ? `${formatQty(line.quantity, unit)} по ${money(line.costPerUnit * big.factor)} за ${big.label}`
+                  ? `${formatQty(line.quantity, unit, item?.unitLabel)}${line.packs ? ` (${pieceText(line.packs, item?.packName ?? 'pack')})` : ''} по ${money(per.value)} ${per.label}`
                   : `${numberText(line.quantity)} ${line.unit} · затрата без карточки`
               }
               value={money(line.quantity * line.costPerUnit)}
@@ -189,7 +191,7 @@ export function WriteOffView({ id, catalog }: { id: string; catalog: Catalog }) 
               subtitle={
                 portions
                   ? `${line.quantity} ${plural(line.quantity, ['порция', 'порции', 'порций'])} по составу`
-                  : formatQty(line.quantity, line.unit ?? item?.unit ?? 'pcs')
+                  : formatQty(line.quantity, line.unit ?? item?.unit ?? 'pcs', item?.unitLabel)
               }
               value={money(line.quantity * toNumber(line.unitCost))}
               onPress={item ? () => router.push({ pathname: '/manage/goods/[itemId]', params: { itemId: item.id, name: item.name } }) : undefined}
@@ -222,6 +224,7 @@ export function RevisionView({ id, catalog }: { id: string; catalog: Catalog }) 
     return {
       line,
       unit: line.unit ?? catalog.byId.get(line.itemId)?.unit ?? 'pcs',
+      label: catalog.byId.get(line.itemId)?.unitLabel ?? null,
       actual,
       diff,
       value: diff * toNumber(line.costPrice),
@@ -303,8 +306,8 @@ export function RevisionView({ id, catalog }: { id: string; catalog: Catalog }) 
               </RNText>
               <RNText style={[type.footnote, { color: row.diff === 0 ? colors.secondaryLabel : row.diff > 0 ? colors.green : colors.red }]}>
                 {row.diff === 0
-                  ? `учёт ${formatQty(row.line.expected, row.unit)} · сходится`
-                  : `учёт ${formatQty(row.line.expected, row.unit)} · ${row.diff > 0 ? '+' : '−'}${formatQty(Math.abs(row.diff), row.unit)} · ${formatMoney(row.value, { sign: true, kopecks: 'auto' })}`}
+                  ? `учёт ${formatQty(row.line.expected, row.unit, row.label)} · сходится`
+                  : `учёт ${formatQty(row.line.expected, row.unit, row.label)} · ${row.diff > 0 ? '+' : '−'}${formatQty(Math.abs(row.diff), row.unit, row.label)} · ${formatMoney(row.value, { sign: true, kopecks: 'auto' })}`}
               </RNText>
             </View>
             {editing ? (
@@ -313,12 +316,12 @@ export function RevisionView({ id, catalog }: { id: string; catalog: Catalog }) 
                   label={`${row.line.name}, факт`}
                   value={edits[row.line.id] ?? String(row.line.actual)}
                   integer
-                  suffix={UNIT_LABEL[row.unit]}
+                  suffix={unitWord(row.unit, row.label, edits[row.line.id] ?? String(row.line.actual))}
                   onChange={(t) => setEdits((e) => ({ ...e, [row.line.id]: t }))}
                 />
               </View>
             ) : (
-              <RNText style={[type.body, styles.label, styles.amount]}>{formatQty(row.actual, row.unit)}</RNText>
+              <RNText style={[type.body, styles.label, styles.amount]}>{formatQty(row.actual, row.unit, row.label)}</RNText>
             )}
           </View>
         ))}

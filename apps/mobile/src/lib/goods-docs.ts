@@ -18,7 +18,7 @@ import { useClubKey } from './queries';
 
 /* ─────────────────────────── Приход ─────────────────────────── */
 
-export type SupplyLine = { itemId: string | null; name: string; quantity: number; costPerUnit: number };
+export type SupplyLine = { itemId: string | null; name: string; quantity: number; costPerUnit: number; packs?: number | null };
 
 export type SupplyHeader = {
   supplier: string;
@@ -36,9 +36,13 @@ export type SupplyDetail = {
     paymentMethod: 'cash' | 'card' | 'transfer';
     cashOperationId: string | null;
     createdAt: string;
-    draftData: { supplier?: string; fromRegister?: boolean; items: { itemId?: string | null; name?: string; quantity: number; costPerUnit: number }[] } | null;
+    draftData: {
+      supplier?: string;
+      fromRegister?: boolean;
+      items: { itemId?: string | null; name?: string; quantity: number; costPerUnit: number; packs?: number | null }[];
+    } | null;
   };
-  items: { itemId: string | null; name: string; unit: string; stockUnit?: Unit | null; quantity: number; costPerUnit: number }[];
+  items: { itemId: string | null; name: string; unit: string; stockUnit?: Unit | null; quantity: number; costPerUnit: number; packs?: number | null }[];
   corrections: { id: string; reason: string; totalBefore: number; totalAfter: number; createdAt: string }[];
 };
 
@@ -47,6 +51,7 @@ const supplyLineBody = (line: SupplyLine) => ({
   ...(line.name.trim() ? { name: line.name.trim() } : {}),
   quantity: line.quantity,
   costPerUnit: line.costPerUnit,
+  ...(line.packs ? { packs: line.packs } : {}),
 });
 
 const supplyHeaderBody = (header: SupplyHeader) => ({

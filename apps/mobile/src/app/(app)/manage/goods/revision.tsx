@@ -12,7 +12,7 @@ import { Text as RNText } from '@/components/text';
 import { ToolbarButton } from '@/components/toolbar';
 import { isTariffCategory } from '@/lib/catalog-api';
 import { formatMoney } from '@/lib/format';
-import { UNIT_LABEL, formatQty, isStockItem, useGoods, type Catalog, type GoodsItem } from '@/lib/goods-api';
+import { isStockItem, itemQty, unitWord, useGoods, type Catalog, type GoodsItem } from '@/lib/goods-api';
 import { deleteRevisionDraft, postRevision, saveRevisionDraft, useRevision, type RevisionDetail } from '@/lib/goods-docs';
 import { haptic } from '@/lib/haptics';
 import { colors, space, type } from '@/lib/theme';
@@ -74,7 +74,7 @@ function RevisionEditor({
     const categories = catalog.categories.filter((c) => !isTariffCategory(c));
     const known = new Set(categories.map((c) => c.id));
     const keyOf = (i: GoodsItem) => (i.kind === 'ingredient' ? RAW : i.category && known.has(i.category) ? i.category : NONE);
-    const order = [...categories.map((c) => ({ id: c.id, title: c.name })), { id: NONE, title: 'Без категории' }, { id: RAW, title: 'Сырьё' }];
+    const order = [...categories.map((c) => ({ id: c.id, title: c.name })), { id: NONE, title: 'Без категории' }, { id: RAW, title: 'Ингредиенты' }];
     return order.map((g) => ({ ...g, items: items.filter((i) => keyOf(i) === g.id) })).filter((g) => g.items.length > 0);
   }, [catalog.categories, items]);
 
@@ -150,7 +150,7 @@ function RevisionEditor({
       <>
         <Stack.Title>Ревизия</Stack.Title>
         <Host style={{ flex: 1 }} useViewportSizeMeasurement>
-          <ContentUnavailableView title="Нечего пересчитывать" systemImage="checklist" description="Остатки ведут позиции с учётом штуками и сырьё." />
+          <ContentUnavailableView title="Нечего пересчитывать" systemImage="checklist" description="Остатки ведут ингредиенты и позиции с учётом штуками." />
         </Host>
       </>
     );
@@ -255,7 +255,14 @@ function CountRow({ item, value, onChange }: { item: GoodsItem; value: string; o
         {item.name}
       </RNText>
       <View style={styles.countField}>
-        <NumberInput label={`${item.name}, факт`} value={value} integer placeholder="—" suffix={UNIT_LABEL[item.unit]} onChange={onChange} />
+        <NumberInput
+          label={`${item.name}, факт`}
+          value={value}
+          integer
+          placeholder="—"
+          suffix={unitWord(item.unit, item.unitLabel, value)}
+          onChange={onChange}
+        />
       </View>
     </View>
   );
@@ -271,12 +278,10 @@ function DiffRow({ row }: { row: Row }) {
         <RNText style={[type.body, styles.label]} numberOfLines={2}>
           {item.name}
         </RNText>
-        <RNText
-          style={[type.footnote, styles.secondary]}
-        >{`учёт ${formatQty(item.stockQuantity, item.unit)} → факт ${formatQty(actual ?? 0, item.unit)}`}</RNText>
+        <RNText style={[type.footnote, styles.secondary]}>{`учёт ${itemQty(item, item.stockQuantity)} → факт ${itemQty(item, actual ?? 0)}`}</RNText>
       </View>
       <View style={styles.trailing}>
-        <RNText style={[type.body, styles.amount, { color }]}>{`${diff > 0 ? '+' : '−'}${formatQty(Math.abs(diff), item.unit)}`}</RNText>
+        <RNText style={[type.body, styles.amount, { color }]}>{`${diff > 0 ? '+' : '−'}${itemQty(item, Math.abs(diff))}`}</RNText>
         <RNText style={[type.footnote, { color }]}>{formatMoney(value, { sign: true, kopecks: 'auto' })}</RNText>
       </View>
     </View>

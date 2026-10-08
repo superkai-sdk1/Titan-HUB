@@ -126,6 +126,23 @@ export function LinkRow({
   );
 }
 
+/** Строка-раскрывашка «Дополнительно»: подпись, что внутри (второй строкой), и стрелка вниз/вверх. */
+export function DisclosureRow({ title, subtitle, open, onToggle }: { title: string; subtitle?: string; open: boolean; onToggle: () => void }) {
+  return (
+    <Button
+      onPress={() => {
+        haptic.selection();
+        onToggle();
+      }}>
+      <HStack spacing={12}>
+        <Titles title={title} subtitle={subtitle} />
+        <Spacer />
+        <Image systemName={open ? 'chevron.up' : 'chevron.down'} size={13} modifiers={[tertiary, font({ weight: 'semibold' })]} />
+      </HStack>
+    </Button>
+  );
+}
+
 /** Строка-действие по центру или с значком: «Добавить тариф», «Выйти». */
 export function ActionRow({ title, icon, destructive, disabled, onPress }: { title: string; icon?: SFSymbol; destructive?: boolean; disabled?: boolean; onPress: () => void }) {
   return (

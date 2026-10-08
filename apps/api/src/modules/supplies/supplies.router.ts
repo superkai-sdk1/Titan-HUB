@@ -74,6 +74,7 @@ const SupplySchema = z.object({
     unit: z.string().default('шт'),
     quantity: z.number().positive(),
     costPerUnit: z.number().min(0),
+    packs: z.number().positive().max(1_000_000).optional(),
   }).refine(i => !!i.itemId || !!(i.name && i.name.trim()), {
     message: 'Нужно указать товар или название позиции',
   }).refine(i => !i.itemId || Number.isInteger(i.quantity), {
@@ -152,6 +153,7 @@ suppliesRouter.post('/', requireRole('owner', 'staff'), zValidator('json', Suppl
       unit: i.unit,
       quantity: String(i.quantity),
       costPerUnit: String(i.costPerUnit),
+      packs: i.packs !== undefined ? String(i.packs) : null,
     })))
 
     // Обновляем остаток только для позиций, привязанных к карточке товара.
@@ -204,13 +206,14 @@ suppliesRouter.post('/', requireRole('owner', 'staff'), zValidator('json', Suppl
 async function postSupplyLines(
   tx: Tx,
   supplyId: string,
-  items: { itemId?: string | null; name?: string; unit: string; quantity: number; costPerUnit: number }[],
+  items: { itemId?: string | null; name?: string; unit: string; quantity: number; costPerUnit: number; packs?: number | null }[],
   supplier: string | undefined,
   userId: string,
 ) {
   await tx.insert(supplyItems).values(items.map(i => ({
     supplyId, itemId: i.itemId ?? null, name: i.name ?? null, unit: i.unit,
     quantity: String(i.quantity), costPerUnit: String(i.costPerUnit),
+    packs: i.packs !== undefined && i.packs !== null ? String(i.packs) : null,
   })))
   for (const i of items) {
     if (!i.itemId || i.quantity === 0) continue
@@ -236,6 +239,7 @@ suppliesRouter.post('/draft', requireRole('owner', 'staff'), zValidator('json', 
     unit: z.string().default('шт'),
     quantity: z.number().min(0),
     costPerUnit: z.number().min(0),
+    packs: z.number().min(0).max(1_000_000).optional(),
   })).max(200),
 })), async (c) => {
   const db = c.var.db
@@ -269,6 +273,7 @@ const ApplySupplySchema = z.object({
     unit: z.string().default('шт'),
     quantity: z.number().positive(),
     costPerUnit: z.number().min(0),
+    packs: z.number().positive().max(1_000_000).optional(),
   }).refine(i => !!i.itemId || !!(i.name && i.name.trim()), { message: 'Нужно указать товар или название позиции' })
     .refine(i => !i.itemId || Number.isInteger(i.quantity), { message: 'Для товара с карточкой количество должно быть целым', path: ['quantity'] })
   ).min(1),
@@ -337,6 +342,7 @@ suppliesRouter.get('/:id', async (c) => {
     stockUnit: r.item?.unit ?? null,
     quantity: Number(r.supplyItem.quantity),
     costPerUnit: Number(r.supplyItem.costPerUnit),
+    packs: r.supplyItem.packs !== null ? Number(r.supplyItem.packs) : null,
   }))
   const corrections = await db
     .select()
@@ -370,6 +376,7 @@ const SupplyEditSchema = z.object({
     unit: z.string().default('шт'),
     quantity: z.number().positive(),
     costPerUnit: z.number().min(0),
+    packs: z.number().positive().max(1_000_000).optional(),
   }).refine(i => !!i.itemId || !!(i.name && i.name.trim()), {
     message: 'Нужно указать товар или название позиции',
   }).refine(i => !i.itemId || Number.isInteger(i.quantity), {
@@ -406,6 +413,7 @@ suppliesRouter.patch('/:id', requireRole('owner', 'staff'), zValidator('json', S
       unit: i.unit,
       quantity: String(i.quantity),
       costPerUnit: String(i.costPerUnit),
+      packs: i.packs !== undefined ? String(i.packs) : null,
     })))
 
     const newByItem = new Map<string, number>()

@@ -7,11 +7,12 @@ import { Text, TextInput } from '@/components/text';
 import { formatMoney, plural } from '@/lib/format';
 import {
   LEVEL_LOOK,
-  formatQty,
+  daysLeft,
+  itemQty,
   margin,
+  packText,
   servings,
   stockLevel,
-  daysLeft,
   type Catalog,
   type DocType,
   type GoodsDocument,
@@ -104,7 +105,7 @@ function Chevron() {
 export function stockCaption(item: GoodsItem, catalog: Catalog): { text: string; color?: ColorValue } | null {
   if (item.stockMode === 'pieces') {
     const level = stockLevel(item);
-    return { text: level === 'out' ? 'нет на складе' : formatQty(item.stockQuantity, item.unit), color: level === 'ok' ? undefined : LEVEL_LOOK[level].color };
+    return { text: level === 'out' ? 'нет на складе' : itemQty(item, item.stockQuantity), color: level === 'ok' ? undefined : LEVEL_LOOK[level].color };
   }
   if (item.stockMode === 'recipe') {
     const s = servings(item, catalog.byId);
@@ -156,14 +157,15 @@ export function StockRow({ item, usedIn, onPress }: { item: GoodsItem; usedIn?: 
   const look = LEVEL_LOOK[level];
   const days = daysLeft(item);
   const caption = [
-    item.kind === 'ingredient' && usedIn ? `в ${usedIn} ${plural(usedIn, ['позиции', 'позициях', 'позициях'])}` : null,
+    item.kind === 'ingredient' && usedIn ? `в ${usedIn} ${plural(usedIn, ['блюде', 'блюдах', 'блюдах'])}` : null,
+    item.kind === 'ingredient' ? packText(item) : null,
     level !== 'out' && days !== null ? `хватит на ${days} ${plural(days, ['день', 'дня', 'дней'])}` : null,
-    item.reorderPoint ? `заказ при ${formatQty(item.reorderPoint, item.unit)}` : null,
+    item.reorderPoint ? `заказ при ${itemQty(item, item.reorderPoint)}` : null,
   ]
     .filter(Boolean)
     .join(' · ');
   return (
-    <RowButton onPress={onPress} label={`${item.name}, ${formatQty(item.stockQuantity, item.unit)}`}>
+    <RowButton onPress={onPress} label={`${item.name}, ${itemQty(item, item.stockQuantity)}`}>
       <View style={styles.titles}>
         <Text style={[type.body, styles.label]} numberOfLines={stacked ? 3 : 1}>
           {item.name}
@@ -175,7 +177,7 @@ export function StockRow({ item, usedIn, onPress }: { item: GoodsItem; usedIn?: 
         ) : null}
       </View>
       <View style={[styles.trailing, styles.stockTrailing]}>
-        <Text style={[type.body, styles.amount, { color: level === 'ok' ? colors.label : look.color }]}>{formatQty(item.stockQuantity, item.unit)}</Text>
+        <Text style={[type.body, styles.amount, { color: level === 'ok' ? colors.label : look.color }]}>{itemQty(item, item.stockQuantity)}</Text>
         <LevelBar item={item} />
       </View>
       <Chevron />

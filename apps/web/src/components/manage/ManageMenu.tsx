@@ -27,7 +27,7 @@ interface NavItem {
    * сотрудника (role 'staff') permissions[perm] === false — раздел скрыт.
    * Владельца права не ограничивают. Пункты без perm гейтятся только ролью.
    */
-  perm?: string
+  perm?: string | string[]
 }
 
 interface NavGroup {
@@ -44,9 +44,8 @@ const NAV: NavGroup[] = [
     title: 'Меню и склад',
     icon: 'inventory_2',
     items: [
-      { href: '/manage/menu',      label: 'Меню',      icon: 'restaurant_menu', color: '#F97316', bg: 'rgba(249,115,22,0.15)',  roles: ['owner','staff'], perm: 'menu' },
+      { href: '/manage/goods',     label: 'Товары',    icon: 'restaurant_menu', color: '#F97316', bg: 'rgba(249,115,22,0.15)',  roles: ['owner','staff'], perm: ['menu', 'inventory'] },
       // Единый экран «Склад»: остатки, поставки и ревизия — вкладки внутри одного раздела.
-      { href: '/manage/inventory', label: 'Склад',     icon: 'inventory_2',     color: '#3B82F6', bg: 'rgba(59,130,246,0.15)',  roles: ['owner','staff'], perm: 'inventory' },
       { href: '/manage/pricing',   label: 'Тарифы и аренда', icon: 'confirmation_number', color: '#8B5CF6', bg: 'rgba(139,92,246,0.15)', roles: ['owner','staff'] },
       // Телевизоры с Titan Menu: меню или слайдшоу, у каждого свои настройки.
       { href: '/manage/screens',   label: 'Экраны',    icon: 'tv',              color: '#A78BFA', bg: 'rgba(167,139,250,0.15)', roles: ['owner','staff'] },
@@ -78,6 +77,7 @@ const NAV: NavGroup[] = [
       // Смена и касса в одном экране (инкассация встроена).
       { href: '/manage/shifts', label: 'Смены',     icon: 'schedule', color: '#8B5CF6', bg: 'rgba(139,92,246,0.15)',  roles: ['owner','staff'] },
       { href: '/manage/salary', label: 'Зарплата',  icon: 'payments', color: '#10B981', bg: 'rgba(16,185,129,0.15)', roles: ['owner'], perm: 'salary' },
+      { href: '/manage/expenses', label: 'Расходы', icon: 'receipt_long', color: '#F59E0B', bg: 'rgba(245,158,11,0.15)', roles: ['owner','staff'], perm: 'inventory' },
     ],
   },
   {
@@ -155,7 +155,7 @@ export function ManageMenu() {
   function isAllowed(item: NavItem): boolean {
     if (!item.roles.includes(role)) return false
     if (role === 'owner') return true
-    if (item.perm && permissions[item.perm] === false) return false
+    if (item.perm && [item.perm].flat().every(p => permissions[p] === false)) return false
     return true
   }
 

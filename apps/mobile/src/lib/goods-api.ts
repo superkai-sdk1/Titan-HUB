@@ -32,6 +32,11 @@ export type GoodsItem = {
   name: string;
   kind: 'goods' | 'ingredient';
   unit: Unit;
+  /** Имя штуки (pack — «пачка»…) для unit = 'pcs'; null — «шт». */
+  unitLabel: PieceName | null;
+  /** Фасовка при закупке: «пачка ≈ 25 шт» (размер — в базовых единицах). */
+  packName: PieceName | null;
+  packSize: number | null;
   role: GoodsRole;
   stockMode: StockMode;
   category: string | null;
@@ -107,6 +112,35 @@ export type GoodsDocument = {
 
 export const UNIT_LABEL: Record<Unit, string> = { pcs: 'шт', g: 'г', ml: 'мл' };
 
+/** Как называется штука или упаковка — со склонениями: «1 пачка, 2 пачки, 5 пачек». */
+export type PieceName = 'pcs' | 'pack' | 'bottle' | 'can' | 'box' | 'bag' | 'portion';
+/** `per` — для цены («₽ за пачку»), `in` — для фасовки («в пачке 25 шт»). */
+export const PIECE_NAMES: Record<PieceName, { title: string; forms: [string, string, string]; per: string; in: string }> = {
+  pcs: { title: 'Штука', forms: ['шт', 'шт', 'шт'], per: 'шт', in: 'штуке' },
+  pack: { title: 'Пачка', forms: ['пачка', 'пачки', 'пачек'], per: 'пачку', in: 'пачке' },
+  bottle: { title: 'Бутылка', forms: ['бутылка', 'бутылки', 'бутылок'], per: 'бутылку', in: 'бутылке' },
+  can: { title: 'Банка', forms: ['банка', 'банки', 'банок'], per: 'банку', in: 'банке' },
+  box: { title: 'Коробка', forms: ['коробка', 'коробки', 'коробок'], per: 'коробку', in: 'коробке' },
+  bag: { title: 'Пакет', forms: ['пакет', 'пакета', 'пакетов'], per: 'пакет', in: 'пакете' },
+  portion: { title: 'Порция', forms: ['порция', 'порции', 'порций'], per: 'порцию', in: 'порции' },
+};
+export const PIECE_CHOICES = Object.keys(PIECE_NAMES) as PieceName[];
+
+function pluralForm(n: number, forms: [string, string, string]): string {
+  const a = Math.abs(Math.trunc(n)) % 100;
+  const b = a % 10;
+  if (!Number.isInteger(n)) return forms[1];
+  if (a > 10 && a < 20) return forms[2];
+  if (b > 1 && b < 5) return forms[1];
+  if (b === 1) return forms[0];
+  return forms[2];
+}
+
+/** «3 пачки», «1 коробка» — число со словом в нужной форме. */
+export function pieceText(n: number, name: PieceName | null | undefined): string {
+  return `${decimal(n, 2).replace('-', '−')} ${pluralForm(n, PIECE_NAMES[name ?? 'pcs'].forms)}`;
+}
+
 /** Крупная единица для ввода и показа: килограммы и литры (в 1000 раз больше базовой). */
 export const BIG_UNIT: Record<Unit, { label: string; factor: number }> = {
   pcs: { label: 'шт', factor: 1 },
@@ -120,18 +154,47 @@ export const UNIT_CHOICES: { unit: Unit; title: string }[] = [
   { unit: 'pcs', title: 'Штуки' },
 ];
 
+/** Быстрый выбор единицы нового ингредиента: «Пачки» — штуки с именем «пачка» (соус в порцию). */
+export const QUICK_UNITS: { unit: Unit; label: PieceName | null; title: string }[] = [
+  { unit: 'g', label: null, title: 'Граммы' },
+  { unit: 'ml', label: null, title: 'Миллилитры' },
+  { unit: 'pcs', label: null, title: 'Штуки' },
+  { unit: 'pcs', label: 'pack', title: 'Пачки' },
+];
+
 const decimal = (n: number, digits: number) =>
   new Intl.NumberFormat('ru-RU', { maximumFractionDigits: digits, useGrouping: true }).format(n).replace(/ /g, ' ');
 
-/** «24 шт», «850 г», «1,25 кг», «1,5 л», «−3 шт». */
-export function formatQty(qty: number, unit: Unit): string {
-  if (unit === 'pcs' || Math.abs(qty) < 1000) return `${decimal(qty, 0).replace('-', '−')} ${UNIT_LABEL[unit]}`;
+/** «24 шт», «38 пачек», «850 г», «1,25 кг», «1,5 л», «−3 шт». */
+export function formatQty(qty: number, unit: Unit, label?: PieceName | null): string {
+  if (unit === 'pcs') return pieceText(qty, label);
+  if (Math.abs(qty) < 1000) return `${decimal(qty, 0).replace('-', '−')} ${UNIT_LABEL[unit]}`;
   return `${decimal(qty / 1000, 2).replace('-', '−')} ${BIG_UNIT[unit].label}`;
 }
 
-/** Цена единицы так, как её привыкли видеть: за штуку, за килограмм, за литр. */
-export function unitPrice(costPerBase: number, unit: Unit): { value: number; label: string } {
-  return { value: costPerBase * BIG_UNIT[unit].factor, label: `за ${BIG_UNIT[unit].label}` };
+/** Количество в единице позиции, с именем штуки: «38 пачек», «1,2 кг». */
+export const itemQty = (item: Pick<GoodsItem, 'unit' | 'unitLabel'>, qty: number) => formatQty(qty, item.unit, item.unitLabel);
+
+/** Короткое имя единицы позиции для поля ввода: «шт», «пачек», «г». */
+export const unitShort = (item: Pick<GoodsItem, 'unit' | 'unitLabel'>) =>
+  item.unit === 'pcs' ? PIECE_NAMES[item.unitLabel ?? 'pcs'].forms[2] : UNIT_LABEL[item.unit];
+
+/** Единица рядом с числом в поле: «1 пачка», «3 пачки», «18 г» — форма по набранному числу. */
+export function unitWord(unit: Unit, label: PieceName | null | undefined, text: string): string {
+  if (unit !== 'pcs') return UNIT_LABEL[unit];
+  const n = parseDecimal(text);
+  return pluralForm(n ?? 5, PIECE_NAMES[label ?? 'pcs'].forms);
+}
+
+/** Фасовка словами: «пачка ≈ 25 шт»; null — фасовка не задана. */
+export function packText(item: Pick<GoodsItem, 'unit' | 'unitLabel' | 'packName' | 'packSize'>): string | null {
+  if (!item.packSize) return null;
+  return `${PIECE_NAMES[item.packName ?? 'pack'].forms[0]} ≈ ${itemQty(item, item.packSize)}`;
+}
+
+/** Цена единицы так, как её привыкли видеть: за штуку (пачку), за килограмм, за литр. */
+export function unitPrice(costPerBase: number, unit: Unit, label?: PieceName | null): { value: number; label: string } {
+  return { value: costPerBase * BIG_UNIT[unit].factor, label: `за ${unit === 'pcs' ? PIECE_NAMES[label ?? 'pcs'].per : BIG_UNIT[unit].label}` };
 }
 
 /** Число для поля ввода: «1,25» — с запятой, без хвостовых нулей. */
@@ -216,7 +279,14 @@ export function useGoods() {
     queryFn: () => api.get<{ categories: MenuCategory[]; items: GoodsItem[] }>('/goods'),
     // Кэш живёт на диске между сборками — форму ответа нормализуем здесь же.
     select: (data): Catalog => {
-      const items = (data.items ?? []).map((i) => ({ ...i, recipe: i.recipe ?? [], searchTags: i.searchTags ?? [] }));
+      const items = (data.items ?? []).map((i) => ({
+        ...i,
+        recipe: i.recipe ?? [],
+        searchTags: i.searchTags ?? [],
+        unitLabel: i.unitLabel ?? null,
+        packName: i.packName ?? null,
+        packSize: i.packSize ?? null,
+      }));
       return { categories: data.categories ?? [], items, byId: new Map(items.map((i) => [i.id, i])) };
     },
     staleTime: STALE_MS,
@@ -276,6 +346,9 @@ export type ItemInput = {
   reorderPoint?: number | null;
   parLevel?: number | null;
   unit?: Unit;
+  unitLabel?: PieceName | null;
+  packName?: PieceName | null;
+  packSize?: number | null;
 };
 
 export async function createItem(kind: 'goods' | 'ingredient', input: ItemInput): Promise<string> {

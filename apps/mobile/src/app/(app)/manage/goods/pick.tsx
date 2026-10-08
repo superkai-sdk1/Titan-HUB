@@ -10,18 +10,7 @@ import { ActionRow, FormHost, SearchRow } from '@/components/native-form';
 import { Text as RNText } from '@/components/text';
 import { isTariffCategory } from '@/lib/catalog-api';
 import { chooseAction } from '@/lib/dialog';
-import {
-  LEVEL_LOOK,
-  UNIT_CHOICES,
-  createItem,
-  formatQty,
-  isStockItem,
-  reorderQuantity,
-  stockLevel,
-  useGoods,
-  type GoodsItem,
-  type Unit,
-} from '@/lib/goods-api';
+import { LEVEL_LOOK, QUICK_UNITS, createItem, isStockItem, itemQty, reorderQuantity, stockLevel, useGoods, type GoodsItem } from '@/lib/goods-api';
 import { useDocDraft, type DraftMode } from '@/lib/goods-draft';
 import { haptic } from '@/lib/haptics';
 import { colors, space, type } from '@/lib/theme';
@@ -42,7 +31,7 @@ function candidates(mode: DraftMode, items: GoodsItem[], productId: string | nul
 /**
  * Выбор позиций для прихода, списания или состава: отметьте нужное и «Добавить».
  * Для прихода — «Добавить заканчивающиеся» (сколько дозаказать — до целевого уровня).
- * Нет нужного — тут же новое сырьё или (в приходе) затрата без карточки.
+ * Нет нужного — тут же новый ингредиент или (в приходе) затрата без карточки.
  */
 export default function PickScreen() {
   const { mode: modeParam } = useLocalSearchParams<{ mode?: DraftMode }>();
@@ -65,7 +54,7 @@ export default function PickScreen() {
     const visible = pool.filter((i) => matches(i, q));
     const categories = goods.data.categories.filter((c) => !isTariffCategory(c));
     const keyOf = (i: GoodsItem) => (i.kind === 'ingredient' ? 'raw' : i.category && categories.some((c) => c.id === i.category) ? i.category : 'none');
-    const order = [{ id: 'raw', title: 'Сырьё' }, ...categories.map((c) => ({ id: c.id, title: c.name })), { id: 'none', title: 'Без категории' }];
+    const order = [{ id: 'raw', title: 'Ингредиенты' }, ...categories.map((c) => ({ id: c.id, title: c.name })), { id: 'none', title: 'Без категории' }];
     return order.map((g) => ({ ...g, items: visible.filter((i) => keyOf(i) === g.id) })).filter((g) => g.items.length > 0);
   }, [goods.data, pool, q]);
 
@@ -84,12 +73,12 @@ export default function PickScreen() {
 
   const createIngredient = () => {
     const name = query.trim();
-    chooseAction(`Новое сырьё «${name}»`, 'В чём его учитывать?', [
-      ...UNIT_CHOICES.map((choice) => ({
+    chooseAction(`Новый ингредиент «${name}»`, 'В чём его считать?', [
+      ...QUICK_UNITS.map((choice) => ({
         text: choice.title,
         onPress: () => {
           setBusy(true);
-          createItem('ingredient', { name, unit: choice.unit as Unit })
+          createItem('ingredient', { name, unit: choice.unit, ...(choice.label ? { unitLabel: choice.label } : {}) })
             .then(async (id) => {
               const fresh = await goods.refetch();
               const item = fresh.data?.byId.get(id);
@@ -97,7 +86,7 @@ export default function PickScreen() {
               haptic.success();
               router.back();
             })
-            .catch((error: unknown) => Alert.alert('Сырьё не создано', errorText(error)))
+            .catch((error: unknown) => Alert.alert('Ингредиент не создан', errorText(error)))
             .finally(() => setBusy(false));
         },
       })),
@@ -118,7 +107,7 @@ export default function PickScreen() {
       <FormHost>
         <Form>
           <Section>
-            <SearchRow placeholder={mode === 'recipe' ? 'Зёрна, молоко, стакан…' : 'Название или тег'} onChange={setQuery} />
+            <SearchRow placeholder={mode === 'recipe' ? 'Наггетсы, соус, молоко…' : 'Название или тег'} onChange={setQuery} />
           </Section>
 
           {mode === 'supply' && low.length > 0 && !q ? (
@@ -136,7 +125,7 @@ export default function PickScreen() {
               <ContentUnavailableView
                 title={q ? 'Ничего не нашли' : 'Нечего добавить'}
                 systemImage={q ? 'magnifyingglass' : 'shippingbox'}
-                description={q ? undefined : 'Включите учёт у позиции меню или заведите сырьё.'}
+                description={q ? undefined : 'Наберите название — и создайте ингредиент прямо отсюда.'}
               />
             </Section>
           ) : (
@@ -151,9 +140,15 @@ export default function PickScreen() {
 
           {q && mode !== 'write_off' ? (
             <Section
-              footer={<Text>{mode === 'supply' ? 'Затрата без карточки попадёт в сумму прихода, но не в остатки.' : 'Сырьё появится в «Остатках».'}</Text>}
+              footer={
+                <Text>
+                  {mode === 'supply'
+                    ? 'Затрата без карточки попадёт в сумму прихода, но не в остатки.'
+                    : 'Ингредиент появится во вкладке «Ингредиенты»; фасовку и точку заказа задайте там.'}
+                </Text>
+              }
             >
-              <ActionRow title={`Новое сырьё «${query.trim()}»`} icon="plus.circle" onPress={createIngredient} />
+              <ActionRow title={`Новый ингредиент «${query.trim()}»`} icon="plus.circle" onPress={createIngredient} />
               {mode === 'supply' ? (
                 <ActionRow
                   title={`Затрата без карточки «${query.trim()}»`}
@@ -175,7 +170,7 @@ export default function PickScreen() {
 /** Строка выбора: отметка, название, остаток; уже добавленное — серым. */
 function PickRow({ item, checked, added, onPress }: { item: GoodsItem; checked: boolean; added: boolean; onPress: () => void }) {
   const level = stockLevel(item);
-  const caption = item.stockMode === 'recipe' ? 'по составу' : `на складе ${formatQty(item.stockQuantity, item.unit)}`;
+  const caption = item.stockMode === 'recipe' ? 'по составу' : `на складе ${itemQty(item, item.stockQuantity)}`;
   return (
     <Pressable
       disabled={added}
