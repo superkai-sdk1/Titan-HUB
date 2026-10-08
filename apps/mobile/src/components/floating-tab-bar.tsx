@@ -20,8 +20,8 @@ const ITEMS: Item[] = [
   { key: 'events', label: 'События', icon: { ios: 'calendar', android: 'calendar_month' } },
   // «Новый» — не вкладка, а кнопка: открывает шторку создания чека.
   { key: 'new', label: 'Новый', icon: { ios: 'plus.circle.fill', android: 'add_circle' }, action: true },
-  { key: 'analytics', label: 'Аналитика', icon: { ios: 'chart.bar', android: 'bar_chart' } },
-  { key: 'manage', label: 'Управление', icon: { ios: 'gearshape', android: 'settings' } },
+  { key: 'analytics', label: 'Отчёты', icon: { ios: 'chart.bar', android: 'bar_chart' } },
+  { key: 'manage', label: 'Меню', icon: { ios: 'gearshape', android: 'settings' } },
 ];
 
 const PAD = 6;

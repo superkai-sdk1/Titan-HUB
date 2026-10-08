@@ -36,6 +36,9 @@ const newTabNativeProps = {
 
 /**
  * Системный таб-бар (UITabBarController): Liquid Glass на iOS 26, на iPad — боковая панель.
+ * Подписи короткие и почти равной длины («Отчёты», «Меню» — как в веб-кассе): iOS 26
+ * ставит пункты по ширине подписей (itemPositioning не помогает), и длинные «Аналитика» /
+ * «Управление» сдвигали значки — ряд выглядел прижатым влево.
  *
  * «Новый» на iPhone — кнопка, а не экран: вкладка `disabled` (выбрать нельзя, но нажатие
  * приходит событием) открывает шторку создания чека. На iPad вкладки нет: кнопка
@@ -94,12 +97,12 @@ export default function AppLayout() {
 
       <NativeTabs.Trigger name="analytics">
         <NativeTabs.Trigger.Icon sf={{ default: 'chart.bar', selected: 'chart.bar.fill' }} md="bar_chart" />
-        <NativeTabs.Trigger.Label>Аналитика</NativeTabs.Trigger.Label>
+        <NativeTabs.Trigger.Label>Отчёты</NativeTabs.Trigger.Label>
       </NativeTabs.Trigger>
 
       <NativeTabs.Trigger name="manage">
         <NativeTabs.Trigger.Icon sf={{ default: 'gearshape', selected: 'gearshape.fill' }} md="settings" />
-        <NativeTabs.Trigger.Label>Управление</NativeTabs.Trigger.Label>
+        <NativeTabs.Trigger.Label>Меню</NativeTabs.Trigger.Label>
       </NativeTabs.Trigger>
 
       {accessory && <NativeTabs.BottomAccessory>{accessory}</NativeTabs.BottomAccessory>}

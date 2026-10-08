@@ -431,7 +431,9 @@ export function cancelCheck(checkId: string) {
     try {
       await api.delete(`/pos/checks/${checkId}`);
     } finally {
-      for (const key of [['pos', 'checks'], ['pos', 'check', checkId], ['pos', 'shift-summary']]) {
+      // Отмена чека мероприятия возвращает его в «Запланировано», отмена последнего
+      // счёта участника может завершить миникап — мероприятия тоже перечитываем.
+      for (const key of [['pos', 'checks'], ['pos', 'check', checkId], ['pos', 'shift-summary'], ['events'], ['event']]) {
         void queryClient.invalidateQueries({ queryKey: [host, ...key] });
       }
     }

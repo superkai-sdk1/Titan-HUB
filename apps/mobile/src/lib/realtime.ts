@@ -135,11 +135,17 @@ export function useRealtime() {
         invalidate(['pos', 'checks'], ['pos', 'shift-summary']);
         if (payload?.checkId) invalidate(['pos', 'check', payload.checkId]);
       };
-      updates.addEventListener('check:created', (e) => onCheckChanged(e.data));
+      // Открытие/закрытие/отмена чека может менять статус мероприятия (старт, оплата —
+      // «Завершено», отмена — «Запланировано»): ленту мероприятий перечитываем тоже.
+      const onCheckLifecycle = (data: string | null) => {
+        onCheckChanged(data);
+        invalidate(['events'], ['event']);
+      };
+      updates.addEventListener('check:created', (e) => onCheckLifecycle(e.data));
       updates.addEventListener('check:updated', (e) => onCheckChanged(e.data));
-      updates.addEventListener('check:deleted', (e) => onCheckChanged(e.data));
+      updates.addEventListener('check:deleted', (e) => onCheckLifecycle(e.data));
       updates.addEventListener('check:paid', (e) => onCheckChanged(e.data));
-      updates.addEventListener('check:closed', (e) => onCheckChanged(e.data));
+      updates.addEventListener('check:closed', (e) => onCheckLifecycle(e.data));
       updates.addEventListener('order:resolved', (e) => onCheckChanged(e.data));
       // Владелец поменял помещения или токен Home Assistant — шторка кассы перечитает их.
       updates.addEventListener('smart-home:updated', () => invalidate(['smart-home']));
